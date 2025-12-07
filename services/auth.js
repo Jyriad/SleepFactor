@@ -1,0 +1,265 @@
+// Authentication service wrapper for Supabase
+import { supabase } from './supabase';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+
+// Complete web browser auth session for OAuth
+WebBrowser.maybeCompleteAuthSession();
+
+/**
+ * Sign up a new user
+ */
+export const signUp = async (email, password) => {
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    
+    if (error) {
+      // Convert Supabase errors to user-friendly messages
+      if (error.message.includes('already registered')) {
+        throw new Error('An account with this email already exists');
+      }
+      throw error;
+    }
+    
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error: error.message || 'Failed to create account' };
+  }
+};
+
+/**
+ * Sign in an existing user
+ */
+export const signIn = async (email, password) => {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('Invalid email or password');
+      }
+      throw error;
+    }
+    
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error: error.message || 'Failed to sign in' };
+  }
+};
+
+/**
+ * Sign out the current user
+ */
+export const signOut = async () => {
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    return { error: null };
+  } catch (error) {
+    return { error: error.message || 'Failed to sign out' };
+  }
+};
+
+/**
+ * Get current session
+ */
+export const getSession = async () => {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    return { data, error };
+  } catch (error) {
+    return { data: null, error: error.message };
+  }
+};
+
+/**
+ * Get current user
+ */
+export const getCurrentUser = async () => {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    return { user, error };
+  } catch (error) {
+    return { user: null, error: error.message };
+  }
+};
+
+/**
+ * Listen to auth state changes
+ */
+export const onAuthStateChange = (callback) => {
+  return supabase.auth.onAuthStateChange(callback);
+};
+
+/**
+ * Get redirect URL for OAuth
+ * For Expo, use the hardcoded scheme to avoid localhost issues
+ */
+const getRedirectUrl = () => {
+  // Use hardcoded scheme to avoid Linking.createURL generating localhost URLs
+  // This is the most reliable approach for Expo Go
+  return 'sleepfactor://';
+};
+
+/**
+ * Sign in with Google OAuth
+ */
+export const signInWithGoogle = async () => {
+  try {
+    const redirectUrl = getRedirectUrl();
+    
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: true, // Changed to true - we'll handle browser ourselves
+      },
+    });
+
+    if (error) {
+      // Check for common OAuth configuration errors
+      if (error.message.includes('not enabled') || error.message.includes('disabled')) {
+        throw new Error('Google sign-in is not enabled. Please enable it in your Supabase dashboard under Authentication → Providers.');
+      }
+      throw error;
+    }
+
+    // Check if URL was returned (if not, provider might not be configured)
+    if (!data?.url) {
+      return { 
+        data: null, 
+        error: 'Google sign-in is not properly configured. Please enable it in your Supabase dashboard under Authentication → Providers.' 
+      };
+    }
+
+    // Open the OAuth URL in browser with proper options
+    // Remove the options object - it might be causing issues
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+    
+    if (result.type === 'success') {
+      const url = result.url;
+      if (url) {
+        // The URL should be the redirect URL with code/hash
+        const parsedUrl = Linking.parse(url);
+        
+        // Try query params first
+        let code = parsedUrl.queryParams?.code;
+        
+        // If not in query params, try hash fragment
+        if (!code && url.includes('#')) {
+          const hashMatch = url.match(/[#&]code=([^&]+)/);
+          if (hashMatch) {
+            code = hashMatch[1];
+          }
+        }
+        
+        // Also try to extract from the full URL if it's a redirect
+        if (!code && url.includes('code=')) {
+          const codeMatch = url.match(/code=([^&]+)/);
+          if (codeMatch) {
+            code = decodeURIComponent(codeMatch[1]);
+          }
+        }
+        
+        if (code) {
+          const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
+          if (sessionError) throw sessionError;
+          return { data: sessionData, error: null };
+        }
+      }
+    }
+    
+    if (result.type === 'cancel') {
+      return { data: null, error: 'OAuth flow was cancelled' };
+    }
+    
+    return { data: null, error: 'OAuth flow was cancelled or failed' };
+  } catch (error) {
+    return { data: null, error: error.message || 'Failed to sign in with Google' };
+  }
+};
+
+/**
+ * Sign in with Facebook OAuth
+ */
+export const signInWithFacebook = async () => {
+  try {
+    const redirectUrl = getRedirectUrl();
+    
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'facebook',
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: true, // Changed to true - we'll handle browser ourselves
+      },
+    });
+
+    if (error) {
+      // Check for common OAuth configuration errors
+      if (error.message.includes('not enabled') || error.message.includes('disabled')) {
+        throw new Error('Facebook sign-in is not enabled. Please enable it in your Supabase dashboard under Authentication → Providers.');
+      }
+      throw error;
+    }
+
+    // Check if URL was returned (if not, provider might not be configured)
+    if (!data?.url) {
+      return { 
+        data: null, 
+        error: 'Facebook sign-in is not properly configured. Please enable it in your Supabase dashboard under Authentication → Providers.' 
+      };
+    }
+
+    // Open the OAuth URL in browser with proper options
+    // Remove the options object - it might be causing issues
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+    
+    if (result.type === 'success') {
+      const url = result.url;
+      if (url) {
+        // The URL should be the redirect URL with code/hash
+        const parsedUrl = Linking.parse(url);
+        
+        // Try query params first
+        let code = parsedUrl.queryParams?.code;
+        
+        // If not in query params, try hash fragment
+        if (!code && url.includes('#')) {
+          const hashMatch = url.match(/[#&]code=([^&]+)/);
+          if (hashMatch) {
+            code = hashMatch[1];
+          }
+        }
+        
+        // Also try to extract from the full URL if it's a redirect
+        if (!code && url.includes('code=')) {
+          const codeMatch = url.match(/code=([^&]+)/);
+          if (codeMatch) {
+            code = decodeURIComponent(codeMatch[1]);
+          }
+        }
+        
+        if (code) {
+          const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
+          if (sessionError) throw sessionError;
+          return { data: sessionData, error: null };
+        }
+      }
+    }
+    
+    if (result.type === 'cancel') {
+      return { data: null, error: 'OAuth flow was cancelled' };
+    }
+    
+    return { data: null, error: 'OAuth flow was cancelled or failed' };
+  } catch (error) {
+    return { data: null, error: error.message || 'Failed to sign in with Facebook' };
+  }
+};
+
