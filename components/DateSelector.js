@@ -1,43 +1,23 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { getDatesArray } from '../utils/dateHelpers';
 
-const DateSelector = ({ selectedDate, onDateChange, minDate = null, maxDate = null }) => {
-  const scrollViewRef = useRef(null);
-  const dates = getDatesArray(selectedDate, 7);
-
-  useEffect(() => {
-    // Scroll to selected date
-    if (scrollViewRef.current) {
-      const selectedIndex = dates.findIndex(d => d.date === selectedDate);
-      if (selectedIndex >= 0) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({
-            x: selectedIndex * 70,
-            animated: true,
-          });
-        }, 100);
-      }
-    }
-  }, [selectedDate]);
+const DateSelector = ({ selectedDate, onDateChange, loggedDates = [] }) => {
+  const dates = getDatesArray();
 
   return (
-    <ScrollView
-      ref={scrollViewRef}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.container}
-      style={styles.scrollView}
-    >
+    <View style={styles.container}>
       {dates.map((dateItem) => {
         const isSelected = dateItem.date === selectedDate;
+        const isLogged = loggedDates.includes(dateItem.date);
         return (
           <TouchableOpacity
             key={dateItem.date}
             style={[
               styles.dateButton,
+              isLogged && !isSelected && styles.loggedDateButton,
               isSelected && styles.selectedDateButton,
             ]}
             onPress={() => onDateChange(dateItem.date)}
@@ -58,28 +38,31 @@ const DateSelector = ({ selectedDate, onDateChange, minDate = null, maxDate = nu
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollView: {
-    marginVertical: spacing.md,
-  },
   container: {
-    paddingHorizontal: spacing.regular,
+    flexDirection: 'row',
     paddingVertical: spacing.sm,
+    marginVertical: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   dateButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 50,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.background,
-    marginRight: spacing.sm,
+    marginHorizontal: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  loggedDateButton: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)', // colors.success with 20% opacity
   },
   selectedDateButton: {
     backgroundColor: colors.primary,

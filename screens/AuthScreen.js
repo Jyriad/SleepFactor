@@ -74,6 +74,7 @@ const AuthScreen = () => {
   };
 
   const handleGoogleSignIn = async () => {
+    console.log('TEST: handleGoogleSignIn was called!');
     setError('');
     setOauthLoading(prev => ({ ...prev, google: true }));
     try {
@@ -89,14 +90,16 @@ const AuthScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
             <Text style={styles.title}>SleepFactor</Text>
@@ -146,24 +149,29 @@ const AuthScreen = () => {
 
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your password"
-                  placeholderTextColor={colors.textLight}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoComplete="password"
-                />
-                <TouchableOpacity
-                  style={styles.showPasswordButton}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <Text style={styles.showPasswordText}>
-                    {showPassword ? 'Hide' : 'Show'}
-                  </Text>
-                </TouchableOpacity>
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your password"
+                    placeholderTextColor={colors.textLight}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoComplete="password"
+                  />
+                  <TouchableOpacity
+                    style={styles.showPasswordButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye' : 'eye-off'}
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* Always render confirm password field with fixed height to prevent layout shift */}
@@ -232,8 +240,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 80, // Fixed top padding instead of centering
-    paddingBottom: spacing.regular,
+    paddingBottom: spacing.xl, // Increased bottom padding instead of relying on safe area
     paddingHorizontal: spacing.xl,
+    flexGrow: 1, // Allow content to grow
   },
   content: {
     width: '100%',
@@ -298,12 +307,16 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.sm,
   },
+  passwordInputWrapper: {
+    position: 'relative',
+  },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 8,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
+    paddingRight: 50, // Space for eye icon
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     backgroundColor: colors.background,
@@ -311,13 +324,11 @@ const styles = StyleSheet.create({
   showPasswordButton: {
     position: 'absolute',
     right: spacing.regular,
-    top: 40,
-    padding: spacing.sm,
-  },
-  showPasswordText: {
-    fontSize: typography.sizes.small,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
   },
   errorContainer: {
     minHeight: 20,

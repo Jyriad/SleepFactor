@@ -4,19 +4,23 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
 const HabitToggle = ({ value, onChange }) => {
+  // value can be true, false, or null/undefined (not selected)
+  const isYes = value === true;
+  const isNo = value === false;
+  
   return (
     <View style={styles.container}>
       <TouchableOpacity
         style={[
           styles.button,
-          !value && styles.activeButton,
+          isNo && styles.activeButton,
         ]}
-        onPress={() => onChange(false)}
+        onPress={() => onChange(isNo ? null : false)}
         activeOpacity={0.7}
       >
         <Text style={[
           styles.buttonText,
-          !value && styles.activeText,
+          isNo && styles.activeText,
         ]}>
           No
         </Text>
@@ -24,14 +28,14 @@ const HabitToggle = ({ value, onChange }) => {
       <TouchableOpacity
         style={[
           styles.button,
-          value && styles.activeButton,
+          isYes && styles.activeButton,
         ]}
-        onPress={() => onChange(true)}
+        onPress={() => onChange(isYes ? null : true)}
         activeOpacity={0.7}
       >
         <Text style={[
           styles.buttonText,
-          value && styles.activeText,
+          isYes && styles.activeText,
         ]}>
           Yes
         </Text>

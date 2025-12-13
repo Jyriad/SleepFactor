@@ -8,10 +8,25 @@ const HabitInput = ({ habit, value, onChange, unit }) => {
   const renderInput = () => {
     switch (habit.type) {
       case 'binary':
+        // Convert string values to boolean or null
+        let boolValue = null;
+        if (value === 'yes' || value === true) {
+          boolValue = true;
+        } else if (value === 'no' || value === false) {
+          boolValue = false;
+        }
+        
         return (
           <HabitToggle
-            value={value === 'yes' || value === true}
-            onChange={(boolValue) => onChange(boolValue ? 'yes' : 'no')}
+            value={boolValue}
+            onChange={(newBoolValue) => {
+              // Convert boolean back to string, or empty string for null
+              if (newBoolValue === null) {
+                onChange('');
+              } else {
+                onChange(newBoolValue ? 'yes' : 'no');
+              }
+            }}
           />
         );
       

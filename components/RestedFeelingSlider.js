@@ -4,7 +4,10 @@ import Slider from '@react-native-community/slider';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
-const RestedFeelingSlider = ({ value = 5, onChange }) => {
+const RestedFeelingSlider = ({ value = null, onChange }) => {
+  // Use 5 as the display value when null, but track if it was actually set
+  const displayValue = value === null ? 5 : value;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -16,11 +19,11 @@ const RestedFeelingSlider = ({ value = 5, onChange }) => {
         minimumValue={0}
         maximumValue={10}
         step={1}
-        value={value}
+        value={displayValue}
         onValueChange={onChange}
-        minimumTrackTintColor={colors.primary}
+        minimumTrackTintColor={value === null ? colors.border : colors.primary}
         maximumTrackTintColor={colors.border}
-        thumbTintColor={colors.primary}
+        thumbTintColor={value === null ? colors.border : colors.primary}
       />
       <View style={styles.labels}>
         <Text style={styles.label}>Not at all</Text>

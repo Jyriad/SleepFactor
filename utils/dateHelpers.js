@@ -66,14 +66,16 @@ export const isSameDay = (date1, date2) => {
 /**
  * Get array of dates for date selector
  * Returns array of { date: string, dayName: string, dayNumber: number }
+ * Always returns 5 dates: today + 4 days before (today is always the last item)
  */
-export const getDatesArray = (startDate = null, days = 7) => {
-  const start = startDate ? new Date(startDate) : new Date();
+export const getDatesArray = () => {
+  const today = new Date();
   const dates = [];
   
-  for (let i = -3; i < days - 3; i++) {
-    const date = new Date(start);
-    date.setDate(start.getDate() + i);
+  // Get 4 days before today, then today (5 dates total)
+  for (let i = -4; i <= 0; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
     
     const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
     const dayNumber = date.getDate();
@@ -98,5 +100,69 @@ export const formatDateSelector = (date) => {
   const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
   const dayNumber = d.getDate();
   return { dayName, dayNumber };
+};
+
+/**
+ * Get yesterday's date as YYYY-MM-DD string
+ */
+export const getYesterday = () => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return formatDateForDB(yesterday);
+};
+
+/**
+ * Format date for homepage title display
+ * Returns "Today", "Yesterday", or "Mon 15 Jan" format
+ */
+export const formatDateTitle = (date) => {
+  const dateStr = typeof date === 'string' ? date : formatDateForDB(date);
+  const today = getToday();
+  const yesterday = getYesterday();
+
+  if (dateStr === today) {
+    return 'Today';
+  } else if (dateStr === yesterday) {
+    return 'Yesterday';
+  } else {
+    const d = new Date(dateStr);
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+    const dayNumber = d.getDate();
+    const monthName = d.toLocaleDateString('en-US', { month: 'short' });
+    return `${dayName} ${dayNumber} ${monthName}`;
+  }
+};
+
+/**
+ * Format time ago from a date
+ * Returns human-readable time ago string (e.g., "2 hours ago", "just now")
+ */
+export const formatTimeAgo = (date) => {
+  if (!date) return '';
+
+  const now = new Date();
+  const past = new Date(date);
+  const diffMs = now.getTime() - past.getTime();
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMinutes < 1) {
+    return 'just now';
+  } else if (diffMinutes < 60) {
+    return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  } else if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  } else if (diffDays < 7) {
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  } else {
+    // For older dates, show the actual date
+    return past.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }
 };
 
