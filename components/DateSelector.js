@@ -4,7 +4,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { getDatesArray } from '../utils/dateHelpers';
 
-const DateSelector = ({ selectedDate, onDateChange, loggedDates = [] }) => {
+const DateSelector = ({ selectedDate, onDateChange, loggedDates = [], datesWithUnsavedChanges = [] }) => {
   const dates = getDatesArray();
 
   return (
@@ -12,12 +12,14 @@ const DateSelector = ({ selectedDate, onDateChange, loggedDates = [] }) => {
       {dates.map((dateItem) => {
         const isSelected = dateItem.date === selectedDate;
         const isLogged = loggedDates.includes(dateItem.date);
+        const hasUnsavedChanges = datesWithUnsavedChanges.includes(dateItem.date);
         return (
           <TouchableOpacity
             key={dateItem.date}
             style={[
               styles.dateButton,
               isLogged && !isSelected && styles.loggedDateButton,
+              hasUnsavedChanges && !isSelected && !isLogged && styles.unsavedDateButton,
               isSelected && styles.selectedDateButton,
             ]}
             onPress={() => onDateChange(dateItem.date)}
@@ -46,6 +48,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     paddingVertical: spacing.sm,
+    marginHorizontal: spacing.regular,
     marginVertical: spacing.sm,
     justifyContent: 'center',
     alignItems: 'center',
@@ -63,6 +66,9 @@ const styles = StyleSheet.create({
   },
   loggedDateButton: {
     backgroundColor: 'rgba(16, 185, 129, 0.2)', // colors.success with 20% opacity
+  },
+  unsavedDateButton: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)', // amber/orange color for unsaved changes
   },
   selectedDateButton: {
     backgroundColor: colors.primary,
