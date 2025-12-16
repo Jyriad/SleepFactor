@@ -23,6 +23,7 @@ import HabitSummaryCard from '../components/HabitSummaryCard';
 import DatePickerModal from '../components/DatePickerModal';
 import NavigationCard from '../components/NavigationCard';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
+import SleepTimeline from '../components/SleepTimeline';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -366,6 +367,9 @@ const HomeScreen = () => {
                 </View>
               </View>
 
+              {/* Sleep Timeline Visualization */}
+              <SleepTimeline sleepData={sleepData} />
+
               <View style={styles.sleepMetrics}>
                 <View style={styles.metricRow}>
                   <Text style={styles.metricLabel}>Total Sleep</Text>
@@ -645,7 +649,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
   },
   sleepMetrics: {
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   metricRow: {
     flexDirection: 'row',
