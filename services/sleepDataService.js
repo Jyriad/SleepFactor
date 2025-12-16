@@ -41,9 +41,14 @@ class SleepDataService {
         awakenings_count: sleepData.awakenings_count || 0,
         sleep_score: sleepData.sleep_score,
         source: sleepData.source,
-        sleep_stages: sleepData.sleep_stages || null, // JSONB array of stage intervals
         updated_at: new Date().toISOString(),
       };
+
+      // Only include sleep_stages if it's provided and not null
+      // This allows the code to work before the migration is run
+      if (sleepData.sleep_stages !== undefined && sleepData.sleep_stages !== null) {
+        record.sleep_stages = sleepData.sleep_stages;
+      }
 
       const { data, error } = await supabase
         .from(this.tableName)
