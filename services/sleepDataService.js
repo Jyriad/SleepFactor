@@ -66,7 +66,7 @@ class SleepDataService {
         }
       }
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from(this.tableName)
         .upsert(record, {
           onConflict: 'user_id,date',
@@ -74,6 +74,28 @@ class SleepDataService {
         })
         .select()
         .single();
+
+      // If error is about unknown column (sleep_stages doesn't exist yet), retry without it
+      if (error && (
+        error.message?.includes('column') && error.message?.includes('does not exist') ||
+        error.message?.includes('sleep_stages') ||
+        error.code === '42703' // PostgreSQL undefined_column error code
+      )) {
+        console.warn('⚠️ sleep_stages column not found, retrying without it');
+        // Remove sleep_stages and retry
+        const { sleep_stages, ...recordWithoutStages } = record;
+        const retryResult = await supabase
+          .from(this.tableName)
+          .upsert(recordWithoutStages, {
+            onConflict: 'user_id,date',
+            ignoreDuplicates: false
+          })
+          .select()
+          .single();
+        
+        data = retryResult.data;
+        error = retryResult.error;
+      }
 
       if (error) {
         throw error;
