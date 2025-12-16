@@ -46,8 +46,24 @@ class SleepDataService {
 
       // Only include sleep_stages if it's provided and not null
       // This allows the code to work before the migration is run
-      if (sleepData.sleep_stages !== undefined && sleepData.sleep_stages !== null) {
-        record.sleep_stages = sleepData.sleep_stages;
+      // Also ensure it's a valid array before including it
+      if (sleepData.sleep_stages !== undefined && 
+          sleepData.sleep_stages !== null && 
+          Array.isArray(sleepData.sleep_stages) &&
+          sleepData.sleep_stages.length > 0) {
+        // Validate and clean the sleep_stages data
+        const validStages = sleepData.sleep_stages
+          .filter(stage => stage && stage.stage && stage.startTime && stage.endTime)
+          .map(stage => ({
+            stage: stage.stage.trim(), // Remove any whitespace
+            startTime: stage.startTime,
+            endTime: stage.endTime,
+            durationMinutes: stage.durationMinutes || 0,
+          }));
+        
+        if (validStages.length > 0) {
+          record.sleep_stages = validStages;
+        }
       }
 
       const { data, error } = await supabase

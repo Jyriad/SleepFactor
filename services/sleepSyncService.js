@@ -116,7 +116,11 @@ class SleepSyncService {
           }
         } catch (error) {
           console.error('❌ Error processing sleep record:', error);
-          console.error('❌ Record data:', transformedData);
+          console.error('❌ Error message:', error.message);
+          console.error('❌ Error code:', error.code);
+          console.error('❌ Error details:', error.details);
+          console.error('❌ Error hint:', error.hint);
+          console.error('❌ Record data:', JSON.stringify(transformedData, null, 2));
           errors.push({ record: transformedData, error: error.message });
         }
       }
