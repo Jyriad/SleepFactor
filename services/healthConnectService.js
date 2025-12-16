@@ -441,7 +441,7 @@ class HealthConnectService {
           // Add to intervals array if we have a valid stage type
           if (stageType) {
             sleepStages.push({
-              stage: stageType,
+              stage: stageType.trim(), // Ensure no whitespace
               startTime: stage.startTime,
               endTime: stage.endTime,
               durationMinutes: stageDurationMinutes,
