@@ -1,5 +1,5 @@
 // Authentication context for global auth state management
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSession, onAuthStateChange } from '../services/auth';
 import { supabase } from '../services/supabase';
@@ -46,6 +46,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -65,6 +66,7 @@ export const AuthProvider = ({ children }) => {
 
           if (!error && data?.session && isMounted) {
             // Session restored successfully - set state immediately
+            initializedRef.current = true;
             setSession(data.session);
             setUser(data.session.user);
             setLoading(false);
@@ -80,6 +82,7 @@ export const AuthProvider = ({ children }) => {
         const { data } = await getSession();
         if (data?.session && isMounted) {
           // Session found - set state immediately
+          initializedRef.current = true;
           setSession(data.session);
           setUser(data.session.user);
           setLoading(false);
@@ -88,11 +91,13 @@ export const AuthProvider = ({ children }) => {
 
         // No session found - set loading to false to show auth screen
         if (isMounted) {
+          initializedRef.current = true;
           setLoading(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
         if (isMounted) {
+          initializedRef.current = true;
           setLoading(false);
         }
       }
@@ -106,7 +111,11 @@ export const AuthProvider = ({ children }) => {
 
       setSession(session);
       setUser(session?.user ?? null);
-      setLoading(false);
+      
+      // Only update loading if we've already initialized
+      if (initializedRef.current) {
+        setLoading(false);
+      }
 
       // Save or remove session from storage based on auth state
       await saveSessionToStorage(session);

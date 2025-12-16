@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
@@ -30,6 +31,7 @@ const HomeScreen = () => {
   const [habitsLogged, setHabitsLogged] = useState(false);
   const [todaysHabitsLogged, setTodaysHabitsLogged] = useState(false);
   const [loggedDates, setLoggedDates] = useState([]);
+  const [datesWithUnsavedChanges, setDatesWithUnsavedChanges] = useState([]);
   const [habitCount, setHabitCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
@@ -137,12 +139,35 @@ const HomeScreen = () => {
 
       if (error) throw error;
 
-      // Get unique dates that have logs
+      // Get unique dates that have submitted logs
       const loggedDateSet = new Set(data?.map(log => log.date) || []);
       setLoggedDates(Array.from(loggedDateSet));
+
+      // Check for dates with unsaved changes in AsyncStorage
+      const unsavedDates = [];
+      for (const dateItem of dates) {
+        try {
+          const storageKey = `habitLogs_${user.id}_${dateItem.date}`;
+          const storedData = await AsyncStorage.getItem(storageKey);
+          if (storedData) {
+            const storedLogs = JSON.parse(storedData);
+            // Check if there are any non-empty values
+            const hasUnsavedChanges = Object.values(storedLogs).some(value =>
+              value !== null && value !== undefined && value !== ''
+            );
+            if (hasUnsavedChanges) {
+              unsavedDates.push(dateItem.date);
+            }
+          }
+        } catch (error) {
+          console.error(`Error checking unsaved changes for ${dateItem.date}:`, error);
+        }
+      }
+      setDatesWithUnsavedChanges(unsavedDates);
     } catch (error) {
       console.error('Error fetching logged dates:', error);
       setLoggedDates([]);
+      setDatesWithUnsavedChanges([]);
     }
   };
 
@@ -259,6 +284,7 @@ const HomeScreen = () => {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           loggedDates={loggedDates}
+          datesWithUnsavedChanges={datesWithUnsavedChanges}
         />
 
         {/* Today's Habits Reminder - Always show if not logged */}
@@ -279,8 +305,8 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Habit Summary Card */}
-        {!loading && (
+        {/* Habit Summary Card - Hide if viewing today and habits aren't logged (to avoid duplicate message) */}
+        {!loading && !(isToday(selectedDate) && !todaysHabitsLogged) && (
           <HabitSummaryCard
             date={selectedDate}
             habitCount={habitCount}
