@@ -41,6 +41,7 @@ class SleepDataService {
         awakenings_count: sleepData.awakenings_count || 0,
         sleep_score: sleepData.sleep_score,
         source: sleepData.source,
+        sleep_stages: sleepData.sleep_stages || null, // JSONB array of stage intervals
         updated_at: new Date().toISOString(),
       };
 

@@ -386,15 +386,21 @@ class HealthConnectService {
       const totalDurationMs = endDate.getTime() - startTime.getTime();
       const totalSleepMinutes = Math.round(totalDurationMs / (1000 * 60));
 
-      // Process sleep stages
+      // Process sleep stages and build intervals array
       let deepSleepMinutes = 0;
       let lightSleepMinutes = 0;
       let remSleepMinutes = 0;
       let awakeMinutes = 0;
       let awakeningsCount = 0;
+      const sleepStages = []; // Array to store stage intervals
 
       if (rawData.stages && Array.isArray(rawData.stages)) {
-        rawData.stages.forEach(stage => {
+        // Sort stages by start time to ensure chronological order
+        const sortedStages = [...rawData.stages].sort((a, b) => {
+          return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+        });
+
+        sortedStages.forEach(stage => {
           if (!stage.startTime || !stage.endTime) return;
 
           const stageStart = new Date(stage.startTime);
@@ -402,22 +408,44 @@ class HealthConnectService {
           const stageDurationMs = stageEnd.getTime() - stageStart.getTime();
           const stageDurationMinutes = Math.round(stageDurationMs / (1000 * 60));
 
+          let stageType = null;
+
           // Health Connect sleep stages:
           // 1: Awake, 2: Sleep (general), 3: Out of bed, 4: Light, 5: Deep, 6: REM
           switch (stage.stage) {
             case 5: // Deep sleep
               deepSleepMinutes += stageDurationMinutes;
+              stageType = 'deep';
               break;
             case 4: // Light sleep
               lightSleepMinutes += stageDurationMinutes;
+              stageType = 'light';
               break;
             case 6: // REM sleep
               remSleepMinutes += stageDurationMinutes;
+              stageType = 'rem';
               break;
             case 1: // Awake
               awakeMinutes += stageDurationMinutes;
               awakeningsCount += 1; // Count each awake period as an awakening
+              stageType = 'awake';
               break;
+            case 2: // General sleep - treat as light sleep if no other classification
+              if (stageType === null) {
+                lightSleepMinutes += stageDurationMinutes;
+                stageType = 'light';
+              }
+              break;
+          }
+
+          // Add to intervals array if we have a valid stage type
+          if (stageType) {
+            sleepStages.push({
+              stage: stageType,
+              startTime: stage.startTime,
+              endTime: stage.endTime,
+              durationMinutes: stageDurationMinutes,
+            });
           }
         });
       }
@@ -436,6 +464,7 @@ class HealthConnectService {
         awakenings_count: awakeningsCount,
         sleep_score: sleepScore,
         source: 'health_connect',
+        sleep_stages: sleepStages.length > 0 ? sleepStages : null, // Include stage intervals
       };
     } catch (error) {
       console.error('Health Connect data transformation failed:', error);
