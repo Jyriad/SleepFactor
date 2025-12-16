@@ -48,6 +48,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isInitialized = false;
+
     // Initialize auth state
     const initializeAuth = async () => {
       try {
@@ -62,10 +64,7 @@ export const AuthProvider = ({ children }) => {
           });
 
           if (!error && data?.session) {
-            // Session restored successfully
-            setSession(data.session);
-            setUser(data.session.user);
-            setLoading(false);
+            // Session restored successfully - let onAuthStateChange handle the state update
             return;
           }
           // If restoration failed, clear stored session
@@ -75,15 +74,21 @@ export const AuthProvider = ({ children }) => {
         // Fallback to getting current session from Supabase
         const { data } = await getSession();
         if (data?.session) {
-          setSession(data.session);
-          setUser(data.session.user);
-          // Save the session for future use
-          await saveSessionToStorage(data.session);
+          // Session found - let onAuthStateChange handle the state update
+          return;
+        }
+
+        // No session found - set loading to false to show auth screen
+        if (!isInitialized) {
+          isInitialized = true;
+          setLoading(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
-      } finally {
-        setLoading(false);
+        if (!isInitialized) {
+          isInitialized = true;
+          setLoading(false);
+        }
       }
     };
 
@@ -91,6 +96,10 @@ export const AuthProvider = ({ children }) => {
 
     // Listen to auth state changes
     const { data: { subscription } } = onAuthStateChange(async (_event, session) => {
+      if (!isInitialized) {
+        isInitialized = true;
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
