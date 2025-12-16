@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let isInitialized = false;
+    let isMounted = true;
 
     // Initialize auth state
     const initializeAuth = async () => {
@@ -63,30 +63,36 @@ export const AuthProvider = ({ children }) => {
             refresh_token: storedSession.refresh_token,
           });
 
-          if (!error && data?.session) {
-            // Session restored successfully - let onAuthStateChange handle the state update
+          if (!error && data?.session && isMounted) {
+            // Session restored successfully - set state immediately
+            setSession(data.session);
+            setUser(data.session.user);
+            setLoading(false);
             return;
           }
           // If restoration failed, clear stored session
-          await saveSessionToStorage(null);
+          if (isMounted) {
+            await saveSessionToStorage(null);
+          }
         }
 
         // Fallback to getting current session from Supabase
         const { data } = await getSession();
-        if (data?.session) {
-          // Session found - let onAuthStateChange handle the state update
+        if (data?.session && isMounted) {
+          // Session found - set state immediately
+          setSession(data.session);
+          setUser(data.session.user);
+          setLoading(false);
           return;
         }
 
         // No session found - set loading to false to show auth screen
-        if (!isInitialized) {
-          isInitialized = true;
+        if (isMounted) {
           setLoading(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
-        if (!isInitialized) {
-          isInitialized = true;
+        if (isMounted) {
           setLoading(false);
         }
       }
@@ -94,11 +100,9 @@ export const AuthProvider = ({ children }) => {
 
     initializeAuth();
 
-    // Listen to auth state changes
+    // Listen to auth state changes (for future changes after initial load)
     const { data: { subscription } } = onAuthStateChange(async (_event, session) => {
-      if (!isInitialized) {
-        isInitialized = true;
-      }
+      if (!isMounted) return;
 
       setSession(session);
       setUser(session?.user ?? null);
@@ -109,6 +113,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);

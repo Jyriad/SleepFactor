@@ -48,13 +48,13 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     paddingVertical: spacing.sm,
-    marginHorizontal: spacing.regular,
+    paddingHorizontal: spacing.regular,
     marginVertical: spacing.sm,
     justifyContent: 'center',
     alignItems: 'center',
   },
   dateButton: {
-    width: 70,
+    width: 60,
     height: 50,
     borderRadius: 12,
     justifyContent: 'center',
