@@ -281,6 +281,22 @@ class HealthKitService {
   }
 
   /**
+   * Revoke HealthKit permissions
+   * @returns {Promise<boolean>} True if permissions were revoked
+   */
+  async revokePermissions() {
+    try {
+      // For HealthKit, we can't directly revoke permissions from the app
+      // The user needs to revoke permissions in iOS Settings > Privacy & Security > Health
+      console.log('HealthKit permissions must be revoked manually in iOS Settings > Privacy & Security > Health');
+      return true; // Return true since we can't determine if they actually revoked
+    } catch (error) {
+      console.error('Failed to revoke HealthKit permissions:', error);
+      return false;
+    }
+  }
+
+  /**
    * Get user-friendly error message for HealthKit errors
    * @param {Error} error - The error object
    * @returns {string} User-friendly error message

@@ -126,13 +126,15 @@ class SleepDataService {
         .select('*')
         .eq('user_id', user.id)
         .eq('date', date)
-        .single();
+        .order('updated_at', { ascending: false }) // Get most recent first
+        .limit(1); // Take only the most recent record
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+      if (error) {
         throw error;
       }
 
-      return data || null;
+      // Return the first (most recent) record, or null if no records
+      return data && data.length > 0 ? data[0] : null;
     } catch (error) {
       console.error('Failed to get sleep data for date:', error);
       throw error;
@@ -199,6 +201,68 @@ class SleepDataService {
       return data;
     } catch (error) {
       console.error('Failed to delete sleep data for date:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete all sleep data for the current user
+   * @returns {Promise<number>} Number of records deleted
+   */
+  async deleteAllSleepData() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const { data, error } = await supabase
+        .from(this.tableName)
+        .delete()
+        .eq('user_id', user.id)
+        .select('id', { count: 'exact' });
+
+      if (error) {
+        throw error;
+      }
+
+      const deletedCount = data?.length || 0;
+      console.log(`Deleted ${deletedCount} sleep data records`);
+      return deletedCount;
+    } catch (error) {
+      console.error('Failed to delete all sleep data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete all habit logs for the current user
+   * @returns {Promise<number>} Number of records deleted
+   */
+  async deleteAllHabitLogs() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const { data, error } = await supabase
+        .from('habit_logs')
+        .delete()
+        .eq('user_id', user.id)
+        .select('id', { count: 'exact' });
+
+      if (error) {
+        throw error;
+      }
+
+      const deletedCount = data?.length || 0;
+      console.log(`Deleted ${deletedCount} habit log records`);
+      return deletedCount;
+    } catch (error) {
+      console.error('Failed to delete all habit logs:', error);
       throw error;
     }
   }

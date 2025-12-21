@@ -25,5 +25,13 @@ export const colors = {
   // Navigation
   tabActive: '#1E3A8A',
   tabInactive: '#6B7280',
+
+  // Sleep stage colors (matching the timeline visualization)
+  sleepStages: {
+    deep: '#1E3A8A',      // Dark blue for deep sleep
+    light: '#60A5FA',     // Light blue for light sleep
+    rem: '#A78BFA',       // Purple for REM sleep
+    awake: '#FBBF24',     // Amber for awake periods
+  },
 };
 

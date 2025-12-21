@@ -27,6 +27,31 @@ class SleepSyncService {
   }
 
   /**
+   * Get existing sleep data dates for the current user
+   * @param {string} startDate - Start date in YYYY-MM-DD format
+   * @param {string} endDate - End date in YYYY-MM-DD format
+   * @returns {Promise<Set<string>>} Set of dates that already have sleep data
+   */
+  async getExistingSleepDates(startDate, endDate) {
+    try {
+      const data = await sleepDataService.getSleepDataForRange(startDate, endDate);
+
+      // Ensure data is an array before mapping
+      if (!Array.isArray(data)) {
+        console.warn('Expected array from getSleepDataForRange, got:', typeof data, 'value:', data);
+        return new Set();
+      }
+
+      // Return set of dates that already have data
+      return new Set(data.map(record => record.date));
+    } catch (error) {
+      // This can happen when user is not authenticated or during app startup
+      console.warn('Failed to get existing sleep dates (likely auth issue):', error.message);
+      return new Set();
+    }
+  }
+
+  /**
    * Sync sleep data from health platform to Supabase
    * @param {Object} options - Sync options
    * @param {number} options.daysBack - Number of days back to sync (default: 7)
@@ -70,6 +95,10 @@ class SleepSyncService {
 
       console.log(`Syncing sleep data from ${startDateString} to ${endDateString}`);
 
+      // Check which dates already have sleep data to avoid unnecessary syncing
+      const existingDates = await this.getExistingSleepDates(startDateString, endDateString);
+      console.log(`Found ${existingDates.size} existing sleep data records`);
+
       // Fetch sleep data from health platform
       const rawSleepData = await healthService.syncSleepData({
         startDate: startDateString,
@@ -87,12 +116,34 @@ class SleepSyncService {
 
       console.log(`Fetched ${rawSleepData.length} sleep records from health platform`);
 
+      // Filter out records for dates that already exist (unless forcing)
+      let recordsToProcess = rawSleepData;
+      if (!force && existingDates.size > 0) {
+        const originalCount = rawSleepData.length;
+        recordsToProcess = rawSleepData.filter(record => !existingDates.has(record.date));
+        const filteredCount = originalCount - recordsToProcess.length;
+        if (filteredCount > 0) {
+          console.log(`Filtered out ${filteredCount} records for dates that already have sleep data`);
+        }
+      }
+
+      if (recordsToProcess.length === 0) {
+        console.log('All fetched records already exist in database');
+        return {
+          success: true,
+          data: [],
+          message: 'All sleep data already synced'
+        };
+      }
+
+      console.log(`Processing ${recordsToProcess.length} new sleep records`);
+
       // Data is already transformed by healthService.syncSleepData()
       // Just ensure source is set and save to database
       const savedRecords = [];
       const errors = [];
 
-      for (const transformedData of rawSleepData) {
+      for (const transformedData of recordsToProcess) {
         try {
           // Data is already transformed by healthService.syncSleepData()
           // Just ensure source identifier is set
@@ -185,6 +236,34 @@ class SleepSyncService {
     } catch (error) {
       console.error('Permission request failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Disconnect from health data source and revoke permissions
+   * @returns {Promise<Object>} Result with success status
+   */
+  async disconnect() {
+    try {
+      console.log('🔌 Disconnecting from health data source...');
+
+      // Revoke permissions from the health platform
+      const revoked = await healthService.revokePermissions();
+
+      if (revoked) {
+        // Clear any stored sync timestamps or cached data
+        this.lastSyncTimestamp = null;
+        this.isInitialized = false;
+
+        console.log('✅ Successfully disconnected from health data source');
+        return { success: true };
+      } else {
+        console.warn('⚠️ Permission revocation may not have completed fully');
+        return { success: false, error: 'Permission revocation incomplete' };
+      }
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
+      return { success: false, error: error.message || 'Failed to disconnect' };
     }
   }
 

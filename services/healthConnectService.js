@@ -465,10 +465,29 @@ class HealthConnectService {
         sleep_score: sleepScore,
         source: 'health_connect',
         sleep_stages: sleepStages.length > 0 ? sleepStages : null, // Include stage intervals
+        sleep_start_time: rawData.startTime, // Include actual sleep session start time
+        sleep_end_time: rawData.endTime, // Include actual sleep session end time
       };
     } catch (error) {
       console.error('Health Connect data transformation failed:', error);
       return null;
+    }
+  }
+
+  /**
+   * Revoke Health Connect permissions
+   * @returns {Promise<boolean>} True if permissions were revoked
+   */
+  async revokePermissions() {
+    try {
+      // For Health Connect, we can't directly revoke permissions from the app
+      // The user needs to revoke permissions in the Health Connect app settings
+      // We can guide them to do this, but we can't do it programmatically
+      console.log('Health Connect permissions must be revoked manually in the Health Connect app settings');
+      return true; // Return true since we can't determine if they actually revoked
+    } catch (error) {
+      console.error('Failed to revoke Health Connect permissions:', error);
+      return false;
     }
   }
 

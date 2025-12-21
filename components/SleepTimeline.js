@@ -4,14 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
-// Sleep stage colors
-const SLEEP_COLORS = {
-  deep: '#1E3A8A',      // Dark blue for deep sleep
-  light: '#60A5FA',     // Light blue for light sleep
-  rem: '#A78BFA',       // Purple for REM sleep
-  awake: '#FBBF24',     // Amber for awake periods
-};
-
 const SleepTimeline = ({ sleepData }) => {
   if (!sleepData) return null;
 
@@ -67,18 +59,29 @@ const SleepTimeline = ({ sleepData }) => {
         rem_sleep_minutes = 0,
         awake_minutes = 0,
         total_sleep_minutes = 0,
+        sleep_start_time, // Try to use actual sleep session start time
+        sleep_end_time,   // Try to use actual sleep session end time
       } = sleepData;
 
       const totalTime = total_sleep_minutes + awake_minutes;
       if (totalTime === 0) return null;
 
-      // Estimate start time (we don't have exact data)
-      const estimatedStart = new Date();
-      estimatedStart.setHours(22, 0, 0, 0);
-      estimatedStart.setDate(estimatedStart.getDate() - 1); // Assume sleep started yesterday evening
+      let sleepStart, sleepEnd;
 
-      const estimatedEnd = new Date(estimatedStart);
-      estimatedEnd.setMinutes(estimatedEnd.getMinutes() + totalTime);
+      // Use actual sleep session times if available
+      if (sleep_start_time && sleep_end_time) {
+        sleepStart = new Date(sleep_start_time);
+        sleepEnd = new Date(sleep_end_time);
+      } else {
+        // Estimate start time when we don't have exact data
+        // Calculate backwards from the sleep date to estimate when sleep might have started
+        const sleepDate = new Date(sleepData.date);
+        sleepEnd = new Date(sleepDate);
+        sleepEnd.setHours(8, 0, 0, 0); // Assume wake up at 8 AM
+
+        sleepStart = new Date(sleepEnd);
+        sleepStart.setMinutes(sleepStart.getMinutes() - totalTime); // Subtract total sleep time
+      }
 
       // Build segments from aggregated data
       const segments = [];
@@ -129,8 +132,8 @@ const SleepTimeline = ({ sleepData }) => {
 
       return {
         segments,
-        sleepStart: estimatedStart,
-        sleepEnd: estimatedEnd,
+        sleepStart,
+        sleepEnd,
         totalDurationMinutes: totalTime,
       };
     }
@@ -169,7 +172,7 @@ const SleepTimeline = ({ sleepData }) => {
                     position: 'absolute',
                     left: `${segment.startPercent}%`,
                     width: `${segment.widthPercent}%`,
-                    backgroundColor: SLEEP_COLORS[segment.type],
+                    backgroundColor: colors.sleepStages[segment.type],
                     borderTopLeftRadius: isFirst && segment.startPercent === 0 ? 20 : 0,
                     borderBottomLeftRadius: isFirst && segment.startPercent === 0 ? 20 : 0,
                     borderTopRightRadius: isLast ? 20 : 0,
@@ -192,30 +195,6 @@ const SleepTimeline = ({ sleepData }) => {
         <Text style={styles.timeLabel}>{endTime}</Text>
       </View>
 
-      {/* Legend - Show unique stages */}
-      <View style={styles.legend}>
-        {uniqueStages.map((stageType) => {
-          const totalMinutes = segments
-            .filter(s => s.type === stageType)
-            .reduce((sum, s) => sum + s.durationMinutes, 0);
-          
-          return (
-            <View key={`legend-${stageType}`} style={styles.legendItem}>
-              <View
-                style={[
-                  styles.legendColor,
-                  { backgroundColor: SLEEP_COLORS[stageType] },
-                ]}
-              />
-              <Text style={styles.legendText}>
-                {stageType === 'deep' ? 'Deep' :
-                 stageType === 'light' ? 'Light' :
-                 stageType === 'rem' ? 'REM' : 'Awake'}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
     </View>
   );
 };
@@ -255,26 +234,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
-  },
-  legend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: spacing.xs,
-  },
-  legendText: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
   },
 });
 

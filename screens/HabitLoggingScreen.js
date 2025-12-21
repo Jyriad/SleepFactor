@@ -39,6 +39,7 @@ const HabitLoggingScreen = () => {
   const [pinnedHabits, setPinnedHabits] = useState([]);
   const [unpinnedHabits, setUnpinnedHabits] = useState([]);
   const [showOtherHabits, setShowOtherHabits] = useState(false);
+  const [consumptionEvents, setConsumptionEvents] = useState({}); // habit_id -> array of events
 
   useEffect(() => {
     loadHabitsAndLogs();
@@ -68,10 +69,133 @@ const HabitLoggingScreen = () => {
         .order('is_pinned', { ascending: false })
         .order('priority', { ascending: true });
 
+      // Habits are loaded directly from database - always available habits should already exist
+      let finalHabitsData = habitsData || [];
+
+      console.log('Loaded habits:', finalHabitsData.map(h => ({ id: h.id, name: h.name, type: h.type, unit: h.unit, consumption_types: h.consumption_types })));
+
+      // Ensure always available habits exist
+      const alwaysAvailableHabits = [
+        { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
+        { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
+      ];
+
+      // Handle habits that might have wrong names (e.g., "Alcoholic Units" should be "Alcohol")
+      const habitNameMappings = {
+        'Alcoholic Units': 'Alcohol',
+        'Caffeine Units': 'Caffeine',
+      };
+
+      // Default habits to create for new users
+      const defaultHabits = [
+        { name: 'Exercise', type: 'binary', unit: null },
+        { name: 'Reading', type: 'binary', unit: null },
+        { name: 'Sleep Quality', type: 'numeric', unit: 'hours' },
+      ];
+
+      for (const alwaysAvailableHabit of alwaysAvailableHabits) {
+        let existingHabit = finalHabitsData.find(h => h.name === alwaysAvailableHabit.name);
+
+        // Check for habits with wrong names that should be updated
+        if (!existingHabit) {
+          const wrongName = Object.keys(habitNameMappings).find(wrong => habitNameMappings[wrong] === alwaysAvailableHabit.name);
+          if (wrongName) {
+            existingHabit = finalHabitsData.find(h => h.name === wrongName);
+            if (existingHabit) {
+              // Update the habit with the correct name and properties
+              try {
+                const { data: updatedHabit, error } = await supabase
+                  .from('habits')
+                  .update({
+                    name: alwaysAvailableHabit.name,
+                    type: alwaysAvailableHabit.type,
+                    unit: alwaysAvailableHabit.unit,
+                    consumption_types: alwaysAvailableHabit.consumption_types,
+                    half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
+                    drug_threshold_percent: 5,
+                  })
+                  .eq('id', existingHabit.id)
+                  .select()
+                  .single();
+
+                if (error) throw error;
+                if (updatedHabit) {
+                  // Update in the local array
+                  const index = finalHabitsData.findIndex(h => h.id === existingHabit.id);
+                  if (index !== -1) {
+                    finalHabitsData[index] = updatedHabit;
+                  }
+                  existingHabit = updatedHabit;
+                }
+              } catch (error) {
+                console.error(`Failed to update habit ${wrongName} to ${alwaysAvailableHabit.name}`, error);
+              }
+            }
+          }
+        }
+
+        if (!existingHabit) {
+          try {
+            const { data: newHabit, error } = await supabase
+              .from('habits')
+              .insert({
+                user_id: user.id,
+                name: alwaysAvailableHabit.name,
+                type: alwaysAvailableHabit.type,
+                unit: alwaysAvailableHabit.unit,
+                consumption_types: alwaysAvailableHabit.consumption_types,
+                is_active: true,
+                is_pinned: false,
+                priority: 0,
+                half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
+                drug_threshold_percent: 5,
+              })
+              .select()
+              .single();
+
+            if (error) throw error;
+            if (newHabit) {
+              finalHabitsData.push(newHabit);
+            }
+          } catch (error) {
+            console.error(`Failed to create always available habit: ${alwaysAvailableHabit.name}`, error);
+          }
+        }
+      }
+
+      // Create default habits for new users if they don't exist
+      for (const defaultHabit of defaultHabits) {
+        const existingHabit = finalHabitsData.find(h => h.name === defaultHabit.name);
+        if (!existingHabit) {
+          try {
+            const { data: newHabit, error } = await supabase
+              .from('habits')
+              .insert({
+                user_id: user.id,
+                name: defaultHabit.name,
+                type: defaultHabit.type,
+                unit: defaultHabit.unit,
+                is_active: true,
+                is_pinned: false,
+                priority: 0,
+              })
+              .select()
+              .single();
+
+            if (error) throw error;
+            if (newHabit) {
+              finalHabitsData.push(newHabit);
+            }
+          } catch (error) {
+            console.error(`Failed to create default habit: ${defaultHabit.name}`, error);
+          }
+        }
+      }
+
       if (habitsError) throw habitsError;
-      
+
       // Normalize boolean values to ensure they're actual booleans
-      const normalizedHabits = (habitsData || []).map(habit => ({
+      const normalizedHabits = finalHabitsData.map(habit => ({
         ...habit,
         is_custom: habit.is_custom === true || habit.is_custom === 'true',
         is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
@@ -94,6 +218,36 @@ const HabitLoggingScreen = () => {
         .eq('date', selectedDate);
 
       if (logsError) throw logsError;
+
+      // Load consumption events for drug and quick_consumption habits
+      const consumptionHabits = normalizedHabits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
+      const consumptionEventsMap = {};
+
+      if (consumptionHabits.length > 0) {
+        const habitIds = consumptionHabits.map(h => h.id);
+        const startOfDay = new Date(selectedDate + 'T00:00:00');
+        const endOfDay = new Date(selectedDate + 'T23:59:59');
+
+        const { data: eventsData, error: eventsError } = await supabase
+          .from('habit_consumption_events')
+          .select('*')
+          .eq('user_id', user.id)
+          .in('habit_id', habitIds)
+          .gte('consumed_at', startOfDay.toISOString())
+          .lte('consumed_at', endOfDay.toISOString());
+
+        if (eventsError) throw eventsError;
+
+        // Group events by habit_id
+        eventsData?.forEach(event => {
+          if (!consumptionEventsMap[event.habit_id]) {
+            consumptionEventsMap[event.habit_id] = [];
+          }
+          consumptionEventsMap[event.habit_id].push(event);
+        });
+      }
+
+      setConsumptionEvents(consumptionEventsMap);
 
       // Convert logs array to map by habit_id
       const logsMap = {};
@@ -161,10 +315,20 @@ const HabitLoggingScreen = () => {
 
 
   const handleHabitChange = (habitId, value) => {
-    setHabitLogs(prev => ({
-      ...prev,
-      [habitId]: value,
-    }));
+    const habit = habits.find(h => h.id === habitId);
+    if (habit?.type === 'drug' || habit?.type === 'quick_consumption') {
+      // For drug/quick_consumption habits, value is an array of consumption events
+      setConsumptionEvents(prev => ({
+        ...prev,
+        [habitId]: value || [],
+      }));
+    } else {
+      // For other habit types, value is a single value
+      setHabitLogs(prev => ({
+        ...prev,
+        [habitId]: value,
+      }));
+    }
   };
 
   const handleSubmit = async () => {
@@ -172,18 +336,82 @@ const HabitLoggingScreen = () => {
 
     setSaving(true);
     try {
-      // Prepare logs for upsert
-      const logsToUpsert = habits.map(habit => {
-        const value = habitLogs[habit.id] || '';
-        
-        return {
-          user_id: user.id,
-          habit_id: habit.id,
-          date: selectedDate,
-          value: String(value),
-          numeric_value: habit.type === 'numeric' && value ? parseFloat(value) : null,
-        };
-      }).filter(log => log.value !== ''); // Only save non-empty logs
+      const logsToUpsert = [];
+      const consumptionEventsToUpsert = [];
+
+      // Process each habit
+      habits.forEach(habit => {
+        if (habit.type === 'drug' || habit.type === 'quick_consumption') {
+          // For drug habits, handle consumption events
+          const events = consumptionEvents[habit.id] || [];
+          if (events.length > 0) {
+            // Add events to upsert array
+            events.forEach(event => {
+              consumptionEventsToUpsert.push({
+                user_id: user.id,
+                habit_id: habit.id,
+                consumed_at: event.consumed_at,
+                amount: event.amount,
+                drink_type: event.drink_type || null,
+              });
+            });
+
+            // Also create a summary entry in habit_logs
+            const totalAmount = events.reduce((sum, event) => sum + event.amount, 0);
+            logsToUpsert.push({
+              user_id: user.id,
+              habit_id: habit.id,
+              date: selectedDate,
+              value: `${events.length} consumption${events.length > 1 ? 's' : ''}, ${totalAmount} total`,
+              numeric_value: totalAmount,
+            });
+          }
+        } else {
+          // For non-drug habits, use existing logic
+          const value = habitLogs[habit.id] || '';
+          if (value !== '') {
+            logsToUpsert.push({
+              user_id: user.id,
+              habit_id: habit.id,
+              date: selectedDate,
+              value: String(value),
+              numeric_value: habit.type === 'numeric' && value ? parseFloat(value) : null,
+            });
+          }
+        }
+      });
+
+      // Save habit logs
+      if (logsToUpsert.length > 0) {
+        const { error: logsUpsertError } = await supabase
+          .from('habit_logs')
+          .upsert(logsToUpsert, {
+            onConflict: 'user_id,habit_id,date',
+          });
+
+        if (logsUpsertError) throw logsUpsertError;
+      }
+
+      // Save consumption events for drug habits
+      if (consumptionEventsToUpsert.length > 0) {
+        // First, delete existing events for this date range to avoid duplicates
+        const startOfDay = new Date(selectedDate + 'T00:00:00');
+        const endOfDay = new Date(selectedDate + 'T23:59:59');
+
+        await supabase
+          .from('habit_consumption_events')
+          .delete()
+          .eq('user_id', user.id)
+          .gte('consumed_at', startOfDay.toISOString())
+          .lte('consumed_at', endOfDay.toISOString());
+
+        // Insert new events
+        const { error: eventsUpsertError } = await supabase
+          .from('habit_consumption_events')
+          .insert(consumptionEventsToUpsert);
+
+        if (eventsUpsertError) throw eventsUpsertError;
+      }
 
       if (logsToUpsert.length === 0) {
         Alert.alert('No Habits', 'Please log at least one habit');
@@ -283,9 +511,9 @@ const HabitLoggingScreen = () => {
             <Text style={styles.loadingText}>Loading habits...</Text>
           ) : pinnedHabits.length === 0 && unpinnedHabits.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No habits</Text>
+              <Text style={styles.emptyText}>Loading habits...</Text>
               <Text style={styles.emptySubtext}>
-                Go to Habits tab to add habits you want to track
+                If habits don't appear, go to Habits tab to add some to track
               </Text>
             </View>
           ) : (
@@ -302,11 +530,12 @@ const HabitLoggingScreen = () => {
                   <View style={styles.habitInput}>
                     <HabitInput
                       habit={habit}
-                      value={habitLogs[habit.id] || ''}
+                      value={(habit.type === 'drug' || habit.type === 'quick_consumption') ? (consumptionEvents[habit.id] || []) : (habitLogs[habit.id] || '')}
                       onChange={(value) => handleHabitChange(habit.id, value)}
                       unit={habit.unit}
                     />
                   </View>
+
                 </View>
               ))}
 
@@ -338,11 +567,12 @@ const HabitLoggingScreen = () => {
                       <View style={styles.habitInput}>
                         <HabitInput
                           habit={habit}
-                          value={habitLogs[habit.id] || ''}
+                          value={(habit.type === 'drug' || habit.type === 'quick_consumption') ? (consumptionEvents[habit.id] || []) : (habitLogs[habit.id] || '')}
                           onChange={(value) => handleHabitChange(habit.id, value)}
                           unit={habit.unit}
                         />
                       </View>
+
                     </View>
                   ))}
                 </>

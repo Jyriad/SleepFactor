@@ -109,6 +109,24 @@ class HealthService {
   }
 
   /**
+   * Revoke health data permissions
+   * @returns {Promise<boolean>} True if permissions were revoked
+   */
+  async revokePermissions() {
+    try {
+      if (this.platform === 'android' && healthConnectService) {
+        return await healthConnectService.revokePermissions();
+      } else if (this.platform === 'ios' && healthKitService) {
+        return await healthKitService.revokePermissions();
+      }
+      return false;
+    } catch (error) {
+      console.error('Permission revocation failed:', error);
+      return false;
+    }
+  }
+
+  /**
    * Sync sleep data for a date range
    * @param {Object} options - Options object
    * @param {string} options.startDate - Start date in YYYY-MM-DD format

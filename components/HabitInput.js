@@ -3,6 +3,8 @@ import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import HabitToggle from './HabitToggle';
+import DrugHabitInput from './DrugHabitInput';
+import QuickConsumptionInput from './QuickConsumptionInput';
 
 const HabitInput = ({ habit, value, onChange, unit }) => {
   const renderInput = () => {
@@ -72,7 +74,27 @@ const HabitInput = ({ habit, value, onChange, unit }) => {
             multiline
           />
         );
-      
+
+      case 'drug':
+        return (
+          <DrugHabitInput
+            habit={habit}
+            value={value}
+            onChange={onChange}
+            unit={unit}
+          />
+        );
+
+      case 'quick_consumption':
+        return (
+          <QuickConsumptionInput
+            habit={habit}
+            value={value}
+            onChange={onChange}
+            unit={unit}
+          />
+        );
+
       default:
         return null;
     }
