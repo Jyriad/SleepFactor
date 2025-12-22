@@ -73,13 +73,15 @@ const HabitLoggingScreen = () => {
       // Clean up wrong habits and ensure correct ones exist
       finalHabits = await cleanupAndEnsureHabits(finalHabits);
 
-      // Normalize habits
-      const normalizedHabits = finalHabits.map(habit => ({
-        ...habit,
-        is_custom: habit.is_custom === true || habit.is_custom === 'true',
-        is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
-        priority: habit.priority || 0,
-      }));
+      // Normalize habits and filter out deprecated ones as a safety measure
+      const normalizedHabits = finalHabits
+        .filter(habit => habit.name !== 'Coffee') // Filter out old Coffee habit
+        .map(habit => ({
+          ...habit,
+          is_custom: habit.is_custom === true || habit.is_custom === 'true',
+          is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
+          priority: habit.priority || 0,
+        }));
 
       setHabits(normalizedHabits);
 
@@ -174,10 +176,11 @@ const HabitLoggingScreen = () => {
       { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
     ];
 
-    const wrongHabitNames = ['Alcoholic units', 'Alcoholic Units', 'Caffeine Units'];
+    // Old/deprecated habits to remove (replaced by Caffeine/Alcohol)
+    const wrongHabitNames = ['Alcoholic units', 'Alcoholic Units', 'Caffeine Units', 'Coffee'];
     let cleanedHabits = [...existingHabits];
 
-    // Remove wrong habits
+    // Remove wrong/deprecated habits
     for (const wrongName of wrongHabitNames) {
       const wrongHabit = cleanedHabits.find(h => h.name === wrongName);
       if (wrongHabit) {
