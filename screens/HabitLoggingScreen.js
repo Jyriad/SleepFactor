@@ -88,6 +88,10 @@ const HabitLoggingScreen = () => {
         'Caffeine Units': 'Caffeine',
       };
 
+      console.log('Checking for wrong-named habits...');
+      console.log('Available mappings:', habitNameMappings);
+      console.log('Habits to check:', finalHabitsData.map(h => ({ name: h.name, id: h.id })));
+
       // Default habits to create for new users
       const defaultHabits = [
         { name: 'Exercise', type: 'binary', unit: null },
@@ -101,7 +105,13 @@ const HabitLoggingScreen = () => {
         // Check for habits with wrong names that should be updated
         if (!existingHabit) {
           // Look for habits with names that should be updated
-          const wrongNamedHabit = finalHabitsData.find(h => habitNameMappings[h.name]);
+          console.log(`Looking for wrong-named habit for "${alwaysAvailableHabit.name}"...`);
+          const wrongNamedHabit = finalHabitsData.find(h => {
+            const shouldUpdate = habitNameMappings[h.name];
+            console.log(`Checking habit "${h.name}": shouldUpdate = ${!!shouldUpdate}`);
+            return shouldUpdate;
+          });
+          console.log('Found wrongNamedHabit:', wrongNamedHabit);
           if (wrongNamedHabit) {
             console.log(`Found habit with wrong name "${wrongNamedHabit.name}", updating to "${habitNameMappings[wrongNamedHabit.name]}"`);
             // Update the habit with the correct name and properties
