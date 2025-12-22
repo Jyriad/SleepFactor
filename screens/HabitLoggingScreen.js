@@ -82,6 +82,7 @@ const HabitLoggingScreen = () => {
 
       // Handle habits that might have wrong names (e.g., "Alcoholic Units" should be "Alcohol")
       const habitNameMappings = {
+        'Alcoholic units': 'Alcohol',
         'Alcoholic Units': 'Alcohol',
         'Caffeine Units': 'Caffeine',
       };

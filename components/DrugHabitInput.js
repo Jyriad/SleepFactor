@@ -17,7 +17,7 @@ import { DRUG_PRESETS, getPresetsForHabit } from '../constants/drugPresets';
 import Button from './Button';
 
 const DrugHabitInput = ({ habit, value, onChange, unit }) => {
-  const [consumptionEvents, setConsumptionEvents] = useState([]);
+  const consumptionEvents = value || []; // Use value prop directly as controlled component
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [newEventTime, setNewEventTime] = useState(new Date());
@@ -30,20 +30,6 @@ const DrugHabitInput = ({ habit, value, onChange, unit }) => {
 
   // Get drink presets for this habit
   const drinkPresets = getPresetsForHabit(habit.name);
-
-  useEffect(() => {
-    // Parse value (array of consumption events) and set local state
-    if (value && Array.isArray(value)) {
-      setConsumptionEvents(value);
-    } else {
-      setConsumptionEvents([]);
-    }
-  }, [value]);
-
-  useEffect(() => {
-    // Notify parent of changes
-    onChange(consumptionEvents);
-  }, [consumptionEvents, onChange]);
 
   const addConsumptionEvent = () => {
     const amount = parseFloat(newEventAmount);
@@ -59,16 +45,14 @@ const DrugHabitInput = ({ habit, value, onChange, unit }) => {
       drink_type: newEventDrinkType || null,
     };
 
-    setConsumptionEvents(prev => [...prev, newEvent]);
+    onChange([...consumptionEvents, newEvent]);
     resetNewEventForm();
   };
 
   const updateConsumptionEvent = (eventId, updates) => {
-    setConsumptionEvents(prev =>
-      prev.map(event =>
-        event.id === eventId ? { ...event, ...updates } : event
-      )
-    );
+    onChange(consumptionEvents.map(event =>
+      event.id === eventId ? { ...event, ...updates } : event
+    ));
   };
 
   const deleteConsumptionEvent = (eventId) => {
@@ -81,7 +65,7 @@ const DrugHabitInput = ({ habit, value, onChange, unit }) => {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            setConsumptionEvents(prev => prev.filter(event => event.id !== eventId));
+            onChange(consumptionEvents.filter(event => event.id !== eventId));
           },
         },
       ]
