@@ -99,40 +99,46 @@ const HabitLoggingScreen = () => {
 
         // Check for habits with wrong names that should be updated
         if (!existingHabit) {
-          const wrongName = Object.keys(habitNameMappings).find(wrong => habitNameMappings[wrong] === alwaysAvailableHabit.name);
-          if (wrongName) {
-            existingHabit = finalHabitsData.find(h => h.name === wrongName);
-            if (existingHabit) {
-              console.log(`Found habit with wrong name "${wrongName}", updating to "${alwaysAvailableHabit.name}"`);
-              // Update the habit with the correct name and properties
-              try {
-                const { data: updatedHabit, error } = await supabase
-                  .from('habits')
-                  .update({
-                    name: alwaysAvailableHabit.name,
-                    type: alwaysAvailableHabit.type,
-                    unit: alwaysAvailableHabit.unit,
-                    consumption_types: alwaysAvailableHabit.consumption_types,
-                    half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
-                    drug_threshold_percent: 5,
-                  })
-                  .eq('id', existingHabit.id)
-                  .select()
-                  .single();
+          // Look for habits with names that should be updated
+          const wrongNamedHabit = finalHabitsData.find(h => habitNameMappings[h.name]);
+          if (wrongNamedHabit) {
+            console.log(`Found habit with wrong name "${wrongNamedHabit.name}", updating to "${habitNameMappings[wrongNamedHabit.name]}"`);
+            // Update the habit with the correct name and properties
+            try {
+              const { data: updatedHabit, error } = await supabase
+                .from('habits')
+                .update({
+                  name: habitNameMappings[wrongNamedHabit.name],
+                  type: alwaysAvailableHabit.type,
+                  unit: alwaysAvailableHabit.unit,
+                  consumption_types: alwaysAvailableHabit.consumption_types,
+                  half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
+                  drug_threshold_percent: 5,
+                })
+                .eq('id', wrongNamedHabit.id)
+                .select()
+                .single();
 
-                if (error) throw error;
-                if (updatedHabit) {
-                  console.log(`Successfully updated habit:`, updatedHabit);
-                  // Update in the local array
-                  const index = finalHabitsData.findIndex(h => h.id === existingHabit.id);
-                  if (index !== -1) {
-                    finalHabitsData[index] = updatedHabit;
-                  }
-                  existingHabit = updatedHabit;
+              if (error) throw error;
+              if (updatedHabit) {
+                console.log(`Successfully updated habit:`, updatedHabit);
+                // Update in the local array
+                const index = finalHabitsData.findIndex(h => h.id === wrongNamedHabit.id);
+                if (index !== -1) {
+                  finalHabitsData[index] = updatedHabit;
                 }
-              } catch (error) {
-                console.error(`Failed to update habit ${wrongName} to ${alwaysAvailableHabit.name}`, error);
+                existingHabit = updatedHabit;
+
+                // Check if there's now a duplicate with the correct name and remove the old one
+                const duplicateHabits = finalHabitsData.filter(h => h.name === habitNameMappings[wrongNamedHabit.name]);
+                if (duplicateHabits.length > 1) {
+                  console.log(`Found ${duplicateHabits.length} habits with name "${habitNameMappings[wrongNamedHabit.name]}", keeping the updated one`);
+                  // Remove the old habit from the array (keep the updated one)
+                  finalHabitsData = finalHabitsData.filter(h => h.id !== wrongNamedHabit.id || h === updatedHabit);
+                }
               }
+            } catch (error) {
+              console.error(`Failed to update habit ${wrongNamedHabit.name} to ${habitNameMappings[wrongNamedHabit.name]}`, error);
             }
           }
         }
