@@ -37,6 +37,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const hourScrollRef = useRef(null);
   const minuteScrollRef = useRef(null);
+  const hourScrollPosition = useRef(10);
+  const minuteScrollPosition = useRef(0);
 
   const resetTimeForm = () => {
     setTempHour(12);
@@ -66,7 +68,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
     const y = event.nativeEvent.contentOffset.y;
     const hour = Math.round(y / 50);
     if (hour >= 0 && hour <= 23) {
+      hourScrollPosition.current = hour;
+    }
+  };
+
+  const handleHourScrollEnd = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const hour = Math.round(y / 50);
+    if (hour >= 0 && hour <= 23) {
       setTempHour(hour);
+      hourScrollPosition.current = hour;
     }
   };
 
@@ -74,7 +85,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
     const y = event.nativeEvent.contentOffset.y;
     const minute = Math.round(y / 50);
     if (minute >= 0 && minute <= 59) {
+      minuteScrollPosition.current = minute;
+    }
+  };
+
+  const handleMinuteScrollEnd = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const minute = Math.round(y / 50);
+    if (minute >= 0 && minute <= 59) {
       setTempMinute(minute);
+      minuteScrollPosition.current = minute;
     }
   };
 
@@ -211,20 +231,24 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
                     contentContainerStyle={styles.pickerContent}
                     showsVerticalScrollIndicator={false}
                     snapToInterval={50}
-                    decelerationRate="fast"
-                    onMomentumScrollEnd={handleHourScroll}
-                    onScrollEndDrag={handleHourScroll}
+                    decelerationRate="normal"
+                    onScroll={handleHourScroll}
+                    onMomentumScrollEnd={handleHourScrollEnd}
+                    onScrollEndDrag={handleHourScrollEnd}
                   >
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <View key={i} style={styles.pickerItem}>
-                        <Text style={[
-                          styles.pickerItemText,
-                          tempHour === i && styles.pickerItemTextSelected
-                        ]}>
-                          {i.toString().padStart(2, '0')}
-                        </Text>
-                      </View>
-                    ))}
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const isSelected = tempHour === i;
+                      return (
+                        <View key={i} style={styles.pickerItem}>
+                          <Text style={[
+                            styles.pickerItemText,
+                            isSelected && styles.pickerItemTextSelected
+                          ]}>
+                            {i.toString().padStart(2, '0')}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </ScrollView>
                 </View>
               </View>
@@ -240,9 +264,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
                     contentContainerStyle={styles.pickerContent}
                     showsVerticalScrollIndicator={false}
                     snapToInterval={50}
-                    decelerationRate="fast"
-                    onMomentumScrollEnd={handleMinuteScroll}
-                    onScrollEndDrag={handleMinuteScroll}
+                    decelerationRate="normal"
+                    onScroll={handleMinuteScroll}
+                    onMomentumScrollEnd={handleMinuteScrollEnd}
+                    onScrollEndDrag={handleMinuteScrollEnd}
                   >
                     {Array.from({ length: 60 }, (_, i) => (
                       <View key={i} style={styles.pickerItem}>
