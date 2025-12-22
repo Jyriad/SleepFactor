@@ -36,10 +36,7 @@ const HabitLoggingScreen = () => {
   const [saving, setSaving] = useState(false);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
   const [habitLogCounts, setHabitLogCounts] = useState({});
-  const [pinnedHabits, setPinnedHabits] = useState([]);
-  const [unpinnedHabits, setUnpinnedHabits] = useState([]);
-  const [showOtherHabits, setShowOtherHabits] = useState(true); // Show other habits by default
-  const [consumptionEvents, setConsumptionEvents] = useState({}); // habit_id -> array of events
+  const [consumptionEvents, setConsumptionEvents] = useState({});
 
   useEffect(() => {
     loadHabitsAndLogs();
@@ -51,7 +48,7 @@ const HabitLoggingScreen = () => {
       if (Object.keys(habitLogs).length > 0) {
         saveHabitLogsToStorage();
       }
-    }, 300); // Debounce by 300ms to avoid too frequent saves
+    }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [habitLogs, selectedDate]);
@@ -61,7 +58,7 @@ const HabitLoggingScreen = () => {
 
     setLoading(true);
     try {
-      // Load all habits (no is_active filter - habits are persistent)
+      // Load all habits
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
@@ -69,155 +66,22 @@ const HabitLoggingScreen = () => {
         .order('is_pinned', { ascending: false })
         .order('priority', { ascending: true });
 
-      // Habits are loaded directly from database - always available habits should already exist
-      let finalHabitsData = habitsData || [];
-
-
-      // Ensure always available habits exist
-      const alwaysAvailableHabits = [
-        { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
-        { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
-      ];
-
-      // Handle habits that might have wrong names (e.g., "Alcoholic Units" should be "Alcohol")
-      const habitNameMappings = {
-        'Alcoholic units': 'Alcohol',
-        'Alcoholic Units': 'Alcohol',
-        'Caffeine Units': 'Caffeine',
-      };
-
-      // Default habits to create for new users
-      const defaultHabits = [
-        { name: 'Exercise', type: 'binary', unit: null },
-        { name: 'Reading', type: 'binary', unit: null },
-        { name: 'Sleep Quality', type: 'numeric', unit: 'hours' },
-      ];
-
-      for (const alwaysAvailableHabit of alwaysAvailableHabits) {
-        let existingHabit = finalHabitsData.find(h => h.name === alwaysAvailableHabit.name);
-
-        // Check for habits with wrong names that should be deleted (we'll recreate the correct one)
-        if (!existingHabit) {
-          // Look for habits with names that should be updated
-          const wrongNamedHabit = finalHabitsData.find(h => habitNameMappings[h.name]);
-
-          if (wrongNamedHabit) {
-            try {
-              // Delete the wrong habit
-              const { error: deleteError } = await supabase
-                .from('habits')
-                .delete()
-                .eq('id', wrongNamedHabit.id);
-
-              if (deleteError) throw deleteError;
-
-              // Remove from local array
-              finalHabitsData = finalHabitsData.filter(h => h.id !== wrongNamedHabit.id);
-
-              // Now create the correct habit
-              const { data: newHabit, error: insertError } = await supabase
-                .from('habits')
-                .insert({
-                  user_id: user.id,
-                  name: alwaysAvailableHabit.name,
-                  type: alwaysAvailableHabit.type,
-                  unit: alwaysAvailableHabit.unit,
-                  consumption_types: alwaysAvailableHabit.consumption_types,
-                  is_active: true,
-                  is_pinned: false,
-                  priority: 0,
-                  half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
-                  drug_threshold_percent: 5,
-                })
-                .select()
-                .single();
-
-              if (insertError) throw insertError;
-              if (newHabit) {
-                finalHabitsData.push(newHabit);
-                existingHabit = newHabit;
-              }
-            } catch (error) {
-              console.error(`Failed to replace habit ${wrongNamedHabit?.name}`, error);
-            }
-          }
-        }
-
-        if (!existingHabit) {
-          try {
-            const { data: newHabit, error } = await supabase
-              .from('habits')
-              .insert({
-                user_id: user.id,
-                name: alwaysAvailableHabit.name,
-                type: alwaysAvailableHabit.type,
-                unit: alwaysAvailableHabit.unit,
-                consumption_types: alwaysAvailableHabit.consumption_types,
-                is_active: true,
-                is_pinned: false,
-                priority: 0,
-                half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
-                drug_threshold_percent: 5,
-              })
-              .select()
-              .single();
-
-            if (error) throw error;
-            if (newHabit) {
-              finalHabitsData.push(newHabit);
-            }
-          } catch (error) {
-            console.error(`Failed to create always available habit: ${alwaysAvailableHabit.name}`, error);
-          }
-        }
-      }
-
-      // Create default habits for new users if they don't exist
-      for (const defaultHabit of defaultHabits) {
-        const existingHabit = finalHabitsData.find(h => h.name === defaultHabit.name);
-        if (!existingHabit) {
-          try {
-            const { data: newHabit, error } = await supabase
-              .from('habits')
-              .insert({
-                user_id: user.id,
-                name: defaultHabit.name,
-                type: defaultHabit.type,
-                unit: defaultHabit.unit,
-                is_active: true,
-                is_pinned: false,
-                priority: 0,
-              })
-              .select()
-              .single();
-
-            if (error) throw error;
-            if (newHabit) {
-              finalHabitsData.push(newHabit);
-            }
-          } catch (error) {
-            console.error(`Failed to create default habit: ${defaultHabit.name}`, error);
-          }
-        }
-      }
-
       if (habitsError) throw habitsError;
 
-      // Normalize boolean values to ensure they're actual booleans
-      const normalizedHabits = finalHabitsData.map(habit => ({
+      let finalHabits = habitsData || [];
+
+      // Clean up wrong habits and ensure correct ones exist
+      finalHabits = await cleanupAndEnsureHabits(finalHabits);
+
+      // Normalize habits
+      const normalizedHabits = finalHabits.map(habit => ({
         ...habit,
         is_custom: habit.is_custom === true || habit.is_custom === 'true',
         is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
         priority: habit.priority || 0,
       }));
-      
-      // Separate into pinned and unpinned
-      const pinned = normalizedHabits.filter(h => h.is_pinned);
-      const unpinned = normalizedHabits.filter(h => !h.is_pinned);
-      
-      setPinnedHabits(pinned);
-      setUnpinnedHabits(unpinned);
-      setHabits(normalizedHabits); // Keep for log counts calculation
+
+      setHabits(normalizedHabits);
 
       // Load existing logs for selected date
       const { data: logsData, error: logsError } = await supabase
@@ -243,75 +107,158 @@ const HabitLoggingScreen = () => {
           .eq('user_id', user.id)
           .in('habit_id', habitIds)
           .gte('consumed_at', startOfDay.toISOString())
-          .lte('consumed_at', endOfDay.toISOString());
+          .lte('consumed_at', endOfDay.toISOString())
+          .order('consumed_at', { ascending: true });
 
         if (eventsError) throw eventsError;
 
         // Group events by habit_id
-        eventsData?.forEach(event => {
-          if (!consumptionEventsMap[event.habit_id]) {
-            consumptionEventsMap[event.habit_id] = [];
-          }
-          consumptionEventsMap[event.habit_id].push(event);
-        });
+        if (eventsData) {
+          eventsData.forEach(event => {
+            if (!consumptionEventsMap[event.habit_id]) {
+              consumptionEventsMap[event.habit_id] = [];
+            }
+            consumptionEventsMap[event.habit_id].push(event);
+          });
+        }
       }
 
       setConsumptionEvents(consumptionEventsMap);
 
-      // Convert logs array to map by habit_id
+      // Build habit logs map
       const logsMap = {};
-      logsData?.forEach(log => {
-        logsMap[log.habit_id] = log.value;
-      });
-      
-      // Merge with stored unsaved changes (database takes precedence)
-      if (user) {
-        try {
-          const storageKey = `habitLogs_${user.id}_${selectedDate}`;
-          const storedData = await AsyncStorage.getItem(storageKey);
-          if (storedData) {
-            const storedLogs = JSON.parse(storedData);
-            // Only use stored values for habits that don't have database values
-            Object.keys(storedLogs).forEach(habitId => {
-              if (!logsMap[habitId] && storedLogs[habitId]) {
-                logsMap[habitId] = storedLogs[habitId];
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error loading stored habit logs:', error);
-        }
+      if (logsData) {
+        logsData.forEach(log => {
+          logsMap[log.habit_id] = log.value;
+        });
       }
 
       setHabitLogs(logsMap);
 
-      // Get log counts for each habit
-      if (normalizedHabits.length > 0) {
-        const habitIds = normalizedHabits.map(h => h.id);
-        const { data: countData, error: countError } = await supabase
-          .from('habit_logs')
-          .select('habit_id')
-          .eq('user_id', user.id)
-          .in('habit_id', habitIds)
-          .neq('value', ''); // Only count non-empty logs
+      // Load log counts for each habit
+      const { data: countsData, error: countsError } = await supabase
+        .from('habit_logs')
+        .select('habit_id')
+        .eq('user_id', user.id);
 
-        if (!countError && countData) {
-          const counts = {};
-          countData.forEach(item => {
-            counts[item.habit_id] = (counts[item.habit_id] || 0) + 1;
-          });
-          setHabitLogCounts(counts);
-        }
+      if (!countsError && countsData) {
+        const counts = {};
+        countsData.forEach(log => {
+          counts[log.habit_id] = (counts[log.habit_id] || 0) + 1;
+        });
+        setHabitLogCounts(counts);
+      }
+
+      // Load rested feeling
+      const { data: sleepData } = await supabase
+        .from('sleep_data')
+        .select('rested_feeling')
+        .eq('user_id', user.id)
+        .eq('date', selectedDate)
+        .single();
+
+      if (sleepData?.rested_feeling !== null && sleepData?.rested_feeling !== undefined) {
+        setRestedFeeling(sleepData.rested_feeling);
       }
     } catch (error) {
       console.error('Error loading habits and logs:', error);
-      Alert.alert('Error', 'Failed to load habits');
+      Alert.alert('Error', 'Failed to load habits. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Save habitLogs to AsyncStorage
+  const cleanupAndEnsureHabits = async (existingHabits) => {
+    const alwaysAvailableHabits = [
+      { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
+      { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
+    ];
+
+    const wrongHabitNames = ['Alcoholic units', 'Alcoholic Units', 'Caffeine Units'];
+    let cleanedHabits = [...existingHabits];
+
+    // Remove wrong habits
+    for (const wrongName of wrongHabitNames) {
+      const wrongHabit = cleanedHabits.find(h => h.name === wrongName);
+      if (wrongHabit) {
+        try {
+          await supabase.from('habits').delete().eq('id', wrongHabit.id);
+          cleanedHabits = cleanedHabits.filter(h => h.id !== wrongHabit.id);
+        } catch (error) {
+          console.error(`Error deleting wrong habit ${wrongName}:`, error);
+        }
+      }
+    }
+
+    // Ensure always available habits exist with correct properties
+    for (const requiredHabit of alwaysAvailableHabits) {
+      let habit = cleanedHabits.find(h => h.name === requiredHabit.name);
+      
+      if (!habit) {
+        // Create if doesn't exist
+        try {
+          const { data: newHabit, error } = await supabase
+            .from('habits')
+            .insert({
+              user_id: user.id,
+              name: requiredHabit.name,
+              type: requiredHabit.type,
+              unit: requiredHabit.unit,
+              consumption_types: requiredHabit.consumption_types,
+              is_active: true,
+              is_pinned: false,
+              priority: 0,
+              half_life_hours: requiredHabit.name === 'Caffeine' ? 5 : null,
+              drug_threshold_percent: 5,
+            })
+            .select()
+            .single();
+
+          if (!error && newHabit) {
+            cleanedHabits.push(newHabit);
+            habit = newHabit;
+          }
+        } catch (error) {
+          console.error(`Error creating habit ${requiredHabit.name}:`, error);
+        }
+      } else {
+        // Update if exists but properties are wrong
+        const needsUpdate = 
+          habit.type !== requiredHabit.type ||
+          habit.unit !== requiredHabit.unit ||
+          JSON.stringify(habit.consumption_types) !== JSON.stringify(requiredHabit.consumption_types);
+
+        if (needsUpdate) {
+          try {
+            const { data: updatedHabit, error } = await supabase
+              .from('habits')
+              .update({
+                type: requiredHabit.type,
+                unit: requiredHabit.unit,
+                consumption_types: requiredHabit.consumption_types,
+                half_life_hours: requiredHabit.name === 'Caffeine' ? 5 : null,
+                drug_threshold_percent: 5,
+              })
+              .eq('id', habit.id)
+              .select()
+              .single();
+
+            if (!error && updatedHabit) {
+              const index = cleanedHabits.findIndex(h => h.id === habit.id);
+              if (index !== -1) {
+                cleanedHabits[index] = updatedHabit;
+              }
+            }
+          } catch (error) {
+            console.error(`Error updating habit ${requiredHabit.name}:`, error);
+          }
+        }
+      }
+    }
+
+    return cleanedHabits;
+  };
+
   const saveHabitLogsToStorage = async () => {
     if (!user) return;
     try {
@@ -322,17 +269,18 @@ const HabitLoggingScreen = () => {
     }
   };
 
-
   const handleHabitChange = (habitId, value) => {
     const habit = habits.find(h => h.id === habitId);
-    if (habit?.type === 'drug' || habit?.type === 'quick_consumption') {
-      // For drug/quick_consumption habits, value is an array of consumption events
+    if (!habit) return;
+
+    if (habit.type === 'drug' || habit.type === 'quick_consumption') {
+      // Handle consumption events
       setConsumptionEvents(prev => ({
         ...prev,
         [habitId]: value || [],
       }));
     } else {
-      // For other habit types, value is a single value
+      // Handle regular habit logs
       setHabitLogs(prev => ({
         ...prev,
         [habitId]: value,
@@ -345,65 +293,45 @@ const HabitLoggingScreen = () => {
 
     setSaving(true);
     try {
-      const logsToUpsert = [];
-      const consumptionEventsToUpsert = [];
+      // Save regular habit logs
+      const habitLogEntries = Object.entries(habitLogs)
+        .filter(([habitId, value]) => value !== '' && value !== null && value !== undefined)
+        .map(([habitId, value]) => ({
+          user_id: user.id,
+          habit_id: habitId,
+          date: selectedDate,
+          value: String(value),
+        }));
 
-      // Process each habit
-      habits.forEach(habit => {
-        if (habit.type === 'drug' || habit.type === 'quick_consumption') {
-          // For drug habits, handle consumption events
-          const events = consumptionEvents[habit.id] || [];
-          if (events.length > 0) {
-            // Add events to upsert array
-            events.forEach(event => {
-              consumptionEventsToUpsert.push({
-                user_id: user.id,
-                habit_id: habit.id,
-                consumed_at: event.consumed_at,
-                amount: event.amount,
-                drink_type: event.drink_type || null,
-              });
-            });
-
-            // Also create a summary entry in habit_logs
-            const totalAmount = events.reduce((sum, event) => sum + event.amount, 0);
-            logsToUpsert.push({
-              user_id: user.id,
-              habit_id: habit.id,
-              date: selectedDate,
-              value: `${events.length} consumption${events.length > 1 ? 's' : ''}, ${totalAmount} total`,
-              numeric_value: totalAmount,
-            });
-          }
-        } else {
-          // For non-drug habits, use existing logic
-          const value = habitLogs[habit.id] || '';
-          if (value !== '') {
-            logsToUpsert.push({
-              user_id: user.id,
-              habit_id: habit.id,
-              date: selectedDate,
-              value: String(value),
-              numeric_value: habit.type === 'numeric' && value ? parseFloat(value) : null,
-            });
-          }
-        }
-      });
-
-      // Save habit logs
-      if (logsToUpsert.length > 0) {
-        const { error: logsUpsertError } = await supabase
+      if (habitLogEntries.length > 0) {
+        const { error: logsError } = await supabase
           .from('habit_logs')
-          .upsert(logsToUpsert, {
+          .upsert(habitLogEntries, {
             onConflict: 'user_id,habit_id,date',
           });
 
-        if (logsUpsertError) throw logsUpsertError;
+        if (logsError) throw logsError;
       }
 
-      // Save consumption events for drug habits
-      if (consumptionEventsToUpsert.length > 0) {
-        // First, delete existing events for this date range to avoid duplicates
+      // Save consumption events
+      const consumptionEventEntries = [];
+      Object.entries(consumptionEvents).forEach(([habitId, events]) => {
+        if (events && Array.isArray(events) && events.length > 0) {
+          events.forEach(event => {
+            consumptionEventEntries.push({
+              user_id: user.id,
+              habit_id: habitId,
+              consumed_at: event.consumed_at,
+              amount: event.amount,
+              drink_type: event.drink_type || null,
+            });
+          });
+        }
+      });
+
+      if (consumptionEventEntries.length > 0) {
+        // Delete existing events for this date first
+        const habitIds = Object.keys(consumptionEvents);
         const startOfDay = new Date(selectedDate + 'T00:00:00');
         const endOfDay = new Date(selectedDate + 'T23:59:59');
 
@@ -411,33 +339,34 @@ const HabitLoggingScreen = () => {
           .from('habit_consumption_events')
           .delete()
           .eq('user_id', user.id)
+          .in('habit_id', habitIds)
           .gte('consumed_at', startOfDay.toISOString())
           .lte('consumed_at', endOfDay.toISOString());
 
         // Insert new events
-        const { error: eventsUpsertError } = await supabase
+        const { error: eventsError } = await supabase
           .from('habit_consumption_events')
-          .insert(consumptionEventsToUpsert);
+          .insert(consumptionEventEntries);
 
-        if (eventsUpsertError) throw eventsUpsertError;
+        if (eventsError) throw eventsError;
       }
 
-      if (logsToUpsert.length === 0) {
-        Alert.alert('No Habits', 'Please log at least one habit');
-        setSaving(false);
-        return;
+      // Save rested feeling
+      if (restedFeeling !== null) {
+        const { error: sleepError } = await supabase
+          .from('sleep_data')
+          .upsert({
+            user_id: user.id,
+            date: selectedDate,
+            rested_feeling: restedFeeling,
+          }, {
+            onConflict: 'user_id,date',
+          });
+
+        if (sleepError) throw sleepError;
       }
 
-      // Upsert logs (insert or update)
-      const { error: upsertError } = await supabase
-        .from('habit_logs')
-        .upsert(logsToUpsert, {
-          onConflict: 'user_id,habit_id,date',
-        });
-
-      if (upsertError) throw upsertError;
-
-      // Clear stored habit logs for this date after successful save
+      // Clear stored habit logs
       if (user) {
         try {
           const storageKey = `habitLogs_${user.id}_${selectedDate}`;
@@ -445,19 +374,6 @@ const HabitLoggingScreen = () => {
         } catch (error) {
           console.error('Error clearing stored habit logs:', error);
         }
-      }
-
-      // Delete logs that were cleared (if user removed a previously logged habit)
-      if (habits.length > 0) {
-        const existingHabitIds = habits.map(h => h.id);
-        const { error: deleteError } = await supabase
-          .from('habit_logs')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('date', selectedDate)
-          .not('habit_id', 'in', `(${existingHabitIds.join(',')})`);
-
-        if (deleteError) throw deleteError;
       }
 
       Alert.alert('Success', 'Habits logged successfully!', [
@@ -487,6 +403,10 @@ const HabitLoggingScreen = () => {
   };
 
   const screenTitle = `${formatDateTitle(selectedDate)}'s Habits`;
+
+  // Separate habits into pinned and unpinned
+  const pinnedHabits = habits.filter(h => h.is_pinned);
+  const unpinnedHabits = habits.filter(h => !h.is_pinned);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -518,17 +438,17 @@ const HabitLoggingScreen = () => {
         <View style={styles.habitsContainer}>
           {loading ? (
             <Text style={styles.loadingText}>Loading habits...</Text>
-          ) : pinnedHabits.length === 0 && unpinnedHabits.length === 0 ? (
+          ) : habits.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>Loading habits...</Text>
+              <Text style={styles.emptyText}>No habits to track</Text>
               <Text style={styles.emptySubtext}>
-                If habits don't appear, go to Habits tab to add some to track
+                Go to Habits tab to add habits to track
               </Text>
             </View>
           ) : (
             <>
-              {/* Pinned Habits - Always Visible */}
-              {pinnedHabits.map((habit) => (
+              {/* All Habits - Simple List */}
+              {habits.map((habit) => (
                 <View key={habit.id} style={styles.habitRow}>
                   <View style={styles.habitInfo}>
                     <Text style={styles.habitName}>{habit.name}</Text>
@@ -539,84 +459,45 @@ const HabitLoggingScreen = () => {
                   <View style={styles.habitInput}>
                     <HabitInput
                       habit={habit}
-                      value={(habit.type === 'drug' || habit.type === 'quick_consumption') ? (consumptionEvents[habit.id] || []) : (habitLogs[habit.id] || '')}
+                      value={(habit.type === 'drug' || habit.type === 'quick_consumption') 
+                        ? (consumptionEvents[habit.id] || []) 
+                        : (habitLogs[habit.id] || '')}
                       onChange={(value) => handleHabitChange(habit.id, value)}
                       unit={habit.unit}
                     />
                   </View>
-
                 </View>
               ))}
-
-              {/* Other Habits - Expandable Section */}
-              {unpinnedHabits.length > 0 && (
-                <>
-                  <TouchableOpacity
-                    style={styles.otherHabitsHeader}
-                    onPress={() => setShowOtherHabits(!showOtherHabits)}
-                  >
-                    <Text style={styles.otherHabitsTitle}>
-                      Other Habits ({unpinnedHabits.length})
-                    </Text>
-                    <Ionicons
-                      name={showOtherHabits ? 'chevron-up' : 'chevron-down'}
-                      size={20}
-                      color={colors.textSecondary}
-                    />
-                  </TouchableOpacity>
-
-                  {showOtherHabits && unpinnedHabits.map((habit) => (
-                    <View key={habit.id} style={styles.habitRow}>
-                      <View style={styles.habitInfo}>
-                        <Text style={styles.habitName}>{habit.name}</Text>
-                        <Text style={styles.habitStats}>
-                          Logged {habitLogCounts[habit.id] || 0} times
-                        </Text>
-                      </View>
-                      <View style={styles.habitInput}>
-                        <HabitInput
-                          habit={habit}
-                          value={(habit.type === 'drug' || habit.type === 'quick_consumption') ? (consumptionEvents[habit.id] || []) : (habitLogs[habit.id] || '')}
-                          onChange={(value) => handleHabitChange(habit.id, value)}
-                          unit={habit.unit}
-                        />
-                      </View>
-
-                    </View>
-                  ))}
-                </>
-              )}
             </>
           )}
         </View>
 
         {/* Rested Feeling Slider */}
-        {!loading && (pinnedHabits.length > 0 || unpinnedHabits.length > 0) && (
-          <View style={styles.restedSection}>
-            <RestedFeelingSlider
-              value={restedFeeling}
-              onChange={setRestedFeeling}
-            />
-          </View>
-        )}
+        <View style={styles.restedFeelingContainer}>
+          <Text style={styles.restedFeelingTitle}>How rested did you feel?</Text>
+          <RestedFeelingSlider
+            value={restedFeeling}
+            onChange={setRestedFeeling}
+          />
+        </View>
 
-        {/* Submit Button */}
-        {!loading && (pinnedHabits.length > 0 || unpinnedHabits.length > 0) && (
+        {/* Save Button */}
+        {!loading && habits.length > 0 && (
           <Button
-            title="Submit Habits"
+            title="Save Habits"
             onPress={handleSubmit}
             loading={saving}
-            style={styles.submitButton}
+            style={styles.saveButton}
           />
         )}
       </ScrollView>
 
-      {/* Date Picker Modal */}
+      {/* Calendar Modal */}
       <DatePickerModal
         visible={calendarModalVisible}
-        onClose={() => setCalendarModalVisible(false)}
         selectedDate={selectedDate}
         onDateSelect={handleCalendarDateSelect}
+        onClose={() => setCalendarModalVisible(false)}
       />
     </SafeAreaView>
   );
@@ -629,23 +510,25 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.regular,
-    paddingTop: spacing.regular,
-    paddingBottom: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   backButton: {
-    padding: spacing.sm,
-    marginLeft: -spacing.sm,
-  },
-  calendarIconButton: {
     padding: spacing.xs,
   },
   title: {
-    fontSize: typography.sizes.xl,
+    fontSize: typography.sizes.large,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
+    flex: 1,
+    textAlign: 'center',
+  },
+  calendarIconButton: {
+    padding: spacing.xs,
   },
   scrollView: {
     flex: 1,
@@ -653,29 +536,27 @@ const styles = StyleSheet.create({
   dateRange: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
+    textAlign: 'center',
+    marginVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
-    marginTop: spacing.sm,
-    marginBottom: spacing.regular,
   },
   habitsContainer: {
-    paddingHorizontal: spacing.regular,
+    padding: spacing.regular,
   },
   habitRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.regular,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.regular,
+    marginBottom: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   habitInfo: {
-    flex: 1,
-    marginRight: spacing.md,
+    marginBottom: spacing.md,
   },
   habitName: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
@@ -684,16 +565,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   habitInput: {
-    minWidth: 80,
-    alignItems: 'flex-end',
-  },
-  restedSection: {
-    paddingHorizontal: spacing.regular,
-    marginVertical: spacing.xl,
-  },
-  submitButton: {
-    marginHorizontal: spacing.regular,
-    marginBottom: spacing.xl,
+    marginTop: spacing.sm,
   },
   loadingText: {
     fontSize: typography.sizes.body,
@@ -706,33 +578,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
   },
   emptySubtext: {
-    fontSize: typography.sizes.small,
+    fontSize: typography.sizes.body,
     color: colors.textSecondary,
     textAlign: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-  otherHabitsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
-    marginTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
-  otherHabitsTitle: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
+  restedFeelingContainer: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.regular,
+    marginHorizontal: spacing.regular,
+    marginBottom: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  restedFeelingTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
+    marginBottom: spacing.md,
+  },
+  saveButton: {
+    marginHorizontal: spacing.regular,
+    marginBottom: spacing.xxl,
   },
 });
 
 export default HabitLoggingScreen;
-
