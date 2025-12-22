@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,23 +31,51 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
   const consumptionEvents = value || []; // Use value prop directly as controlled component
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
-  const [tempHour, setTempHour] = useState('10');
-  const [tempMinute, setTempMinute] = useState('00');
+  const [tempHour, setTempHour] = useState(10);
+  const [tempMinute, setTempMinute] = useState(0);
   const [use24Hour, setUse24Hour] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const hourScrollRef = useRef(null);
+  const minuteScrollRef = useRef(null);
 
   const resetTimeForm = () => {
-    setTempHour('12');
-    setTempMinute('00');
-    setTempAmPm('AM');
+    setTempHour(12);
+    setTempMinute(0);
   };
 
   const openTimeModal = (consumptionType) => {
     setSelectedConsumptionType(consumptionType);
     const now = new Date();
-    setTempHour(now.getHours().toString().padStart(2, '0'));
-    setTempMinute(now.getMinutes().toString().padStart(2, '0'));
+    setTempHour(now.getHours());
+    setTempMinute(now.getMinutes());
+    
+    // Scroll to current time when modal opens
+    setTimeout(() => {
+      if (hourScrollRef.current) {
+        hourScrollRef.current.scrollTo({ y: now.getHours() * 50, animated: false });
+      }
+      if (minuteScrollRef.current) {
+        minuteScrollRef.current.scrollTo({ y: now.getMinutes() * 50, animated: false });
+      }
+    }, 100);
+    
     setShowTimeModal(true);
+  };
+
+  const handleHourScroll = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const hour = Math.round(y / 50);
+    if (hour >= 0 && hour <= 23) {
+      setTempHour(hour);
+    }
+  };
+
+  const handleMinuteScroll = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const minute = Math.round(y / 50);
+    if (minute >= 0 && minute <= 59) {
+      setTempMinute(minute);
+    }
   };
 
   const quickAddConsumption = (consumptionType, timeOfDay) => {
@@ -73,10 +101,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
   };
 
   const confirmTimeModal = () => {
-    const hour24 = parseInt(tempHour) || 0;
-    const minute = parseInt(tempMinute) || 0;
     const consumptionTime = new Date(selectedDate);
-    consumptionTime.setHours(hour24, minute, 0, 0);
+    consumptionTime.setHours(tempHour, tempMinute, 0, 0);
 
     addConsumptionEvent(selectedConsumptionType, consumptionTime);
     setShowTimeModal(false);
@@ -174,40 +200,62 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
             </Text>
 
             <View style={styles.timePickerContainer}>
-              {/* Hour Input */}
-              <View style={styles.timeInputGroup}>
-                <Text style={styles.timeLabel}>Hour (0-23)</Text>
-                <TouchableOpacity
-                  style={styles.timeAdjustButton}
-                  onPress={() => setTempHour(Math.max(0, parseInt(tempHour) - 1).toString().padStart(2, '0'))}
-                >
-                  <Ionicons name="chevron-up" size={20} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.timeValue}>{tempHour}</Text>
-                <TouchableOpacity
-                  style={styles.timeAdjustButton}
-                  onPress={() => setTempHour(Math.min(23, parseInt(tempHour) + 1).toString().padStart(2, '0'))}
-                >
-                  <Ionicons name="chevron-down" size={20} color={colors.textPrimary} />
-                </TouchableOpacity>
+              {/* Hour Picker */}
+              <View style={styles.pickerGroup}>
+                <Text style={styles.timeLabel}>Hour</Text>
+                <View style={styles.pickerWrapper}>
+                  <View style={styles.pickerSelection} />
+                  <ScrollView
+                    ref={hourScrollRef}
+                    style={styles.pickerScroll}
+                    contentContainerStyle={styles.pickerContent}
+                    showsVerticalScrollIndicator={false}
+                    snapToInterval={50}
+                    decelerationRate="fast"
+                    onMomentumScrollEnd={handleHourScroll}
+                    onScrollEndDrag={handleHourScroll}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <View key={i} style={styles.pickerItem}>
+                        <Text style={[
+                          styles.pickerItemText,
+                          tempHour === i && styles.pickerItemTextSelected
+                        ]}>
+                          {i.toString().padStart(2, '0')}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
 
-              {/* Minute Input */}
-              <View style={styles.timeInputGroup}>
+              {/* Minute Picker */}
+              <View style={styles.pickerGroup}>
                 <Text style={styles.timeLabel}>Minute</Text>
-                <TouchableOpacity
-                  style={styles.timeAdjustButton}
-                  onPress={() => setTempMinute(Math.max(0, parseInt(tempMinute) - 15).toString().padStart(2, '0'))}
-                >
-                  <Ionicons name="chevron-up" size={20} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.timeValue}>{tempMinute}</Text>
-                <TouchableOpacity
-                  style={styles.timeAdjustButton}
-                  onPress={() => setTempMinute(Math.min(45, parseInt(tempMinute) + 15).toString().padStart(2, '0'))}
-                >
-                  <Ionicons name="chevron-down" size={20} color={colors.textPrimary} />
-                </TouchableOpacity>
+                <View style={styles.pickerWrapper}>
+                  <View style={styles.pickerSelection} />
+                  <ScrollView
+                    ref={minuteScrollRef}
+                    style={styles.pickerScroll}
+                    contentContainerStyle={styles.pickerContent}
+                    showsVerticalScrollIndicator={false}
+                    snapToInterval={50}
+                    decelerationRate="fast"
+                    onMomentumScrollEnd={handleMinuteScroll}
+                    onScrollEndDrag={handleMinuteScroll}
+                  >
+                    {Array.from({ length: 60 }, (_, i) => (
+                      <View key={i} style={styles.pickerItem}>
+                        <Text style={[
+                          styles.pickerItemText,
+                          tempMinute === i && styles.pickerItemTextSelected
+                        ]}>
+                          {i.toString().padStart(2, '0')}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
             </View>
 
@@ -346,8 +394,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: spacing.regular,
+    paddingHorizontal: spacing.md,
   },
-  timeInputGroup: {
+  pickerGroup: {
     flex: 1,
     alignItems: 'center',
     marginHorizontal: spacing.xs,
@@ -356,17 +405,49 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     marginBottom: spacing.sm,
+    fontWeight: typography.weights.semibold,
   },
-  timeAdjustButton: {
-    padding: spacing.xs,
+  pickerWrapper: {
+    height: 200,
+    width: '100%',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
-  timeValue: {
+  pickerSelection: {
+    position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
+    height: 50,
+    marginTop: -25,
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.primary,
+    zIndex: 1,
+  },
+  pickerScroll: {
+    flex: 1,
+  },
+  pickerContent: {
+    paddingVertical: 75, // Half of picker height minus item height
+  },
+  pickerItem: {
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerItemText: {
+    fontSize: typography.sizes.large,
+    color: colors.textSecondary,
+  },
+  pickerItemTextSelected: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    minWidth: 40,
-    marginVertical: spacing.sm,
+    color: colors.primary,
   },
   quickTimeOptions: {
     marginBottom: spacing.regular,
@@ -383,14 +464,15 @@ const styles = StyleSheet.create({
   quickTimeButton: {
     flex: 1,
     backgroundColor: colors.primary,
-    borderRadius: 6,
-    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    paddingVertical: spacing.md,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   quickTimeButtonText: {
-    fontSize: typography.sizes.small,
-    color: colors.white,
-    fontWeight: typography.weights.medium,
+    fontSize: typography.sizes.body,
+    color: '#FFFFFF',
+    fontWeight: typography.weights.semibold,
   },
   modalButtons: {
     flexDirection: 'row',
