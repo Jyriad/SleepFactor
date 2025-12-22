@@ -28,26 +28,13 @@ const CONSUMPTION_TYPE_LABELS = {
 };
 
 const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
-  console.log('QuickConsumptionInput received habit:', { id: habit.id, name: habit.name, type: habit.type, unit: habit.unit, consumption_types: habit.consumption_types });
-  const [consumptionEvents, setConsumptionEvents] = useState([]);
+  const consumptionEvents = value || []; // Use value prop directly as controlled component
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
   const [tempHour, setTempHour] = useState('10');
   const [tempMinute, setTempMinute] = useState('00');
   const [use24Hour, setUse24Hour] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
-
-  useEffect(() => {
-    // Initialize with value prop, but don't update when it changes to avoid loops
-    if (value && Array.isArray(value) && consumptionEvents.length === 0) {
-      setConsumptionEvents(value);
-    }
-  }, []); // Only run once on mount
-
-  useEffect(() => {
-    // Notify parent when consumption events change
-    onChange(consumptionEvents);
-  }, [consumptionEvents]); // Only depend on consumptionEvents, not onChange
 
   const resetTimeForm = () => {
     setTempHour('12');
@@ -118,11 +105,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
       drink_type: drinkType,
     };
 
-    setConsumptionEvents(prev => [...prev, newEvent]);
+    onChange([...consumptionEvents, newEvent]);
   };
 
   const deleteConsumptionEvent = (eventId) => {
-    setConsumptionEvents(prev => prev.filter(event => event.id !== eventId));
+    onChange(consumptionEvents.filter(event => event.id !== eventId));
   };
 
   const formatTime = (dateString) => {
