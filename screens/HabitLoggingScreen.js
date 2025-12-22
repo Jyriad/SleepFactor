@@ -72,7 +72,8 @@ const HabitLoggingScreen = () => {
       // Habits are loaded directly from database - always available habits should already exist
       let finalHabitsData = habitsData || [];
 
-      console.log('Loaded habits:', finalHabitsData.map(h => ({ id: h.id, name: h.name, type: h.type, unit: h.unit, consumption_types: h.consumption_types })));
+      // Debug: Log loaded habits
+      console.log('Loaded habits:', finalHabitsData.map(h => ({ id: h.id, name: h.name, type: h.type, unit: h.unit })));
 
       // Ensure always available habits exist
       const alwaysAvailableHabits = [
@@ -173,11 +174,9 @@ const HabitLoggingScreen = () => {
       }
 
       // Create default habits for new users if they don't exist
-      console.log('Checking for default habits...');
       for (const defaultHabit of defaultHabits) {
         const existingHabit = finalHabitsData.find(h => h.name === defaultHabit.name);
         if (!existingHabit) {
-          console.log(`Creating default habit: ${defaultHabit.name}`);
           try {
             const { data: newHabit, error } = await supabase
               .from('habits')
@@ -195,14 +194,11 @@ const HabitLoggingScreen = () => {
 
             if (error) throw error;
             if (newHabit) {
-              console.log(`Created default habit:`, newHabit);
               finalHabitsData.push(newHabit);
             }
           } catch (error) {
             console.error(`Failed to create default habit: ${defaultHabit.name}`, error);
           }
-        } else {
-          console.log(`Default habit already exists: ${defaultHabit.name}`);
         }
       }
 
@@ -223,14 +219,6 @@ const HabitLoggingScreen = () => {
       setPinnedHabits(pinned);
       setUnpinnedHabits(unpinned);
       setHabits(normalizedHabits); // Keep for log counts calculation
-
-      console.log('Habit categorization:', {
-        total: normalizedHabits.length,
-        pinned: pinned.length,
-        unpinned: unpinned.length,
-        pinnedNames: pinned.map(h => h.name),
-        unpinnedNames: unpinned.map(h => h.name)
-      });
 
       // Load existing logs for selected date
       const { data: logsData, error: logsError } = await supabase
