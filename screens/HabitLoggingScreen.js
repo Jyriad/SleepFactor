@@ -38,7 +38,7 @@ const HabitLoggingScreen = () => {
   const [habitLogCounts, setHabitLogCounts] = useState({});
   const [pinnedHabits, setPinnedHabits] = useState([]);
   const [unpinnedHabits, setUnpinnedHabits] = useState([]);
-  const [showOtherHabits, setShowOtherHabits] = useState(false);
+  const [showOtherHabits, setShowOtherHabits] = useState(true); // Show other habits by default
   const [consumptionEvents, setConsumptionEvents] = useState({}); // habit_id -> array of events
 
   useEffect(() => {
@@ -103,6 +103,7 @@ const HabitLoggingScreen = () => {
           if (wrongName) {
             existingHabit = finalHabitsData.find(h => h.name === wrongName);
             if (existingHabit) {
+              console.log(`Found habit with wrong name "${wrongName}", updating to "${alwaysAvailableHabit.name}"`);
               // Update the habit with the correct name and properties
               try {
                 const { data: updatedHabit, error } = await supabase
@@ -121,6 +122,7 @@ const HabitLoggingScreen = () => {
 
                 if (error) throw error;
                 if (updatedHabit) {
+                  console.log(`Successfully updated habit:`, updatedHabit);
                   // Update in the local array
                   const index = finalHabitsData.findIndex(h => h.id === existingHabit.id);
                   if (index !== -1) {
@@ -165,9 +167,11 @@ const HabitLoggingScreen = () => {
       }
 
       // Create default habits for new users if they don't exist
+      console.log('Checking for default habits...');
       for (const defaultHabit of defaultHabits) {
         const existingHabit = finalHabitsData.find(h => h.name === defaultHabit.name);
         if (!existingHabit) {
+          console.log(`Creating default habit: ${defaultHabit.name}`);
           try {
             const { data: newHabit, error } = await supabase
               .from('habits')
@@ -185,11 +189,14 @@ const HabitLoggingScreen = () => {
 
             if (error) throw error;
             if (newHabit) {
+              console.log(`Created default habit:`, newHabit);
               finalHabitsData.push(newHabit);
             }
           } catch (error) {
             console.error(`Failed to create default habit: ${defaultHabit.name}`, error);
           }
+        } else {
+          console.log(`Default habit already exists: ${defaultHabit.name}`);
         }
       }
 
@@ -210,6 +217,14 @@ const HabitLoggingScreen = () => {
       setPinnedHabits(pinned);
       setUnpinnedHabits(unpinned);
       setHabits(normalizedHabits); // Keep for log counts calculation
+
+      console.log('Habit categorization:', {
+        total: normalizedHabits.length,
+        pinned: pinned.length,
+        unpinned: unpinned.length,
+        pinnedNames: pinned.map(h => h.name),
+        unpinnedNames: unpinned.map(h => h.name)
+      });
 
       // Load existing logs for selected date
       const { data: logsData, error: logsError } = await supabase

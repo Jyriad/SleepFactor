@@ -7,6 +7,8 @@ import DrugHabitInput from './DrugHabitInput';
 import QuickConsumptionInput from './QuickConsumptionInput';
 
 const HabitInput = ({ habit, value, onChange, unit }) => {
+  console.log('HabitInput rendering habit:', { id: habit.id, name: habit.name, type: habit.type, unit: habit.unit, consumption_types: habit.consumption_types });
+
   const renderInput = () => {
     switch (habit.type) {
       case 'binary':
