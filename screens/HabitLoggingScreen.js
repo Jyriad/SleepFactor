@@ -102,54 +102,56 @@ const HabitLoggingScreen = () => {
       for (const alwaysAvailableHabit of alwaysAvailableHabits) {
         let existingHabit = finalHabitsData.find(h => h.name === alwaysAvailableHabit.name);
 
-        // Check for habits with wrong names that should be updated
+        // Check for habits with wrong names that should be deleted (we'll recreate the correct one)
         if (!existingHabit) {
           // Look for habits with names that should be updated
           console.log(`Looking for wrong-named habit for "${alwaysAvailableHabit.name}"...`);
-          const wrongNamedHabit = finalHabitsData.find(h => {
-            const shouldUpdate = habitNameMappings[h.name];
-            console.log(`Checking habit "${h.name}": shouldUpdate = ${!!shouldUpdate}`);
-            return shouldUpdate;
-          });
+          const wrongNamedHabit = finalHabitsData.find(h => habitNameMappings[h.name]);
           console.log('Found wrongNamedHabit:', wrongNamedHabit);
+
           if (wrongNamedHabit) {
-            console.log(`Found habit with wrong name "${wrongNamedHabit.name}", updating to "${habitNameMappings[wrongNamedHabit.name]}"`);
-            // Update the habit with the correct name and properties
+            console.log(`Found habit with wrong name "${wrongNamedHabit.name}", deleting it and will recreate correct one`);
             try {
-              const { data: updatedHabit, error } = await supabase
+              // Delete the wrong habit
+              const { error: deleteError } = await supabase
                 .from('habits')
-                .update({
-                  name: habitNameMappings[wrongNamedHabit.name],
+                .delete()
+                .eq('id', wrongNamedHabit.id);
+
+              if (deleteError) throw deleteError;
+
+              console.log(`Deleted wrong habit: ${wrongNamedHabit.name}`);
+
+              // Remove from local array
+              finalHabitsData = finalHabitsData.filter(h => h.id !== wrongNamedHabit.id);
+
+              // Now create the correct habit
+              console.log('Creating correct habit...');
+              const { data: newHabit, error: insertError } = await supabase
+                .from('habits')
+                .insert({
+                  user_id: user.id,
+                  name: alwaysAvailableHabit.name,
                   type: alwaysAvailableHabit.type,
                   unit: alwaysAvailableHabit.unit,
                   consumption_types: alwaysAvailableHabit.consumption_types,
+                  is_active: true,
+                  is_pinned: false,
+                  priority: 0,
                   half_life_hours: alwaysAvailableHabit.name === 'Caffeine' ? 5 : null,
                   drug_threshold_percent: 5,
                 })
-                .eq('id', wrongNamedHabit.id)
                 .select()
                 .single();
 
-              if (error) throw error;
-              if (updatedHabit) {
-                console.log(`Successfully updated habit:`, updatedHabit);
-                // Update in the local array
-                const index = finalHabitsData.findIndex(h => h.id === wrongNamedHabit.id);
-                if (index !== -1) {
-                  finalHabitsData[index] = updatedHabit;
-                }
-                existingHabit = updatedHabit;
-
-                // Check if there's now a duplicate with the correct name and remove the old one
-                const duplicateHabits = finalHabitsData.filter(h => h.name === habitNameMappings[wrongNamedHabit.name]);
-                if (duplicateHabits.length > 1) {
-                  console.log(`Found ${duplicateHabits.length} habits with name "${habitNameMappings[wrongNamedHabit.name]}", keeping the updated one`);
-                  // Remove the old habit from the array (keep the updated one)
-                  finalHabitsData = finalHabitsData.filter(h => h.id !== wrongNamedHabit.id || h === updatedHabit);
-                }
+              if (insertError) throw insertError;
+              if (newHabit) {
+                console.log('Created correct habit:', newHabit);
+                finalHabitsData.push(newHabit);
+                existingHabit = newHabit;
               }
             } catch (error) {
-              console.error(`Failed to update habit ${wrongNamedHabit.name} to ${habitNameMappings[wrongNamedHabit.name]}`, error);
+              console.error(`Failed to replace habit ${wrongNamedHabit?.name}`, error);
             }
           }
         }
