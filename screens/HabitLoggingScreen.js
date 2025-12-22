@@ -72,8 +72,6 @@ const HabitLoggingScreen = () => {
       // Habits are loaded directly from database - always available habits should already exist
       let finalHabitsData = habitsData || [];
 
-      // Debug: Log loaded habits
-      console.log('Loaded habits:', finalHabitsData.map(h => ({ id: h.id, name: h.name, type: h.type, unit: h.unit })));
 
       // Ensure always available habits exist
       const alwaysAvailableHabits = [
@@ -88,10 +86,6 @@ const HabitLoggingScreen = () => {
         'Caffeine Units': 'Caffeine',
       };
 
-      console.log('Checking for wrong-named habits...');
-      console.log('Available mappings:', habitNameMappings);
-      console.log('Habits to check:', finalHabitsData.map(h => ({ name: h.name, id: h.id })));
-
       // Default habits to create for new users
       const defaultHabits = [
         { name: 'Exercise', type: 'binary', unit: null },
@@ -105,12 +99,9 @@ const HabitLoggingScreen = () => {
         // Check for habits with wrong names that should be deleted (we'll recreate the correct one)
         if (!existingHabit) {
           // Look for habits with names that should be updated
-          console.log(`Looking for wrong-named habit for "${alwaysAvailableHabit.name}"...`);
           const wrongNamedHabit = finalHabitsData.find(h => habitNameMappings[h.name]);
-          console.log('Found wrongNamedHabit:', wrongNamedHabit);
 
           if (wrongNamedHabit) {
-            console.log(`Found habit with wrong name "${wrongNamedHabit.name}", deleting it and will recreate correct one`);
             try {
               // Delete the wrong habit
               const { error: deleteError } = await supabase
@@ -120,13 +111,10 @@ const HabitLoggingScreen = () => {
 
               if (deleteError) throw deleteError;
 
-              console.log(`Deleted wrong habit: ${wrongNamedHabit.name}`);
-
               // Remove from local array
               finalHabitsData = finalHabitsData.filter(h => h.id !== wrongNamedHabit.id);
 
               // Now create the correct habit
-              console.log('Creating correct habit...');
               const { data: newHabit, error: insertError } = await supabase
                 .from('habits')
                 .insert({
@@ -146,7 +134,6 @@ const HabitLoggingScreen = () => {
 
               if (insertError) throw insertError;
               if (newHabit) {
-                console.log('Created correct habit:', newHabit);
                 finalHabitsData.push(newHabit);
                 existingHabit = newHabit;
               }
