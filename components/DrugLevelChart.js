@@ -70,8 +70,8 @@ const DrugLevelChart = ({
       
       return {
         value: level,
-        label: label,
-        labelComponent: label ? undefined : () => null,
+        label: '',
+        labelComponent: () => null,
       };
     });
 
@@ -193,12 +193,8 @@ const DrugLevelChart = ({
           rulesColor={colors.border}
           rulesType="solid"
           yAxisTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
-          xAxisLabelTextStyle={{ 
-            color: colors.textSecondary, 
-            fontSize: typography.sizes.small,
-          }}
-          xAxisLabelWidth={60}
           hideYAxisText={false}
+          hideXAxisText={true}
           maxValue={chartData.maxLevel * 1.1}
           noOfSections={4}
           formatYLabel={formatYAxisLabel}
@@ -215,6 +211,29 @@ const DrugLevelChart = ({
           xAxisIndicesWidth={CHART_WIDTH}
           xAxisIndicesHeight={50}
           />
+        </View>
+
+        {/* Custom X-axis labels positioned outside the chart */}
+        <View style={styles.customXAxis}>
+          {chartData.timelineData.map((point, index) => {
+            const hour = point.time.getHours();
+            if (hour === 6 || hour === 12 || hour === 18 || hour === 0) {
+              const percentage = index / (chartData.timelineData.length - 1);
+              const left = percentage * CHART_WIDTH;
+              const isAM = hour < 12;
+              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+
+              return (
+                <Text
+                  key={`x-label-${index}`}
+                  style={[styles.customXAxisLabel, { left: left - 15 }]}
+                >
+                  {`${displayHour}${isAM ? 'am' : 'pm'}`}
+                </Text>
+              );
+            }
+            return null;
+          })}
         </View>
 
         {/* Overlay vertical lines for current time and bedtime */}
@@ -327,11 +346,27 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     marginLeft: 4,
   },
+  customXAxis: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 20,
+    justifyContent: 'center',
+  },
+  customXAxisLabel: {
+    position: 'absolute',
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    width: 30,
+    top: 5,
+  },
   legend: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: spacing.md,
-    marginTop: spacing.sm,
+    marginTop: spacing.lg,
   },
   legendItem: {
     flexDirection: 'row',
