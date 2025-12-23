@@ -211,6 +211,8 @@ const DrugLevelChart = ({
           hideRules={false}
           xAxisLabelTexts={['6am', '12pm', '6pm', '12am']}
           xAxisIndices={[0, Math.floor(chartDataWithMarkers.length * 0.33), Math.floor(chartDataWithMarkers.length * 0.66), chartDataWithMarkers.length - 1]}
+          showXAxisIndices={true}
+          xAxisType="string"
           />
         </View>
 
