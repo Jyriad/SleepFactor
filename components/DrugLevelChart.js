@@ -214,28 +214,36 @@ const DrugLevelChart = ({
 
         {/* Custom X-axis labels positioned outside the chart */}
         <View style={styles.customXAxis}>
-          {chartData.timelineData
-            .map((point, index) => ({ point, index }))
-            .filter(({ point }) => {
+          {(() => {
+            const labels = [];
+            chartData.timelineData.forEach((point, index) => {
               const hour = point.time.getHours();
-              return hour === 6 || hour === 12 || hour === 18 || hour === 0;
-            })
-            .map(({ point, index }) => {
-              const percentage = index / (chartData.timelineData.length - 1);
-              const left = percentage * CHART_WIDTH;
-              const hour = point.time.getHours();
-              const isAM = hour < 12;
-              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+              if (hour === 6 || hour === 12 || hour === 18 || hour === 0) {
+                const percentage = index / (chartData.timelineData.length - 1);
+                const left = percentage * CHART_WIDTH;
+                const isAM = hour < 12;
+                const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+                const labelText = `${displayHour}${isAM ? 'am' : 'pm'}`;
 
-              return (
-                <Text
-                  key={`x-label-${index}`}
-                  style={[styles.customXAxisLabel, { left: left - 15 }]}
-                >
-                  {`${displayHour}${isAM ? 'am' : 'pm'}`}
-                </Text>
-              );
-            })}
+                // Check if we already have this label to avoid duplicates
+                if (!labels.some(l => l.text === labelText)) {
+                  labels.push({
+                    text: labelText,
+                    left: left - 15,
+                    key: `x-label-${hour}`
+                  });
+                }
+              }
+            });
+            return labels.map(label => (
+              <Text
+                key={label.key}
+                style={[styles.customXAxisLabel, { left: label.left }]}
+              >
+                {label.text}
+              </Text>
+            ));
+          })()}
         </View>
 
         {/* Overlay vertical lines for current time and bedtime */}
