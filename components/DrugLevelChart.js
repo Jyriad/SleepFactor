@@ -33,83 +33,45 @@ const DrugLevelChart = ({
       return null;
     }
 
-    // Set up time range: from 6 AM selected date to 6 AM next day
-    const startTime = new Date(selectedDate);
-    startTime.setHours(6, 0, 0, 0);
+    // Create 10 data points at 2-hour intervals: 6am, 8am, 10am, 12pm, 2pm, 4pm, 6pm, 8pm, 10pm, 12am
+    const timePoints = [];
+    for (let hour = 6; hour <= 24; hour += 2) {
+      const time = new Date(selectedDate);
+      time.setHours(hour % 24, 0, 0, 0);
+      if (hour === 24) time.setDate(time.getDate() + 1); // Handle 12am next day
+      timePoints.push(time);
+    }
 
-    const endTime = new Date(selectedDate);
-    endTime.setDate(endTime.getDate() + 1);
-    endTime.setHours(6, 0, 0, 0);
+    // Calculate drug levels at each time point and create data points with labels
+    const dataPoints = timePoints.map((timePoint) => {
+      const level = calculateTotalDrugLevel(
+        consumptionEvents,
+        timePoint,
+        habit.half_life_hours || 5,
+        habit.drug_threshold_percent || 5
+      );
 
-    // Generate timeline data points
-    const timelineData = generateDrugLevelTimeline(
-      consumptionEvents,
-      startTime,
-      endTime,
-      habit.half_life_hours || 5,
-      habit.drug_threshold_percent || 5,
-      30 // 30 minute intervals
-    );
+      // Create time label
+      const hour = timePoint.getHours();
+      const isAM = hour < 12;
+      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      const label = `${displayHour}${isAM ? 'am' : 'pm'}`;
 
-    const maxLevel = getMaxDrugLevel(timelineData) || 1;
-
-    // Convert to Gifted Charts format - only include every Nth point to reduce density
-    // Show labels at 6am, 12pm, 6pm, 12am
-    const dataPoints = timelineData.map((point, index) => {
-      const hour = point.time.getHours();
-      const minute = point.time.getMinutes();
-      
-      // Only add labels at specific times to avoid overlap
-      let label = '';
-      if ((hour === 6 || hour === 12 || hour === 18 || hour === 0) && minute === 0) {
-        const isAM = hour < 12;
-        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-        label = `${displayHour}${isAM ? 'am' : 'pm'}`;
-      }
-
-      // Ensure level is a valid number
-      const level = point.level != null && !isNaN(point.level) ? Number(point.level) : 0;
-      
       return {
         value: level,
-        label: '',
-        labelComponent: () => null,
+        label: label,
+        time: timePoint,
       };
     });
 
-    // Find positions for vertical lines
-    const now = new Date();
-    let currentTimeX = null;
-    let bedtimeX = null;
-
-    if (now >= startTime && now <= endTime) {
-      const totalDuration = endTime.getTime() - startTime.getTime();
-      const timeElapsed = now.getTime() - startTime.getTime();
-      const percentage = timeElapsed / totalDuration;
-      // LineChart component adds ~60px padding on left, so we need to account for that
-      currentTimeX = 60 + (percentage * (CHART_WIDTH - 60));
-    }
-
-    if (bedtime) {
-      const bedtimeDate = bedtime instanceof Date ? bedtime : new Date(bedtime);
-      if (bedtimeDate >= startTime && bedtimeDate <= endTime) {
-        const totalDuration = endTime.getTime() - startTime.getTime();
-        const timeElapsed = bedtimeDate.getTime() - startTime.getTime();
-        const percentage = timeElapsed / totalDuration;
-        bedtimeX = 60 + (percentage * (CHART_WIDTH - 60));
-      }
-    }
+    const maxLevel = Math.max(...dataPoints.map(p => p.value), 1);
 
     return {
       dataPoints,
-      timelineData,
       maxLevel,
-      startTime,
-      endTime,
-      currentTimeX,
-      bedtimeX,
+      timePoints,
     };
-  }, [consumptionEvents, habit, selectedDate, bedtime]);
+  }, [consumptionEvents, habit, selectedDate]);
 
   const formatYAxisLabel = (value) => {
     // Handle undefined/null values from the chart library
@@ -223,24 +185,36 @@ const DrugLevelChart = ({
           <Text style={[styles.xAxisLabel, styles.xAxisLabelRight]}>12am</Text>
         </View>
 
-        {/* Overlay vertical lines for current time and bedtime */}
-        {chartData.currentTimeX !== null && (
-          <View style={[styles.verticalLine, styles.currentTimeLine, { left: chartData.currentTimeX }]}>
-            <View style={styles.verticalLineLabelTop}>
-              <Ionicons name="time" size={12} color={colors.primary} />
-              <Text style={[styles.verticalLineLabelText, { color: colors.primary }]}>Now</Text>
-            </View>
-          </View>
-        )}
+        {/* Current time indicator */}
+        <View style={styles.currentTimeContainer}>
+          {(() => {
+            const now = new Date();
+            const nowHour = now.getHours();
+            const nowMinutes = now.getMinutes();
 
-        {chartData.bedtimeX !== null && bedtime && (
-          <View style={[styles.verticalLine, styles.bedtimeLine, { left: chartData.bedtimeX }]}>
-            <View style={styles.verticalLineLabelTop}>
-              <Ionicons name="moon" size={12} color={colors.secondary} />
-              <Text style={[styles.verticalLineLabelText, { color: colors.secondary }]}>Bedtime</Text>
-            </View>
-          </View>
-        )}
+            // Find the closest time point to current time
+            const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
+              const currentDiff = Math.abs(timePoint.getTime() - now.getTime());
+              const closestDiff = Math.abs(chartData.timePoints[closest].getTime() - now.getTime());
+              return currentDiff < closestDiff ? index : closest;
+            }, 0);
+
+            const closestTime = chartData.timePoints[closestIndex];
+            const timeDiff = Math.abs(now.getTime() - closestTime.getTime());
+            const minutesDiff = Math.floor(timeDiff / (1000 * 60));
+
+            return (
+              <View style={[styles.currentTimeIndicator, { left: `${(closestIndex / (chartData.timePoints.length - 1)) * 100}%` }]}>
+                <View style={styles.currentTimeBubble}>
+                  <Ionicons name="time" size={12} color={colors.primary} />
+                  <Text style={styles.currentTimeText}>
+                    {minutesDiff <= 30 ? 'Now' : `${minutesDiff}m ago`}
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
+        </View>
       </View>
 
       {/* Legend */}
