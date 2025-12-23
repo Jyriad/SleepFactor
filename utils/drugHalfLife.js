@@ -142,7 +142,15 @@ export const getMaxDrugLevel = (dataPoints) => {
  * @returns {string} Formatted string
  */
 export const formatDrugLevel = (level, unit, decimals = 1) => {
-  return `${level.toFixed(decimals)} ${unit}`;
+  // Handle undefined, null, or non-numeric values
+  if (level === null || level === undefined || isNaN(level)) {
+    return '0';
+  }
+  const numLevel = typeof level === 'number' ? level : parseFloat(level);
+  if (isNaN(numLevel)) {
+    return '0';
+  }
+  return `${numLevel.toFixed(decimals)} ${unit}`;
 };
 
 /**

@@ -107,7 +107,15 @@ const DrugLevelChart = ({
   }, [consumptionEvents, habit, selectedDate, bedtime]);
 
   const formatYAxisLabel = (value) => {
-    return formatDrugLevel(value, habit?.unit || 'units', value === 0 ? 0 : 1);
+    // Handle undefined/null values from the chart library
+    if (value === null || value === undefined || isNaN(value)) {
+      return '0';
+    }
+    const numValue = typeof value === 'number' ? value : parseFloat(value);
+    if (isNaN(numValue)) {
+      return '0';
+    }
+    return formatDrugLevel(numValue, habit?.unit || 'units', numValue === 0 ? 0 : 1);
   };
 
   if (!chartData || !consumptionEvents || consumptionEvents.length === 0) {
