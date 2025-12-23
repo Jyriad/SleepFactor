@@ -178,40 +178,24 @@ const DrugLevelChart = ({
 
 
 
-        {/* Current time indicator */}
-        <View style={styles.currentTimeContainer}>
-          {(() => {
-            const now = new Date();
+        {/* Current time vertical line */}
+        {(() => {
+          const now = new Date();
 
-            // Find the closest time point to current time
-            const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
-              const currentDiff = Math.abs(timePoint.getTime() - now.getTime());
-              const closestDiff = Math.abs(chartData.timePoints[closest].getTime() - now.getTime());
-              return currentDiff < closestDiff ? index : closest;
-            }, 0);
+          // Find the closest time point to current time
+          const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
+            const currentDiff = Math.abs(timePoint.getTime() - now.getTime());
+            const closestDiff = Math.abs(chartData.timePoints[closest].getTime() - now.getTime());
+            return currentDiff < closestDiff ? index : closest;
+          }, 0);
 
-            const closestTime = chartData.timePoints[closestIndex];
-            const timeDiff = Math.abs(now.getTime() - closestTime.getTime());
-            const minutesDiff = Math.floor(timeDiff / (1000 * 60));
+          // Calculate position as percentage across the chart
+          const percentage = (closestIndex / (chartData.timePoints.length - 1)) * 100;
 
-            // Add vertical line at current time position
-            const percentage = (closestIndex / (chartData.timePoints.length - 1)) * 100;
-
-            return (
-              <>
-                <View style={[styles.currentTimeLine, { left: `${percentage}%` }]} />
-                <View style={[styles.currentTimeIndicator, { left: `${percentage}%` }]}>
-                  <View style={styles.currentTimeBubble}>
-                    <Ionicons name="time" size={12} color={colors.primary} />
-                    <Text style={styles.currentTimeText}>
-                      {minutesDiff <= 30 ? 'Now' : `${minutesDiff}m ago`}
-                    </Text>
-                  </View>
-                </View>
-              </>
-            );
-          })()}
-        </View>
+          return (
+            <View style={[styles.currentTimeLine, { left: `${percentage}%` }]} />
+          );
+        })()}
       </View>
 
       {/* Legend */}
