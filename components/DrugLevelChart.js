@@ -32,15 +32,19 @@ const DrugLevelChart = ({
       return null;
     }
 
-    // Create 7 data points at 3-hour intervals: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day)
-    // This covers 18 hours from 6am today to 12am tomorrow
-    const timePoints = [];
-    for (let hour = 6; hour <= 24; hour += 3) {
-      const time = new Date(selectedDate);
-      time.setHours(hour % 24, 0, 0, 0);
-      if (hour === 24) time.setDate(time.getDate() + 1); // Handle 12am next day
-      timePoints.push(time);
-    }
+    // Create 9 data points at 3-hour intervals: 12am, 3am, 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day)
+    // This covers 24 hours from midnight today to midnight tomorrow - full day cycle
+    const timePoints = [
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0),   // 12am (midnight)
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 3, 0, 0),   // 3am
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 6, 0, 0),   // 6am
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0, 0),   // 9am
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 12, 0, 0),  // 12pm
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 15, 0, 0),  // 3pm
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 18, 0, 0),  // 6pm
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 21, 0, 0),  // 9pm
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1, 0, 0, 0), // 12am next day
+    ];
 
     // Calculate drug levels at each time point and create data points with labels
     const dataPoints = timePoints.map((timePoint) => {
