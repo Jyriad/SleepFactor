@@ -18,7 +18,7 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 6) - 80; // More conservative width for label visibility
+const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 40; // Balanced width for visibility
 const CHART_HEIGHT = 200;
 
 const DrugLevelChart = ({
@@ -215,7 +215,7 @@ const DrugLevelChart = ({
             maxValue={chartData.maxLevel * 1.1}
             noOfSections={4}
             formatYLabel={formatYAxisLabel}
-            spacing={CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1)}
+            spacing={(CHART_WIDTH - 80) / Math.max(1, chartData.dataPoints.length - 1)} // Account for label space
             dataPointsConfig={{
               color: colors.primary,
               radius: 3,
