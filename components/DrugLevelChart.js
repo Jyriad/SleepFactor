@@ -33,9 +33,9 @@ const DrugLevelChart = ({
       return null;
     }
 
-    // Create 10 data points at 2-hour intervals: 6am, 8am, 10am, 12pm, 2pm, 4pm, 6pm, 8pm, 10pm, 12am
+    // Create 7 data points at 3-hour intervals: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am
     const timePoints = [];
-    for (let hour = 6; hour <= 24; hour += 2) {
+    for (let hour = 6; hour <= 24; hour += 3) {
       const time = new Date(selectedDate);
       time.setHours(hour % 24, 0, 0, 0);
       if (hour === 24) time.setDate(time.getDate() + 1); // Handle 12am next day
@@ -189,8 +189,6 @@ const DrugLevelChart = ({
         <View style={styles.currentTimeContainer}>
           {(() => {
             const now = new Date();
-            const nowHour = now.getHours();
-            const nowMinutes = now.getMinutes();
 
             // Find the closest time point to current time
             const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
@@ -203,15 +201,21 @@ const DrugLevelChart = ({
             const timeDiff = Math.abs(now.getTime() - closestTime.getTime());
             const minutesDiff = Math.floor(timeDiff / (1000 * 60));
 
+            // Add vertical line at current time position
+            const percentage = (closestIndex / (chartData.timePoints.length - 1)) * 100;
+
             return (
-              <View style={[styles.currentTimeIndicator, { left: `${(closestIndex / (chartData.timePoints.length - 1)) * 100}%` }]}>
-                <View style={styles.currentTimeBubble}>
-                  <Ionicons name="time" size={12} color={colors.primary} />
-                  <Text style={styles.currentTimeText}>
-                    {minutesDiff <= 30 ? 'Now' : `${minutesDiff}m ago`}
-                  </Text>
+              <>
+                <View style={[styles.currentTimeLine, { left: `${percentage}%` }]} />
+                <View style={[styles.currentTimeIndicator, { left: `${percentage}%` }]}>
+                  <View style={styles.currentTimeBubble}>
+                    <Ionicons name="time" size={12} color={colors.primary} />
+                    <Text style={styles.currentTimeText}>
+                      {minutesDiff <= 30 ? 'Now' : `${minutesDiff}m ago`}
+                    </Text>
+                  </View>
                 </View>
-              </View>
+              </>
             );
           })()}
         </View>
