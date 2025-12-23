@@ -334,11 +334,15 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     position: 'relative',
-    marginBottom: 5,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+    width: '100%',
   },
   chartContainer: {
-    marginBottom: 5,
+    marginBottom: 10,
     position: 'relative',
+    width: '100%',
+    overflow: 'hidden',
   },
   currentTimeLineContainer: {
     position: 'absolute',
