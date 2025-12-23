@@ -65,8 +65,11 @@ const DrugLevelChart = ({
         label = `${displayHour}${isAM ? 'am' : 'pm'}`;
       }
 
+      // Ensure level is a valid number
+      const level = point.level != null && !isNaN(point.level) ? Number(point.level) : 0;
+      
       return {
-        value: point.level,
+        value: level,
         label: label,
         labelComponent: label ? undefined : () => null,
       };
