@@ -1,6 +1,6 @@
 {
   "name": "sleepfactor",
-  "version": "1.0.61",
+  "version": "1.0.62",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -22,6 +22,7 @@
     "expo-build-properties": "^1.0.10",
     "expo-constants": "~18.0.12",
     "expo-health-connect": "^0.1.1",
+    "expo-linear-gradient": "~15.0.8",
     "expo-linking": "^8.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "^15.0.10",
