@@ -212,40 +212,8 @@ const DrugLevelChart = ({
           />
         </View>
 
-        {/* Custom X-axis labels positioned outside the chart */}
-        <View style={styles.customXAxis}>
-          {(() => {
-            const labels = [];
-            const seenHours = new Set();
-
-            chartData.timelineData.forEach((point, index) => {
-              const hour = point.time.getHours();
-              if ((hour === 6 || hour === 12 || hour === 18 || hour === 0) && !seenHours.has(hour)) {
-                seenHours.add(hour);
-                const percentage = index / (chartData.timelineData.length - 1);
-                const left = percentage * CHART_WIDTH;
-                const isAM = hour < 12;
-                const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-                const labelText = `${displayHour}${isAM ? 'am' : 'pm'}`;
-
-                labels.push({
-                  text: labelText,
-                  left: left - 15,
-                  key: `x-label-${hour}`
-                });
-              }
-            });
-
-            return labels.map(label => (
-              <Text
-                key={label.key}
-                style={[styles.customXAxisLabel, { left: label.left }]}
-              >
-                {label.text}
-              </Text>
-            ));
-          })()}
-        </View>
+        {/* Custom X-axis labels positioned outside the chart - disabled scrolling to keep labels aligned */}
+        {/* Note: Chart scrolling disabled to keep labels properly aligned */}
 
         {/* Overlay vertical lines for current time and bedtime */}
         {chartData.currentTimeX !== null && (
