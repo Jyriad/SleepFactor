@@ -203,7 +203,6 @@ const DrugLevelChart = ({
           noOfSections={4}
           formatYLabel={formatYAxisLabel}
           spacing={CHART_WIDTH / Math.max(1, chartDataWithMarkers.length - 1)}
-          adjustToWidth={false}
           dataPointsConfig={{
             color: colors.primary,
             radius: 3,
@@ -213,6 +212,8 @@ const DrugLevelChart = ({
           textFontSize={typography.sizes.small}
           hideDataPoints
           hideRules={false}
+          xAxisIndicesWidth={CHART_WIDTH}
+          xAxisIndicesHeight={50}
           />
         </View>
 
