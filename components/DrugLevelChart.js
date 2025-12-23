@@ -217,11 +217,16 @@ const DrugLevelChart = ({
             return (
               <View 
                 style={[
-                  styles.currentTimeLineOverlay,
+                  styles.currentTimeLineContainer,
                   { left: yAxisWidth + xPosition }
                 ]}
                 pointerEvents="none"
-              />
+              >
+                <View style={styles.currentTimeIconContainer}>
+                  <Ionicons name="time" size={16} color={colors.primary} />
+                </View>
+                <View style={styles.currentTimeLineOverlay} />
+              </View>
             );
           })()}
         </View>
@@ -274,14 +279,35 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     position: 'relative',
   },
-  currentTimeLineOverlay: {
+  currentTimeLineContainer: {
     position: 'absolute',
     top: 0,
     bottom: 0,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  currentTimeIconContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.cardBackground,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  currentTimeLineOverlay: {
+    flex: 1,
     width: 3,
     backgroundColor: colors.primary,
     opacity: 0.9,
-    zIndex: 20,
+    marginBottom: 20, // Stop before x-axis labels
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.3,
