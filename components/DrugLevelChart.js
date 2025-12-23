@@ -236,13 +236,10 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     position: 'relative',
-    marginBottom: spacing.lg, // More margin for labels
-    overflow: 'visible', // Allow x-axis labels to be visible
-    minHeight: CHART_HEIGHT + 90, // Ensure container is tall enough
+    marginBottom: spacing.sm,
   },
   chartContainer: {
-    marginBottom: 70, // Extra space for x-axis labels below chart
-    overflow: 'visible', // Allow labels to be visible outside container
+    marginBottom: 10,
   },
   consumptionMarker: {
     width: 16,
