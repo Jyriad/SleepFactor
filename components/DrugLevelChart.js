@@ -191,7 +191,12 @@ const DrugLevelChart = ({
           rulesColor={colors.border}
           rulesType="solid"
           yAxisTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
-          xAxisLabelTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
+          xAxisLabelTextStyle={{ 
+            color: colors.textSecondary, 
+            fontSize: typography.sizes.small,
+            marginTop: 5,
+          }}
+          xAxisLabelWidth={50}
           hideYAxisText={false}
           maxValue={chartData.maxLevel * 1.1}
           noOfSections={4}
@@ -266,7 +271,8 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     position: 'relative',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+    paddingBottom: 30, // Extra space for x-axis labels
   },
   consumptionMarker: {
     width: 16,
@@ -295,7 +301,7 @@ const styles = StyleSheet.create({
   },
   verticalLineLabelTop: {
     position: 'absolute',
-    top: -20,
+    top: -25,
     left: -25,
     flexDirection: 'row',
     alignItems: 'center',
@@ -305,6 +311,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1,
     minWidth: 50,
+    zIndex: 20,
   },
   verticalLineLabelText: {
     fontSize: typography.sizes.small,
