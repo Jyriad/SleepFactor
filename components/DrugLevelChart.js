@@ -129,38 +129,54 @@ const DrugLevelChart = ({
     );
   }
 
-  // Find consumption event positions for markers (simplified - just show at closest time point)
+  // Map drink types to icons
+  const getConsumptionIcon = (drinkType) => {
+    const iconMap = {
+      espresso: 'cafe',
+      instant_coffee: 'cafe',
+      energy_drink: 'flash',
+      soft_drink: 'water',
+      beer: 'beer',
+      wine: 'wine',
+      liquor: 'flask',
+      cocktail: 'wine',
+    };
+    return iconMap[drinkType] || 'cafe';
+  };
+
+  // Calculate exact positions for consumption events (interpolate between time points)
   const consumptionMarkers = consumptionEvents.map((event) => {
     const eventTime = new Date(event.consumed_at);
+    
+    // Find which time points the event falls between
+    let startIndex = 0;
+    let endIndex = chartData.timePoints.length - 1;
+    let fractionalIndex = 0;
 
-    // Find the closest time point
-    const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
-      const currentDiff = Math.abs(timePoint.getTime() - eventTime.getTime());
-      const closestDiff = Math.abs(chartData.timePoints[closest].getTime() - eventTime.getTime());
-      return currentDiff < closestDiff ? index : closest;
-    }, 0);
+    for (let i = 0; i < chartData.timePoints.length - 1; i++) {
+      if (eventTime >= chartData.timePoints[i] && eventTime <= chartData.timePoints[i + 1]) {
+        startIndex = i;
+        endIndex = i + 1;
+        const timeDiff = chartData.timePoints[endIndex].getTime() - chartData.timePoints[startIndex].getTime();
+        const elapsed = eventTime.getTime() - chartData.timePoints[startIndex].getTime();
+        fractionalIndex = startIndex + (elapsed / timeDiff);
+        break;
+      }
+    }
+
+    // If event is before first point or after last point
+    if (eventTime < chartData.timePoints[0]) {
+      fractionalIndex = 0;
+    } else if (eventTime > chartData.timePoints[chartData.timePoints.length - 1]) {
+      fractionalIndex = chartData.timePoints.length - 1;
+    }
 
     return {
-      index: closestIndex,
+      fractionalIndex,
       value: event.amount,
       time: eventTime,
+      drinkType: event.drink_type,
     };
-  });
-
-  // Mark consumption points with custom data points
-  const chartDataWithMarkers = chartData.dataPoints.map((point, index) => {
-    const marker = consumptionMarkers.find(m => m.index === index);
-    if (marker) {
-      return {
-        ...point,
-        customDataPoint: () => (
-          <View style={styles.consumptionMarker}>
-            <Ionicons name="cafe" size={10} color={colors.primary} />
-          </View>
-        ),
-      };
-    }
-    return point;
   });
 
   return (
@@ -204,6 +220,47 @@ const DrugLevelChart = ({
           hideDataPoints
           hideRules={false}
           />
+          
+          {/* Consumption event markers positioned at exact times */}
+          {consumptionMarkers.map((marker, index) => {
+            const chartSpacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
+            const xPosition = marker.fractionalIndex * chartSpacing;
+            const yAxisWidth = 50;
+            
+            // Calculate y position based on drug level at consumption time
+            const levelAtConsumption = marker.value; // This is the amount consumed, but we want level
+            // Get the interpolated level at this exact time
+            const level = calculateTotalDrugLevel(
+              consumptionEvents,
+              marker.time,
+              habit.half_life_hours || 5,
+              habit.drug_threshold_percent || 5
+            );
+            const maxLevel = chartData.maxLevel;
+            const yPosition = CHART_HEIGHT - ((level / (maxLevel * 1.1)) * CHART_HEIGHT) - 25; // 25px above line
+
+            return (
+              <View
+                key={`consumption-${index}`}
+                style={[
+                  styles.consumptionMarkerOverlay,
+                  {
+                    left: yAxisWidth + xPosition,
+                    top: yPosition,
+                  }
+                ]}
+                pointerEvents="none"
+              >
+                <View style={styles.consumptionIconContainer}>
+                  <Ionicons 
+                    name={getConsumptionIcon(marker.drinkType)} 
+                    size={16} 
+                    color={colors.primary} 
+                  />
+                </View>
+              </View>
+            );
+          })}
           
           {/* Current time vertical line positioned using chart coordinate system */}
           {chartData.currentTimeDataPoint && (() => {
@@ -314,15 +371,25 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 5,
   },
-  consumptionMarker: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: colors.white,
+  consumptionMarkerOverlay: {
+    position: 'absolute',
+    alignItems: 'center',
+    zIndex: 18,
+  },
+  consumptionIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.cardBackground,
     borderWidth: 2,
     borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
   },
   verticalLine: {
     position: 'absolute',
