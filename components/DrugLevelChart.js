@@ -345,8 +345,11 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+  },
+  nonScrollableChartWrapper: {
+    position: 'relative',
+    width: '100%',
+    alignItems: 'center',
   },
   currentTimeLineContainer: {
     position: 'absolute',
