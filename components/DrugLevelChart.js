@@ -259,8 +259,18 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   currentTimeLine: {
-    backgroundColor: colors.primary,
-    opacity: 0.7,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: colors.accent || '#FF6B6B', // Use accent color or red for visibility
+    opacity: 0.9,
+    zIndex: 15,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 5,
   },
   bedtimeLine: {
     backgroundColor: colors.secondary,
