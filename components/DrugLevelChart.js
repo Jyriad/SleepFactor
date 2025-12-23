@@ -209,10 +209,17 @@ const DrugLevelChart = ({
           textFontSize={typography.sizes.small}
           hideDataPoints
           hideRules={false}
-          showXAxisIndices={true}
           />
         </View>
 
+
+        {/* X-axis time labels positioned below chart */}
+        <View style={styles.xAxisLabels}>
+          <Text style={[styles.xAxisLabel, styles.xAxisLabelLeft]}>6am</Text>
+          <Text style={[styles.xAxisLabel, styles.xAxisLabelCenter]}>12pm</Text>
+          <Text style={[styles.xAxisLabel, styles.xAxisLabelCenter]}>6pm</Text>
+          <Text style={[styles.xAxisLabel, styles.xAxisLabelRight]}>12am</Text>
+        </View>
 
         {/* Overlay vertical lines for current time and bedtime */}
         {chartData.currentTimeX !== null && (
@@ -323,6 +330,30 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.semibold,
     marginLeft: 4,
+  },
+  xAxisLabels: {
+    position: 'absolute',
+    bottom: -25,
+    left: 0,
+    right: 0,
+    height: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  xAxisLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  xAxisLabelLeft: {
+    textAlign: 'left',
+  },
+  xAxisLabelCenter: {
+    textAlign: 'center',
+  },
+  xAxisLabelRight: {
+    textAlign: 'right',
   },
   customXAxis: {
     position: 'absolute',
