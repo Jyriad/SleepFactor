@@ -598,6 +598,12 @@ const HomeScreen = () => {
     }
   };
 
+  // Calculate habits with events for drug level widgets
+  const habitsWithEvents = drugHabits.filter(habit => {
+    const events = drugConsumptionEvents[habit.id] || [];
+    return events.length > 0;
+  });
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -652,43 +658,34 @@ const HomeScreen = () => {
         )}
 
         {/* Drug Level Widgets */}
-        {!loading && isToday(selectedDate) && (() => {
-          const habitsWithEvents = drugHabits.filter(habit => {
-            const events = drugConsumptionEvents[habit.id] || [];
-            return events.length > 0;
-          });
-
-          if (habitsWithEvents.length === 0) return null;
-
-          return (
-            <View style={styles.drugWidgetsContainer}>
-              <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
-              {habitsWithEvents.map((habit) => {
-                const events = drugConsumptionEvents[habit.id] || [];
-                const bedtime = sleepData?.sleep_start_time || null;
-                
-                return (
-                  <View key={habit.id} style={styles.drugHabitContainer}>
-                    <DrugLevelChart
-                      consumptionEvents={events}
-                      habit={habit}
-                      selectedDate={selectedDate}
-                      sleepStartTime={sleepData?.sleep_start_time || null}
-                      bedtime={bedtime}
-                    />
-                    <BedtimeDrugIndicator
-                      consumptionEvents={events}
-                      habit={habit}
-                      bedtime={bedtime}
-                      sleepStartTime={sleepData?.sleep_start_time || null}
-                      compact={false}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          );
-        })()}
+        {!loading && isToday(selectedDate) && habitsWithEvents.length > 0 && (
+          <View style={styles.drugWidgetsContainer}>
+            <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
+            {habitsWithEvents.map((habit) => {
+              const events = drugConsumptionEvents[habit.id] || [];
+              const bedtime = sleepData?.sleep_start_time || null;
+              
+              return (
+                <View key={habit.id} style={styles.drugHabitContainer}>
+                  <DrugLevelChart
+                    consumptionEvents={events}
+                    habit={habit}
+                    selectedDate={selectedDate}
+                    sleepStartTime={sleepData?.sleep_start_time || null}
+                    bedtime={bedtime}
+                  />
+                  <BedtimeDrugIndicator
+                    consumptionEvents={events}
+                    habit={habit}
+                    bedtime={bedtime}
+                    sleepStartTime={sleepData?.sleep_start_time || null}
+                    compact={false}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        )}
 
 
         {/* Sleep Data Card */}
