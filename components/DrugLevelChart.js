@@ -18,7 +18,7 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 40; // Balanced width for visibility
+const CHART_WIDTH = screenWidth - (spacing.regular * 2) - 20; // More generous width since adjustToWidth is true
 const CHART_HEIGHT = 200;
 
 const DrugLevelChart = ({
@@ -190,7 +190,7 @@ const DrugLevelChart = ({
             data={chartData.dataPoints}
             width={CHART_WIDTH}
             height={CHART_HEIGHT}
-            adjustToWidth={false}
+            adjustToWidth={true}
             scrollEnabled={false}
             scrollToEnd={false}
             scrollAnimation={false}
@@ -215,7 +215,7 @@ const DrugLevelChart = ({
             maxValue={chartData.maxLevel * 1.1}
             noOfSections={4}
             formatYLabel={formatYAxisLabel}
-            spacing={(CHART_WIDTH - 80) / Math.max(1, chartData.dataPoints.length - 1)} // Account for label space
+            spacing={CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1)} // Full width spacing
             dataPointsConfig={{
               color: colors.primary,
               radius: 3,
@@ -344,6 +344,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     position: 'relative',
     width: '100%',
+    alignItems: 'center',
     overflow: 'hidden',
   },
   nonScrollableChartWrapper: {
