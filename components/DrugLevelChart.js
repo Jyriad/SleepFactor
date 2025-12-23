@@ -18,8 +18,8 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 6); // More padding
-const CHART_HEIGHT = 200; // Reduced chart height to allow more space for labels
+const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 60; // Account for container padding (2x) and y-axis width
+const CHART_HEIGHT = 200;
 
 const DrugLevelChart = ({
   consumptionEvents,
@@ -33,35 +33,15 @@ const DrugLevelChart = ({
       return null;
     }
 
-    // Create 7 data points at 3-hour intervals covering 24 hours: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day)
+    // Create 7 data points at 3-hour intervals: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day)
+    // This covers 18 hours from 6am today to 12am tomorrow
     const timePoints = [];
-    for (let hour = 6; hour <= 30; hour += 3) {
+    for (let hour = 6; hour <= 24; hour += 3) {
       const time = new Date(selectedDate);
-      const targetHour = hour % 24;
-      time.setHours(targetHour, 0, 0, 0);
-      if (hour >= 24) time.setDate(time.getDate() + 1); // Handle next day times (24, 27, 30 = 12am, 3am, 6am)
+      time.setHours(hour % 24, 0, 0, 0);
+      if (hour === 24) time.setDate(time.getDate() + 1); // Handle 12am next day
       timePoints.push(time);
     }
-    // Only keep first 7 points: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day) = 18 hours
-    // Actually we need 24 hours, so let's do: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day), 3am (next day), 6am (next day)
-    // Wait, let me reconsider - user wants 6am to 12am which is 18 hours, but they said "24 hour cycle"
-    // Let me do: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am, 3am (next), 6am (next) - that's 24 hours
-    // But actually, re-reading: "6am to 12am to 12am" - I think they mean 6am today to 12am tomorrow
-    // So: 6am (day 1), 9am, 12pm, 3pm, 6pm, 9pm, 12am (day 2) = 18 hours
-    // OR: 6am (day 1) to 6am (day 2) = 24 hours
-    // Based on "6am to 12am to 12am" - I think they mean 6am to 12am next day = 18 hours, but they want it to be 24 hours
-    // Let me do 8 points at 3-hour intervals: 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am, 3am (next), 6am (next) = 24 hours
-    
-    // Actually, let me re-read more carefully: "from 6am to 12am to 12am" - I think this means 6am day 1 to 12am day 2
-    // But they also say "a full 24 hour cycle" - so maybe they want 6am to 6am next day?
-    // Let me implement: 6am day 1 to 12am day 2 (18 hours) but make it look like 24 hours by extending
-    // OR: Just do 6am to 6am next day with 8 points
-    
-    // Simplest interpretation: They want the chart to show from 6am today to 12am tomorrow, which is 18 hours
-    // But they say "24 hour cycle" so maybe they want 12am to 12am? No wait, they specifically say "6am to 12am"
-    
-    // I'll implement: 6am today to 12am tomorrow (18 hours shown) but with proper 7 points at 3-hour intervals
-    // This is what we currently have, so I'll keep it but ensure the last point is properly at 12am next day
 
     // Calculate drug levels at each time point and create data points with labels
     const dataPoints = timePoints.map((timePoint) => {
