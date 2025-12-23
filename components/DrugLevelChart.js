@@ -150,6 +150,24 @@ const DrugLevelChart = ({
     });
   };
 
+  const renderCurrentTimeIndicator = () => {
+    if (!chartData) return null;
+
+    const now = new Date();
+    const nowX = getXPosition(now, chartData.startTime, chartData.endTime);
+
+    // Only show if within chart bounds
+    if (nowX < PADDING || nowX > CHART_WIDTH - PADDING) return null;
+
+    return (
+      <View style={[styles.currentTimeLine, { left: nowX - 1 }]}>
+        <View style={styles.currentTimeIconContainer}>
+          <Ionicons name="time" size={14} color={colors.primary} />
+        </View>
+      </View>
+    );
+  };
+
   const renderBedtimeIndicator = () => {
     if (!bedtime || !chartData) return null;
 
@@ -254,6 +272,7 @@ const DrugLevelChart = ({
             <View style={styles.chartContent}>
               {renderChartPath()}
               {renderConsumptionMarkers()}
+              {renderCurrentTimeIndicator()}
               {renderBedtimeIndicator()}
             </View>
 
@@ -270,6 +289,10 @@ const DrugLevelChart = ({
         <View style={styles.legendItem}>
           <Ionicons name="cafe" size={16} color={colors.primary} />
           <Text style={styles.legendText}>Consumption</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <Ionicons name="time" size={16} color={colors.primary} />
+          <Text style={styles.legendText}>Now</Text>
         </View>
         {bedtime && (
           <View style={styles.legendItem}>
@@ -299,13 +322,16 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     flexDirection: 'row',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+    minHeight: CHART_HEIGHT + 30,
   },
   yAxis: {
     width: Y_AXIS_WIDTH,
     height: CHART_HEIGHT,
     justifyContent: 'space-between',
     paddingRight: spacing.xs,
+    paddingTop: PADDING,
+    paddingBottom: PADDING,
   },
   chartAreaContainer: {
     flex: 1,
@@ -313,7 +339,7 @@ const styles = StyleSheet.create({
   },
   chartArea: {
     width: CHART_WIDTH,
-    height: CHART_HEIGHT,
+    height: CHART_HEIGHT + 30, // Extra space for x-axis labels
     position: 'relative',
   },
   chartContent: {
@@ -355,6 +381,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary,
     zIndex: 10,
   },
+  currentTimeLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: colors.primary,
+    zIndex: 15,
+  },
+  currentTimeIconContainer: {
+    position: 'absolute',
+    top: -18,
+    left: -7,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 10,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
   bedtimeIconContainer: {
     position: 'absolute',
     top: -18,
@@ -362,13 +406,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: 2,
+    borderWidth: 1,
+    borderColor: colors.secondary,
   },
   xAxis: {
     position: 'absolute',
-    bottom: -20,
+    bottom: 0,
     left: 0,
     right: 0,
-    height: 20,
+    height: 30,
   },
   timeLabel: {
     position: 'absolute',
@@ -376,6 +422,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     width: 50,
+    top: 5,
   },
   levelLabel: {
     position: 'absolute',
