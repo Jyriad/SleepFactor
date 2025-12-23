@@ -236,10 +236,10 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     position: 'relative',
-    marginBottom: spacing.sm,
+    marginBottom: 5,
   },
   chartContainer: {
-    marginBottom: 10,
+    marginBottom: 5,
   },
   consumptionMarker: {
     width: 16,
