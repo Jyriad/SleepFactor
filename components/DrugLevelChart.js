@@ -6,6 +6,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LineChart } from 'react-native-gifted-charts';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import {
@@ -15,10 +16,8 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 4); // Account for padding on both sides
+const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 60; // Account for padding and y-axis
 const CHART_HEIGHT = 200;
-const Y_AXIS_WIDTH = 60;
-const PADDING = 10;
 
 const DrugLevelChart = ({
   consumptionEvents,
@@ -50,190 +49,65 @@ const DrugLevelChart = ({
       30 // 30 minute intervals
     );
 
-    const maxLevel = getMaxDrugLevel(timelineData);
+    const maxLevel = getMaxDrugLevel(timelineData) || 1;
 
-    return {
-      timelineData,
-      maxLevel: maxLevel || 1, // Prevent division by zero
-      startTime,
-      endTime,
-    };
-  }, [consumptionEvents, habit, selectedDate]);
+    // Convert to Gifted Charts format - only include every Nth point to reduce density
+    // Show labels at 6am, 12pm, 6pm, 12am
+    const dataPoints = timelineData.map((point, index) => {
+      const hour = point.time.getHours();
+      const minute = point.time.getMinutes();
+      
+      // Only add labels at specific times to avoid overlap
+      let label = '';
+      if ((hour === 6 || hour === 12 || hour === 18 || hour === 0) && minute === 0) {
+        const isAM = hour < 12;
+        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        label = `${displayHour}${isAM ? 'am' : 'pm'}`;
+      }
 
-  const getXPosition = (time, startTime, endTime) => {
-    const totalDuration = endTime.getTime() - startTime.getTime();
-    const timeElapsed = time.getTime() - startTime.getTime();
-    const percentage = Math.max(0, Math.min(1, timeElapsed / totalDuration));
-    return PADDING + (percentage * (CHART_WIDTH - (PADDING * 2)));
-  };
-
-  const getYPosition = (level, maxLevel) => {
-    if (maxLevel === 0) return CHART_HEIGHT - PADDING;
-    const percentage = Math.max(0, Math.min(1, level / maxLevel));
-    return PADDING + ((1 - percentage) * (CHART_HEIGHT - (PADDING * 2)));
-  };
-
-  const formatTimeLabel = (date) => {
-    const hour = date.getHours();
-    const isAM = hour < 12;
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour}${isAM ? 'am' : 'pm'}`;
-  };
-
-  const renderChartPath = () => {
-    if (!chartData) return null;
-
-    const { timelineData, maxLevel, startTime, endTime } = chartData;
-    const pathPoints = [];
-
-    // Convert timeline data to screen coordinates
-    timelineData.forEach(point => {
-      pathPoints.push({
-        x: getXPosition(point.time, startTime, endTime),
-        y: getYPosition(point.level, maxLevel),
-      });
+      return {
+        value: point.level,
+        label: label,
+        labelComponent: label ? undefined : () => null,
+      };
     });
 
-    // Create simple line segments using Views
-    const lines = [];
-    for (let i = 0; i < pathPoints.length - 1; i++) {
-      const current = pathPoints[i];
-      const next = pathPoints[i + 1];
-      
-      const dx = next.x - current.x;
-      const dy = next.y - current.y;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    // Find positions for vertical lines
+    const now = new Date();
+    let currentTimeX = null;
+    let bedtimeX = null;
 
-      if (length > 0) {
-        lines.push(
-          <View
-            key={`line-${i}`}
-            style={[
-              styles.chartLine,
-              {
-                left: current.x,
-                top: current.y,
-                width: length,
-                transform: [{ rotate: `${angle}deg` }],
-              }
-            ]}
-          />
-        );
+    if (now >= startTime && now <= endTime) {
+      const totalDuration = endTime.getTime() - startTime.getTime();
+      const timeElapsed = now.getTime() - startTime.getTime();
+      const percentage = timeElapsed / totalDuration;
+      // LineChart component adds ~60px padding on left, so we need to account for that
+      currentTimeX = 60 + (percentage * (CHART_WIDTH - 60));
+    }
+
+    if (bedtime) {
+      const bedtimeDate = bedtime instanceof Date ? bedtime : new Date(bedtime);
+      if (bedtimeDate >= startTime && bedtimeDate <= endTime) {
+        const totalDuration = endTime.getTime() - startTime.getTime();
+        const timeElapsed = bedtimeDate.getTime() - startTime.getTime();
+        const percentage = timeElapsed / totalDuration;
+        bedtimeX = 60 + (percentage * (CHART_WIDTH - 60));
       }
     }
 
-    return lines;
-  };
+    return {
+      dataPoints,
+      timelineData,
+      maxLevel,
+      startTime,
+      endTime,
+      currentTimeX,
+      bedtimeX,
+    };
+  }, [consumptionEvents, habit, selectedDate, bedtime]);
 
-  const renderConsumptionMarkers = () => {
-    if (!chartData || !consumptionEvents) return null;
-
-    const { startTime, endTime, maxLevel } = chartData;
-
-    return consumptionEvents.map((event, index) => {
-      const eventTime = new Date(event.consumed_at);
-      const x = getXPosition(eventTime, startTime, endTime);
-      const y = getYPosition(event.amount, maxLevel);
-
-      return (
-        <View
-          key={`consumption-${event.id || index}`}
-          style={[
-            styles.consumptionMarker,
-            { left: x - 6, top: y - 6 }
-          ]}
-        >
-          <Ionicons name="cafe" size={12} color={colors.primary} />
-        </View>
-      );
-    });
-  };
-
-  const renderCurrentTimeIndicator = () => {
-    if (!chartData) return null;
-
-    const now = new Date();
-    const nowX = getXPosition(now, chartData.startTime, chartData.endTime);
-
-    // Only show if within chart bounds
-    if (nowX < PADDING || nowX > CHART_WIDTH - PADDING) return null;
-
-    return (
-      <View style={[styles.currentTimeLine, { left: nowX - 1 }]}>
-        <View style={styles.currentTimeIconContainer}>
-          <Ionicons name="time" size={14} color={colors.primary} />
-        </View>
-      </View>
-    );
-  };
-
-  const renderBedtimeIndicator = () => {
-    if (!bedtime || !chartData) return null;
-
-    const bedtimeDate = bedtime instanceof Date ? bedtime : new Date(bedtime);
-    const bedtimeX = getXPosition(bedtimeDate, chartData.startTime, chartData.endTime);
-
-    // Only show if within chart bounds
-    if (bedtimeX < PADDING || bedtimeX > CHART_WIDTH - PADDING) return null;
-
-    return (
-      <View style={[styles.bedtimeLine, { left: bedtimeX - 1 }]}>
-        <View style={styles.bedtimeIconContainer}>
-          <Ionicons name="moon" size={14} color={colors.secondary} />
-        </View>
-      </View>
-    );
-  };
-
-  const renderTimeLabels = () => {
-    if (!chartData) return null;
-
-    const labels = [];
-    const { startTime, endTime } = chartData;
-
-    // Show labels every 6 hours
-    for (let hour = 6; hour <= 30; hour += 6) {
-      const labelTime = new Date(startTime);
-      labelTime.setHours(hour % 24);
-
-      const x = getXPosition(labelTime, startTime, endTime);
-
-      labels.push(
-        <Text
-          key={`time-${hour}`}
-          style={[styles.timeLabel, { left: x - 25 }]}
-        >
-          {formatTimeLabel(labelTime)}
-        </Text>
-      );
-    }
-
-    return labels;
-  };
-
-  const renderLevelLabels = () => {
-    if (!chartData || chartData.maxLevel === 0) return null;
-
-    const labels = [];
-    const { maxLevel } = chartData;
-
-    // Show level labels at 0%, 50%, 100%
-    [0, 0.5, 1].forEach((percentage) => {
-      const level = maxLevel * percentage;
-      const y = getYPosition(level, maxLevel);
-
-      labels.push(
-        <Text
-          key={`level-${percentage}`}
-          style={[styles.levelLabel, { top: y - 10 }]}
-        >
-          {formatDrugLevel(level, habit.unit || 'units', percentage === 1 ? 0 : 1)}
-        </Text>
-      );
-    });
-
-    return labels;
+  const formatYAxisLabel = (value) => {
+    return formatDrugLevel(value, habit?.unit || 'units', value === 0 ? 0 : 1);
   };
 
   if (!chartData || !consumptionEvents || consumptionEvents.length === 0) {
@@ -250,38 +124,97 @@ const DrugLevelChart = ({
     );
   }
 
+  // Find consumption event positions for markers
+  const consumptionMarkers = consumptionEvents.map((event) => {
+    const eventTime = new Date(event.consumed_at);
+    // Find the closest data point
+    const closestPoint = chartData.timelineData.reduce((closest, point) => {
+      const currentDiff = Math.abs(point.time.getTime() - eventTime.getTime());
+      const closestDiff = Math.abs(closest.time.getTime() - eventTime.getTime());
+      return currentDiff < closestDiff ? point : closest;
+    }, chartData.timelineData[0]);
+
+    const index = chartData.timelineData.indexOf(closestPoint);
+    return {
+      index,
+      value: event.amount,
+      time: eventTime,
+    };
+  });
+
+  // Mark consumption points with custom data points
+  const chartDataWithMarkers = chartData.dataPoints.map((point, index) => {
+    const marker = consumptionMarkers.find(m => m.index === index);
+    if (marker) {
+      return {
+        ...point,
+        customDataPoint: () => (
+          <View style={styles.consumptionMarker}>
+            <Ionicons name="cafe" size={10} color={colors.primary} />
+          </View>
+        ),
+      };
+    }
+    return point;
+  });
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{habit.name} Levels Over Time</Text>
 
       <View style={styles.chartWrapper}>
-        {/* Y-axis labels */}
-        <View style={styles.yAxis}>
-          {renderLevelLabels()}
-        </View>
+        <LineChart
+          data={chartDataWithMarkers}
+          width={CHART_WIDTH}
+          height={CHART_HEIGHT}
+          color={colors.primary}
+          thickness={2}
+          curved
+          areaChart
+          startFillColor={colors.primary}
+          endFillColor={colors.primary}
+          startOpacity={0.2}
+          endOpacity={0}
+          yAxisColor={colors.border}
+          xAxisColor={colors.border}
+          rulesColor={colors.border}
+          rulesType="solid"
+          yAxisTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
+          xAxisLabelTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
+          hideYAxisText={false}
+          maxValue={chartData.maxLevel * 1.1}
+          noOfSections={4}
+          formatYLabel={formatYAxisLabel}
+          spacing={CHART_WIDTH / Math.max(1, chartDataWithMarkers.length - 1)}
+          dataPointsConfig={{
+            color: colors.primary,
+            radius: 3,
+          }}
+          textShiftY={-2}
+          textShiftX={-1}
+          textFontSize={typography.sizes.small}
+          hideDataPoints
+          hideRules={false}
+        />
 
-        {/* Chart area with proper containment */}
-        <View style={styles.chartAreaContainer}>
-          <View style={styles.chartArea}>
-            {/* Grid lines */}
-            <View style={[styles.gridHorizontal, { top: PADDING }]} />
-            <View style={[styles.gridHorizontal, { top: CHART_HEIGHT / 2 }]} />
-            <View style={[styles.gridHorizontal, { top: CHART_HEIGHT - PADDING }]} />
-
-            {/* Chart content - contained */}
-            <View style={styles.chartContent}>
-              {renderChartPath()}
-              {renderConsumptionMarkers()}
-              {renderCurrentTimeIndicator()}
-              {renderBedtimeIndicator()}
-            </View>
-
-            {/* Time labels */}
-            <View style={styles.xAxis}>
-              {renderTimeLabels()}
+        {/* Overlay vertical lines for current time and bedtime */}
+        {chartData.currentTimeX !== null && (
+          <View style={[styles.verticalLine, styles.currentTimeLine, { left: chartData.currentTimeX }]}>
+            <View style={styles.verticalLineLabelTop}>
+              <Ionicons name="time" size={12} color={colors.primary} />
+              <Text style={[styles.verticalLineLabelText, { color: colors.primary }]}>Now</Text>
             </View>
           </View>
-        </View>
+        )}
+
+        {chartData.bedtimeX !== null && bedtime && (
+          <View style={[styles.verticalLine, styles.bedtimeLine, { left: chartData.bedtimeX }]}>
+            <View style={styles.verticalLineLabelTop}>
+              <Ionicons name="moon" size={12} color={colors.secondary} />
+              <Text style={[styles.verticalLineLabelText, { color: colors.secondary }]}>Bedtime</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Legend */}
@@ -321,115 +254,51 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   chartWrapper: {
-    flexDirection: 'row',
-    marginBottom: spacing.md,
-    minHeight: CHART_HEIGHT + 30,
-  },
-  yAxis: {
-    width: Y_AXIS_WIDTH,
-    height: CHART_HEIGHT,
-    justifyContent: 'space-between',
-    paddingRight: spacing.xs,
-    paddingTop: PADDING,
-    paddingBottom: PADDING,
-  },
-  chartAreaContainer: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  chartArea: {
-    width: CHART_WIDTH,
-    height: CHART_HEIGHT + 30, // Extra space for x-axis labels
     position: 'relative',
-  },
-  chartContent: {
-    width: CHART_WIDTH,
-    height: CHART_HEIGHT,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  gridHorizontal: {
-    position: 'absolute',
-    left: PADDING,
-    right: PADDING,
-    height: 1,
-    backgroundColor: colors.border,
-    opacity: 0.2,
-  },
-  chartLine: {
-    position: 'absolute',
-    height: 2,
-    backgroundColor: colors.primary,
-    transformOrigin: 'left center',
+    marginBottom: spacing.sm,
   },
   consumptionMarker: {
-    position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: colors.white,
     borderWidth: 2,
     borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  bedtimeLine: {
+  verticalLine: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     width: 2,
-    backgroundColor: colors.secondary,
     zIndex: 10,
   },
   currentTimeLine: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 2,
     backgroundColor: colors.primary,
-    zIndex: 15,
+    opacity: 0.7,
   },
-  currentTimeIconContainer: {
+  bedtimeLine: {
+    backgroundColor: colors.secondary,
+    opacity: 0.7,
+  },
+  verticalLineLabelTop: {
     position: 'absolute',
-    top: -18,
-    left: -7,
+    top: -20,
+    left: -25,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.cardBackground,
-    borderRadius: 10,
-    padding: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
     borderWidth: 1,
-    borderColor: colors.primary,
+    minWidth: 50,
   },
-  bedtimeIconContainer: {
-    position: 'absolute',
-    top: -18,
-    left: -7,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
-    padding: 2,
-    borderWidth: 1,
-    borderColor: colors.secondary,
-  },
-  xAxis: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 30,
-  },
-  timeLabel: {
-    position: 'absolute',
+  verticalLineLabelText: {
     fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    width: 50,
-    top: 5,
-  },
-  levelLabel: {
-    position: 'absolute',
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    textAlign: 'right',
-    width: Y_AXIS_WIDTH - spacing.xs,
+    fontWeight: typography.weights.semibold,
+    marginLeft: 4,
   },
   legend: {
     flexDirection: 'row',
