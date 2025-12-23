@@ -17,7 +17,7 @@ import {
 
 const { width: screenWidth } = Dimensions.get('window');
 const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 60; // Account for padding and y-axis
-const CHART_HEIGHT = 200;
+const CHART_HEIGHT = 180; // Reduced chart height to allow more space for labels
 
 const DrugLevelChart = ({
   consumptionEvents,
@@ -274,12 +274,12 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     position: 'relative',
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg, // More margin for labels
     overflow: 'visible', // Allow x-axis labels to be visible
+    minHeight: CHART_HEIGHT + 90, // Ensure container is tall enough
   },
   chartContainer: {
-    marginBottom: 50, // Extra space for x-axis labels below chart
-    paddingBottom: 20, // Additional padding
+    marginBottom: 70, // Extra space for x-axis labels below chart
     overflow: 'visible', // Allow labels to be visible outside container
   },
   consumptionMarker: {
