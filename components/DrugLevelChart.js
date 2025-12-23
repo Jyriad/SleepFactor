@@ -99,19 +99,19 @@ const DrugLevelChart = ({
     );
   }
 
-  // Find consumption event positions for markers
+  // Find consumption event positions for markers (simplified - just show at closest time point)
   const consumptionMarkers = consumptionEvents.map((event) => {
     const eventTime = new Date(event.consumed_at);
-    // Find the closest data point
-    const closestPoint = chartData.timelineData.reduce((closest, point) => {
-      const currentDiff = Math.abs(point.time.getTime() - eventTime.getTime());
-      const closestDiff = Math.abs(closest.time.getTime() - eventTime.getTime());
-      return currentDiff < closestDiff ? point : closest;
-    }, chartData.timelineData[0]);
 
-    const index = chartData.timelineData.indexOf(closestPoint);
+    // Find the closest time point
+    const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
+      const currentDiff = Math.abs(timePoint.getTime() - eventTime.getTime());
+      const closestDiff = Math.abs(chartData.timePoints[closest].getTime() - eventTime.getTime());
+      return currentDiff < closestDiff ? index : closest;
+    }, 0);
+
     return {
-      index,
+      index: closestIndex,
       value: event.amount,
       time: eventTime,
     };
