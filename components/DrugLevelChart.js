@@ -273,6 +273,7 @@ const styles = StyleSheet.create({
   chartWrapper: {
     position: 'relative',
     marginBottom: spacing.md,
+    overflow: 'visible', // Allow x-axis labels to be visible
   },
   chartContainer: {
     marginBottom: 30, // Extra space for x-axis labels below chart
