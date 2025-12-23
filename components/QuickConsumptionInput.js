@@ -456,9 +456,10 @@ const styles = StyleSheet.create({
   },
   pickerScroll: {
     flex: 1,
+    height: 200,
   },
   pickerContent: {
-    paddingVertical: 75, // Half of picker height minus item height
+    paddingVertical: 100, // Extra padding to allow scrolling to all items
   },
   pickerItem: {
     height: 50,
