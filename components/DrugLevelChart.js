@@ -179,6 +179,7 @@ const DrugLevelChart = ({
             data={chartDataWithMarkers}
             width={CHART_WIDTH}
             height={CHART_HEIGHT}
+            adjustToWidth={false}
           color={colors.primary}
           thickness={2}
           curved
@@ -202,6 +203,7 @@ const DrugLevelChart = ({
           noOfSections={4}
           formatYLabel={formatYAxisLabel}
           spacing={CHART_WIDTH / Math.max(1, chartDataWithMarkers.length - 1)}
+          adjustToWidth={false}
           dataPointsConfig={{
             color: colors.primary,
             radius: 3,
@@ -276,7 +278,8 @@ const styles = StyleSheet.create({
     overflow: 'visible', // Allow x-axis labels to be visible
   },
   chartContainer: {
-    marginBottom: 30, // Extra space for x-axis labels below chart
+    marginBottom: 50, // Extra space for x-axis labels below chart
+    paddingBottom: 20, // Additional padding
     overflow: 'visible', // Allow labels to be visible outside container
   },
   consumptionMarker: {
