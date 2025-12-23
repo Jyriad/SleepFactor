@@ -18,7 +18,6 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 2) - 20; // More generous width since adjustToWidth is true
 const CHART_HEIGHT = 200;
 
 const DrugLevelChart = ({
@@ -188,7 +187,6 @@ const DrugLevelChart = ({
         <View style={styles.chartContainer}>
           <LineChart
             data={chartData.dataPoints}
-            width={CHART_WIDTH}
             height={CHART_HEIGHT}
             adjustToWidth={true}
             scrollEnabled={false}
@@ -215,7 +213,6 @@ const DrugLevelChart = ({
             maxValue={chartData.maxLevel * 1.1}
             noOfSections={4}
             formatYLabel={formatYAxisLabel}
-            spacing={CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1)} // Full width spacing
             dataPointsConfig={{
               color: colors.primary,
               radius: 3,
@@ -229,7 +226,7 @@ const DrugLevelChart = ({
           
           {/* Consumption event markers positioned at exact times */}
           {consumptionMarkers.map((marker, index) => {
-            const chartSpacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
+            const chartSpacing = screenWidth / Math.max(1, chartData.dataPoints.length - 1);
             const xPosition = marker.fractionalIndex * chartSpacing;
             const yAxisWidth = 50;
             
@@ -271,7 +268,7 @@ const DrugLevelChart = ({
           {/* Current time vertical line positioned using chart coordinate system */}
           {chartData.currentTimeDataPoint && (() => {
             // Use the same spacing calculation as the chart
-            const chartSpacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
+            const chartSpacing = screenWidth / Math.max(1, chartData.dataPoints.length - 1);
             // Calculate exact pixel position based on fractional index
             const xPosition = chartData.currentTimeDataPoint.index * chartSpacing;
             // Add approximate left padding (y-axis width)
@@ -345,7 +342,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     alignItems: 'center',
-    overflow: 'hidden',
   },
   nonScrollableChartWrapper: {
     position: 'relative',
