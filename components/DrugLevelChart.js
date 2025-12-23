@@ -194,6 +194,8 @@ const DrugLevelChart = ({
             scrollEnabled={false}
             scrollToEnd={false}
             scrollAnimation={false}
+            disableScroll={true}
+            isAnimated={false}
             color={colors.primary}
             thickness={2}
             curved
@@ -343,6 +345,8 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     overflow: 'hidden',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   currentTimeLineContainer: {
     position: 'absolute',
