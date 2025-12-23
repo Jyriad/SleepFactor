@@ -174,10 +174,11 @@ const DrugLevelChart = ({
       <Text style={styles.title}>{habit.name} Levels Over Time</Text>
 
       <View style={styles.chartWrapper}>
-        <LineChart
-          data={chartDataWithMarkers}
-          width={CHART_WIDTH}
-          height={CHART_HEIGHT}
+        <View style={styles.chartContainer}>
+          <LineChart
+            data={chartDataWithMarkers}
+            width={CHART_WIDTH}
+            height={CHART_HEIGHT}
           color={colors.primary}
           thickness={2}
           curved
@@ -194,9 +195,8 @@ const DrugLevelChart = ({
           xAxisLabelTextStyle={{ 
             color: colors.textSecondary, 
             fontSize: typography.sizes.small,
-            marginTop: 5,
           }}
-          xAxisLabelWidth={50}
+          xAxisLabelWidth={60}
           hideYAxisText={false}
           maxValue={chartData.maxLevel * 1.1}
           noOfSections={4}
@@ -211,7 +211,8 @@ const DrugLevelChart = ({
           textFontSize={typography.sizes.small}
           hideDataPoints
           hideRules={false}
-        />
+          />
+        </View>
 
         {/* Overlay vertical lines for current time and bedtime */}
         {chartData.currentTimeX !== null && (
@@ -272,7 +273,10 @@ const styles = StyleSheet.create({
   chartWrapper: {
     position: 'relative',
     marginBottom: spacing.md,
-    paddingBottom: 30, // Extra space for x-axis labels
+  },
+  chartContainer: {
+    marginBottom: 30, // Extra space for x-axis labels below chart
+    overflow: 'visible', // Allow labels to be visible outside container
   },
   consumptionMarker: {
     width: 16,
