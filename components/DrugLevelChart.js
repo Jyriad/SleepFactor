@@ -194,6 +194,7 @@ const DrugLevelChart = ({
           rulesType="solid"
           yAxisTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
           hideYAxisText={false}
+          showXAxisIndices={false}
           hideXAxisText={true}
           maxValue={chartData.maxLevel * 1.1}
           noOfSections={4}
@@ -208,18 +209,21 @@ const DrugLevelChart = ({
           textFontSize={typography.sizes.small}
           hideDataPoints
           hideRules={false}
-          xAxisIndicesWidth={CHART_WIDTH}
-          xAxisIndicesHeight={50}
           />
         </View>
 
         {/* Custom X-axis labels positioned outside the chart */}
         <View style={styles.customXAxis}>
-          {chartData.timelineData.map((point, index) => {
-            const hour = point.time.getHours();
-            if (hour === 6 || hour === 12 || hour === 18 || hour === 0) {
+          {chartData.timelineData
+            .map((point, index) => ({ point, index }))
+            .filter(({ point }) => {
+              const hour = point.time.getHours();
+              return hour === 6 || hour === 12 || hour === 18 || hour === 0;
+            })
+            .map(({ point, index }) => {
               const percentage = index / (chartData.timelineData.length - 1);
               const left = percentage * CHART_WIDTH;
+              const hour = point.time.getHours();
               const isAM = hour < 12;
               const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
 
@@ -231,9 +235,7 @@ const DrugLevelChart = ({
                   {`${displayHour}${isAM ? 'am' : 'pm'}`}
                 </Text>
               );
-            }
-            return null;
-          })}
+            })}
         </View>
 
         {/* Overlay vertical lines for current time and bedtime */}
