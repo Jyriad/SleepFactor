@@ -21,6 +21,7 @@ import HabitInput from '../components/HabitInput';
 import RestedFeelingSlider from '../components/RestedFeelingSlider';
 import Button from '../components/Button';
 import DatePickerModal from '../components/DatePickerModal';
+import DrugLevelChart from '../components/DrugLevelChart';
 
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
@@ -37,6 +38,7 @@ const HabitLoggingScreen = () => {
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
   const [habitLogCounts, setHabitLogCounts] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
+  const [sleepData, setSleepData] = useState(null);
 
   useEffect(() => {
     loadHabitsAndLogs();
@@ -151,16 +153,19 @@ const HabitLoggingScreen = () => {
         setHabitLogCounts(counts);
       }
 
-      // Load rested feeling
-      const { data: sleepData } = await supabase
+      // Load sleep data (for rested feeling and bedtime)
+      const { data: sleepDataResult } = await supabase
         .from('sleep_data')
-        .select('rested_feeling')
+        .select('rested_feeling, sleep_start_time')
         .eq('user_id', user.id)
         .eq('date', selectedDate)
         .single();
 
-      if (sleepData?.rested_feeling !== null && sleepData?.rested_feeling !== undefined) {
-        setRestedFeeling(sleepData.rested_feeling);
+      if (sleepDataResult) {
+        setSleepData(sleepDataResult);
+        if (sleepDataResult.rested_feeling !== null && sleepDataResult.rested_feeling !== undefined) {
+          setRestedFeeling(sleepDataResult.rested_feeling);
+        }
       }
     } catch (error) {
       console.error('Error loading habits and logs:', error);
@@ -469,6 +474,21 @@ const HabitLoggingScreen = () => {
                       unit={habit.unit}
                     />
                   </View>
+                  
+                  {/* Drug Level Chart for drug/quick_consumption habits */}
+                  {(habit.type === 'drug' || habit.type === 'quick_consumption') && 
+                   consumptionEvents[habit.id] && 
+                   consumptionEvents[habit.id].length > 0 && (
+                    <View style={styles.drugChartContainer}>
+                      <DrugLevelChart
+                        consumptionEvents={consumptionEvents[habit.id]}
+                        habit={habit}
+                        selectedDate={selectedDate}
+                        sleepStartTime={sleepData?.sleep_start_time || null}
+                        bedtime={sleepData?.sleep_start_time || null}
+                      />
+                    </View>
+                  )}
                 </View>
               ))}
             </>
@@ -591,6 +611,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
+  },
+  drugChartContainer: {
+    marginTop: spacing.md,
   },
   restedFeelingContainer: {
     backgroundColor: colors.cardBackground,

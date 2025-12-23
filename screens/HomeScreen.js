@@ -47,6 +47,7 @@ import NavigationCard from '../components/NavigationCard';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
 import BedtimeDrugIndicator from '../components/BedtimeDrugIndicator';
+import DrugLevelChart from '../components/DrugLevelChart';
 import { getCurrentDrugLevel } from '../utils/drugHalfLife';
 
 const HomeScreen = () => {
@@ -347,12 +348,12 @@ const HomeScreen = () => {
     if (!user) return;
 
     try {
-      // Fetch drug habits
+      // Fetch drug and quick_consumption habits (both are drug-related)
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
         .eq('user_id', user.id)
-        .eq('type', 'drug')
+        .in('type', ['drug', 'quick_consumption'])
         .eq('is_active', true);
 
       if (habitsError) throw habitsError;
@@ -652,17 +653,32 @@ const HomeScreen = () => {
         {/* Drug Level Widgets */}
         {!loading && drugHabits.length > 0 && isToday(selectedDate) && (
           <View style={styles.drugWidgetsContainer}>
-            <Text style={styles.drugWidgetsTitle}>Current Drug Levels</Text>
-            {drugHabits.map((habit) => (
-              <BedtimeDrugIndicator
-                key={habit.id}
-                consumptionEvents={drugConsumptionEvents[habit.id] || []}
-                habit={habit}
-                bedtime={null} // TODO: Get user's bedtime preference
-                sleepStartTime={null} // TODO: Get from sleep data
-                compact={true}
-              />
-            ))}
+            <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
+            {drugHabits.map((habit) => {
+              const events = drugConsumptionEvents[habit.id] || [];
+              const bedtime = sleepData?.sleep_start_time || null;
+              
+              return (
+                <View key={habit.id} style={styles.drugHabitContainer}>
+                  <DrugLevelChart
+                    consumptionEvents={events}
+                    habit={habit}
+                    selectedDate={selectedDate}
+                    sleepStartTime={sleepData?.sleep_start_time || null}
+                    bedtime={bedtime}
+                  />
+                  {events.length > 0 && (
+                    <BedtimeDrugIndicator
+                      consumptionEvents={events}
+                      habit={habit}
+                      bedtime={bedtime}
+                      sleepStartTime={sleepData?.sleep_start_time || null}
+                      compact={false}
+                    />
+                  )}
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -1281,12 +1297,16 @@ const styles = StyleSheet.create({
   },
   drugWidgetsContainer: {
     marginTop: spacing.regular,
+    paddingHorizontal: spacing.regular,
   },
   drugWidgetsTitle: {
     fontSize: typography.sizes.large,
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  drugHabitContainer: {
+    marginBottom: spacing.regular,
   },
 });
 

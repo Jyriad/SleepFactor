@@ -20,6 +20,7 @@ const InsightsScreen = () => {
   const [drugHabits, setDrugHabits] = useState([]);
   const [insightsData, setInsightsData] = useState({});
   const [averagePatterns, setAveragePatterns] = useState({});
+  const [recentConsumptionEvents, setRecentConsumptionEvents] = useState({});
 
   useEffect(() => {
     loadInsightsData();
@@ -30,12 +31,12 @@ const InsightsScreen = () => {
 
     setLoading(true);
     try {
-      // Load drug habits
+      // Load drug and quick_consumption habits
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
         .eq('user_id', user.id)
-        .eq('type', 'drug')
+        .in('type', ['drug', 'quick_consumption'])
         .eq('is_active', true);
 
       if (habitsError) throw habitsError;
@@ -46,6 +47,7 @@ const InsightsScreen = () => {
       if (habitsData && habitsData.length > 0) {
         const insights = {};
         const patterns = {};
+        const recentEvents = {};
 
         for (const habit of habitsData) {
           // Load consumption events for the last 30 days
@@ -76,6 +78,13 @@ const InsightsScreen = () => {
           const correlations = await calculateDrugSleepCorrelations(habit, eventsByDate);
           insights[habit.id] = correlations;
 
+          // Get most recent day's events for chart display
+          const sortedDates = Object.keys(eventsByDate).sort().reverse();
+          if (sortedDates.length > 0) {
+            const mostRecentDate = sortedDates[0];
+            recentEvents[habit.id] = eventsByDate[mostRecentDate];
+          }
+
           // Calculate average daily pattern
           const dailyEvents = Object.values(eventsByDate);
           if (dailyEvents.length > 0) {
@@ -97,6 +106,7 @@ const InsightsScreen = () => {
 
         setInsightsData(insights);
         setAveragePatterns(patterns);
+        setRecentConsumptionEvents(recentEvents);
       }
     } catch (error) {
       console.error('Error loading insights data:', error);
@@ -206,6 +216,7 @@ const InsightsScreen = () => {
   const renderDrugHabitInsights = (habit) => {
     const insights = insightsData[habit.id];
     const pattern = averagePatterns[habit.id];
+    const recentEvents = recentConsumptionEvents[habit.id];
 
     if (!insights) return null;
 
@@ -213,14 +224,14 @@ const InsightsScreen = () => {
       <View key={habit.id} style={styles.habitInsightsContainer}>
         <Text style={styles.habitTitle}>{habit.name} Insights</Text>
 
-        {/* Average Daily Pattern */}
-        {pattern && pattern.length > 0 && (
+        {/* Recent Day's Drug Level Chart */}
+        {recentConsumptionEvents[habit.id] && recentConsumptionEvents[habit.id].length > 0 && (
           <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Average Daily Pattern</Text>
+            <Text style={styles.chartTitle}>Recent Consumption Levels</Text>
             <DrugLevelChart
-              consumptionEvents={[]} // Empty for average pattern
+              consumptionEvents={recentConsumptionEvents[habit.id]}
               habit={habit}
-              selectedDate={new Date()}
+              selectedDate={new Date(recentConsumptionEvents[habit.id][0].consumed_at)}
               sleepStartTime={null}
               bedtime={null}
             />
