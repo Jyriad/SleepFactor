@@ -186,7 +186,7 @@ const DrugLevelChart = ({
       <View style={styles.chartWrapper}>
         <View style={styles.chartContainer}>
           <LineChart
-            data={chartDataWithMarkers}
+            data={chartData.dataPoints}
             width={CHART_WIDTH}
             height={CHART_HEIGHT}
             adjustToWidth={false}
@@ -209,7 +209,7 @@ const DrugLevelChart = ({
           maxValue={chartData.maxLevel * 1.1}
           noOfSections={4}
           formatYLabel={formatYAxisLabel}
-          spacing={CHART_WIDTH / Math.max(1, chartDataWithMarkers.length - 1)}
+          spacing={CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1)}
           dataPointsConfig={{
             color: colors.primary,
             radius: 3,
