@@ -64,12 +64,42 @@ const DrugLevelChart = ({
       };
     });
 
+    // Calculate current time position and interpolate drug level
+    const now = new Date();
+    let currentTimeDataPoint = null;
+    
+    // Find where current time falls between data points and interpolate
+    for (let i = 0; i < timePoints.length - 1; i++) {
+      if (now >= timePoints[i] && now <= timePoints[i + 1]) {
+        // Calculate interpolated drug level at current time
+        const currentLevel = calculateTotalDrugLevel(
+          consumptionEvents,
+          now,
+          habit.half_life_hours || 5,
+          habit.drug_threshold_percent || 5
+        );
+        
+        // Calculate position between data points (0-1)
+        const timeDiff = timePoints[i + 1].getTime() - timePoints[i].getTime();
+        const elapsed = now.getTime() - timePoints[i].getTime();
+        const position = elapsed / timeDiff;
+        
+        currentTimeDataPoint = {
+          index: i + position, // Fractional index for positioning
+          level: currentLevel,
+          time: now,
+        };
+        break;
+      }
+    }
+
     const maxLevel = Math.max(...dataPoints.map(p => p.value), 1);
 
     return {
       dataPoints,
       maxLevel,
       timePoints,
+      currentTimeDataPoint,
     };
   }, [consumptionEvents, habit, selectedDate]);
 
@@ -139,6 +169,22 @@ const DrugLevelChart = ({
 
       <View style={styles.chartWrapper}>
         <View style={styles.chartContainer}>
+          {/* Current time vertical line using SVG overlay */}
+          {chartData.currentTimeDataPoint && (() => {
+            const spacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
+            const xPosition = chartData.currentTimeDataPoint.index * spacing;
+            
+            return (
+              <View 
+                style={[
+                  styles.currentTimeLineOverlay,
+                  { left: xPosition }
+                ]}
+                pointerEvents="none"
+              />
+            );
+          })()}
+          
           <LineChart
             data={chartDataWithMarkers}
             width={CHART_WIDTH}
@@ -178,24 +224,6 @@ const DrugLevelChart = ({
 
 
 
-        {/* Current time vertical line */}
-        {(() => {
-          const now = new Date();
-
-          // Find the closest time point to current time
-          const closestIndex = chartData.timePoints.reduce((closest, timePoint, index) => {
-            const currentDiff = Math.abs(timePoint.getTime() - now.getTime());
-            const closestDiff = Math.abs(chartData.timePoints[closest].getTime() - now.getTime());
-            return currentDiff < closestDiff ? index : closest;
-          }, 0);
-
-          // Calculate position as percentage across the chart
-          const percentage = (closestIndex / (chartData.timePoints.length - 1)) * 100;
-
-          return (
-            <View style={[styles.currentTimeLine, { left: `${percentage}%` }]} />
-          );
-        })()}
       </View>
 
       {/* Legend */}
@@ -257,20 +285,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 2,
     zIndex: 10,
-  },
-  currentTimeLine: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 3,
-    backgroundColor: colors.accent || '#FF6B6B', // Use accent color or red for visibility
-    opacity: 0.9,
-    zIndex: 15,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 5,
   },
   bedtimeLine: {
     backgroundColor: colors.secondary,
