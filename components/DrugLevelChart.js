@@ -18,7 +18,7 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 60; // Account for container padding (2x) and y-axis width
+const CHART_WIDTH = screenWidth - (spacing.regular * 6) - 80; // More conservative width for label visibility
 const CHART_HEIGHT = 200;
 
 const DrugLevelChart = ({
