@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   Dimensions,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -16,8 +15,10 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 2);
+const CHART_WIDTH = screenWidth - (spacing.regular * 4); // Account for padding on both sides
 const CHART_HEIGHT = 200;
+const Y_AXIS_WIDTH = 60;
+const PADDING = 10;
 
 const DrugLevelChart = ({
   consumptionEvents,
@@ -53,7 +54,7 @@ const DrugLevelChart = ({
 
     return {
       timelineData,
-      maxLevel,
+      maxLevel: maxLevel || 1, // Prevent division by zero
       startTime,
       endTime,
     };
@@ -62,58 +63,67 @@ const DrugLevelChart = ({
   const getXPosition = (time, startTime, endTime) => {
     const totalDuration = endTime.getTime() - startTime.getTime();
     const timeElapsed = time.getTime() - startTime.getTime();
-    return (timeElapsed / totalDuration) * CHART_WIDTH;
+    const percentage = Math.max(0, Math.min(1, timeElapsed / totalDuration));
+    return PADDING + (percentage * (CHART_WIDTH - (PADDING * 2)));
   };
 
   const getYPosition = (level, maxLevel) => {
-    if (maxLevel === 0) return CHART_HEIGHT;
-    return CHART_HEIGHT - (level / maxLevel) * (CHART_HEIGHT - 20); // Leave margin at top
+    if (maxLevel === 0) return CHART_HEIGHT - PADDING;
+    const percentage = Math.max(0, Math.min(1, level / maxLevel));
+    return PADDING + ((1 - percentage) * (CHART_HEIGHT - (PADDING * 2)));
   };
 
   const formatTimeLabel = (date) => {
     const hour = date.getHours();
     const isAM = hour < 12;
     const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour} ${isAM ? 'AM' : 'PM'}`;
+    return `${displayHour}${isAM ? 'am' : 'pm'}`;
   };
 
-  const renderChartLines = () => {
+  const renderChartPath = () => {
     if (!chartData) return null;
 
     const { timelineData, maxLevel, startTime, endTime } = chartData;
-    const points = [];
+    const pathPoints = [];
 
-    // Create line segments between data points
-    for (let i = 0; i < timelineData.length - 1; i++) {
-      const currentPoint = timelineData[i];
-      const nextPoint = timelineData[i + 1];
+    // Convert timeline data to screen coordinates
+    timelineData.forEach(point => {
+      pathPoints.push({
+        x: getXPosition(point.time, startTime, endTime),
+        y: getYPosition(point.level, maxLevel),
+      });
+    });
 
-      const x1 = getXPosition(currentPoint.time, startTime, endTime);
-      const y1 = getYPosition(currentPoint.level, maxLevel);
-      const x2 = getXPosition(nextPoint.time, startTime, endTime);
-      const y2 = getYPosition(nextPoint.level, maxLevel);
+    // Create simple line segments using Views
+    const lines = [];
+    for (let i = 0; i < pathPoints.length - 1; i++) {
+      const current = pathPoints[i];
+      const next = pathPoints[i + 1];
+      
+      const dx = next.x - current.x;
+      const dy = next.y - current.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-      points.push(
-        <View
-          key={`line-${i}`}
-          style={[
-            styles.chartLine,
-            {
-              left: x1,
-              top: y1,
-              width: Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2)),
-              transform: [
-                {
-                  rotate: `${Math.atan2(y2 - y1, x2 - x1)}rad`
-                }
-              ]
-            }
-          ]}
-        />
-      );
+      if (length > 0) {
+        lines.push(
+          <View
+            key={`line-${i}`}
+            style={[
+              styles.chartLine,
+              {
+                left: current.x,
+                top: current.y,
+                width: length,
+                transform: [{ rotate: `${angle}deg` }],
+              }
+            ]}
+          />
+        );
+      }
     }
 
-    return points;
+    return lines;
   };
 
   const renderConsumptionMarkers = () => {
@@ -124,7 +134,7 @@ const DrugLevelChart = ({
     return consumptionEvents.map((event, index) => {
       const eventTime = new Date(event.consumed_at);
       const x = getXPosition(eventTime, startTime, endTime);
-      const y = getYPosition(event.amount, maxLevel); // Show initial amount at consumption time
+      const y = getYPosition(event.amount, maxLevel);
 
       return (
         <View
@@ -141,55 +151,19 @@ const DrugLevelChart = ({
   };
 
   const renderBedtimeIndicator = () => {
-    if (!bedtime) return null;
+    if (!bedtime || !chartData) return null;
 
     const bedtimeDate = bedtime instanceof Date ? bedtime : new Date(bedtime);
     const bedtimeX = getXPosition(bedtimeDate, chartData.startTime, chartData.endTime);
 
-    return (
-      <View style={[styles.bedtimeLine, { left: bedtimeX }]}>
-        <Ionicons name="moon" size={16} color={colors.secondary} style={styles.bedtimeIcon} />
-      </View>
-    );
-  };
-
-  const renderSleepPeriod = () => {
-    if (!sleepStartTime) return null;
-
-    const sleepStart = new Date(sleepStartTime);
-    const sleepStartX = getXPosition(sleepStart, chartData.startTime, chartData.endTime);
-
-    // Assume 8 hours of sleep for visualization
-    const sleepEnd = new Date(sleepStart.getTime() + (8 * 60 * 60 * 1000));
-    const sleepEndX = getXPosition(sleepEnd, chartData.startTime, chartData.endTime);
-
-    const sleepWidth = sleepEndX - sleepStartX;
+    // Only show if within chart bounds
+    if (bedtimeX < PADDING || bedtimeX > CHART_WIDTH - PADDING) return null;
 
     return (
-      <View
-        style={[
-          styles.sleepPeriod,
-          {
-            left: sleepStartX,
-            width: Math.max(sleepWidth, 20) // Minimum width for visibility
-          }
-        ]}
-      />
-    );
-  };
-
-  const renderThresholdLine = () => {
-    if (!chartData || !habit) return null;
-
-    const threshold = habit.drug_threshold_percent || 5;
-    const thresholdLevel = (chartData.maxLevel * threshold) / 100;
-    const y = getYPosition(thresholdLevel, chartData.maxLevel);
-
-    return (
-      <View style={[styles.thresholdLine, { top: y }]}>
-        <Text style={styles.thresholdLabel}>
-          {threshold}% threshold
-        </Text>
+      <View style={[styles.bedtimeLine, { left: bedtimeX - 1 }]}>
+        <View style={styles.bedtimeIconContainer}>
+          <Ionicons name="moon" size={14} color={colors.secondary} />
+        </View>
       </View>
     );
   };
@@ -201,7 +175,7 @@ const DrugLevelChart = ({
     const { startTime, endTime } = chartData;
 
     // Show labels every 6 hours
-    for (let hour = 6; hour <= 30; hour += 6) { // 6 AM to 6 AM next day
+    for (let hour = 6; hour <= 30; hour += 6) {
       const labelTime = new Date(startTime);
       labelTime.setHours(hour % 24);
 
@@ -210,7 +184,7 @@ const DrugLevelChart = ({
       labels.push(
         <Text
           key={`time-${hour}`}
-          style={[styles.timeLabel, { left: x - 20 }]}
+          style={[styles.timeLabel, { left: x - 25 }]}
         >
           {formatTimeLabel(labelTime)}
         </Text>
@@ -234,9 +208,9 @@ const DrugLevelChart = ({
       labels.push(
         <Text
           key={`level-${percentage}`}
-          style={[styles.levelLabel, { top: y - 8, left: -40 }]}
+          style={[styles.levelLabel, { top: y - 10 }]}
         >
-          {formatDrugLevel(level, habit.unit || 'units', 1)}
+          {formatDrugLevel(level, habit.unit || 'units', percentage === 1 ? 0 : 1)}
         </Text>
       );
     });
@@ -260,32 +234,33 @@ const DrugLevelChart = ({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Drug Levels Over Time</Text>
+      <Text style={styles.title}>{habit.name} Levels Over Time</Text>
 
-      <View style={styles.chartContainer}>
+      <View style={styles.chartWrapper}>
         {/* Y-axis labels */}
         <View style={styles.yAxis}>
           {renderLevelLabels()}
         </View>
 
-        {/* Chart area */}
-        <View style={styles.chartArea}>
-          {/* Grid lines */}
-          <View style={styles.gridHorizontal} />
-          <View style={[styles.gridHorizontal, { top: '50%' }]} />
+        {/* Chart area with proper containment */}
+        <View style={styles.chartAreaContainer}>
+          <View style={styles.chartArea}>
+            {/* Grid lines */}
+            <View style={[styles.gridHorizontal, { top: PADDING }]} />
+            <View style={[styles.gridHorizontal, { top: CHART_HEIGHT / 2 }]} />
+            <View style={[styles.gridHorizontal, { top: CHART_HEIGHT - PADDING }]} />
 
-          {/* Chart content */}
-          <View style={styles.chartContent}>
-            {renderChartLines()}
-            {renderConsumptionMarkers()}
-            {renderBedtimeIndicator()}
-            {renderSleepPeriod()}
-            {renderThresholdLine()}
-          </View>
+            {/* Chart content - contained */}
+            <View style={styles.chartContent}>
+              {renderChartPath()}
+              {renderConsumptionMarkers()}
+              {renderBedtimeIndicator()}
+            </View>
 
-          {/* Time labels */}
-          <View style={styles.xAxis}>
-            {renderTimeLabels()}
+            {/* Time labels */}
+            <View style={styles.xAxis}>
+              {renderTimeLabels()}
+            </View>
           </View>
         </View>
       </View>
@@ -296,14 +271,10 @@ const DrugLevelChart = ({
           <Ionicons name="cafe" size={16} color={colors.primary} />
           <Text style={styles.legendText}>Consumption</Text>
         </View>
-        <View style={styles.legendItem}>
-          <Ionicons name="moon" size={16} color={colors.secondary} />
-          <Text style={styles.legendText}>Bedtime</Text>
-        </View>
-        {sleepStartTime && (
+        {bedtime && (
           <View style={styles.legendItem}>
-            <View style={styles.legendSleepIndicator} />
-            <Text style={styles.legendText}>Sleep Period</Text>
+            <Ionicons name="moon" size={16} color={colors.secondary} />
+            <Text style={styles.legendText}>Bedtime</Text>
           </View>
         )}
       </View>
@@ -321,41 +292,49 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   title: {
-    fontSize: typography.sizes.large,
+    fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
-    marginBottom: spacing.regular,
+    marginBottom: spacing.md,
   },
-  chartContainer: {
+  chartWrapper: {
     flexDirection: 'row',
-    height: CHART_HEIGHT + 40, // Extra space for labels
+    marginBottom: spacing.sm,
   },
   yAxis: {
-    width: 50,
+    width: Y_AXIS_WIDTH,
+    height: CHART_HEIGHT,
     justifyContent: 'space-between',
-    paddingRight: spacing.sm,
+    paddingRight: spacing.xs,
+  },
+  chartAreaContainer: {
+    flex: 1,
+    overflow: 'hidden',
   },
   chartArea: {
-    flex: 1,
-    position: 'relative',
-  },
-  chartContent: {
+    width: CHART_WIDTH,
     height: CHART_HEIGHT,
     position: 'relative',
   },
+  chartContent: {
+    width: CHART_WIDTH,
+    height: CHART_HEIGHT,
+    position: 'relative',
+    overflow: 'hidden',
+  },
   gridHorizontal: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: PADDING,
+    right: PADDING,
     height: 1,
     backgroundColor: colors.border,
-    opacity: 0.3,
+    opacity: 0.2,
   },
   chartLine: {
     position: 'absolute',
     height: 2,
     backgroundColor: colors.primary,
-    borderRadius: 1,
+    transformOrigin: 'left center',
   },
   consumptionMarker: {
     position: 'absolute',
@@ -374,77 +353,51 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 2,
     backgroundColor: colors.secondary,
+    zIndex: 10,
   },
-  bedtimeIcon: {
+  bedtimeIconContainer: {
     position: 'absolute',
-    top: -20,
-    left: -6,
-  },
-  sleepPeriod: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    backgroundColor: colors.secondary,
-    opacity: 0.1,
-  },
-  thresholdLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: colors.warning,
-    opacity: 0.7,
-  },
-  thresholdLabel: {
-    position: 'absolute',
-    right: 5,
-    top: -15,
-    fontSize: typography.sizes.small,
-    color: colors.warning,
+    top: -18,
+    left: -7,
     backgroundColor: colors.cardBackground,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 4,
+    borderRadius: 10,
+    padding: 2,
   },
   xAxis: {
-    position: 'relative',
+    position: 'absolute',
+    bottom: -20,
+    left: 0,
+    right: 0,
     height: 20,
   },
   timeLabel: {
     position: 'absolute',
-    top: 0,
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     textAlign: 'center',
-    width: 40,
+    width: 50,
   },
   levelLabel: {
     position: 'absolute',
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     textAlign: 'right',
-    width: 35,
+    width: Y_AXIS_WIDTH - spacing.xs,
   },
   legend: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing.regular,
-    marginTop: spacing.regular,
+    gap: spacing.md,
+    marginTop: spacing.sm,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   legendText: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
-  },
-  legendSleepIndicator: {
-    width: 12,
-    height: 12,
-    backgroundColor: colors.secondary,
-    opacity: 0.3,
-    borderRadius: 2,
   },
   emptyContainer: {
     alignItems: 'center',

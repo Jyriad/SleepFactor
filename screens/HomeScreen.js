@@ -94,6 +94,7 @@ const HomeScreen = () => {
     React.useCallback(() => {
       checkHabitsLogged();
       checkTodaysHabitsLogged();
+      fetchDrugHabitsAndEvents();
     }, [selectedDate, user])
   );
 
@@ -651,23 +652,30 @@ const HomeScreen = () => {
         )}
 
         {/* Drug Level Widgets */}
-        {!loading && drugHabits.length > 0 && isToday(selectedDate) && (
-          <View style={styles.drugWidgetsContainer}>
-            <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
-            {drugHabits.map((habit) => {
-              const events = drugConsumptionEvents[habit.id] || [];
-              const bedtime = sleepData?.sleep_start_time || null;
-              
-              return (
-                <View key={habit.id} style={styles.drugHabitContainer}>
-                  <DrugLevelChart
-                    consumptionEvents={events}
-                    habit={habit}
-                    selectedDate={selectedDate}
-                    sleepStartTime={sleepData?.sleep_start_time || null}
-                    bedtime={bedtime}
-                  />
-                  {events.length > 0 && (
+        {!loading && isToday(selectedDate) && (() => {
+          const habitsWithEvents = drugHabits.filter(habit => {
+            const events = drugConsumptionEvents[habit.id] || [];
+            return events.length > 0;
+          });
+
+          if (habitsWithEvents.length === 0) return null;
+
+          return (
+            <View style={styles.drugWidgetsContainer}>
+              <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
+              {habitsWithEvents.map((habit) => {
+                const events = drugConsumptionEvents[habit.id] || [];
+                const bedtime = sleepData?.sleep_start_time || null;
+                
+                return (
+                  <View key={habit.id} style={styles.drugHabitContainer}>
+                    <DrugLevelChart
+                      consumptionEvents={events}
+                      habit={habit}
+                      selectedDate={selectedDate}
+                      sleepStartTime={sleepData?.sleep_start_time || null}
+                      bedtime={bedtime}
+                    />
                     <BedtimeDrugIndicator
                       consumptionEvents={events}
                       habit={habit}
@@ -675,12 +683,12 @@ const HomeScreen = () => {
                       sleepStartTime={sleepData?.sleep_start_time || null}
                       compact={false}
                     />
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        )}
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
 
 
         {/* Sleep Data Card */}
