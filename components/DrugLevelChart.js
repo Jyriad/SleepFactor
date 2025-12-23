@@ -13,7 +13,8 @@ import { typography, spacing } from '../constants';
 import {
   generateDrugLevelTimeline,
   getMaxDrugLevel,
-  formatDrugLevel
+  formatDrugLevel,
+  calculateTotalDrugLevel
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
