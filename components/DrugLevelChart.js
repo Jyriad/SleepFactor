@@ -169,16 +169,20 @@ const DrugLevelChart = ({
 
       <View style={styles.chartWrapper}>
         <View style={styles.chartContainer}>
-          {/* Current time vertical line using SVG overlay */}
+          {/* Current time vertical line positioned using chart coordinate system */}
           {chartData.currentTimeDataPoint && (() => {
-            const spacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
-            const xPosition = chartData.currentTimeDataPoint.index * spacing;
+            // Use the same spacing calculation as the chart
+            const chartSpacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
+            // Calculate exact pixel position based on fractional index
+            const xPosition = chartData.currentTimeDataPoint.index * chartSpacing;
+            // Add approximate left padding (y-axis width)
+            const yAxisWidth = 50;
             
             return (
               <View 
                 style={[
                   styles.currentTimeLineOverlay,
-                  { left: xPosition }
+                  { left: yAxisWidth + xPosition }
                 ]}
                 pointerEvents="none"
               />
