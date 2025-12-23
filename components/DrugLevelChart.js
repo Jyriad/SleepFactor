@@ -169,26 +169,6 @@ const DrugLevelChart = ({
 
       <View style={styles.chartWrapper}>
         <View style={styles.chartContainer}>
-          {/* Current time vertical line positioned using chart coordinate system */}
-          {chartData.currentTimeDataPoint && (() => {
-            // Use the same spacing calculation as the chart
-            const chartSpacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
-            // Calculate exact pixel position based on fractional index
-            const xPosition = chartData.currentTimeDataPoint.index * chartSpacing;
-            // Add approximate left padding (y-axis width)
-            const yAxisWidth = 50;
-            
-            return (
-              <View 
-                style={[
-                  styles.currentTimeLineOverlay,
-                  { left: yAxisWidth + xPosition }
-                ]}
-                pointerEvents="none"
-              />
-            );
-          })()}
-          
           <LineChart
             data={chartDataWithMarkers}
             width={CHART_WIDTH}
@@ -224,6 +204,26 @@ const DrugLevelChart = ({
           hideDataPoints
           hideRules={false}
           />
+          
+          {/* Current time vertical line positioned using chart coordinate system */}
+          {chartData.currentTimeDataPoint && (() => {
+            // Use the same spacing calculation as the chart
+            const chartSpacing = CHART_WIDTH / Math.max(1, chartData.dataPoints.length - 1);
+            // Calculate exact pixel position based on fractional index
+            const xPosition = chartData.currentTimeDataPoint.index * chartSpacing;
+            // Add approximate left padding (y-axis width)
+            const yAxisWidth = 50;
+            
+            return (
+              <View 
+                style={[
+                  styles.currentTimeLineOverlay,
+                  { left: yAxisWidth + xPosition }
+                ]}
+                pointerEvents="none"
+              />
+            );
+          })()}
         </View>
 
 
@@ -272,6 +272,21 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     marginBottom: 5,
+    position: 'relative',
+  },
+  currentTimeLineOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: colors.primary,
+    opacity: 0.9,
+    zIndex: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 5,
   },
   consumptionMarker: {
     width: 16,
