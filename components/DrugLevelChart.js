@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   Dimensions,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-gifted-charts';
@@ -16,8 +17,8 @@ import {
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_WIDTH = screenWidth - (spacing.regular * 4) - 60; // Account for padding and y-axis
-const CHART_HEIGHT = 180; // Reduced chart height to allow more space for labels
+const CHART_WIDTH = screenWidth - (spacing.regular * 6); // More padding
+const CHART_HEIGHT = 200; // Reduced chart height to allow more space for labels
 
 const DrugLevelChart = ({
   consumptionEvents,
