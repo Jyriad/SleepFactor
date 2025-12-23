@@ -212,13 +212,6 @@ const DrugLevelChart = ({
           />
         </View>
 
-        {/* Fixed x-axis labels positioned within chart bounds */}
-        <View style={styles.fixedXAxisLabels}>
-          <Text style={[styles.fixedXAxisLabel, styles.label6am]}>6am</Text>
-          <Text style={[styles.fixedXAxisLabel, styles.label12pm]}>12pm</Text>
-          <Text style={[styles.fixedXAxisLabel, styles.label6pm]}>6pm</Text>
-          <Text style={[styles.fixedXAxisLabel, styles.label12am]}>12am</Text>
-        </View>
 
         {/* Overlay vertical lines for current time and bedtime */}
         {chartData.currentTimeX !== null && (
