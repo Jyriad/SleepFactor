@@ -63,19 +63,26 @@ class HealthMetricsService {
     try {
       if (this.isInitialized) return true;
 
-      // Check if health service is available
-      const healthAvailable = await healthService.isAvailable();
-      if (!healthAvailable) {
-        return false;
+      // Ensure health service is initialized first
+      if (!healthService.isInitialized) {
+        const healthServiceInitialized = await healthService.initialize();
+        if (!healthServiceInitialized) {
+          console.log('⚠️ Health service initialization failed in healthMetricsService.initialize()');
+          return false;
+        }
       }
 
-      // Check permissions
+      // If healthService is initialized, we can assume Health Connect is available
+      // (initialization wouldn't succeed if it wasn't available)
+      // Just check permissions now
       const hasPermissions = await healthService.hasPermissions();
       if (!hasPermissions) {
+        console.log('⚠️ Health permissions not granted in healthMetricsService.initialize()');
         return false;
       }
 
       this.isInitialized = true;
+      console.log('✅ Health metrics service initialized successfully');
       return true;
     } catch (error) {
       console.error('Health metrics service initialization failed:', error);
@@ -242,6 +249,80 @@ class HealthMetricsService {
       return {
         success: false,
         message: error.message || 'Failed to sync health metrics'
+      };
+    }
+  }
+
+  /**
+   * Sync a specific health metric for a date range
+   * @param {string} userId - User ID
+   * @param {string} metricKey - Metric key (e.g., 'steps', 'active_energy')
+   * @param {string} habitId - Habit ID in database
+   * @param {Date} startDate - Start date
+   * @param {Date} endDate - End date
+   * @returns {Promise<Object>} Sync result with synced count
+   */
+  async syncSingleHealthMetric(userId, metricKey, habitId, startDate, endDate) {
+    try {
+      // Initialize health metrics service (this will also initialize healthService if needed)
+      if (!this.isInitialized) {
+        console.log('🔄 Initializing health metrics service...');
+        const initialized = await this.initialize();
+        if (!initialized) {
+          // Check why initialization failed
+          const hasPermissions = await healthService.hasPermissions();
+          if (!hasPermissions) {
+            console.log('⚠️ Health permissions not granted');
+            return { 
+              success: false, 
+              message: 'Health permissions are required. Please grant permissions in your device settings or when prompted.', 
+              synced: 0 
+            };
+          }
+          console.log('⚠️ Health metrics service initialization failed');
+          return { 
+            success: false, 
+            message: 'Unable to connect to Health Connect. Please make sure Health Connect is installed and try again.', 
+            synced: 0 
+          };
+        }
+      }
+
+      // Check if we have permission for this specific metric
+      const recordType = this.getRecordTypeForMetric(metricKey);
+      if (recordType) {
+        const hasPermission = await healthService.hasPermissionForRecordType(recordType);
+        if (!hasPermission) {
+          console.log(`⚠️ Permission not granted for ${metricKey} (${recordType})`);
+          return { 
+            success: false, 
+            message: `Permission not granted for ${metricKey}. Please grant access in your device settings.`, 
+            synced: 0 
+          };
+        }
+      }
+
+      // Fetch health data for this metric
+      console.log(`📥 Fetching health data for ${metricKey}...`);
+      const metricData = await this.fetchHealthMetricData(metricKey, startDate, endDate);
+      console.log(`📊 Fetched ${metricData.length} data points for ${metricKey}`);
+      
+      // Store the data
+      const syncedCount = await this.storeHealthMetricData(userId, habitId, metricData);
+      console.log(`✅ Stored ${syncedCount} records for ${metricKey}`);
+
+      return {
+        success: true,
+        synced: syncedCount,
+        dataPoints: metricData.length,
+        message: `Synced ${syncedCount} data points for ${metricKey}`
+      };
+    } catch (error) {
+      console.error(`❌ Error syncing single health metric ${metricKey}:`, error);
+      return {
+        success: false,
+        synced: 0,
+        message: error.message || 'Failed to sync health metric. Please try again later.'
       };
     }
   }

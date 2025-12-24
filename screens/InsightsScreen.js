@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,8 @@ import { useAuth } from '../contexts/AuthContext';
 import insightsService from '../services/insightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 const InsightsScreen = () => {
   const { user } = useAuth();
@@ -68,6 +71,8 @@ const InsightsScreen = () => {
 
   const renderInsightCard = (insight) => {
     const metricInfo = getSelectedMetricInfo();
+    // Use screen width minus padding for responsive cards
+    const cardWidth = screenWidth - (spacing.regular * 2);
 
     if (insight.type === 'binary') {
       return (
@@ -75,7 +80,7 @@ const InsightsScreen = () => {
           key={insight.habit.id}
           insight={insight}
           sleepMetric={metricInfo}
-          width={350}
+          width={cardWidth}
         />
       );
     } else if (insight.type === 'numerical') {
@@ -84,7 +89,7 @@ const InsightsScreen = () => {
           key={insight.habit.id}
           insight={insight}
           sleepMetric={metricInfo}
-          width={350}
+          width={cardWidth}
         />
       );
     }

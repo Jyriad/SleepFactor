@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
+import sleepSyncService from '../services/sleepSyncService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
@@ -142,11 +143,20 @@ const HabitManagementScreen = () => {
         !h.is_custom && PREDEFINED_HABITS.some(p => p.name === h.name)
       );
 
-      const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits];
+      // Get health metric habits (automatic tracking habits)
+      const healthMetricHabits = normalizedData.filter(h =>
+        !h.is_custom && healthMetricsService.isHealthMetricHabit(h)
+      );
+
+      console.log(`📊 Loaded ${healthMetricHabits.length} health metric habits:`, healthMetricHabits.map(h => h.name));
+
+      const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits, ...healthMetricHabits];
 
       // Separate habits into manual and automatic categories
       const manual = allHabits.filter(habit => !healthMetricsService.isHealthMetricHabit(habit));
       const automatic = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
+
+      console.log(`📊 Separated into ${manual.length} manual and ${automatic.length} automatic habits`);
 
       // Ensure all habits have valid IDs for DraggableFlatList
       const validManual = manual.filter(habit => habit && (habit.id || habit.name));
@@ -165,11 +175,152 @@ const HabitManagementScreen = () => {
     }
   };
 
-  const toggleHealthMetric = async (metric, enable) => {
+  const syncHealthMetricData = async (habitId, metricKey) => {
     if (!user) return;
 
     try {
+      console.log(`🔄 Starting sync for ${metricKey}, habit ID: ${habitId}`);
+
+      // Calculate date range: last 30 days
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+
+      // Sync the health metric data
+      const syncResult = await healthMetricsService.syncSingleHealthMetric(
+        user.id,
+        metricKey,
+        habitId,
+        startDate,
+        endDate
+      );
+
+      // Also sync 30 days of sleep data to ensure insights have matching data
+      console.log(`🔄 Syncing 30 days of sleep data for insights...`);
+      let sleepSyncResult = null;
+      try {
+        sleepSyncResult = await sleepSyncService.syncSleepData({ 
+          daysBack: 30, 
+          force: true // Force sync to ensure we get the full 30 days
+        });
+        if (sleepSyncResult.success) {
+          console.log(`✅ Sleep data sync completed: ${sleepSyncResult.syncedRecords || 0} records synced`);
+          if (sleepSyncResult.data && sleepSyncResult.data.length > 0) {
+            console.log(`   Date range: ${sleepSyncResult.dateRange?.startDate} to ${sleepSyncResult.dateRange?.endDate}`);
+          }
+        } else {
+          console.warn(`⚠️ Sleep data sync failed:`, sleepSyncResult.error);
+          console.warn(`   Error details:`, JSON.stringify(sleepSyncResult, null, 2));
+        }
+      } catch (sleepError) {
+        console.error(`❌ Exception during sleep data sync:`, sleepError);
+        console.error(`   Error message:`, sleepError.message);
+        console.error(`   Error stack:`, sleepError.stack);
+        // Don't fail the health metric sync if sleep sync fails
+      }
+
+      if (syncResult.success) {
+        const recordCount = syncResult.synced || 0;
+        console.log(`✅ Health metric sync completed: ${recordCount} records synced for ${metricKey}`);
+        
+        // Show success message to user
+        const metricName = healthMetricsService.getAvailableMetrics().find(m => m.key === metricKey)?.name || 'health data';
+        
+        let message = '';
+        if (recordCount > 0) {
+          message = `Successfully synced ${recordCount} days of ${metricName} from your health app.`;
+          if (sleepSyncResult?.success && sleepSyncResult.syncedRecords > 0) {
+            message += `\n\nAlso synced ${sleepSyncResult.syncedRecords} days of sleep data for insights.`;
+          }
+        } else {
+          message = `No historical data found for ${metricName}. The metric is enabled and will sync automatically as new data becomes available.`;
+        }
+        
+        Alert.alert('Sync Complete', message, [{ text: 'OK' }]);
+      } else {
+        console.warn(`⚠️ Sync failed for ${metricKey}:`, syncResult.message);
+        
+        // Show user-friendly error message
+        const metricName = healthMetricsService.getAvailableMetrics().find(m => m.key === metricKey)?.name || 'this metric';
+        const errorMessage = syncResult.message || 'Unknown error occurred';
+        
+        Alert.alert(
+          'Sync Incomplete',
+          `${metricName} is enabled, but we couldn't sync historical data.\n\n${errorMessage}\n\nThe metric will sync automatically once permissions are granted and data becomes available.`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error(`❌ Error syncing health metric data:`, error);
+      const metricName = healthMetricsService.getAvailableMetrics().find(m => m.key === metricKey)?.name || 'this metric';
+      
+      Alert.alert(
+        'Sync Error',
+        `${metricName} is enabled, but an error occurred while syncing data. The metric will sync automatically once the issue is resolved.`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const toggleHealthMetric = async (metric, enable) => {
+    if (!user) {
+      console.log('❌ toggleHealthMetric: No user found');
+      return;
+    }
+
+    console.log(`🔄 toggleHealthMetric: ${metric.name}, enable: ${enable}`);
+
+    // Store previous state for potential rollback
+    let previousState = null;
+
+    // Optimistically update state immediately to prevent flickering
+    setAutomaticHabits(prev => {
+      previousState = [...prev]; // Save for rollback
+      
+      const existingHabit = prev.find(h => h.name === metric.name);
+      
       if (enable) {
+        if (existingHabit) {
+          // Update existing habit optimistically
+          console.log('⚡ Optimistically enabling habit in state');
+          return prev.map(h =>
+            h.id === existingHabit.id
+              ? { ...h, is_active: true }
+              : h
+          );
+        } else {
+          // Create placeholder habit optimistically (will be replaced with real data)
+          console.log('⚡ Optimistically adding habit to state');
+          const placeholderHabit = {
+            id: `temp-${metric.name}`,
+            user_id: user.id,
+            name: metric.name,
+            type: metric.type,
+            unit: metric.unit,
+            is_custom: false,
+            is_active: true,
+            is_pinned: false,
+          };
+          return [...prev, placeholderHabit];
+        }
+      } else {
+        if (existingHabit) {
+          // Disable existing habit optimistically
+          console.log('⚡ Optimistically disabling habit in state');
+          return prev.map(h =>
+            h.id === existingHabit.id
+              ? { ...h, is_active: false }
+              : h
+          );
+        }
+        // If habit not in state, we'll handle it in the database call below
+        return prev;
+      }
+    });
+
+    try {
+      if (enable) {
+        console.log(`✅ Enabling health metric: ${metric.name}`);
 
         // Enable: Check if habit exists in database first
         const { data: existingHabits, error: checkError } = await supabase
@@ -179,28 +330,59 @@ const HabitManagementScreen = () => {
           .eq('name', metric.name)
           .eq('is_custom', false);
 
-        if (checkError) throw checkError;
+        if (checkError) {
+          console.error('❌ Error checking existing habits:', checkError);
+          throw checkError;
+        }
+
+        console.log(`📊 Found ${existingHabits?.length || 0} existing habits for ${metric.name}`);
 
         if (existingHabits && existingHabits.length > 0) {
           // Habit exists, just re-enable it
           const existingHabit = existingHabits[0];
+          console.log(`♻️ Re-enabling existing habit: ${existingHabit.id}`);
+          
           const { error } = await supabase
             .from('habits')
             .update({ is_active: true })
             .eq('id', existingHabit.id);
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ Error updating habit:', error);
+            throw error;
+          }
 
-          // Update local state
-          setAutomaticHabits(prev =>
-            prev.map(h =>
-              h.id === existingHabit.id
-                ? { ...h, is_active: true }
-                : h
-            )
-          );
+          console.log('✅ Successfully updated habit in database');
+
+          // Update state with real habit data (replace placeholder if needed)
+          setAutomaticHabits(prev => {
+            const habitInState = prev.find(h => h.name === metric.name);
+            let updated;
+            
+            if (habitInState) {
+              // Update with real data
+              updated = prev.map(h =>
+                h.name === metric.name
+                  ? { ...existingHabit, is_active: true }
+                  : h
+              );
+              console.log('📝 Updated habit with real data in automaticHabits state');
+            } else {
+              // Add real habit
+              updated = [...prev, { ...existingHabit, is_active: true }];
+              console.log('📝 Added real habit to automaticHabits state');
+            }
+            
+            console.log('📊 automaticHabits state now has:', updated.length, 'habits');
+            return updated;
+          });
+
+          // Automatically sync 30 days of historical data
+          await syncHealthMetricData(existingHabit.id, metric.key);
         } else {
           // Habit doesn't exist, create it
+          console.log(`➕ Creating new habit for ${metric.name}`);
+          
           const { data: newHabit, error } = await supabase
             .from('habits')
             .insert({
@@ -215,35 +397,102 @@ const HabitManagementScreen = () => {
             .select()
             .single();
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ Error creating habit:', error);
+            throw error;
+          }
 
-          // Add to local state
-          setAutomaticHabits(prev => [...prev, newHabit]);
+          console.log('✅ Successfully created habit:', newHabit.id);
+
+          // Replace placeholder with real habit data
+          setAutomaticHabits(prev => {
+            const updated = prev.map(h =>
+              h.name === metric.name && h.id?.startsWith('temp-')
+                ? { ...newHabit, is_active: true }
+                : h.name === metric.name
+                ? { ...newHabit, is_active: true }
+                : h
+            );
+            // If somehow not found, add it
+            if (!updated.find(h => h.name === metric.name)) {
+              updated.push({ ...newHabit, is_active: true });
+            }
+            console.log('📝 Replaced placeholder with real habit data');
+            return updated;
+          });
+
+          // Automatically sync 30 days of historical data
+          await syncHealthMetricData(newHabit.id, metric.key);
         }
       } else {
         // Disable: Find and deactivate the health metric habit
-        const existingHabit = automaticHabits.find(h => h.name === metric.name);
+        console.log(`❌ Disabling health metric: ${metric.name}`);
+        
+        // First check in state, then check database if not found
+        let existingHabit = automaticHabits.find(h => h.name === metric.name);
+        
+        if (!existingHabit) {
+          console.log('⚠️ Habit not in state, checking database...');
+          const { data: dbHabits, error: dbError } = await supabase
+            .from('habits')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('name', metric.name)
+            .eq('is_custom', false)
+            .limit(1);
+          
+          if (!dbError && dbHabits && dbHabits.length > 0) {
+            existingHabit = dbHabits[0];
+            console.log('✅ Found habit in database:', existingHabit.id);
+          }
+        }
 
         if (existingHabit) {
+          console.log(`🔕 Deactivating habit: ${existingHabit.id}`);
+          
           const { error } = await supabase
             .from('habits')
             .update({ is_active: false })
             .eq('id', existingHabit.id);
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ Error updating habit:', error);
+            throw error;
+          }
 
-          // Update local state
-          setAutomaticHabits(prev =>
-            prev.map(h =>
-              h.id === existingHabit.id
-                ? { ...h, is_active: false }
-                : h
-            )
-          );
+          console.log('✅ Successfully deactivated habit in database');
+
+          // Update state with real data (already optimistically updated above)
+          setAutomaticHabits(prev => {
+            const habitInState = prev.find(h => h.name === metric.name);
+            if (habitInState) {
+              // Update with real data
+              const updated = prev.map(h =>
+                h.name === metric.name
+                  ? { ...existingHabit, is_active: false }
+                  : h
+              );
+              console.log('📝 Confirmed habit disabled in state');
+              return updated;
+            } else {
+              // Add it to state with is_active: false
+              const updated = [...prev, { ...existingHabit, is_active: false }];
+              console.log('📝 Added deactivated habit to automaticHabits state');
+              return updated;
+            }
+          });
+        } else {
+          console.warn('⚠️ Could not find habit to disable:', metric.name);
+          Alert.alert('Warning', `Could not find ${metric.name} to disable`);
         }
       }
     } catch (error) {
       console.error('❌ Error toggling health metric:', error);
+      // Rollback to previous state on error
+      if (previousState) {
+        console.log('🔄 Rolling back state due to error');
+        setAutomaticHabits(previousState);
+      }
       Alert.alert('Error', 'Failed to update health metric tracking');
     }
   };
@@ -736,19 +985,15 @@ const HabitManagementScreen = () => {
                           </Text>
                         </View>
                       </View>
-                      <TouchableOpacity
-                        style={[
-                          styles.customSwitch,
-                          isEnabled && styles.customSwitchEnabled
-                        ]}
-                        onPress={() => toggleHealthMetric(metric, !isEnabled)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[
-                          styles.customSwitchThumb,
-                          isEnabled && styles.customSwitchThumbEnabled
-                        ]} />
-                      </TouchableOpacity>
+                      <Switch
+                        value={isEnabled}
+                        onValueChange={(value) => {
+                          console.log(`🔄 Switch toggled for ${metric.name}: ${value}`);
+                          toggleHealthMetric(metric, value);
+                        }}
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                      />
                     </View>
                   );
                 })}
@@ -1250,28 +1495,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     lineHeight: 16,
-  },
-  customSwitch: {
-    width: 50,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.border,
-    justifyContent: 'center',
-    paddingHorizontal: 2,
-  },
-  customSwitchEnabled: {
-    backgroundColor: colors.primary + '40',
-  },
-  customSwitchThumb: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.textSecondary,
-    alignSelf: 'flex-start',
-  },
-  customSwitchThumbEnabled: {
-    backgroundColor: colors.primary,
-    alignSelf: 'flex-end',
   },
 });
 

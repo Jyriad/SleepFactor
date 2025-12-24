@@ -26,6 +26,18 @@ const BoxPlot = ({
 
   const { min, q1, median, q3, max, outliers, count } = data;
 
+  // Validate all data values are valid numbers
+  const isValidValue = (val) => val !== null && val !== undefined && !isNaN(val);
+  
+  if (!isValidValue(min) || !isValidValue(q1) || !isValidValue(median) || 
+      !isValidValue(q3) || !isValidValue(max) || !isValidValue(count)) {
+    return (
+      <View style={[styles.container, { width, height }]}>
+        <Text style={styles.noDataText}>Invalid data values</Text>
+      </View>
+    );
+  }
+
   // Calculate dimensions
   const padding = 20;
   const plotWidth = width - (padding * 2);
@@ -33,6 +45,14 @@ const BoxPlot = ({
 
   // Calculate value range
   const valueRange = max - min;
+  if (isNaN(valueRange) || valueRange <= 0) {
+    return (
+      <View style={[styles.container, { width, height }]}>
+        <Text style={styles.noDataText}>Invalid value range</Text>
+      </View>
+    );
+  }
+  
   const valuePadding = valueRange * 0.1; // 10% padding
   const plotMin = Math.max(0, min - valuePadding); // Don't go below 0 for sleep metrics
   const plotMax = max + valuePadding;
@@ -40,11 +60,11 @@ const BoxPlot = ({
 
   // Convert value to pixel position
   const valueToPixel = (value) => {
-    if (orientation === 'vertical') {
-      return padding + ((value - plotMin) / plotValueRange) * plotHeight;
-    } else {
-      return padding + ((value - plotMin) / plotValueRange) * plotWidth;
-    }
+    if (!isValidValue(value)) return padding;
+    const pixel = orientation === 'vertical' 
+      ? padding + ((value - plotMin) / plotValueRange) * plotHeight
+      : padding + ((value - plotMin) / plotValueRange) * plotWidth;
+    return isValidValue(pixel) ? pixel : padding;
   };
 
   // Box plot elements
@@ -155,7 +175,7 @@ const BoxPlot = ({
       {showStats && (
         <View style={styles.statsContainer}>
           <Text style={styles.statsText}>
-            n={count} | Med: {median.toFixed(1)} | IQR: {(q3 - q1).toFixed(1)}
+            n={count} | Med: {(median !== null && median !== undefined && !isNaN(median)) ? median.toFixed(1) : 'N/A'} | IQR: {(q3 !== null && q3 !== undefined && q1 !== null && q1 !== undefined && !isNaN(q3) && !isNaN(q1)) ? (q3 - q1).toFixed(1) : 'N/A'}
           </Text>
         </View>
       )}

@@ -1,6 +1,6 @@
 {
   "name": "sleepfactor",
-  "version": "1.1.19",
+  "version": "1.1.40",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -38,7 +38,8 @@
     "react-native-safe-area-context": "^5.6.2",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "^15.15.1",
-    "react-native-wheel-pick": "^1.2.6"
+    "react-native-wheel-pick": "^1.2.6",
+    "victory-native": "^41.20.2"
   },
   "private": true,
   "devDependencies": {

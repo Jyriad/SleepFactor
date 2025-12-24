@@ -142,21 +142,24 @@ const BinaryHabitInsight = ({
 
           const direction = difference > 0 ? 'higher' : 'lower';
           const impact = Math.abs(percentChange) > 20 ? 'significant' : 'moderate';
+          const percentChangeValue = (percentChange !== null && percentChange !== undefined && !isNaN(percentChange)) 
+            ? percentChange.toFixed(1) 
+            : '0';
 
           return (
             <Text style={styles.insightText}>
-              • When you do "{habit.name}", your {sleepMetric.label.toLowerCase()} is {impact}ly {direction} ({percentChange > 0 ? '+' : ''}{percentChange.toFixed(1)}%)
+              • When you do "{habit.name}", your {sleepMetric.label.toLowerCase()} is {impact}ly {direction} ({percentChange > 0 ? '+' : ''}{percentChangeValue}%)
             </Text>
           );
         })()}
 
-        {yesStats && noStats && (
+        {yesStats && noStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
           <Text style={styles.insightText}>
             • "Did habit": median {yesStats.median.toFixed(1)} {sleepMetric.unit}
           </Text>
         )}
 
-        {yesStats && noStats && (
+        {yesStats && noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
           <Text style={styles.insightText}>
             • "Didn't do habit": median {noStats.median.toFixed(1)} {sleepMetric.unit}
           </Text>

@@ -60,18 +60,23 @@ class SleepSyncService {
    */
   async syncSleepData({ daysBack = 7, force = false } = {}) {
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
+      // Initialize health service first - if this succeeds, Health Connect is available
+      if (!healthService.isInitialized) {
+        console.log('🔄 Initializing health service for sleep sync...');
+        const initialized = await healthService.initialize();
+        if (!initialized) {
+          console.log('⚠️ Health service initialization failed for sleep sync');
+          return {
+            success: false,
+            error: 'Unable to connect to Health Connect. Please make sure Health Connect is installed and try again.',
+            data: null
+          };
+        }
       }
 
-      // Check if health platform is available
-      const isAvailable = await healthService.isAvailable();
-      if (!isAvailable) {
-        return {
-          success: false,
-          error: 'Health platform not available on this device',
-          data: null
-        };
+      // Initialize sleep sync service if needed
+      if (!this.isInitialized) {
+        await this.initialize();
       }
 
       // Check permissions

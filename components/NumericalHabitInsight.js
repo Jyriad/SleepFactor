@@ -102,6 +102,9 @@ const NumericalHabitInsight = ({
         color={colors.primary}
         pointColor={colors.primary}
         trendLineColor={colors.secondary}
+        correlation={correlation}
+        correlationStrength={correlationStrength}
+        trendDirection={trendDirection}
       />
 
       <View style={styles.correlationContainer}>

@@ -153,16 +153,38 @@ export function calculateLinearRegression(x, y) {
     return { slope: 0, intercept: 0 };
   }
 
-  const n = x.length;
-  const sumX = x.reduce((sum, val) => sum + val, 0);
-  const sumY = y.reduce((sum, val) => sum + val, 0);
-  const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-  const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
+  // Filter out invalid values
+  const validPairs = [];
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] !== null && x[i] !== undefined && !isNaN(x[i]) &&
+        y[i] !== null && y[i] !== undefined && !isNaN(y[i])) {
+      validPairs.push({ x: x[i], y: y[i] });
+    }
+  }
 
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  if (validPairs.length < 2) {
+    return { slope: 0, intercept: 0 };
+  }
+
+  const n = validPairs.length;
+  const sumX = validPairs.reduce((sum, pair) => sum + pair.x, 0);
+  const sumY = validPairs.reduce((sum, pair) => sum + pair.y, 0);
+  const sumXY = validPairs.reduce((sum, pair) => sum + pair.x * pair.y, 0);
+  const sumX2 = validPairs.reduce((sum, pair) => sum + pair.x * pair.x, 0);
+
+  const denominator = n * sumX2 - sumX * sumX;
+  if (denominator === 0 || isNaN(denominator)) {
+    return { slope: 0, intercept: 0 };
+  }
+
+  const slope = (n * sumXY - sumX * sumY) / denominator;
   const intercept = (sumY - slope * sumX) / n;
 
-  return { slope, intercept };
+  // Validate results
+  const validSlope = (slope !== null && slope !== undefined && !isNaN(slope)) ? slope : 0;
+  const validIntercept = (intercept !== null && intercept !== undefined && !isNaN(intercept)) ? intercept : 0;
+
+  return { slope: validSlope, intercept: validIntercept };
 }
 
 /**

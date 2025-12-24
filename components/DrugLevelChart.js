@@ -143,26 +143,26 @@ const DrugLevelChart = ({
 
     }
 
-    // Debug current time line positioning
-    if (isToday) {
-      // Find the closest time point for debugging purposes
-      const timeDiffs = timePoints.map((tp, index) => ({
-        index,
-        diff: Math.abs(tp.getTime() - now.getTime())
-      }));
-      const minDiff = Math.min(...timeDiffs.map(t => t.diff));
-      const closest = timeDiffs.find(t => t.diff === minDiff);
-      const closestIndex = closest ? closest.index : null;
-      const foundTimePoint = closestIndex !== null ? timePoints[closestIndex] : null;
-
-      console.log('🎯 CURRENT TIME LINE:', {
-        currentTime: now.toLocaleTimeString(),
-        position: currentTimePosition?.toFixed(3),
-        matchedTimePoint: foundTimePoint?.toLocaleTimeString(),
-        closestIndex: closestIndex,
-        totalPoints: timePoints.length
-      });
-    }
+    // Debug current time line positioning (removed excessive logging)
+    // if (isToday) {
+    //   // Find the closest time point for debugging purposes
+    //   const timeDiffs = timePoints.map((tp, index) => ({
+    //     index,
+    //     diff: Math.abs(tp.getTime() - now.getTime())
+    //   }));
+    //   const minDiff = Math.min(...timeDiffs.map(t => t.diff));
+    //   const closest = timeDiffs.find(t => t.diff === minDiff);
+    //   const closestIndex = closest ? closest.index : null;
+    //   const foundTimePoint = closestIndex !== null ? timePoints[closestIndex] : null;
+    //
+    //   console.log('🎯 CURRENT TIME LINE:', {
+    //     currentTime: now.toLocaleTimeString(),
+    //     position: currentTimePosition?.toFixed(3),
+    //     matchedTimePoint: foundTimePoint?.toLocaleTimeString(),
+    //     closestIndex: closestIndex,
+    //     totalPoints: timePoints.length
+    //   });
+    // }
 
     return {
       dataPoints,

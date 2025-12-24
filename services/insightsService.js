@@ -32,6 +32,13 @@ class InsightsService {
       const habitLogs = await this.getHabitLogs(userId, startDate, endDate);
       const sleepData = await this.getSleepData(userId, startDate, endDate);
 
+      console.log(`📊 Insights Analysis:`);
+      console.log(`   Date range: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+      console.log(`   Sleep metric: ${sleepMetric}`);
+      console.log(`   Total habits: ${habits.length}`);
+      console.log(`   Total habit logs: ${habitLogs.length}`);
+      console.log(`   Total sleep data records: ${sleepData.length}`);
+
       // Group logs by habit
       const logsByHabit = this.groupLogsByHabit(habitLogs);
 
@@ -39,12 +46,20 @@ class InsightsService {
       const insights = [];
       for (const habit of habits) {
         const habitData = logsByHabit[habit.id] || [];
+        console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
+        console.log(`   Type: ${habit.type}`);
+        console.log(`   Habit logs found: ${habitData.length} days`);
+        
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric);
         if (insight) {
+          console.log(`   ✅ Insight generated with ${insight.totalDataPoints} paired data points`);
           insights.push(insight);
+        } else {
+          console.log(`   ❌ No insight generated (insufficient data or no matches)`);
         }
       }
 
+      console.log(`\n📈 Total insights generated: ${insights.length}`);
       return insights;
     } catch (error) {
       console.error('Error getting habits insights:', error);
@@ -144,6 +159,7 @@ class InsightsService {
    */
   calculateHabitInsight(habit, habitLogs, sleepData, sleepMetric) {
     if (!habitLogs || habitLogs.length < this.MIN_DATA_POINTS) {
+      console.log(`   ⚠️ Insufficient habit logs: ${habitLogs?.length || 0} (need at least ${this.MIN_DATA_POINTS})`);
       return null; // Insufficient data
     }
 
@@ -152,32 +168,95 @@ class InsightsService {
     sleepData.forEach(sleep => {
       sleepByDate[sleep.date] = sleep;
     });
+    console.log(`   Sleep data dates available: ${Object.keys(sleepByDate).length} unique dates`);
 
     // Combine habit logs with sleep data
+    // IMPORTANT: Sleep data date represents the "night of" (morning after)
+    // So habit logs from day X should match with sleep data from day X+1
+    // Example: Steps on Jan 1 should match with sleep from Jan 1-2 (stored as Jan 2)
     const dataPoints = [];
+    const unmatchedLogs = [];
+    const matchedDates = [];
+    
     habitLogs.forEach(log => {
-      const sleep = sleepByDate[log.date];
+      // Get the next day's date (sleep from day X is stored as day X+1)
+      const logDate = new Date(log.date);
+      const nextDay = new Date(logDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayStr = nextDay.toISOString().split('T')[0];
+      
+      const sleep = sleepByDate[nextDayStr];
       if (sleep && sleep[sleepMetric] !== null && sleep[sleepMetric] !== undefined) {
-        dataPoints.push({
-          habitValue: this.getHabitValue(log, habit),
-          sleepValue: sleep[sleepMetric],
-          date: log.date,
-          habitLog: log,
-          sleepData: sleep
+        const habitValue = this.getHabitValue(log, habit);
+        const sleepValue = sleep[sleepMetric];
+        
+        // Only add if both values are valid numbers (not NaN, null, or undefined)
+        if (habitValue !== null && habitValue !== undefined && !isNaN(habitValue) &&
+            sleepValue !== null && sleepValue !== undefined && !isNaN(sleepValue)) {
+          dataPoints.push({
+            habitValue: habitValue,
+            sleepValue: sleepValue,
+            date: log.date,
+            sleepDate: sleep.date, // Store the actual sleep date for reference
+            habitLog: log,
+            sleepData: sleep
+          });
+          matchedDates.push(`${log.date} → ${sleep.date}`);
+        } else {
+          unmatchedLogs.push({
+            habitDate: log.date,
+            expectedSleepDate: nextDayStr,
+            hasSleepData: !!sleep,
+            sleepMetricValue: sleep?.[sleepMetric],
+            habitValue: habitValue,
+            reason: 'Invalid numeric values'
+          });
+        }
+      } else {
+        unmatchedLogs.push({
+          habitDate: log.date,
+          expectedSleepDate: nextDayStr,
+          hasSleepData: !!sleep,
+          sleepMetricValue: sleep?.[sleepMetric]
         });
       }
     });
 
+    console.log(`   Matched data points: ${dataPoints.length} days with both habit and sleep data`);
+    if (matchedDates.length > 0 && matchedDates.length <= 5) {
+      console.log(`   Sample matches: ${matchedDates.join(', ')}`);
+    } else if (matchedDates.length > 5) {
+      console.log(`   Sample matches (first 5): ${matchedDates.slice(0, 5).join(', ')}...`);
+    }
+    
+    if (unmatchedLogs.length > 0) {
+      console.log(`   Unmatched logs: ${unmatchedLogs.length} days`);
+      if (unmatchedLogs.length <= 3) {
+        unmatchedLogs.forEach(um => {
+          console.log(`     - Habit date ${um.habitDate}: expected sleep date ${um.expectedSleepDate}, found: ${um.hasSleepData ? 'yes' : 'no'}, metric value: ${um.sleepMetricValue}`);
+        });
+      }
+    }
+
     if (dataPoints.length < this.MIN_DATA_POINTS) {
+      console.log(`   ⚠️ Insufficient paired data points: ${dataPoints.length} (need at least ${this.MIN_DATA_POINTS})`);
       return null; // Insufficient paired data points
     }
 
     if (habit.type === 'binary') {
-      return this.calculateBinaryInsight(habit, dataPoints);
+      const insight = this.calculateBinaryInsight(habit, dataPoints);
+      console.log(`   ✅ Binary insight: ${insight.yesDataPoints} yes, ${insight.noDataPoints} no`);
+      return insight;
     } else if (habit.type === 'numeric') {
-      return this.calculateNumericalInsight(habit, dataPoints);
+      const insight = this.calculateNumericalInsight(habit, dataPoints);
+      const correlationValue = (insight.correlation !== null && insight.correlation !== undefined && !isNaN(insight.correlation)) 
+        ? insight.correlation.toFixed(3) 
+        : 'N/A';
+      console.log(`   ✅ Numerical insight: correlation ${correlationValue}, strength: ${insight.correlationStrength}`);
+      return insight;
     }
 
+    console.log(`   ⚠️ Unsupported habit type: ${habit.type}`);
     return null; // Unsupported habit type
   }
 
@@ -193,7 +272,14 @@ class InsightsService {
       return log.value && (log.value.toLowerCase() === 'yes' || log.value === '1' || log.value === true) ? 1 : 0;
     } else if (habit.type === 'numeric') {
       // Use numeric_value if available, otherwise parse value
-      return log.numeric_value !== null && log.numeric_value !== undefined ? log.numeric_value : parseFloat(log.value);
+      let value = log.numeric_value !== null && log.numeric_value !== undefined 
+        ? log.numeric_value 
+        : parseFloat(log.value);
+      // Ensure value is a valid number
+      if (value === null || value === undefined || isNaN(value)) {
+        return 0;
+      }
+      return value;
     }
     return 0;
   }
@@ -206,8 +292,8 @@ class InsightsService {
    */
   calculateBinaryInsight(habit, dataPoints) {
     // Separate data points by habit value (0 = No, 1 = Yes)
-    const yesData = dataPoints.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue);
-    const noData = dataPoints.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue);
+    const yesData = dataPoints.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
+    const noData = dataPoints.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
 
     const insight = {
       habit,
@@ -219,11 +305,33 @@ class InsightsService {
     };
 
     if (yesData.length > 0) {
-      insight.yesStats = this.calculateBoxPlotStats(yesData);
+      const yesStats = this.calculateBoxPlotStats(yesData);
+      // Ensure all stats values are valid numbers
+      if (yesStats && (yesStats.median === null || yesStats.median === undefined || isNaN(yesStats.median))) {
+        yesStats.median = 0;
+      }
+      if (yesStats && (yesStats.q1 === null || yesStats.q1 === undefined || isNaN(yesStats.q1))) {
+        yesStats.q1 = 0;
+      }
+      if (yesStats && (yesStats.q3 === null || yesStats.q3 === undefined || isNaN(yesStats.q3))) {
+        yesStats.q3 = 0;
+      }
+      insight.yesStats = yesStats;
     }
 
     if (noData.length > 0) {
-      insight.noStats = this.calculateBoxPlotStats(noData);
+      const noStats = this.calculateBoxPlotStats(noData);
+      // Ensure all stats values are valid numbers
+      if (noStats && (noStats.median === null || noStats.median === undefined || isNaN(noStats.median))) {
+        noStats.median = 0;
+      }
+      if (noStats && (noStats.q1 === null || noStats.q1 === undefined || isNaN(noStats.q1))) {
+        noStats.q1 = 0;
+      }
+      if (noStats && (noStats.q3 === null || noStats.q3 === undefined || isNaN(noStats.q3))) {
+        noStats.q3 = 0;
+      }
+      insight.noStats = noStats;
     }
 
     return insight;
@@ -240,6 +348,11 @@ class InsightsService {
     const sleepValues = dataPoints.map(dp => dp.sleepValue);
 
     const correlation = this.calculateCorrelation(habitValues, sleepValues);
+    
+    // Ensure correlation is a valid number (handle NaN, null, undefined)
+    const validCorrelation = (correlation !== null && correlation !== undefined && !isNaN(correlation)) 
+      ? correlation 
+      : 0;
 
     return {
       habit,
@@ -250,10 +363,10 @@ class InsightsService {
         y: dp.sleepValue,
         date: dp.date
       })),
-      correlation: correlation,
-      correlationStrength: Math.abs(correlation) > 0.7 ? 'strong' :
-                          Math.abs(correlation) > 0.3 ? 'moderate' : 'weak',
-      trendDirection: correlation > 0 ? 'positive' : correlation < 0 ? 'negative' : 'none'
+      correlation: validCorrelation,
+      correlationStrength: Math.abs(validCorrelation) > 0.7 ? 'strong' :
+                          Math.abs(validCorrelation) > 0.3 ? 'moderate' : 'weak',
+      trendDirection: validCorrelation > 0 ? 'positive' : validCorrelation < 0 ? 'negative' : 'none'
     };
   }
 
