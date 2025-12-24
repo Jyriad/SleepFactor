@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
 import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
@@ -53,7 +54,7 @@ import { getCurrentDrugLevel } from '../utils/drugHalfLife';
 const HomeScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(getToday());
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [habitsLogged, setHabitsLogged] = useState(false);
   const [todaysHabitsLogged, setTodaysHabitsLogged] = useState(false);
   const [loggedDates, setLoggedDates] = useState([]);
@@ -98,19 +99,21 @@ const HomeScreen = () => {
     }, [selectedDate, user])
   );
 
+  // Date-dependent operations (run when date changes)
   useEffect(() => {
     checkHabitsLogged();
-    checkTodaysHabitsLogged();
-    fetchLoggedDates();
+    fetchHabitCount();
+    fetchSleepData();
+    fetchDrugHabitsAndEvents();
     // Reset initial sync attempted when date changes
     setInitialSyncAttempted(false);
   }, [selectedDate, user]);
 
+  // Date-independent operations (run once on mount)
   useEffect(() => {
-    fetchHabitCount();
-    fetchSleepData();
-    fetchDrugHabitsAndEvents();
-  }, [selectedDate, user]);
+    checkTodaysHabitsLogged();
+    fetchLoggedDates();
+  }, [user]);
 
   // Preload data for recent dates on app launch
   useEffect(() => {
@@ -126,66 +129,64 @@ const HomeScreen = () => {
 
   // Automatic sync when permissions are available and date changes to today
   useEffect(() => {
+    // Only run auto-sync for today's date and if not already attempted
+    if (!isToday(selectedDate) || initialSyncAttempted) return;
+
     let isCancelled = false;
     let isRunning = false;
 
     const autoSyncSleepData = async () => {
-      if (isCancelled || isRunning) return;
+      if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions || healthSyncLoading) return;
 
+      // Check if we already have cached data (don't sync unnecessarily)
+      const cachedData = getCachedSleepData(selectedDate);
+      if (cachedData !== undefined) {
+        setInitialSyncAttempted(true);
+        return;
+      }
 
-      if (user && healthSyncInitialized && hasPermissions && !healthSyncLoading && selectedDate && isToday(selectedDate)) {
-        // Check if we already have cached data (don't sync unnecessarily)
-        const cachedData = getCachedSleepData(selectedDate);
-        if (cachedData !== undefined) {
-          console.log('📱 Skipping auto-sync - cached data available for today');
-          return;
-        }
+      // Check if we haven't synced in the last hour to avoid excessive syncing
+      const lastSyncTime = getLastSyncTimestamp();
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-        // Check if we haven't synced in the last hour to avoid excessive syncing
-        const lastSyncTime = getLastSyncTimestamp();
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      if (!lastSyncTime || new Date(lastSyncTime) < oneHourAgo) {
+        isRunning = true;
 
-        if (!lastSyncTime || new Date(lastSyncTime) < oneHourAgo) {
-          console.log('🔄 Auto-syncing sleep data for today...');
-          isRunning = true;
-
-          try {
-            clearError();
-            const result = await performSync({ force: false }); // Don't force, let it check for new data
-            if (!isCancelled && result.success && result.syncedRecords > 0) {
-              console.log(`✅ Auto-sync completed: ${result.syncedRecords} records synced`);
-              // Clear cache for today's date since we just synced fresh data
-              updateSleepDataCache(selectedDate, undefined);
-              updateHabitCountCache(selectedDate, undefined);
-              // Refresh sleep data for current date
-              await fetchSleepData();
-            } else if (!isCancelled && result.success) {
-              console.log('ℹ️ Auto-sync completed: No new data to sync');
-              // No need to refresh if no new data was synced
-            }
-          } catch (error) {
-            if (!isCancelled) {
-              console.error('Auto-sync failed:', error);
-            }
-          } finally {
-            isRunning = false;
-            // Mark that we've attempted the initial sync for today's date
-            if (!isCancelled && isToday(selectedDate)) {
-              setInitialSyncAttempted(true);
-            }
+        try {
+          clearError();
+          const result = await performSync({ force: false, userId: user.id });
+          if (!isCancelled && result.success && result.syncedRecords > 0) {
+            // Clear cache for today's date since we just synced fresh data
+            updateSleepDataCache(selectedDate, undefined);
+            updateHabitCountCache(selectedDate, undefined);
+            // Refresh sleep data for current date
+            await fetchSleepData();
+          } else if (!isCancelled && result.success) {
+          }
+        } catch (error) {
+          if (!isCancelled) {
+            console.error('Auto-sync failed:', error);
+          }
+        } finally {
+          isRunning = false;
+          if (!isCancelled) {
+            setInitialSyncAttempted(true);
           }
         }
+      } else {
+        // Already synced recently, mark as attempted
+        setInitialSyncAttempted(true);
       }
     };
 
-    // Small delay to prevent rapid-fire syncing (shorter for today's date)
-    const timeoutId = setTimeout(autoSyncSleepData, isToday(selectedDate) ? 300 : 500);
+    // Small delay to prevent rapid-fire syncing
+    const timeoutId = setTimeout(autoSyncSleepData, 500);
 
     return () => {
       isCancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [user, selectedDate, healthSyncInitialized, hasPermissions]);
+  }, [selectedDate, user, healthSyncInitialized, hasPermissions, initialSyncAttempted]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -244,6 +245,7 @@ const HomeScreen = () => {
       const dates = getDatesArray();
       const dateStrings = dates.map(d => d.date);
 
+      // Fetch logged dates from database
       const { data, error } = await supabase
         .from('habit_logs')
         .select('date')
@@ -256,9 +258,9 @@ const HomeScreen = () => {
       const loggedDateSet = new Set(data?.map(log => log.date) || []);
       setLoggedDates(Array.from(loggedDateSet));
 
-      // Check for dates with unsaved changes in AsyncStorage
+      // Check for dates with unsaved changes in AsyncStorage (batch operation for better performance)
       const unsavedDates = [];
-      for (const dateItem of dates) {
+      const storagePromises = dates.map(async (dateItem) => {
         try {
           const storageKey = `habitLogs_${user.id}_${dateItem.date}`;
           const storedData = await AsyncStorage.getItem(storageKey);
@@ -269,14 +271,20 @@ const HomeScreen = () => {
               value !== null && value !== undefined && value !== ''
             );
             if (hasUnsavedChanges) {
-              unsavedDates.push(dateItem.date);
+              return dateItem.date;
             }
           }
         } catch (error) {
           console.error(`Error checking unsaved changes for ${dateItem.date}:`, error);
         }
-      }
-      setDatesWithUnsavedChanges(unsavedDates);
+        return null;
+      });
+
+      // Wait for all AsyncStorage checks to complete
+      const unsavedResults = await Promise.all(storagePromises);
+      const filteredUnsavedDates = unsavedResults.filter(date => date !== null);
+      setDatesWithUnsavedChanges(filteredUnsavedDates);
+
     } catch (error) {
       console.error('Error fetching logged dates:', error);
       setLoggedDates([]);
@@ -289,15 +297,24 @@ const HomeScreen = () => {
 
     try {
       const dateString = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+      // Get habit logs with habit details to filter out automatic health metrics
       const { data, error } = await supabase
         .from('habit_logs')
-        .select('habit_id', { count: 'exact' })
+        .select(`
+          habit_id,
+          habits!inner(*)
+        `)
         .eq('user_id', user.id)
         .eq('date', dateString);
 
       if (error) throw error;
 
-      return data?.length || 0;
+      // Filter out automatic health metrics - only count manual habits
+      const manualHabitLogs = data?.filter(log =>
+        !healthMetricsService.isHealthMetricHabit(log.habits)
+      ) || [];
+
+      return manualHabitLogs.length;
     } catch (error) {
       console.error('Error fetching habit count for date:', error);
       return 0;
@@ -310,6 +327,17 @@ const HomeScreen = () => {
     // Check cache first
     const cachedCount = getCachedHabitCount(selectedDate);
     if (cachedCount !== undefined) {
+      // Fetch fresh data to check if cache is stale
+      const freshCount = await fetchHabitCountForDate(selectedDate);
+
+      // If cache doesn't match fresh data, cache is stale - clear all caches
+      if (cachedCount !== freshCount) {
+        clearAllCaches();
+        setHabitCount(freshCount);
+        updateHabitCountCache(selectedDate, freshCount);
+        return;
+      }
+
       setHabitCount(cachedCount);
       return;
     }
@@ -361,21 +389,26 @@ const HomeScreen = () => {
 
       setDrugHabits(habitsData || []);
 
-      // If we have drug habits, fetch their consumption events for today
+      // If we have drug habits, fetch their consumption events for recent days (for carryover effects)
       if (habitsData && habitsData.length > 0) {
         const habitIds = habitsData.map(h => h.id);
-        const startOfDay = new Date(selectedDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(selectedDate);
-        endOfDay.setHours(23, 59, 59, 999);
+
+        // Calculate how far back to look based on longest half-life
+        const maxHalfLife = Math.max(...habitsData.map(h => h.half_life_hours || 5));
+        const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24)); // At least 3 days, or 3 half-lives worth
+
+        // Ensure selectedDate is a Date object for consistent calculations
+        const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+        const historyStart = new Date(dateObj);
+        historyStart.setDate(historyStart.getDate() - historyDays);
 
         const { data: eventsData, error: eventsError } = await supabase
           .from('habit_consumption_events')
           .select('*')
           .eq('user_id', user.id)
           .in('habit_id', habitIds)
-          .gte('consumed_at', startOfDay.toISOString())
-          .lte('consumed_at', endOfDay.toISOString());
+          .gte('consumed_at', historyStart.toISOString())
+          .order('consumed_at', { ascending: true });
 
         if (eventsError) throw eventsError;
 
@@ -415,7 +448,7 @@ const HomeScreen = () => {
   const handleSyncNow = async () => {
     try {
       clearError();
-      const result = await performSync({ force: true });
+      const result = await performSync({ force: true, userId: user.id });
       if (result.success) {
         // Refresh sleep data for current date
         await fetchSleepData();
@@ -445,6 +478,12 @@ const HomeScreen = () => {
 
   const updateHabitCountCache = (date, count) => {
     setHabitCountCache(prev => new Map(prev).set(getCacheKey(date), count));
+  };
+
+  // Clear all in-memory caches
+  const clearAllCaches = () => {
+    setSleepDataCache(new Map());
+    setHabitCountCache(new Map());
   };
 
   const getCachedSleepData = (date) => {
@@ -500,7 +539,6 @@ const HomeScreen = () => {
       });
 
       await Promise.all([...sleepDataPromises, ...habitCountPromises]);
-      console.log('✅ Preloaded data for recent dates');
     } catch (error) {
       console.error('Error during data preloading:', error);
     } finally {
@@ -598,11 +636,13 @@ const HomeScreen = () => {
     }
   };
 
-  // Calculate habits with events for drug level widgets
-  const habitsWithEvents = drugHabits.filter(habit => {
-    const events = drugConsumptionEvents[habit.id] || [];
-    return events.length > 0;
-  });
+  // Memoized calculations to prevent unnecessary re-renders
+  const habitsWithEvents = useMemo(() => {
+    return drugHabits.filter(habit => {
+      const events = drugConsumptionEvents[habit.id] || [];
+      return events.length > 0;
+    });
+  }, [drugHabits, drugConsumptionEvents]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -658,10 +698,10 @@ const HomeScreen = () => {
         )}
 
         {/* Drug Level Widgets */}
-        {!loading && isToday(selectedDate) && habitsWithEvents.length > 0 && (
+        {!loading && drugHabits.length > 0 && (
           <View style={styles.drugWidgetsContainer}>
             <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
-            {habitsWithEvents.map((habit) => {
+            {drugHabits.map((habit) => {
               const events = drugConsumptionEvents[habit.id] || [];
               const bedtime = sleepData?.sleep_start_time || null;
               

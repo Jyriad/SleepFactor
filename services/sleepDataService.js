@@ -228,7 +228,6 @@ class SleepDataService {
       }
 
       const deletedCount = data?.length || 0;
-      console.log(`Deleted ${deletedCount} sleep data records`);
       return deletedCount;
     } catch (error) {
       console.error('Failed to delete all sleep data:', error);
@@ -248,19 +247,29 @@ class SleepDataService {
         throw new Error('User not authenticated');
       }
 
-      const { data, error } = await supabase
+      // Delete from habit_logs table
+      const { data: habitLogsData, error: habitLogsError } = await supabase
         .from('habit_logs')
         .delete()
         .eq('user_id', user.id)
         .select('id', { count: 'exact' });
 
-      if (error) {
-        throw error;
-      }
+      if (habitLogsError) throw habitLogsError;
 
-      const deletedCount = data?.length || 0;
-      console.log(`Deleted ${deletedCount} habit log records`);
-      return deletedCount;
+      // Also delete from habit_consumption_events table (for quick consumption habits like caffeine)
+      const { data: consumptionData, error: consumptionError } = await supabase
+        .from('habit_consumption_events')
+        .delete()
+        .eq('user_id', user.id)
+        .select('id', { count: 'exact' });
+
+      if (consumptionError) throw consumptionError;
+
+      const habitLogsDeleted = habitLogsData?.length || 0;
+      const consumptionDeleted = consumptionData?.length || 0;
+      const totalDeleted = habitLogsDeleted + consumptionDeleted;
+
+      return totalDeleted;
     } catch (error) {
       console.error('Failed to delete all habit logs:', error);
       throw error;

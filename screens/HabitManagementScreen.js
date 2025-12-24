@@ -15,6 +15,7 @@ import DraggableFlatList from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import healthMetricsService from '../services/healthMetricsService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
@@ -22,8 +23,6 @@ import Button from '../components/Button';
 const PREDEFINED_HABITS = [
   { name: 'Exercise', type: 'binary', unit: null },
   { name: 'Reading', type: 'binary', unit: null },
-  { name: 'Sleep Quality', type: 'numeric', unit: 'hours' },
-  { name: 'Water Intake', type: 'numeric', unit: 'cups' },
   { name: 'Room Temperature', type: 'numeric', unit: '°C' },
   { name: 'Zinc Supplement', type: 'binary', unit: null },
 ];
@@ -37,8 +36,10 @@ const ALWAYS_AVAILABLE_HABITS = [
 
 const HabitManagementScreen = () => {
   const { user } = useAuth();
-  const [habits, setHabits] = useState([]);
+  const [manualHabits, setManualHabits] = useState([]);
+  const [automaticHabits, setAutomaticHabits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
@@ -52,8 +53,14 @@ const HabitManagementScreen = () => {
     loadHabits();
   }, [user]);
 
-  const loadHabits = async () => {
+  const loadHabits = async (force = false) => {
     if (!user) return;
+
+    // Skip loading if data is already loaded and not forcing refresh
+    if (dataLoaded && !force) {
+      setLoading(false);
+      return;
+    }
 
     try {
       // Load all user's habits (no is_active filter)
@@ -74,73 +81,198 @@ const HabitManagementScreen = () => {
         priority: habit.priority || 0,
       }));
 
-      // Ensure always available habits exist in database
+      // Ensure always available habits exist in database (optimized batch approach)
       const alwaysAvailableHabits = [];
+      const habitsToCreate = [];
+
       for (const habit of ALWAYS_AVAILABLE_HABITS) {
         const existing = normalizedData.find(h => h.name === habit.name && !h.is_custom);
         if (existing) {
           alwaysAvailableHabits.push(existing);
         } else {
-          // Create the habit in database immediately
-          try {
-            const { data: createdHabit, error: createError } = await supabase
-              .from('habits')
-              .insert({
-                user_id: user.id,
-                name: habit.name,
-                type: habit.type,
-                unit: habit.unit,
-                consumption_types: habit.consumption_types,
-                is_custom: false,
-                is_pinned: true,
-                priority: ALWAYS_AVAILABLE_HABITS.findIndex(h => h.name === habit.name),
-              })
-              .select()
-              .single();
-
-            if (!createError && createdHabit) {
-              alwaysAvailableHabits.push(createdHabit);
-            } else {
-              console.error('Failed to create always available habit:', habit.name, createError);
-            }
-          } catch (error) {
-            console.error('Error creating always available habit:', habit.name, error);
-          }
+          habitsToCreate.push({
+            user_id: user.id,
+            name: habit.name,
+            type: habit.type,
+            unit: habit.unit,
+            consumption_types: habit.consumption_types,
+            is_custom: false,
+            is_pinned: true,
+            priority: ALWAYS_AVAILABLE_HABITS.findIndex(h => h.name === habit.name),
+          });
         }
       }
 
-      // Merge with regular predefined habits
-      const predefinedHabitsMap = new Map(normalizedData.filter(h => !h.is_custom).map(h => [h.name, h]));
+      // Batch create missing always available habits
+      if (habitsToCreate.length > 0) {
+        try {
+          const { data: createdHabits, error: createError } = await supabase
+            .from('habits')
+            .insert(habitsToCreate)
+            .select();
+
+          if (!createError && createdHabits) {
+            alwaysAvailableHabits.push(...createdHabits);
+          } else {
+            console.error('Failed to batch create always available habits:', createError);
+          }
+        } catch (error) {
+          console.error('Error batch creating always available habits:', error);
+        }
+      }
+
+      // Create a set of existing habit names for faster lookups
+      const existingHabitNames = new Set(normalizedData.filter(h => !h.is_custom).map(h => h.name));
       const customHabits = normalizedData.filter(h => h.is_custom);
 
-      // Add regular predefined habits that user hasn't created yet
-      const placeholderHabits = PREDEFINED_HABITS.map((predef, index) => {
-        const existing = predefinedHabitsMap.get(predef.name);
-        if (existing) {
-          return existing;
-        }
-        // Create placeholder for predefined habit that doesn't exist yet
-        return {
+      // Add regular predefined habits that user hasn't created yet (optimized)
+      const placeholderHabits = PREDEFINED_HABITS
+        .filter(predef => !existingHabitNames.has(predef.name))
+        .map((predef, index) => ({
           ...predef,
           id: `predef-${predef.name}`,
           user_id: user.id,
           is_custom: false,
           is_pinned: false,
-          priority: index + ALWAYS_AVAILABLE_HABITS.length, // Offset priority
-        };
-      });
+          priority: index + ALWAYS_AVAILABLE_HABITS.length,
+        }));
 
-      const allHabits = [...alwaysAvailableHabits, ...placeholderHabits];
+      // Get existing predefined habits
+      const existingPredefinedHabits = normalizedData.filter(h =>
+        !h.is_custom && PREDEFINED_HABITS.some(p => p.name === h.name)
+      );
 
-      // Add custom habits
-      allHabits.push(...customHabits);
+      const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits];
 
-      setHabits(allHabits);
+      // Separate habits into manual and automatic categories
+      const manual = allHabits.filter(habit => !healthMetricsService.isHealthMetricHabit(habit));
+      const automatic = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
+
+      // Ensure all habits have valid IDs for DraggableFlatList
+      const validManual = manual.filter(habit => habit && (habit.id || habit.name));
+      const validAutomatic = automatic.filter(habit => habit && (habit.id || habit.name));
+
+      setManualHabits(validManual);
+      setAutomaticHabits(validAutomatic);
+      setDataLoaded(true);
     } catch (error) {
       console.error('Error loading habits:', error);
       Alert.alert('Error', 'Failed to load habits');
+      setManualHabits([]);
+      setAutomaticHabits([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleHealthMetric = async (metric, enable) => {
+    if (!user) return;
+
+    try {
+      if (enable) {
+
+        // Enable: Check if habit exists in database first
+        const { data: existingHabits, error: checkError } = await supabase
+          .from('habits')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('name', metric.name)
+          .eq('is_custom', false);
+
+        if (checkError) throw checkError;
+
+        if (existingHabits && existingHabits.length > 0) {
+          // Habit exists, just re-enable it
+          const existingHabit = existingHabits[0];
+          const { error } = await supabase
+            .from('habits')
+            .update({ is_active: true })
+            .eq('id', existingHabit.id);
+
+          if (error) throw error;
+
+          // Update local state
+          setAutomaticHabits(prev =>
+            prev.map(h =>
+              h.id === existingHabit.id
+                ? { ...h, is_active: true }
+                : h
+            )
+          );
+        } else {
+          // Habit doesn't exist, create it
+          const { data: newHabit, error } = await supabase
+            .from('habits')
+            .insert({
+              user_id: user.id,
+              name: metric.name,
+              type: metric.type,
+              unit: metric.unit,
+              is_custom: false,
+              is_active: true,
+              is_pinned: false,
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          // Add to local state
+          setAutomaticHabits(prev => [...prev, newHabit]);
+        }
+      } else {
+        // Disable: Find and deactivate the health metric habit
+        const existingHabit = automaticHabits.find(h => h.name === metric.name);
+
+        if (existingHabit) {
+          const { error } = await supabase
+            .from('habits')
+            .update({ is_active: false })
+            .eq('id', existingHabit.id);
+
+          if (error) throw error;
+
+          // Update local state
+          setAutomaticHabits(prev =>
+            prev.map(h =>
+              h.id === existingHabit.id
+                ? { ...h, is_active: false }
+                : h
+            )
+          );
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error toggling health metric:', error);
+      Alert.alert('Error', 'Failed to update health metric tracking');
+    }
+  };
+
+  const toggleAutomaticHabit = async (habit) => {
+    if (!user) return;
+
+    try {
+      const newActiveState = habit.is_active === false; // Toggle from current state
+
+      const { error } = await supabase
+        .from('habits')
+        .update({ is_active: newActiveState })
+        .eq('id', habit.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setAutomaticHabits(prev =>
+        prev.map(h =>
+          h.id === habit.id
+            ? { ...h, is_active: newActiveState }
+            : h
+        )
+      );
+
+    } catch (error) {
+      console.error('Error toggling automatic habit:', error);
+      Alert.alert('Error', 'Failed to update habit tracking');
     }
   };
 
@@ -179,7 +311,7 @@ const HabitManagementScreen = () => {
         .eq('id', habit.id);
 
       if (error) throw error;
-      loadHabits();
+      loadHabits(true); // Force refresh
     } catch (error) {
       console.error('Error toggling habit tracking:', error);
       Alert.alert('Error', 'Failed to update habit');
@@ -233,7 +365,7 @@ const HabitManagementScreen = () => {
           .single();
 
         if (error) throw error;
-        loadHabits();
+        loadHabits(true); // Force refresh
       }
     } catch (error) {
       console.error('Error creating predefined habit:', error);
@@ -245,9 +377,9 @@ const HabitManagementScreen = () => {
     if (!user) return;
 
     // Update local state immediately for smooth UX
-    setHabits(data);
+    setManualHabits(data);
 
-    // Update priority in database
+    // Update priority in database (only for manual habits)
     try {
       const updates = data.map((habit, index) => ({
         id: habit.id,
@@ -255,15 +387,18 @@ const HabitManagementScreen = () => {
       }));
 
       for (const update of updates) {
-        await supabase
-          .from('habits')
-          .update({ priority: update.priority })
-          .eq('id', update.id);
+        // Only update if it's a real habit (not a placeholder)
+        if (update.id && !update.id.startsWith('predef-')) {
+          await supabase
+            .from('habits')
+            .update({ priority: update.priority })
+            .eq('id', update.id);
+        }
       }
     } catch (error) {
       console.error('Error updating habit priorities:', error);
       // Revert local changes on error
-      await loadHabits();
+      await loadHabits(true);
     }
   };
 
@@ -285,7 +420,7 @@ const HabitManagementScreen = () => {
       return;
     }
 
-    if ((newHabitType === 'numeric' || newHabitType === 'time' || newHabitType === 'drug') && !newHabitUnit.trim()) {
+    if ((newHabitType === 'numeric' || newHabitType === 'drug') && !newHabitUnit.trim()) {
       Alert.alert('Error', 'Please enter a unit for this habit type');
       return;
     }
@@ -304,7 +439,7 @@ const HabitManagementScreen = () => {
         .update({
           name: newHabitName.trim(),
           type: newHabitType,
-          unit: (newHabitType === 'numeric' || newHabitType === 'time' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
+          unit: (newHabitType === 'numeric' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
           half_life_hours: newHabitType === 'drug' ? parseFloat(newHabitHalfLife) : null,
           drug_threshold_percent: newHabitType === 'drug' ? parseFloat(newHabitThreshold) : null,
         })
@@ -313,7 +448,7 @@ const HabitManagementScreen = () => {
       if (error) throw error;
 
       // Refresh habits list
-      await loadHabits();
+      await loadHabits(true);
 
       // Reset form
       setEditModalVisible(false);
@@ -348,7 +483,7 @@ const HabitManagementScreen = () => {
                 .eq('id', habitId);
 
               if (error) throw error;
-              loadHabits();
+              loadHabits(true); // Force refresh
             } catch (error) {
               console.error('Error deleting habit:', error);
               Alert.alert('Error', 'Failed to delete habit');
@@ -365,7 +500,7 @@ const HabitManagementScreen = () => {
       return;
     }
 
-    if ((newHabitType === 'numeric' || newHabitType === 'time' || newHabitType === 'drug') && !newHabitUnit.trim()) {
+    if ((newHabitType === 'numeric' || newHabitType === 'drug') && !newHabitUnit.trim()) {
       Alert.alert('Error', 'Please enter a unit for this habit type');
       return;
     }
@@ -391,7 +526,7 @@ const HabitManagementScreen = () => {
           user_id: user.id,
           name: newHabitName.trim(),
           type: newHabitType,
-          unit: (newHabitType === 'numeric' || newHabitType === 'time' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
+          unit: (newHabitType === 'numeric' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
           half_life_hours: newHabitType === 'drug' ? parseFloat(newHabitHalfLife) : null,
           drug_threshold_percent: newHabitType === 'drug' ? parseFloat(newHabitThreshold) : null,
           is_custom: true,
@@ -414,7 +549,7 @@ const HabitManagementScreen = () => {
       setNewHabitUnit('');
       setNewHabitHalfLife('5');
       setNewHabitThreshold('5');
-      loadHabits();
+      loadHabits(true); // Force refresh
     } catch (error) {
       console.error('Error adding habit:', error);
       Alert.alert('Error', 'Failed to add habit');
@@ -425,8 +560,7 @@ const HabitManagementScreen = () => {
     const typeDescriptions = {
       binary: 'Yes/No',
       numeric: habit.unit ? `Numeric (${habit.unit})` : 'Numeric',
-      time: habit.unit ? `Time (${habit.unit})` : 'Time',
-      text: 'Text entry',
+      time: 'Time',
       drug: habit.unit ? `Drug (${habit.unit})` : 'Drug',
       quick_consumption: habit.unit ? `Quick Consumption (${habit.unit})` : 'Quick Consumption'
     };
@@ -438,7 +572,6 @@ const HabitManagementScreen = () => {
       binary: 'Yes/No',
       numeric: 'Numeric',
       time: 'Time',
-      text: 'Text',
       drug: 'Drug',
       quick_consumption: 'Quick Consumption'
     };
@@ -446,19 +579,27 @@ const HabitManagementScreen = () => {
   };
 
   const renderHabitItem = ({ item: habit, drag, isActive }) => {
+    // Safety check for habit data
+    if (!habit) return null;
+
     const isPlaceholder = habit.id && habit.id.startsWith('predef-');
     const isAlwaysAvailable = habit.id && habit.id.startsWith('always-');
 
     return (
-      <View style={styles.habitCard}>
+      <View style={[styles.habitCard, isActive && styles.habitCardDragging]}>
         {!isPlaceholder && (
           <TouchableOpacity
-            style={styles.dragHandle}
+            style={[styles.dragHandle, isActive && styles.dragHandleActive]}
             onLongPress={drag}
-            delayLongPress={50} // Much shorter delay for immediate dragging
-            activeOpacity={1} // Disable default opacity change to prevent visual feedback conflicts
+            delayLongPress={100} // Slightly longer delay to prevent accidental drags
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} // Larger touch area
           >
-            <Ionicons name="menu" size={20} color={colors.textSecondary} />
+            <Ionicons
+              name="menu"
+              size={20}
+              color={isActive ? colors.primary : colors.textSecondary}
+            />
           </TouchableOpacity>
         )}
 
@@ -524,39 +665,105 @@ const HabitManagementScreen = () => {
         </Text>
       </View>
 
-      <View style={styles.listContainer}>
+      {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+      <View style={styles.manualHabitsSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Your Habits</Text>
+          <Text style={styles.sectionSubtitle}>
+            Habits you track manually (exercise, reading, etc.)
+          </Text>
+        </View>
+
+        {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
+        {!loading && manualHabits.length === 0 && (
+          <Text style={styles.emptyText}>No manual habits yet</Text>
+        )}
+
+        {!loading && manualHabits.length > 0 && (
+          <View style={styles.instructionContainer}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
+            <Text style={styles.instructionText}>
+              Long press and drag to reorder • Toggle switches to control tracking
+            </Text>
+          </View>
+        )}
+
         <DraggableFlatList
-          data={loading ? [] : habits}
+          data={loading ? [] : manualHabits}
           keyExtractor={(item) => item.id || item.name}
           renderItem={renderHabitItem}
           onDragEnd={onDragEnd}
-          ListHeaderComponent={
-            <View>
-              {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
-              {!loading && habits.length === 0 && (
-                <Text style={styles.emptyText}>No habits yet</Text>
-              )}
-              {!loading && habits.length > 0 && (
-                <View style={styles.instructionContainer}>
-                  <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
-                  <Text style={styles.instructionText}>
-                    Track Regularly = Always visible on home screen{'\n'}
-                    Track Occasionally = Hidden until you expand the section
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.draggableListContent}
+          activationDistance={20}
+          dragItemOverflow={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+          ListFooterComponent={
+            <View style={styles.footerSection}>
+              {/* Automatic Health Metrics Section */}
+              <View style={styles.sectionContainer}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Automatic Health Tracking</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    Data automatically synced from your health apps
                   </Text>
                 </View>
-              )}
+
+                {!loading && (
+                  <View style={styles.instructionContainer}>
+                    <Ionicons name="fitness-outline" size={20} color={colors.primary} />
+                    <Text style={styles.instructionText}>
+                      Toggle metrics on/off to control what health data is tracked for insights
+                    </Text>
+                  </View>
+                )}
+
+                {!loading && healthMetricsService.getAvailableMetrics().map((metric) => {
+                  // Check if this metric is currently enabled (exists as a habit)
+                  const existingHabit = automaticHabits.find(h => h.name === metric.name);
+                  const isEnabled = existingHabit && existingHabit.is_active !== false;
+
+                  return (
+                    <View key={metric.key} style={styles.automaticHabitItem}>
+                      <View style={styles.automaticHabitInfo}>
+                        <Ionicons name="fitness-outline" size={24} color={colors.primary} />
+                        <View style={styles.automaticHabitText}>
+                          <Text style={styles.automaticHabitName}>{metric.name}</Text>
+                          <Text style={styles.automaticHabitDescription}>
+                            {metric.description}
+                          </Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={[
+                          styles.customSwitch,
+                          isEnabled && styles.customSwitchEnabled
+                        ]}
+                        onPress={() => toggleHealthMetric(metric, !isEnabled)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[
+                          styles.customSwitchThumb,
+                          isEnabled && styles.customSwitchThumbEnabled
+                        ]} />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Add Custom Habit Section */}
+              <View style={styles.addSection}>
+                <Button
+                  title="Add Custom Habit"
+                  onPress={() => setModalVisible(true)}
+                  variant="primary"
+                />
+              </View>
             </View>
           }
-          ListFooterComponent={
-            <View style={styles.addSection}>
-              <Button
-                title="Add Custom Habit"
-                onPress={() => setModalVisible(true)}
-                variant="primary"
-              />
-            </View>
-          }
-          contentContainerStyle={styles.listContent}
         />
       </View>
 
@@ -590,7 +797,7 @@ const HabitManagementScreen = () => {
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Type</Text>
                 <View style={styles.typeSelector}>
-                  {['binary', 'numeric', 'time', 'text', 'drug'].map((type) => (
+                  {['binary', 'numeric', 'time', 'drug'].map((type) => (
                     <TouchableOpacity
                       key={type}
                       style={[
@@ -612,7 +819,7 @@ const HabitManagementScreen = () => {
                 </View>
               </View>
 
-              {(newHabitType === 'numeric' || newHabitType === 'time' || newHabitType === 'drug') && (
+              {(newHabitType === 'numeric' || newHabitType === 'drug') && (
                 <View style={styles.inputContainer}>
                   <Text style={styles.label}>Unit</Text>
                   <TextInput
@@ -697,7 +904,7 @@ const HabitManagementScreen = () => {
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Type</Text>
                 <View style={styles.typeSelector}>
-                  {['binary', 'numeric', 'time', 'text', 'drug'].map((type) => (
+                  {['binary', 'numeric', 'time', 'drug'].map((type) => (
                     <TouchableOpacity
                       key={type}
                       style={[
@@ -719,7 +926,7 @@ const HabitManagementScreen = () => {
                 </View>
               </View>
 
-              {(newHabitType === 'numeric' || newHabitType === 'time' || newHabitType === 'drug') && (
+              {(newHabitType === 'numeric' || newHabitType === 'drug') && (
                 <View style={styles.inputContainer}>
                   <Text style={styles.label}>Unit</Text>
                   <TextInput
@@ -847,6 +1054,10 @@ const styles = StyleSheet.create({
     marginLeft: -spacing.sm, // Compensate for added padding
     marginRight: spacing.xs,
     marginVertical: -spacing.xs,
+  },
+  dragHandleActive: {
+    backgroundColor: colors.primary + '20',
+    borderRadius: 8,
   },
   editButton: {
     padding: spacing.xs,
@@ -979,6 +1190,88 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
+  },
+  manualHabitsSection: {
+    flex: 1,
+    paddingHorizontal: spacing.regular,
+  },
+  draggableListContent: {
+    paddingBottom: spacing.xl,
+  },
+  footerSection: {
+    paddingTop: spacing.lg,
+    paddingBottom: 100, // Extra padding to prevent button from being obscured by navigation
+  },
+  sectionContainer: {
+    marginBottom: spacing.xl,
+  },
+  sectionHeader: {
+    marginBottom: spacing.regular,
+    paddingHorizontal: spacing.sm,
+  },
+  sectionTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  sectionSubtitle: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  automaticHabitItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.regular,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  automaticHabitInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  automaticHabitText: {
+    marginLeft: spacing.regular,
+    flex: 1,
+  },
+  automaticHabitName: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  automaticHabitDescription: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  customSwitch: {
+    width: 50,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.border,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  customSwitchEnabled: {
+    backgroundColor: colors.primary + '40',
+  },
+  customSwitchThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.textSecondary,
+    alignSelf: 'flex-start',
+  },
+  customSwitchThumbEnabled: {
+    backgroundColor: colors.primary,
+    alignSelf: 'flex-end',
   },
 });
 

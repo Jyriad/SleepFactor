@@ -13,6 +13,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import healthMetricsService from '../services/healthMetricsService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
@@ -27,8 +28,8 @@ const HabitLoggingScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { user } = useAuth();
-  const initialDate = route.params?.date || new Date().toISOString().split('T')[0];
-  
+  const initialDate = route.params?.date ? new Date(route.params.date) : new Date();
+
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [habits, setHabits] = useState([]);
   const [habitLogs, setHabitLogs] = useState({});
@@ -75,9 +76,10 @@ const HabitLoggingScreen = () => {
       // Clean up wrong habits and ensure correct ones exist
       finalHabits = await cleanupAndEnsureHabits(finalHabits);
 
-      // Normalize habits and filter out deprecated ones as a safety measure
+      // Normalize habits and filter out deprecated ones and automatic health metrics
       const normalizedHabits = finalHabits
         .filter(habit => habit.name !== 'Coffee') // Filter out old Coffee habit
+        .filter(habit => !healthMetricsService.isHealthMetricHabit(habit)) // Filter out automatic health metrics
         .map(habit => ({
           ...habit,
           is_custom: habit.is_custom === true || habit.is_custom === 'true',
@@ -102,16 +104,20 @@ const HabitLoggingScreen = () => {
 
       if (consumptionHabits.length > 0) {
         const habitIds = consumptionHabits.map(h => h.id);
-        const startOfDay = new Date(selectedDate + 'T00:00:00');
-        const endOfDay = new Date(selectedDate + 'T23:59:59');
+        const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+
+        // Calculate how far back to look based on longest half-life
+        const maxHalfLife = Math.max(...consumptionHabits.map(h => h.half_life_hours || 5));
+        const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24)); // At least 3 days, or 3 half-lives worth
+        const historyStart = new Date(dateObj);
+        historyStart.setDate(historyStart.getDate() - historyDays);
 
         const { data: eventsData, error: eventsError } = await supabase
           .from('habit_consumption_events')
           .select('*')
           .eq('user_id', user.id)
           .in('habit_id', habitIds)
-          .gte('consumed_at', startOfDay.toISOString())
-          .lte('consumed_at', endOfDay.toISOString())
+          .gte('consumed_at', historyStart.toISOString())
           .order('consumed_at', { ascending: true });
 
         if (eventsError) throw eventsError;
@@ -340,8 +346,9 @@ const HabitLoggingScreen = () => {
       if (consumptionEventEntries.length > 0) {
         // Delete existing events for this date first
         const habitIds = Object.keys(consumptionEvents);
-        const startOfDay = new Date(selectedDate + 'T00:00:00');
-        const endOfDay = new Date(selectedDate + 'T23:59:59');
+        const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+        const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+        const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
 
         await supabase
           .from('habit_consumption_events')
@@ -467,11 +474,12 @@ const HabitLoggingScreen = () => {
                   <View style={styles.habitInput}>
                     <HabitInput
                       habit={habit}
-                      value={(habit.type === 'drug' || habit.type === 'quick_consumption') 
-                        ? (consumptionEvents[habit.id] || []) 
+                      value={(habit.type === 'drug' || habit.type === 'quick_consumption')
+                        ? (consumptionEvents[habit.id] || [])
                         : (habitLogs[habit.id] || '')}
                       onChange={(value) => handleHabitChange(habit.id, value)}
                       unit={habit.unit}
+                      selectedDate={selectedDate}
                     />
                   </View>
                   

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { signOut } from '../services/auth';
 import { colors } from '../constants/colors';
@@ -18,6 +19,26 @@ import sleepDataService from '../services/sleepDataService';
 
 const ProfileScreen = () => {
   const { user } = useAuth();
+
+  // Clear user-specific cached data from AsyncStorage
+  const clearUserCaches = async (userId) => {
+    try {
+      // Get all AsyncStorage keys
+      const keys = await AsyncStorage.getAllKeys();
+
+      // Filter for user-specific habit log caches
+      const habitLogKeys = keys.filter(key =>
+        key.startsWith(`habitLogs_${userId}_`)
+      );
+
+      // Remove all user habit log caches
+      if (habitLogKeys.length > 0) {
+        await AsyncStorage.multiRemove(habitLogKeys);
+      }
+    } catch (error) {
+      console.error('Error clearing caches:', error);
+    }
+  };
   const {
     hasPermissions,
     isInitialized,
@@ -115,7 +136,9 @@ const ProfileScreen = () => {
           onPress: async () => {
             try {
               const deletedCount = await sleepDataService.deleteAllHabitLogs();
-              Alert.alert('Success', `Deleted ${deletedCount} habit log records`);
+              // Clear cached data
+              await clearUserCaches(user.id);
+              Alert.alert('Success', `Deleted ${deletedCount} habit records and cleared caches`);
             } catch (error) {
               Alert.alert('Error', 'Failed to delete habit logs');
             }
@@ -138,7 +161,9 @@ const ProfileScreen = () => {
             try {
               const sleepDeleted = await sleepDataService.deleteAllSleepData();
               const habitDeleted = await sleepDataService.deleteAllHabitLogs();
-              Alert.alert('Success', `Deleted ${sleepDeleted} sleep records and ${habitDeleted} habit logs`);
+              // Clear cached data
+              await clearUserCaches(user.id);
+              Alert.alert('Success', `Deleted ${sleepDeleted} sleep records and ${habitDeleted} habit records`);
             } catch (error) {
               Alert.alert('Error', 'Failed to delete all data');
             }

@@ -183,6 +183,54 @@ class HealthService {
   }
 
   /**
+   * Sync health metrics for a date range
+   * @param {Object} options - Options object
+   * @param {string} options.startDate - Start date in YYYY-MM-DD format
+   * @param {string} options.endDate - End date in YYYY-MM-DD format
+   * @param {Array} options.metrics - Array of metric keys to fetch
+   * @returns {Promise<Object>} Object with metrics data
+   */
+  async syncHealthMetrics({ startDate, endDate, metrics }) {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      if (this.platform === 'android' && healthConnectService) {
+        return await healthConnectService.syncHealthMetrics({ startDate, endDate, metrics });
+      } else if (this.platform === 'ios' && healthKitService) {
+        return await healthKitService.syncHealthMetrics({ startDate, endDate, metrics });
+      }
+
+      console.warn('No health metrics sync available for platform:', this.platform);
+      return {};
+    } catch (error) {
+      console.error('Health metrics sync failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if we have permission for a specific record type
+   * @param {string} recordType - The record type to check
+   * @returns {Promise<boolean>} True if permission granted
+   */
+  async hasPermissionForRecordType(recordType) {
+    try {
+      if (this.platform === 'android' && healthConnectService) {
+        return await healthConnectService.hasPermissionForRecordType(recordType);
+      } else if (this.platform === 'ios' && healthKitService) {
+        // For iOS, we check general permissions since HealthKit permissions are all-or-nothing
+        return await healthKitService.hasPermissions();
+      }
+      return false;
+    } catch (error) {
+      console.error('Permission check failed:', error);
+      return false;
+    }
+  }
+
+  /**
    * Get platform-specific error message
    * @param {Error} error - The error object
    * @returns {string} User-friendly error message

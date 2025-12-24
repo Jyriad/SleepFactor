@@ -20,6 +20,7 @@ class HealthConnectService {
       { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
       { accessType: 'read', recordType: 'TotalCaloriesBurned' },
       { accessType: 'read', recordType: 'ExerciseSession' },
+      { accessType: 'read', recordType: 'Distance' },
       { accessType: 'read', recordType: 'RespiratoryRate' },
       { accessType: 'read', recordType: 'BloodGlucose' },
       { accessType: 'read', recordType: 'BloodPressure' },
@@ -39,66 +40,13 @@ class HealthConnectService {
   async initialize() {
     try {
       const sdkStatus = getSdkStatus();
-      console.log('🚀 Initializing Health Connect, SDK Status:', sdkStatus);
-      console.log('🔧 TEMPORARILY BYPASSING AVAILABILITY CHECK FOR TESTING');
-      console.log('📱 Health Connect is installed and connected - bypassing detection');
 
       // TEMPORARY: Bypass availability check to test permission flow
       // Health Connect is properly set up, but SDK detection isn't working
-      console.log('🔧 Calling Health Connect initialize()...');
       const initResult = await initialize();
-      console.log('✅ Health Connect initialize result:', initResult);
       this.isInitialized = initResult;
       return initResult;
 
-      // Original availability check code (commented out for testing):
-      /*
-      // Check for unavailable status (handle both string and object formats)
-      let isUnavailable = false;
-      let needsProviderUpdate = false;
-
-      if (typeof sdkStatus === 'string') {
-        isUnavailable = sdkStatus === 'SDK_UNAVAILABLE';
-        needsProviderUpdate = sdkStatus === 'SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED';
-      } else if (typeof sdkStatus === 'object' && sdkStatus !== null) {
-        // Check string properties
-        isUnavailable = sdkStatus.status === 'SDK_UNAVAILABLE' || sdkStatus.value === 'SDK_UNAVAILABLE';
-        needsProviderUpdate = sdkStatus.status === 'SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED' ||
-                             sdkStatus.value === 'SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED';
-
-        // Check if _h property indicates unavailability
-        if (!isUnavailable && typeof sdkStatus._h === 'number') {
-          isUnavailable = sdkStatus._h === 0; // Assuming 0 = unavailable
-          console.log('🚀 Init: _h property check:', sdkStatus._h, '→ unavailable:', isUnavailable);
-        }
-
-        // If all values are null/0, assume unavailable
-        if (!isUnavailable) {
-          const allNullOrZero = Object.values(sdkStatus).every(val =>
-            val === null || val === 0 || val === undefined
-          );
-          if (allNullOrZero) {
-            isUnavailable = true;
-            console.log('🚀 Init: All values null/zero → unavailable');
-          }
-        }
-      }
-
-      if (isUnavailable) {
-        console.warn('Health Connect SDK is not available');
-        return false;
-      }
-      if (needsProviderUpdate) {
-        console.warn('Health Connect requires provider update');
-        return false;
-      }
-
-      console.log('🔧 Calling Health Connect initialize()...');
-      const initResult = await initialize();
-      console.log('✅ Health Connect initialize result:', initResult);
-      this.isInitialized = initResult;
-      return initResult;
-      */
     } catch (error) {
       console.error('❌ Health Connect initialization failed:', error);
       console.error('❌ Error details:', error.message);
@@ -115,16 +63,6 @@ class HealthConnectService {
   async isAvailable() {
     try {
       const sdkStatus = getSdkStatus();
-      console.log('🔍 Health Connect SDK Status:', sdkStatus);
-      console.log('🔍 SDK Status Type:', typeof sdkStatus);
-      console.log('🔍 SDK Status Keys:', Object.keys(sdkStatus));
-      console.log('🔍 SDK Status Stringified:', JSON.stringify(sdkStatus));
-      console.log('📱 Device Platform:', Platform.OS);
-      console.log('🎯 Expected Status: SDK_AVAILABLE');
-
-      // For debugging - temporarily force available to test permission flow
-      console.log('🔧 TEMPORARILY FORCING HEALTH CONNECT AVAILABLE FOR TESTING');
-      return true; // Remove this line after Health Connect is properly set up
 
       // Try different ways to check availability
       let isAvailable = false;
@@ -132,7 +70,6 @@ class HealthConnectService {
       // Method 1: Check if it's a string
       if (typeof sdkStatus === 'string') {
         isAvailable = sdkStatus === 'SDK_AVAILABLE';
-        console.log('✅ String check result:', isAvailable);
       }
       // Method 2: Check if object has status property
       else if (typeof sdkStatus === 'object' && sdkStatus !== null) {
@@ -144,7 +81,6 @@ class HealthConnectService {
         // Check if _h property indicates availability (0 = unavailable, 1 = available?)
         if (!isAvailable && typeof sdkStatus._h === 'number') {
           isAvailable = sdkStatus._h === 1;
-          console.log('🔍 Checking _h property:', sdkStatus._h, '→ available:', isAvailable);
         }
 
         // Check if all properties are null/0 (might indicate not available)
@@ -153,15 +89,8 @@ class HealthConnectService {
         );
         if (!isAvailable && allNullOrZero) {
           isAvailable = false; // Explicitly not available
-          console.log('🔍 All object values are null/zero → not available');
         }
-
-        console.log('✅ Object check result:', isAvailable);
-        console.log('🔍 Object properties checked: status, value, name, _h, allNullOrZero');
       }
-
-      console.log('✅ Health Connect Available:', isAvailable);
-      console.log('🔍 Final determination method: string check =', typeof sdkStatus === 'string' ? 'YES' : 'NO');
 
       return isAvailable;
     } catch (error) {
@@ -178,30 +107,14 @@ class HealthConnectService {
    */
   async requestPermissions() {
     try {
-      console.log('🔐 Starting Health Connect permission request...');
-      console.log('🔐 Requested permissions:', this.permissions);
-
       if (!this.isInitialized) {
-        console.log('🔐 Health Connect not initialized, initializing...');
         const initSuccess = await this.initialize();
         if (!initSuccess) {
-          console.log('❌ Failed to initialize Health Connect');
           return false;
         }
       }
 
-      console.log('🔐 Calling requestPermission...');
       const grantedPermissions = await requestPermission(this.permissions);
-      console.log('🔐 Permission request result:', grantedPermissions);
-      console.log('🔐 Result type:', typeof grantedPermissions);
-      console.log('🔐 Result is array:', Array.isArray(grantedPermissions));
-
-      if (Array.isArray(grantedPermissions)) {
-        console.log('🔐 Granted permissions array length:', grantedPermissions.length);
-        grantedPermissions.forEach((perm, index) => {
-          console.log(`🔐 Permission ${index}:`, perm);
-        });
-      }
 
       // Check if we got the essential sleep permission
       let hasSleepPermission = false;
@@ -210,16 +123,11 @@ class HealthConnectService {
         hasSleepPermission = grantedPermissions.some(
           perm => perm.recordType === 'SleepSession' && perm.accessType === 'read'
         );
-        console.log('🔐 Sleep permission check (array method):', hasSleepPermission);
       } else if (typeof grantedPermissions === 'boolean') {
         // Some libraries return just a boolean
         hasSleepPermission = grantedPermissions;
-        console.log('🔐 Sleep permission check (boolean method):', hasSleepPermission);
-      } else {
-        console.log('🔐 Unexpected permission result format');
       }
 
-      console.log('✅ Permission request completed, has sleep permission:', hasSleepPermission);
       return hasSleepPermission;
     } catch (error) {
       console.error('❌ Health Connect permission request failed:', error);
@@ -235,25 +143,11 @@ class HealthConnectService {
    */
   async hasPermissions() {
     try {
-      console.log('🔍 Checking existing Health Connect permissions...');
-
       if (!this.isInitialized) {
-        console.log('❌ Health Connect not initialized');
         return false;
       }
 
-      console.log('🔍 Calling getGrantedPermissions...');
       const grantedPermissions = await getGrantedPermissions();
-      console.log('🔍 Granted permissions result:', grantedPermissions);
-      console.log('🔍 Result type:', typeof grantedPermissions);
-      console.log('🔍 Result is array:', Array.isArray(grantedPermissions));
-
-      if (Array.isArray(grantedPermissions)) {
-        console.log('🔍 Granted permissions array length:', grantedPermissions.length);
-        grantedPermissions.forEach((perm, index) => {
-          console.log(`🔍 Permission ${index}:`, perm);
-        });
-      }
 
       // Check for essential sleep permission
       let hasSleepPermission = false;
@@ -262,21 +156,40 @@ class HealthConnectService {
         hasSleepPermission = grantedPermissions.some(
           perm => perm.recordType === 'SleepSession' && perm.accessType === 'read'
         );
-        console.log('🔍 Sleep permission check (array method):', hasSleepPermission);
       } else if (typeof grantedPermissions === 'boolean') {
         // Some libraries return just a boolean
         hasSleepPermission = grantedPermissions;
-        console.log('🔍 Sleep permission check (boolean method):', hasSleepPermission);
-      } else {
-        console.log('🔍 Unexpected permission result format');
       }
 
-      console.log('✅ Permission check completed, has sleep permission:', hasSleepPermission);
       return hasSleepPermission;
     } catch (error) {
-      console.error('❌ Health Connect permission check failed:', error);
-      console.error('❌ Error message:', error.message);
-      console.error('❌ Error stack:', error.stack);
+      console.error('Health Connect permission check failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if we have permission for a specific record type
+   * @param {string} recordType - The record type to check (e.g., 'Distance', 'Steps')
+   * @returns {Promise<boolean>} True if permission granted for this record type
+   */
+  async hasPermissionForRecordType(recordType) {
+    try {
+      if (!this.isInitialized) {
+        return false;
+      }
+
+      const grantedPermissions = await getGrantedPermissions();
+
+      if (Array.isArray(grantedPermissions)) {
+        return grantedPermissions.some(
+          perm => perm.recordType === recordType && perm.accessType === 'read'
+        );
+      }
+
+      return false;
+    } catch (error) {
+      console.error(`❌ Permission check failed for ${recordType}:`, error);
       return false;
     }
   }
@@ -307,33 +220,14 @@ class HealthConnectService {
         },
       });
 
-      console.log(`📊 Raw Health Connect records fetched: ${records.length}`);
-      
-      // Log raw data for debugging and future reference
-      records.forEach((record, index) => {
-        console.log(`📊 Raw record ${index + 1}:`, {
-          startTime: record.startTime,
-          endTime: record.endTime,
-          stages: record.stages ? `${record.stages.length} stages` : 'no stages',
-          metadata: record.metadata ? 'has metadata' : 'no metadata',
-          fullRecord: JSON.stringify(record, null, 2)
-        });
-      });
 
       // Transform each record to match our database schema
       const transformedData = records.map((record, index) => {
-        console.log(`🔄 Transforming record ${index + 1}...`);
         const transformed = this.transformSleepData(record);
-        if (transformed) {
-          console.log(`✅ Transformed record ${index + 1}:`, transformed);
-        } else {
-          console.warn(`❌ Failed to transform record ${index + 1}`);
-        }
         return transformed;
       });
 
       const validData = transformedData.filter(data => data !== null);
-      console.log(`✅ Successfully transformed ${validData.length} out of ${records.length} records`);
       
       return validData;
     } catch (error) {
@@ -483,11 +377,171 @@ class HealthConnectService {
       // For Health Connect, we can't directly revoke permissions from the app
       // The user needs to revoke permissions in the Health Connect app settings
       // We can guide them to do this, but we can't do it programmatically
-      console.log('Health Connect permissions must be revoked manually in the Health Connect app settings');
       return true; // Return true since we can't determine if they actually revoked
     } catch (error) {
       console.error('Failed to revoke Health Connect permissions:', error);
       return false;
+    }
+  }
+
+  /**
+   * Sync health metrics for a date range
+   * @param {Object} options - Options object
+   * @param {string} options.startDate - Start date in YYYY-MM-DD format
+   * @param {string} options.endDate - End date in YYYY-MM-DD format
+   * @param {Array} options.metrics - Array of metric keys to fetch
+   * @returns {Promise<Object>} Object with metrics data
+   */
+  async syncHealthMetrics({ startDate, endDate, metrics = ['steps', 'active_energy', 'heart_rate_max', 'heart_rate_resting'] }) {
+    try {
+      if (!this.isInitialized || !(await this.hasPermissions())) {
+        throw new Error('Health Connect not initialized or permissions not granted');
+      }
+
+      const startTime = new Date(startDate).toISOString();
+      const endTime = new Date(endDate);
+      endTime.setHours(23, 59, 59, 999); // End of the end date
+      const endTimeString = endTime.toISOString();
+
+
+      const results = {};
+
+      for (const metric of metrics) {
+        try {
+          const data = await this.fetchHealthMetric(metric, startTime, endTimeString);
+          results[metric] = data;
+        } catch (error) {
+          console.error(`Error fetching ${metric}:`, error);
+          results[metric] = [];
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Health Connect health metrics sync failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch a specific health metric
+   * @param {string} metric - Metric key (e.g., 'steps', 'active_energy')
+   * @param {string} startTime - ISO start time
+   * @param {string} endTime - ISO end time
+   * @returns {Promise<Array>} Array of {date, value} objects
+   */
+  async fetchHealthMetric(metric, startTime, endTime) {
+    const metricMappings = {
+      steps: 'Steps',
+      active_energy: 'ActiveCaloriesBurned',
+      heart_rate_max: 'HeartRate',
+      heart_rate_resting: 'RestingHeartRate',
+      exercise_minutes: 'ExerciseSession',
+      distance_walking: 'Distance'
+    };
+
+    const recordType = metricMappings[metric];
+    if (!recordType) {
+      console.warn(`Unknown metric: ${metric}`);
+      return [];
+    }
+
+    try {
+      const { records } = await readRecords(recordType, {
+        timeRangeFilter: {
+          operator: 'between',
+          startTime: startTime,
+          endTime: endTime,
+        },
+      });
+
+
+      // Aggregate by date
+      const dailyData = {};
+
+      records.forEach(record => {
+        const recordDate = new Date(record.startTime || record.time).toISOString().split('T')[0];
+
+        if (!dailyData[recordDate]) {
+          dailyData[recordDate] = [];
+        }
+
+        // Extract value based on metric type
+        let value = null;
+
+        switch (metric) {
+          case 'steps':
+          case 'active_energy':
+            value = record.count || record.energy || 0;
+            break;
+          case 'heart_rate_max':
+          case 'heart_rate_resting':
+            // For heart rate, we'll take the max/resting value
+            if (record.samples && record.samples.length > 0) {
+              if (metric === 'heart_rate_max') {
+                value = Math.max(...record.samples.map(s => s.beatsPerMinute || 0));
+              } else {
+                // For resting heart rate, take average
+                const validSamples = record.samples.filter(s => s.beatsPerMinute > 0);
+                if (validSamples.length > 0) {
+                  value = validSamples.reduce((sum, s) => sum + s.beatsPerMinute, 0) / validSamples.length;
+                }
+              }
+            }
+            break;
+          case 'exercise_minutes':
+            if (record.startTime && record.endTime) {
+              const duration = new Date(record.endTime) - new Date(record.startTime);
+              value = Math.round(duration / (1000 * 60)); // Convert to minutes
+            }
+            break;
+          case 'distance_walking':
+            value = record.distance?.inMeters || 0;
+            // Convert meters to kilometers
+            value = value / 1000;
+            break;
+        }
+
+        if (value !== null && value > 0) {
+          dailyData[recordDate].push(value);
+        }
+      });
+
+      // Aggregate daily values
+      const aggregatedData = [];
+      for (const [date, values] of Object.entries(dailyData)) {
+        let finalValue = 0;
+
+        switch (metric) {
+          case 'steps':
+          case 'active_energy':
+          case 'distance_walking':
+            // Sum for cumulative metrics
+            finalValue = values.reduce((sum, val) => sum + val, 0);
+            break;
+          case 'heart_rate_max':
+            // Max for heart rate
+            finalValue = Math.max(...values);
+            break;
+          case 'heart_rate_resting':
+          case 'exercise_minutes':
+            // Average for resting metrics
+            finalValue = values.reduce((sum, val) => sum + val, 0) / values.length;
+            break;
+        }
+
+        if (finalValue > 0) {
+          aggregatedData.push({
+            date,
+            value: Math.round(finalValue * 100) / 100 // Round to 2 decimal places
+          });
+        }
+      }
+
+      return aggregatedData;
+    } catch (error) {
+      console.error(`Error fetching ${metric}:`, error);
+      return [];
     }
   }
 

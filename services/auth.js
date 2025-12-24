@@ -112,11 +112,7 @@ const getRedirectUrl = () => {
  */
 export const signInWithGoogle = async () => {
   try {
-    console.log('🔵 [OAuth] Starting Google sign-in flow');
     const redirectUrl = getRedirectUrl();
-    console.log('🔵 [OAuth] Redirect URL:', redirectUrl);
-    
-    console.log('🔵 [OAuth] Requesting OAuth URL from Supabase...');
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -134,74 +130,55 @@ export const signInWithGoogle = async () => {
       throw error;
     }
 
-    console.log('🟢 [OAuth] Supabase response data:', JSON.stringify(data, null, 2));
-
     // Check if URL was returned (if not, provider might not be configured)
     if (!data?.url) {
-      console.error('❌ [OAuth] No URL returned from Supabase');
-      return { 
-        data: null, 
-        error: 'Google sign-in is not properly configured. Please enable it in your Supabase dashboard under Authentication → Providers.' 
+      return {
+        data: null,
+        error: 'Google sign-in is not properly configured. Please enable it in your Supabase dashboard under Authentication → Providers.'
       };
     }
 
-    console.log('🟢 [OAuth] Opening browser with OAuth URL:', data.url);
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
     
-    console.log('🟢 [OAuth] Browser session completed');
-    console.log('🟢 [OAuth] Result type:', result.type);
-    console.log('🟢 [OAuth] Result URL:', result.url);
-    console.log('🟢 [OAuth] Full result object:', JSON.stringify(result, null, 2));
-    
     if (result.type === 'success') {
       const url = result.url;
       if (url) {
-        console.log('🟡 [OAuth] Parsing redirect URL:', url);
-        
         // Extract tokens from hash fragment
         let accessToken = null;
         let refreshToken = null;
         let expiresAt = null;
-        
+
         if (url.includes('#')) {
-          console.log('�� [OAuth] Extracting tokens from hash fragment...');
-          
           // Extract access_token
           const accessTokenMatch = url.match(/[#&]access_token=([^&]+)/);
           if (accessTokenMatch) {
             accessToken = decodeURIComponent(accessTokenMatch[1]);
-            console.log('🟢 [OAuth] Access token found in hash');
           }
-          
+
           // Extract refresh_token
           const refreshTokenMatch = url.match(/[#&]refresh_token=([^&]+)/);
           if (refreshTokenMatch) {
             refreshToken = decodeURIComponent(refreshTokenMatch[1]);
-            console.log('🟢 [OAuth] Refresh token found in hash');
           }
-          
+
           // Extract expires_at (optional but good to have)
           const expiresAtMatch = url.match(/[#&]expires_at=([^&]+)/);
           if (expiresAtMatch) {
             expiresAt = parseInt(expiresAtMatch[1], 10);
-            console.log('�� [OAuth] Expires at found:', expiresAt);
           }
-          
+
           // If we have tokens, set the session directly
           if (accessToken && refreshToken) {
-            console.log('🟢 [OAuth] Setting session with tokens...');
             const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken,
             });
-            
+
             if (sessionError) {
-              console.error('❌ [OAuth] Set session error:', sessionError);
               throw sessionError;
             }
-            console.log('✅ [OAuth] Session set successfully!');
             return { data: sessionData, error: null };
           }
         }
@@ -218,13 +195,10 @@ export const signInWithGoogle = async () => {
         }
         
         if (code) {
-          console.log('�� [OAuth] Code found! Exchanging for session...');
           const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
           if (sessionError) {
-            console.error('❌ [OAuth] Exchange error:', sessionError);
             throw sessionError;
           }
-          console.log('✅ [OAuth] Session exchange successful!');
           return { data: sessionData, error: null };
         }
         

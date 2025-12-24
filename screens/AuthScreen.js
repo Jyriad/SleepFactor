@@ -74,7 +74,6 @@ const AuthScreen = () => {
   };
 
   const handleGoogleSignIn = async () => {
-    console.log('TEST: handleGoogleSignIn was called!');
     setError('');
     setOauthLoading(prev => ({ ...prev, google: true }));
     try {

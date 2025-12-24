@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppState } from 'react-native';
 import sleepSyncService from '../services/sleepSyncService';
+import healthMetricsService from '../services/healthMetricsService';
 
 /**
  * Hook for managing health data synchronization
@@ -72,9 +73,10 @@ export const useHealthSync = ({
    * @param {Object} options - Sync options
    * @param {boolean} options.force - Force sync even if recently synced
    * @param {number} options.daysBack - Number of days to sync (default: 7)
+   * @param {string} options.userId - User ID for health metrics sync
    * @returns {Promise<Object>} Sync result
    */
-  const performSync = useCallback(async ({ force = false, daysBack = 7 } = {}) => {
+  const performSync = useCallback(async ({ force = false, daysBack = 7, userId } = {}) => {
     if (!isInitialized) {
       throw new Error('Health sync service not initialized');
     }
@@ -84,18 +86,45 @@ export const useHealthSync = ({
     setNeedsPermissions(false);
 
     try {
-      const result = await sleepSyncService.syncSleepData({ daysBack, force });
+      // Sync sleep data first
+      const sleepResult = await sleepSyncService.syncSleepData({ daysBack, force });
 
-      if (result.success) {
-        setLastSyncResult(result);
-        setHasPermissions(true);
-      } else if (result.needsPermissions) {
-        setNeedsPermissions(true);
-      } else {
-        setError(result.error || 'Sync failed');
+      let healthMetricsResult = null;
+      let combinedResult = { ...sleepResult };
+
+      if (sleepResult.success && userId) {
+        // If sleep sync succeeded and we have userId, also sync health metrics
+        try {
+          const endDate = new Date();
+          const startDate = new Date();
+          startDate.setDate(startDate.getDate() - daysBack);
+
+          healthMetricsResult = await healthMetricsService.syncHealthMetrics(
+            userId,
+            startDate,
+            endDate
+          );
+
+          // Combine results
+          combinedResult.healthMetricsSynced = healthMetricsResult.totalSynced || 0;
+          combinedResult.healthMetricsResults = healthMetricsResult.results || [];
+        } catch (healthError) {
+          console.warn('Health metrics sync failed, but sleep sync succeeded:', healthError);
+          // Don't fail the entire sync if health metrics fail
+          combinedResult.healthMetricsError = healthError.message;
+        }
       }
 
-      return result;
+      if (combinedResult.success) {
+        setLastSyncResult(combinedResult);
+        setHasPermissions(true);
+      } else if (combinedResult.needsPermissions) {
+        setNeedsPermissions(true);
+      } else {
+        setError(combinedResult.error || 'Sync failed');
+      }
+
+      return combinedResult;
     } catch (err) {
       const errorMessage = sleepSyncService.getErrorMessage(err);
       setError(errorMessage);
@@ -104,6 +133,26 @@ export const useHealthSync = ({
       setIsLoading(false);
     }
   }, [isInitialized]);
+
+  /**
+   * Sync health metrics separately
+   * @param {string} userId - User ID
+   * @param {Date} startDate - Start date
+   * @param {Date} endDate - End date
+   * @returns {Promise<Object>} Health metrics sync result
+   */
+  const syncHealthMetrics = useCallback(async (userId, startDate, endDate) => {
+    if (!userId) {
+      throw new Error('User ID is required for health metrics sync');
+    }
+
+    try {
+      return await healthMetricsService.syncHealthMetrics(userId, startDate, endDate);
+    } catch (error) {
+      console.error('Health metrics sync failed:', error);
+      throw error;
+    }
+  }, []);
 
   /**
    * Request health data permissions
@@ -180,6 +229,7 @@ export const useHealthSync = ({
 
     // Methods
     performSync,
+    syncHealthMetrics,
     requestPermissions,
     isSyncNeeded,
     getLastSyncTimestamp,

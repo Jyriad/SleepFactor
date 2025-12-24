@@ -1,24 +1,23 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Dimensions,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LineChart } from 'react-native-gifted-charts';
+import {
+  LineChart,
+} from 'react-native-chart-kit';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import {
-  generateDrugLevelTimeline,
-  getMaxDrugLevel,
   formatDrugLevel,
   calculateTotalDrugLevel
 } from '../utils/drugHalfLife';
 
 const { width: screenWidth } = Dimensions.get('window');
-const CHART_HEIGHT = 200;
+const CHART_HEIGHT = 250;
 
 const DrugLevelChart = ({
   consumptionEvents,
@@ -27,88 +26,161 @@ const DrugLevelChart = ({
   sleepStartTime,
   bedtime
 }) => {
+  const [forceUpdate, setForceUpdate] = useState(0);
+
+  // Force re-render every minute to update current time indicator
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setForceUpdate(prev => prev + 1);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
   const chartData = useMemo(() => {
-    if (!consumptionEvents || consumptionEvents.length === 0 || !habit) {
+    if (!habit) {
       return null;
     }
 
-    // Create 9 data points at 3-hour intervals: 12am, 3am, 6am, 9am, 12pm, 3pm, 6pm, 9pm, 12am (next day)
-    // This covers 24 hours from midnight today to midnight tomorrow - full day cycle
-    const timePoints = [
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0),   // 12am (midnight)
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 3, 0, 0),   // 3am
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 6, 0, 0),   // 6am
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0, 0),   // 9am
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 12, 0, 0),  // 12pm
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 15, 0, 0),  // 3pm
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 18, 0, 0),  // 6pm
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 21, 0, 0),  // 9pm
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1, 0, 0, 0), // 12am next day
-    ];
+    // Ensure selectedDate is a Date object
+    const date = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
 
-    // Calculate drug levels at each time point and create data points with labels
+    // Calculate how far back to look for consumption events based on half-life
+    const halfLifeHours = habit.half_life_hours || 5;
+    const historyDays = Math.max(3, Math.ceil((halfLifeHours * 3) / 24));
+    const historyStart = new Date(date);
+    historyStart.setDate(historyStart.getDate() - historyDays);
+
+    // Create time range from 6 AM to 12 AM (18 hours) with 30-minute intervals
+    const startTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 6, 0, 0);
+    const endTime = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0);
+    const intervalMinutes = 30;
+
+    const timePoints = [];
+    let currentTime = new Date(startTime);
+
+    while (currentTime <= endTime) {
+      timePoints.push(new Date(currentTime));
+      currentTime = new Date(currentTime.getTime() + (intervalMinutes * 60 * 1000));
+    }
+
+    // Calculate drug levels at each time point - ALWAYS calculate, even if no events
     const dataPoints = timePoints.map((timePoint) => {
-      const level = calculateTotalDrugLevel(
-        consumptionEvents,
-        timePoint,
-        habit.half_life_hours || 5,
-        habit.drug_threshold_percent || 5
-      );
-
-      // Create time label
-      const hour = timePoint.getHours();
-      const isAM = hour < 12;
-      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      const label = `${displayHour}${isAM ? 'am' : 'pm'}`;
-
-      return {
-        value: level,
-        label: label,
-        time: timePoint,
-      };
+      const level = consumptionEvents && consumptionEvents.length > 0
+        ? calculateTotalDrugLevel(
+            consumptionEvents,
+            timePoint,
+            habit.half_life_hours || 5,
+            habit.drug_threshold_percent || 5
+          )
+        : 0;
+      return level;
     });
 
-    // Calculate current time position and interpolate drug level
+    // Create labels for time points (show every 3 hours)
+    const labels = timePoints.map((timePoint, index) => {
+      if (index % 6 === 0) {
+        const hour = timePoint.getHours();
+        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        const ampm = hour < 12 ? 'am' : 'pm';
+        return `${displayHour}${ampm}`;
+      }
+      return '';
+    });
+
+    // Determine bedtime for vertical line
+    let bedtimeTime = null;
+    if (bedtime) {
+      bedtimeTime = bedtime instanceof Date ? bedtime : new Date(bedtime);
+    } else if (sleepStartTime) {
+      bedtimeTime = sleepStartTime instanceof Date ? sleepStartTime : new Date(sleepStartTime);
+    } else {
+      bedtimeTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 0, 0);
+    }
+
+    // Calculate drug level at bedtime
+    const bedtimeLevel = consumptionEvents && consumptionEvents.length > 0
+      ? calculateTotalDrugLevel(
+          consumptionEvents,
+          bedtimeTime,
+          habit.half_life_hours || 5,
+          habit.drug_threshold_percent || 5
+        )
+      : 0;
+
+    // Get current time for "now" indicator - only show if selected date is today
     const now = new Date();
-    let currentTimeDataPoint = null;
-    
-    // Find where current time falls between data points and interpolate
-    for (let i = 0; i < timePoints.length - 1; i++) {
-      if (now >= timePoints[i] && now <= timePoints[i + 1]) {
-        // Calculate interpolated drug level at current time
-        const currentLevel = calculateTotalDrugLevel(
+    const isToday = date.toDateString() === now.toDateString();
+
+    const currentLevel = consumptionEvents && consumptionEvents.length > 0
+      ? calculateTotalDrugLevel(
           consumptionEvents,
           now,
           habit.half_life_hours || 5,
           habit.drug_threshold_percent || 5
-        );
-        
-        // Calculate position between data points (0-1)
-        const timeDiff = timePoints[i + 1].getTime() - timePoints[i].getTime();
-        const elapsed = now.getTime() - timePoints[i].getTime();
-        const position = elapsed / timeDiff;
-        
-        currentTimeDataPoint = {
-          index: i + position, // Fractional index for positioning
-          level: currentLevel,
-          time: now,
-        };
-        break;
-      }
+        )
+      : 0;
+
+    const maxLevel = Math.max(...dataPoints, 1);
+
+    // Find indices for bedtime and current time markers
+    const bedtimeIndex = timePoints.findIndex(tp => tp >= bedtimeTime);
+
+    // For current time, calculate exact position within the time range
+    let currentTimePosition = null;
+    if (isToday) {
+      // Calculate how far through the 18-hour chart period the current time is
+      // Chart starts at 6 AM and goes 18 hours to midnight
+      const chartStartTime = startTime.getTime();
+      const chartEndTime = endTime.getTime();
+      const currentTimeMs = now.getTime();
+
+      // Clamp current time to chart range
+      const clampedCurrentTime = Math.max(chartStartTime, Math.min(chartEndTime, currentTimeMs));
+
+      // Calculate position as fraction (0.0 to 1.0) through the chart
+      currentTimePosition = (clampedCurrentTime - chartStartTime) / (chartEndTime - chartStartTime);
+
     }
 
-    const maxLevel = Math.max(...dataPoints.map(p => p.value), 1);
+    // Debug current time line positioning
+    if (isToday) {
+      // Find the closest time point for debugging purposes
+      const timeDiffs = timePoints.map((tp, index) => ({
+        index,
+        diff: Math.abs(tp.getTime() - now.getTime())
+      }));
+      const minDiff = Math.min(...timeDiffs.map(t => t.diff));
+      const closest = timeDiffs.find(t => t.diff === minDiff);
+      const closestIndex = closest ? closest.index : null;
+      const foundTimePoint = closestIndex !== null ? timePoints[closestIndex] : null;
+
+      console.log('🎯 CURRENT TIME LINE:', {
+        currentTime: now.toLocaleTimeString(),
+        position: currentTimePosition?.toFixed(3),
+        matchedTimePoint: foundTimePoint?.toLocaleTimeString(),
+        closestIndex: closestIndex,
+        totalPoints: timePoints.length
+      });
+    }
 
     return {
       dataPoints,
-      maxLevel,
+      labels,
       timePoints,
-      currentTimeDataPoint,
+      maxLevel: Math.max(maxLevel, 1),
+      bedtimeTime,
+      bedtimeLevel,
+      bedtimeIndex: bedtimeIndex >= 0 ? bedtimeIndex : null,
+      currentTime: isToday ? now : null,
+      currentLevel: isToday ? currentLevel : 0,
+      currentTimePosition: currentTimePosition,
+      timeRange: { start: startTime, end: endTime },
+      hasConsumptionEvents: consumptionEvents && consumptionEvents.length > 0
     };
-  }, [consumptionEvents, habit, selectedDate]);
+  }, [consumptionEvents, habit, selectedDate, bedtime, sleepStartTime, forceUpdate]);
 
   const formatYAxisLabel = (value) => {
-    // Handle undefined/null values from the chart library
     if (value === null || value === undefined || isNaN(value)) {
       return '0';
     }
@@ -119,69 +191,29 @@ const DrugLevelChart = ({
     return formatDrugLevel(numValue, habit?.unit || 'units', numValue === 0 ? 0 : 1);
   };
 
-  if (!chartData || !consumptionEvents || consumptionEvents.length === 0) {
+  const getBedtimeStatus = (level, maxLevel) => {
+    if (level <= 0) return { color: colors.success, status: 'Safe', icon: 'checkmark-circle' };
+    if (level <= maxLevel * 0.3) return { color: colors.warning, status: 'Moderate', icon: 'warning' };
+    return { color: colors.error, status: 'High', icon: 'alert-circle' };
+  };
+
+  // ALWAYS show chart, even if no consumption events
+  if (!chartData) {
     return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="analytics-outline" size={48} color={colors.textLight} />
-        <Text style={styles.emptyText}>
-          No consumption data to visualize
-        </Text>
-        <Text style={styles.emptySubtext}>
-          Log some consumption events to see your drug levels over time
-        </Text>
+      <View style={styles.container}>
+        <Text style={styles.title}>{habit.name} Levels Over Time</Text>
+        <View style={styles.emptyContainer}>
+          <Ionicons name="analytics-outline" size={48} color={colors.textLight} />
+          <Text style={styles.emptyText}>Loading chart data...</Text>
+        </View>
       </View>
     );
   }
 
-  // Map drink types to icons
-  const getConsumptionIcon = (drinkType) => {
-    const iconMap = {
-      espresso: 'cafe',
-      instant_coffee: 'cafe',
-      energy_drink: 'flash',
-      soft_drink: 'water',
-      beer: 'beer',
-      wine: 'wine',
-      liquor: 'flask',
-      cocktail: 'wine',
-    };
-    return iconMap[drinkType] || 'cafe';
-  };
-
-  // Calculate exact positions for consumption events (interpolate between time points)
-  const consumptionMarkers = consumptionEvents.map((event) => {
-    const eventTime = new Date(event.consumed_at);
-    
-    // Find which time points the event falls between
-    let startIndex = 0;
-    let endIndex = chartData.timePoints.length - 1;
-    let fractionalIndex = 0;
-
-    for (let i = 0; i < chartData.timePoints.length - 1; i++) {
-      if (eventTime >= chartData.timePoints[i] && eventTime <= chartData.timePoints[i + 1]) {
-        startIndex = i;
-        endIndex = i + 1;
-        const timeDiff = chartData.timePoints[endIndex].getTime() - chartData.timePoints[startIndex].getTime();
-        const elapsed = eventTime.getTime() - chartData.timePoints[startIndex].getTime();
-        fractionalIndex = startIndex + (elapsed / timeDiff);
-        break;
-      }
-    }
-
-    // If event is before first point or after last point
-    if (eventTime < chartData.timePoints[0]) {
-      fractionalIndex = 0;
-    } else if (eventTime > chartData.timePoints[chartData.timePoints.length - 1]) {
-      fractionalIndex = chartData.timePoints.length - 1;
-    }
-
-    return {
-      fractionalIndex,
-      value: event.amount,
-      time: eventTime,
-      drinkType: event.drink_type,
-    };
-  });
+  const bedtimeStatus = getBedtimeStatus(chartData.bedtimeLevel, chartData.maxLevel);
+  
+  // Calculate chart width (full width of the chart area)
+  const chartWidth = screenWidth - (spacing.regular * 2);
 
   return (
     <View style={styles.container}>
@@ -190,131 +222,105 @@ const DrugLevelChart = ({
       <View style={styles.chartWrapper}>
         <View style={styles.chartContainer}>
           <LineChart
-            data={chartData.dataPoints}
-            height={CHART_HEIGHT}
-            adjustToWidth={true}
-            scrollEnabled={false}
-            scrollToEnd={false}
-            scrollAnimation={false}
-            disableScroll={true}
-            isAnimated={false}
-            color={colors.primary}
-            thickness={2}
-            curved
-            areaChart
-            startFillColor={colors.primary}
-            endFillColor={colors.primary}
-            startOpacity={0.2}
-            endOpacity={0}
-            yAxisColor={colors.border}
-            xAxisColor={colors.border}
-            rulesColor={colors.border}
-            rulesType="solid"
-            yAxisTextStyle={{ color: colors.textSecondary, fontSize: typography.sizes.small }}
-            hideYAxisText={false}
-            showXAxisIndices={false}
-            hideXAxisText={true}
-            maxValue={chartData.maxLevel * 1.1}
-            noOfSections={4}
-            formatYLabel={formatYAxisLabel}
-            dataPointsConfig={{
-              color: colors.primary,
-              radius: 3,
+            data={{
+              labels: chartData.labels,
+              datasets: [{
+                data: chartData.dataPoints,
+                color: () => colors.primary,
+                strokeWidth: 3,
+              }],
             }}
-            textShiftY={-2}
-            textShiftX={-1}
-            textFontSize={typography.sizes.small}
-            hideDataPoints
-            hideRules={false}
-            />
-          
-          {/* Consumption event markers positioned at exact times */}
-          {consumptionMarkers.map((marker, index) => {
-            const chartSpacing = screenWidth / Math.max(1, chartData.dataPoints.length - 1);
-            const xPosition = marker.fractionalIndex * chartSpacing;
-            const yAxisWidth = 50;
-            
-            // Calculate y position based on drug level at consumption time
-            const levelAtConsumption = marker.value; // This is the amount consumed, but we want level
-            // Get the interpolated level at this exact time
-            const level = calculateTotalDrugLevel(
-              consumptionEvents,
-              marker.time,
-              habit.half_life_hours || 5,
-              habit.drug_threshold_percent || 5
-            );
-            const maxLevel = chartData.maxLevel;
-            const yPosition = CHART_HEIGHT - ((level / (maxLevel * 1.1)) * CHART_HEIGHT) - 25; // 25px above line
+            width={chartWidth}
+            height={CHART_HEIGHT}
+            chartConfig={{
+              backgroundColor: colors.cardBackground,
+              backgroundGradientFrom: colors.cardBackground,
+              backgroundGradientTo: colors.cardBackground,
+              decimalPlaces: 1,
+              color: () => colors.primary,
+              labelColor: () => colors.textSecondary,
+              style: {
+                borderRadius: 16,
+                paddingLeft: 25,
+                paddingRight: 30,
+                paddingBottom: 25,
+              },
+              propsForDots: {
+                r: '0',
+              },
+              fillShadowGradient: colors.primary,
+              fillShadowGradientOpacity: 0.2,
+            }}
+            bezier
+            style={{
+              marginVertical: 8,
+              borderRadius: 16,
+            }}
+            withShadow={false}
+            withDots={false}
+            withInnerLines={false}
+            withOuterLines={false}
+            withVerticalLines={false}
+            withHorizontalLines={true}
+            withVerticalLabels={true}
+            withHorizontalLabels={true}
+            segments={4}
+            formatYLabel={formatYAxisLabel}
+          />
 
-            return (
-              <View
-                key={`consumption-${index}`}
-                style={[
-                  styles.consumptionMarkerOverlay,
-                  {
-                    left: yAxisWidth + xPosition,
-                    top: yPosition,
-                  }
-                ]}
-                pointerEvents="none"
-              >
-                <View style={styles.consumptionIconContainer}>
-                  <Ionicons 
-                    name={getConsumptionIcon(marker.drinkType)} 
-                    size={16} 
-                    color={colors.primary} 
-                  />
-                </View>
-              </View>
-            );
-          })}
-          
-          {/* Current time vertical line positioned using chart coordinate system */}
-          {chartData.currentTimeDataPoint && (() => {
-            // Use the same spacing calculation as the chart
-            const chartSpacing = screenWidth / Math.max(1, chartData.dataPoints.length - 1);
-            // Calculate exact pixel position based on fractional index
-            const xPosition = chartData.currentTimeDataPoint.index * chartSpacing;
-            // Add approximate left padding (y-axis width)
-            const yAxisWidth = 50;
-            
-            return (
-              <View 
-                style={[
-                  styles.currentTimeLineContainer,
-                  { left: yAxisWidth + xPosition }
-                ]}
-                pointerEvents="none"
-              >
-                <View style={styles.currentTimeIconContainer}>
-                  <Ionicons name="time" size={16} color={colors.primary} />
-                </View>
-                <View style={styles.currentTimeLineOverlay} />
-              </View>
-            );
-          })()}
+          {/* Current time vertical line overlay */}
+          {chartData.currentTimePosition !== null && (
+            <View style={[
+              styles.verticalLine,
+              {
+                left: chartData.currentTimePosition * chartWidth,
+                borderLeftColor: colors.primary,
+                borderLeftWidth: 2,
+                borderStyle: 'dashed',
+              }
+            ]} />
+          )}
+
+          {/* Bedtime vertical line overlay */}
+          {chartData.bedtimeIndex !== null && chartData.bedtimeIndex >= 0 && (
+            <View style={[
+              styles.verticalLine,
+              {
+                left: 25 + (chartData.bedtimeIndex / (chartData.dataPoints.length - 1)) * (chartWidth - 25 - 30),
+                borderLeftColor: bedtimeStatus.color,
+                borderLeftWidth: 3,
+              }
+            ]} />
+          )}
         </View>
-
-
-
       </View>
 
-      {/* Legend */}
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <Ionicons name="cafe" size={16} color={colors.primary} />
-          <Text style={styles.legendText}>Consumption</Text>
+      {/* Bedtime Status */}
+      <View style={styles.bedtimeStatus}>
+        <View style={styles.bedtimeHeader}>
+          <Ionicons name="moon" size={20} color={bedtimeStatus.color} />
+          <Text style={[styles.bedtimeTitle, { color: bedtimeStatus.color }]}>
+            Bedtime Level: {formatDrugLevel(chartData.bedtimeLevel, habit.unit || 'units')}
+          </Text>
         </View>
-        <View style={styles.legendItem}>
-          <Ionicons name="time" size={16} color={colors.primary} />
-          <Text style={styles.legendText}>Now</Text>
-        </View>
-        {bedtime && (
-          <View style={styles.legendItem}>
-            <Ionicons name="moon" size={16} color={colors.secondary} />
-            <Text style={styles.legendText}>Bedtime</Text>
-          </View>
+        <Text style={[styles.bedtimeStatusText, { color: bedtimeStatus.color }]}>
+          {bedtimeStatus.status} - {bedtimeStatus.status === 'Safe' ? 'Good for sleep' : bedtimeStatus.status === 'Moderate' ? 'Monitor sleep quality' : 'May disrupt sleep'}
+        </Text>
+        {!chartData.hasConsumptionEvents && (
+          <Text style={styles.noDataText}>
+            No consumption logged today
+          </Text>
         )}
+      </View>
+
+      {/* Current Time Status */}
+      <View style={styles.currentStatus}>
+        <View style={styles.currentHeader}>
+          <Ionicons name="time" size={16} color={colors.primary} />
+          <Text style={styles.currentTitle}>
+            Current Level: {formatDrugLevel(chartData.currentLevel, habit.unit || 'units')}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -338,119 +344,66 @@ const styles = StyleSheet.create({
   chartWrapper: {
     position: 'relative',
     marginBottom: spacing.md,
-    overflow: 'hidden',
     width: '100%',
+    alignItems: 'center',
   },
   chartContainer: {
-    marginBottom: 10,
     position: 'relative',
     width: '100%',
-    alignItems: 'center',
-  },
-  nonScrollableChartWrapper: {
-    position: 'relative',
-    width: '100%',
-    alignItems: 'center',
-  },
-  currentTimeLineContainer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    alignItems: 'center',
-    zIndex: 20,
-  },
-  currentTimeIconContainer: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.cardBackground,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  currentTimeLineOverlay: {
-    flex: 1,
-    width: 3,
-    backgroundColor: colors.primary,
-    opacity: 0.9,
-    marginBottom: 20, // Stop before x-axis labels
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 5,
-  },
-  consumptionMarkerOverlay: {
-    position: 'absolute',
-    alignItems: 'center',
-    zIndex: 18,
-  },
-  consumptionIconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.cardBackground,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
   },
   verticalLine: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 2,
+    top: 8,
+    bottom: 60,
+    width: 1,
+    backgroundColor: 'transparent',
     zIndex: 10,
   },
-  bedtimeLine: {
-    backgroundColor: colors.secondary,
-    opacity: 0.7,
-  },
-  verticalLineLabelTop: {
-    position: 'absolute',
-    top: -25,
-    left: -25,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.cardBackground,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
+  bedtimeStatus: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    padding: spacing.regular,
+    marginTop: spacing.regular,
     borderWidth: 1,
-    minWidth: 50,
-    zIndex: 20,
+    borderColor: colors.border,
   },
-  verticalLineLabelText: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.semibold,
-    marginLeft: 4,
-  },
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  legendItem: {
+  bedtimeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    marginBottom: spacing.xs,
+    gap: spacing.sm,
   },
-  legendText: {
+  bedtimeTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+  },
+  bedtimeStatusText: {
     fontSize: typography.sizes.small,
-    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  noDataText: {
+    fontSize: typography.sizes.small,
+    color: colors.textLight,
+    marginTop: spacing.xs,
+    fontStyle: 'italic',
+  },
+  currentStatus: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    padding: spacing.regular,
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  currentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  currentTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -461,12 +414,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.regular,
     textAlign: 'center',
-  },
-  emptySubtext: {
-    fontSize: typography.sizes.small,
-    color: colors.textLight,
-    textAlign: 'center',
-    marginTop: spacing.sm,
   },
 });
 

@@ -6,7 +6,9 @@ import {
   StyleSheet,
   Modal,
   ScrollView,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import { Picker } from 'react-native-wheel-pick';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -27,75 +29,33 @@ const CONSUMPTION_TYPE_LABELS = {
   cocktail: { name: 'Cocktail', icon: 'wine', alcohol_units: 1.5 },
 };
 
-const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
+const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate }) => {
   const consumptionEvents = value || []; // Use value prop directly as controlled component
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
-  const [tempHour, setTempHour] = useState(10);
-  const [tempMinute, setTempMinute] = useState(0);
-  const [use24Hour, setUse24Hour] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const hourScrollRef = useRef(null);
-  const minuteScrollRef = useRef(null);
-  const hourScrollPosition = useRef(10);
-  const minuteScrollPosition = useRef(0);
+  const [selectedHour, setSelectedHour] = useState(new Date().getHours());
+  const [selectedMinute, setSelectedMinute] = useState(new Date().getMinutes());
 
   const resetTimeForm = () => {
-    setTempHour(12);
-    setTempMinute(0);
+    const now = new Date();
+    setSelectedHour(now.getHours());
+    setSelectedMinute(now.getMinutes());
   };
 
   const openTimeModal = (consumptionType) => {
     setSelectedConsumptionType(consumptionType);
     const now = new Date();
-    setTempHour(now.getHours());
-    setTempMinute(now.getMinutes());
-    
-    // Scroll to current time when modal opens
-    setTimeout(() => {
-      if (hourScrollRef.current) {
-        hourScrollRef.current.scrollTo({ y: now.getHours() * 50, animated: false });
-      }
-      if (minuteScrollRef.current) {
-        minuteScrollRef.current.scrollTo({ y: now.getMinutes() * 50, animated: false });
-      }
-    }, 100);
-    
+    setSelectedHour(now.getHours());
+    setSelectedMinute(now.getMinutes());
     setShowTimeModal(true);
   };
 
-  const handleHourScroll = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const hour = Math.round(y / 50);
-    if (hour >= 0 && hour <= 23) {
-      hourScrollPosition.current = hour;
-    }
+  const handleHourChange = (value) => {
+    setSelectedHour(parseInt(value));
   };
 
-  const handleHourScrollEnd = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const hour = Math.round(y / 50);
-    if (hour >= 0 && hour <= 23) {
-      setTempHour(hour);
-      hourScrollPosition.current = hour;
-    }
-  };
-
-  const handleMinuteScroll = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const minute = Math.round(y / 50);
-    if (minute >= 0 && minute <= 59) {
-      minuteScrollPosition.current = minute;
-    }
-  };
-
-  const handleMinuteScrollEnd = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const minute = Math.round(y / 50);
-    if (minute >= 0 && minute <= 59) {
-      setTempMinute(minute);
-      minuteScrollPosition.current = minute;
-    }
+  const handleMinuteChange = (value) => {
+    setSelectedMinute(parseInt(value));
   };
 
   const quickAddConsumption = (consumptionType, timeOfDay) => {
@@ -122,11 +82,21 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
 
   const confirmTimeModal = () => {
     const consumptionTime = new Date(selectedDate);
-    consumptionTime.setHours(tempHour, tempMinute, 0, 0);
-
+    consumptionTime.setHours(selectedHour, selectedMinute, 0, 0);
     addConsumptionEvent(selectedConsumptionType, consumptionTime);
     setShowTimeModal(false);
   };
+
+  // Generate hour and minute data for the pickers
+  const hourData = Array.from({ length: 24 }, (_, i) => ({
+    value: i.toString(),
+    label: i.toString().padStart(2, '0')
+  }));
+
+  const minuteData = Array.from({ length: 60 }, (_, i) => ({
+    value: i.toString(),
+    label: i.toString().padStart(2, '0')
+  }));
 
   const addConsumptionEvent = (consumptionType, consumptionTime) => {
     const typeInfo = CONSUMPTION_TYPE_LABELS[consumptionType];
@@ -220,67 +190,32 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
             </Text>
 
             <View style={styles.timePickerContainer}>
-              {/* Hour Picker */}
               <View style={styles.pickerGroup}>
                 <Text style={styles.timeLabel}>Hour</Text>
-                <View style={styles.pickerWrapper}>
-                  <View style={styles.pickerSelection} />
-                  <ScrollView
-                    ref={hourScrollRef}
-                    style={styles.pickerScroll}
-                    contentContainerStyle={styles.pickerContent}
-                    showsVerticalScrollIndicator={false}
-                    snapToInterval={50}
-                    decelerationRate="normal"
-                    onScroll={handleHourScroll}
-                    onMomentumScrollEnd={handleHourScrollEnd}
-                    onScrollEndDrag={handleHourScrollEnd}
-                  >
-                    {Array.from({ length: 24 }, (_, i) => {
-                      const isSelected = tempHour === i;
-                      return (
-                        <View key={i} style={styles.pickerItem}>
-                          <Text style={[
-                            styles.pickerItemText,
-                            isSelected && styles.pickerItemTextSelected
-                          ]}>
-                            {i.toString().padStart(2, '0')}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
+                <Picker
+                  pickerData={hourData}
+                  selectedValue={selectedHour.toString()}
+                  onValueChange={handleHourChange}
+                  textColor={colors.textSecondary}
+                  selectTextColor={colors.primary}
+                  textSize={20}
+                  itemHeight={50}
+                  style={styles.wheelPicker}
+                />
               </View>
 
-              {/* Minute Picker */}
               <View style={styles.pickerGroup}>
                 <Text style={styles.timeLabel}>Minute</Text>
-                <View style={styles.pickerWrapper}>
-                  <View style={styles.pickerSelection} />
-                  <ScrollView
-                    ref={minuteScrollRef}
-                    style={styles.pickerScroll}
-                    contentContainerStyle={styles.pickerContent}
-                    showsVerticalScrollIndicator={false}
-                    snapToInterval={50}
-                    decelerationRate="normal"
-                    onScroll={handleMinuteScroll}
-                    onMomentumScrollEnd={handleMinuteScrollEnd}
-                    onScrollEndDrag={handleMinuteScrollEnd}
-                  >
-                    {Array.from({ length: 60 }, (_, i) => (
-                      <View key={i} style={styles.pickerItem}>
-                        <Text style={[
-                          styles.pickerItemText,
-                          tempMinute === i && styles.pickerItemTextSelected
-                        ]}>
-                          {i.toString().padStart(2, '0')}
-                        </Text>
-                      </View>
-                    ))}
-                  </ScrollView>
-                </View>
+                <Picker
+                  pickerData={minuteData}
+                  selectedValue={selectedMinute.toString()}
+                  onValueChange={handleMinuteChange}
+                  textColor={colors.textSecondary}
+                  selectTextColor={colors.primary}
+                  textSize={20}
+                  itemHeight={50}
+                  style={styles.wheelPicker}
+                />
               </View>
             </View>
 
@@ -324,17 +259,18 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit }) => {
             </View>
 
             <View style={styles.modalButtons}>
-              <Button
-                title="Cancel"
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowTimeModal(false)}
-                variant="secondary"
-                style={styles.modalButton}
-              />
-              <Button
-                title="Add"
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.addButton]}
                 onPress={confirmTimeModal}
-                style={styles.modalButton}
-              />
+              >
+                <Text style={styles.addButtonText}>Add</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -424,7 +360,6 @@ const styles = StyleSheet.create({
   pickerGroup: {
     flex: 1,
     alignItems: 'center',
-    marginHorizontal: spacing.xs,
   },
   timeLabel: {
     fontSize: typography.sizes.small,
@@ -432,48 +367,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     fontWeight: typography.weights.semibold,
   },
-  pickerWrapper: {
-    height: 200,
+  wheelPicker: {
     width: '100%',
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  pickerSelection: {
-    position: 'absolute',
-    top: '50%',
-    left: 0,
-    right: 0,
-    height: 50,
-    marginTop: -25,
-    backgroundColor: 'rgba(0, 122, 255, 0.1)',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.primary,
-    zIndex: 1,
-  },
-  pickerScroll: {
-    flex: 1,
     height: 200,
-  },
-  pickerContent: {
-    paddingVertical: 100, // Extra padding to allow scrolling to all items
-  },
-  pickerItem: {
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  pickerItemText: {
-    fontSize: typography.sizes.large,
-    color: colors.textSecondary,
-  },
-  pickerItemTextSelected: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
+    backgroundColor: colors.cardBackground,
   },
   quickTimeOptions: {
     marginBottom: spacing.regular,
@@ -507,6 +404,28 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
+    paddingVertical: spacing.regular,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelButtonText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+  },
+  addButton: {
+    backgroundColor: colors.primary,
+  },
+  addButtonText: {
+    color: colors.white,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
   },
 });
 

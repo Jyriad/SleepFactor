@@ -288,11 +288,151 @@ class HealthKitService {
     try {
       // For HealthKit, we can't directly revoke permissions from the app
       // The user needs to revoke permissions in iOS Settings > Privacy & Security > Health
-      console.log('HealthKit permissions must be revoked manually in iOS Settings > Privacy & Security > Health');
       return true; // Return true since we can't determine if they actually revoked
     } catch (error) {
       console.error('Failed to revoke HealthKit permissions:', error);
       return false;
+    }
+  }
+
+  /**
+   * Sync health metrics for a date range
+   * @param {Object} options - Options object
+   * @param {string} options.startDate - Start date in YYYY-MM-DD format
+   * @param {string} options.endDate - End date in YYYY-MM-DD format
+   * @param {Array} options.metrics - Array of metric keys to fetch
+   * @returns {Promise<Object>} Object with metrics data
+   */
+  async syncHealthMetrics({ startDate, endDate, metrics = ['steps', 'active_energy', 'heart_rate_max', 'heart_rate_resting'] }) {
+    try {
+      if (!this.isInitialized || !(await this.hasPermissions())) {
+        throw new Error('HealthKit not initialized or permissions not granted');
+      }
+
+      const startTime = new Date(startDate);
+      startTime.setHours(0, 0, 0, 0);
+      const endTime = new Date(endDate);
+      endTime.setHours(23, 59, 59, 999);
+
+
+      const results = {};
+
+      for (const metric of metrics) {
+        try {
+          const data = await this.fetchHealthMetric(metric, startTime, endTime);
+          results[metric] = data;
+        } catch (error) {
+          console.error(`Error fetching ${metric}:`, error);
+          results[metric] = [];
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('HealthKit health metrics sync failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch a specific health metric
+   * @param {string} metric - Metric key (e.g., 'steps', 'active_energy')
+   * @param {Date} startTime - Start date
+   * @param {Date} endTime - End date
+   * @returns {Promise<Array>} Array of {date, value} objects
+   */
+  async fetchHealthMetric(metric, startTime, endTime) {
+    const metricMappings = {
+      steps: HKQuantityTypeIdentifier.stepCount,
+      active_energy: HKQuantityTypeIdentifier.activeEnergyBurned,
+      heart_rate_max: HKQuantityTypeIdentifier.heartRate,
+      heart_rate_resting: HKQuantityTypeIdentifier.restingHeartRate,
+      exercise_minutes: HKQuantityTypeIdentifier.appleExerciseTime,
+      distance_walking: HKQuantityTypeIdentifier.distanceWalkingRunning
+    };
+
+    const quantityType = metricMappings[metric];
+    if (!quantityType) {
+      console.warn(`Unknown metric: ${metric}`);
+      return [];
+    }
+
+    try {
+      const samples = await queryQuantitySamples(quantityType, {
+        from: startTime,
+        to: endTime,
+      });
+
+
+      // Aggregate by date
+      const dailyData = {};
+
+      samples.forEach(sample => {
+        const sampleDate = new Date(sample.startDate).toISOString().split('T')[0];
+
+        if (!dailyData[sampleDate]) {
+          dailyData[sampleDate] = [];
+        }
+
+        // Extract quantity value
+        const value = sample.quantity;
+
+        // Convert units as needed
+        let processedValue = value;
+
+        switch (metric) {
+          case 'distance_walking':
+            // Convert to kilometers if needed (HealthKit typically returns meters)
+            processedValue = value / 1000;
+            break;
+          case 'exercise_minutes':
+            // Convert seconds to minutes
+            processedValue = value / 60;
+            break;
+          default:
+            processedValue = value;
+        }
+
+        if (processedValue > 0) {
+          dailyData[sampleDate].push(processedValue);
+        }
+      });
+
+      // Aggregate daily values
+      const aggregatedData = [];
+      for (const [date, values] of Object.entries(dailyData)) {
+        let finalValue = 0;
+
+        switch (metric) {
+          case 'steps':
+          case 'active_energy':
+          case 'distance_walking':
+          case 'exercise_minutes':
+            // Sum for cumulative metrics
+            finalValue = values.reduce((sum, val) => sum + val, 0);
+            break;
+          case 'heart_rate_max':
+            // Max for heart rate
+            finalValue = Math.max(...values);
+            break;
+          case 'heart_rate_resting':
+            // Average for resting heart rate
+            finalValue = values.reduce((sum, val) => sum + val, 0) / values.length;
+            break;
+        }
+
+        if (finalValue > 0) {
+          aggregatedData.push({
+            date,
+            value: Math.round(finalValue * 100) / 100 // Round to 2 decimal places
+          });
+        }
+      }
+
+      return aggregatedData;
+    } catch (error) {
+      console.error(`Error fetching ${metric}:`, error);
+      return [];
     }
   }
 
