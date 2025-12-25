@@ -330,6 +330,19 @@ const HabitLoggingScreen = () => {
     }
   };
 
+  // Check if a habit is logged for the selected date
+  const isHabitLoggedToday = (habit) => {
+    if (habit.type === 'drug' || habit.type === 'quick_consumption') {
+      // For consumption habits, check if there are any consumption events
+      const events = consumptionEvents[habit.id];
+      return events && events.length > 0;
+    } else {
+      // For regular habits, check if there's a value in habitLogs
+      const value = habitLogs[habit.id];
+      return value !== undefined && value !== null && value !== '';
+    }
+  };
+
   const handleHabitChange = (habitId, value) => {
     const habit = habits.find(h => h.id === habitId);
     if (!habit) return;
@@ -625,8 +638,11 @@ const HabitLoggingScreen = () => {
                 <View key={habit.id} style={styles.habitRow}>
                   <View style={styles.habitInfo}>
                     <Text style={styles.habitName}>{habit.name}</Text>
-                    <Text style={styles.habitStats}>
-                      Logged {habitLogCounts[habit.id] || 0} times
+                    <Text style={[
+                      styles.habitStats,
+                      isHabitLoggedToday(habit) && styles.habitStatsLogged
+                    ]}>
+                      {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
                     </Text>
                   </View>
                   <View style={styles.habitInput}>
@@ -723,26 +739,31 @@ const styles = StyleSheet.create({
   habitRow: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.regular,
-    marginBottom: spacing.regular,
+    padding: spacing.md, // Reduced from regular
+    marginBottom: spacing.sm, // Reduced from regular
     borderWidth: 1,
     borderColor: colors.border,
+    minHeight: 70, // Reduced from previous larger size
   },
   habitInfo: {
-    marginBottom: spacing.md,
+    flex: 1,
+    marginRight: spacing.sm,
   },
   habitName: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
+    fontSize: typography.sizes.body, // Reduced from large
+    fontWeight: typography.weights.medium, // Reduced from semibold
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    marginBottom: 2, // Reduced from spacing.xs
   },
   habitStats: {
-    fontSize: typography.sizes.small,
+    fontSize: typography.sizes.xs, // Reduced from small
     color: colors.textSecondary,
   },
+  habitStatsLogged: {
+    color: colors.primary, // Green color for logged status
+  },
   habitInput: {
-    marginTop: spacing.sm,
+    justifyContent: 'center',
   },
   loadingText: {
     fontSize: typography.sizes.body,

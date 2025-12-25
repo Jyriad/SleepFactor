@@ -103,7 +103,7 @@ Stores predefined and user-customizable consumption options for drug habits.
 - `user_id` (UUID, Nullable, Foreign Key) - References `users(id)`, NULL for system defaults
 - `habit_id` (UUID, Foreign Key) - References `habits(id)`
 - `name` (TEXT) - Display name of the option (e.g., "Espresso", "Diet Coke")
-- `drug_amount` (NUMERIC) - Numeric value (mg for caffeine, drinks for alcohol)
+- `drug_amount` (NUMERIC) - Numeric value (mg for caffeine, drinks for alcohol, 0 for none consumed)
 - `icon` (TEXT, Nullable) - Icon name for UI display
 - `is_custom` (BOOLEAN) - True for user-created options, false for system defaults
 - `is_active` (BOOLEAN) - Whether this option is available for use
@@ -112,7 +112,7 @@ Stores predefined and user-customizable consumption options for drug habits.
 
 **Constraints:**
 - Unique constraint on `(user_id, habit_id, name)` - No duplicate names per user per habit
-- Check constraint: `drug_amount > 0` - Amounts must be positive
+- Check constraint: `drug_amount >= 0` - Amounts must be non-negative (allows 0 for "none consumed")
 
 **Notes:**
 - RLS enabled - users can view system options (user_id IS NULL) OR their own custom options
