@@ -544,7 +544,8 @@ const HabitManagementScreen = () => {
       const newIsPinned = !habit.is_pinned;
 
       // Get max priority for the target section
-      const targetHabits = habits.filter(h => h.is_pinned === newIsPinned);
+      const allHabits = [...manualHabits, ...automaticHabits];
+      const targetHabits = allHabits.filter(h => h.is_pinned === newIsPinned);
       const maxPriority = targetHabits.length > 0
         ? Math.max(...targetHabits.map(h => h.priority || 0)) + 1
         : 0;
@@ -594,7 +595,8 @@ const HabitManagementScreen = () => {
       } else {
         // Handle regular predefined habits
         // Get max priority for pinned habits
-        const pinnedHabits = habits.filter(h => h.is_pinned);
+        const allHabits = [...manualHabits, ...automaticHabits];
+        const pinnedHabits = allHabits.filter(h => h.is_pinned);
         const maxPriority = pinnedHabits.length > 0
           ? Math.max(...pinnedHabits.map(h => h.priority || 0)) + 1
           : 0;
@@ -763,8 +765,9 @@ const HabitManagementScreen = () => {
     }
 
     try {
-      // Get max priority for pinned habits
-      const pinnedHabits = habits.filter(h => h.is_pinned);
+      // Get max priority for pinned habits (combine manual and automatic habits)
+      const allHabits = [...manualHabits, ...automaticHabits];
+      const pinnedHabits = allHabits.filter(h => h.is_pinned);
       const maxPriority = pinnedHabits.length > 0
         ? Math.max(...pinnedHabits.map(h => h.priority || 0)) + 1
         : 0;

@@ -43,6 +43,7 @@ const loadSessionFromStorage = async () => {
 };
 
 export const AuthProvider = ({ children }) => {
+  console.log('🔑 AuthProvider initializing...');
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);

@@ -6,7 +6,7 @@ import HabitToggle from './HabitToggle';
 import DrugHabitInput from './DrugHabitInput';
 import QuickConsumptionInput from './QuickConsumptionInput';
 
-const HabitInput = ({ habit, value, onChange, unit, selectedDate }) => {
+const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded }) => {
   const renderInput = () => {
     switch (habit.type) {
       case 'binary':
@@ -93,6 +93,8 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate }) => {
             onChange={onChange}
             unit={unit}
             selectedDate={selectedDate}
+            userId={userId}
+            onConsumptionAdded={onConsumptionAdded}
           />
         );
 

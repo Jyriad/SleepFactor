@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
+import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
@@ -348,6 +349,74 @@ const HabitLoggingScreen = () => {
     }
   };
 
+  // Calculate bedtime drug level for a given habit and date
+  const calculateBedtimeDrugLevel = async (habit, date) => {
+    if (!user || habit.type !== 'quick_consumption') return null;
+
+    try {
+      // Get user's notification time (bedtime) from profile
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('notification_time')
+        .eq('id', user.id)
+        .single();
+
+      if (userError || !userData?.notification_time) {
+        console.log('No notification time found for user, using default 10 PM');
+        // Default to 10 PM if no notification time is set
+      }
+
+      const notificationTime = userData?.notification_time || '22:00:00';
+
+      // Create bedtime Date object for the selected date
+      const bedtimeDate = new Date(date);
+      const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
+      bedtimeDate.setHours(hours, minutes, seconds || 0, 0);
+
+      // If bedtime is in the past (user already slept), it should be the next day
+      // But for habit logging, we want the bedtime for the night following the logged day
+      const now = new Date();
+      if (bedtimeDate <= now) {
+        bedtimeDate.setDate(bedtimeDate.getDate() + 1);
+      }
+
+      // Get all consumption events for this habit across the relevant time period
+      // Look back far enough to capture long half-life effects (3 half-lives)
+      const maxHalfLife = habit.half_life_hours || 5;
+      const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
+      const historyStart = new Date(bedtimeDate);
+      historyStart.setDate(historyStart.getDate() - historyDays);
+
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('habit_consumption_events')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('habit_id', habit.id)
+        .gte('consumed_at', historyStart.toISOString())
+        .lte('consumed_at', bedtimeDate.toISOString())
+        .order('consumed_at', { ascending: true });
+
+      if (eventsError) {
+        console.error('Error fetching consumption events for bedtime calculation:', eventsError);
+        return null;
+      }
+
+      if (!eventsData || eventsData.length === 0) {
+        return 0; // No consumption events means 0 drug level
+      }
+
+      // Calculate the drug level at bedtime
+      const bedtimeLevel = getBedtimeDrugLevel(eventsData, bedtimeDate, habit.half_life_hours || 5);
+
+      console.log(`🧮 Calculated bedtime ${habit.name} level: ${bedtimeLevel.toFixed(2)} ${habit.unit} at ${bedtimeDate.toISOString()}`);
+      return bedtimeLevel;
+
+    } catch (error) {
+      console.error('Error calculating bedtime drug level:', error);
+      return null;
+    }
+  };
+
   const handleSubmit = async () => {
     if (!user) return;
 
@@ -410,6 +479,44 @@ const HabitLoggingScreen = () => {
           .insert(consumptionEventEntries);
 
         if (eventsError) throw eventsError;
+      }
+
+      // Calculate and update bedtime drug levels for caffeine and alcohol habits
+      const drugHabits = habits.filter(habit =>
+        habit.type === 'quick_consumption' &&
+        (habit.name.toLowerCase() === 'caffeine' || habit.name.toLowerCase() === 'alcohol')
+      );
+
+      for (const habit of drugHabits) {
+        try {
+          const bedtimeLevel = await calculateBedtimeDrugLevel(habit, selectedDate);
+          if (bedtimeLevel !== null) {
+            // Update or insert the habit log with the calculated bedtime level
+            const habitLogEntry = {
+              user_id: user.id,
+              habit_id: habit.id,
+              date: selectedDate,
+              value: `${bedtimeLevel.toFixed(2)} ${habit.unit} at bedtime`,
+              numeric_value: bedtimeLevel,
+            };
+
+            const { error: logError } = await supabase
+              .from('habit_logs')
+              .upsert(habitLogEntry, {
+                onConflict: 'user_id,habit_id,date',
+              });
+
+            if (logError) {
+              console.error(`Error updating bedtime level for ${habit.name}:`, logError);
+              // Don't throw here - we don't want to fail the entire save operation
+            } else {
+              console.log(`✅ Updated ${habit.name} bedtime level: ${bedtimeLevel.toFixed(2)} ${habit.unit}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Error calculating bedtime level for ${habit.name}:`, error);
+          // Continue with other habits even if one fails
+        }
       }
 
       // Save rested feeling

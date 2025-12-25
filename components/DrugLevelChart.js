@@ -6,9 +6,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  LineChart,
-} from 'react-native-chart-kit';
+import Svg, { Line, Path, Circle, G, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import {
@@ -18,13 +16,21 @@ import {
 
 const { width: screenWidth } = Dimensions.get('window');
 const CHART_HEIGHT = 250;
+const CHART_PADDING = {
+  top: 20,
+  right: 20,
+  bottom: 50, // Space for x-axis labels
+  left: 60, // Space for y-axis labels
+};
 
 const DrugLevelChart = ({
   consumptionEvents,
   habit,
   selectedDate,
   sleepStartTime,
-  bedtime
+  bedtime,
+  width, // Optional width prop to override default calculation
+  showBorder = true // Whether to show container border (default true for standalone, false when nested)
 }) => {
   const [forceUpdate, setForceUpdate] = useState(0);
 
@@ -51,8 +57,8 @@ const DrugLevelChart = ({
     const historyStart = new Date(date);
     historyStart.setDate(historyStart.getDate() - historyDays);
 
-    // Create time range from 6 AM to 12 AM (18 hours) with 30-minute intervals
-    const startTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 6, 0, 0);
+    // Create time range from 12 AM to 12 AM (24 hours) with 30-minute intervals
+    const startTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
     const endTime = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0);
     const intervalMinutes = 30;
 
@@ -64,7 +70,7 @@ const DrugLevelChart = ({
       currentTime = new Date(currentTime.getTime() + (intervalMinutes * 60 * 1000));
     }
 
-    // Calculate drug levels at each time point - ALWAYS calculate, even if no events
+    // Calculate drug levels at each time point
     const dataPoints = timePoints.map((timePoint) => {
       const level = consumptionEvents && consumptionEvents.length > 0
         ? calculateTotalDrugLevel(
@@ -75,17 +81,6 @@ const DrugLevelChart = ({
           )
         : 0;
       return level;
-    });
-
-    // Create labels for time points (show every 3 hours)
-    const labels = timePoints.map((timePoint, index) => {
-      if (index % 6 === 0) {
-        const hour = timePoint.getHours();
-        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-        const ampm = hour < 12 ? 'am' : 'pm';
-        return `${displayHour}${ampm}`;
-      }
-      return '';
     });
 
     // Determine bedtime for vertical line
@@ -123,50 +118,21 @@ const DrugLevelChart = ({
 
     const maxLevel = Math.max(...dataPoints, 1);
 
-    // Find indices for bedtime and current time markers
+    // Find bedtime index
     const bedtimeIndex = timePoints.findIndex(tp => tp >= bedtimeTime);
 
     // For current time, calculate exact position within the time range
     let currentTimePosition = null;
     if (isToday) {
-      // Calculate how far through the 18-hour chart period the current time is
-      // Chart starts at 6 AM and goes 18 hours to midnight
       const chartStartTime = startTime.getTime();
       const chartEndTime = endTime.getTime();
       const currentTimeMs = now.getTime();
-
-      // Clamp current time to chart range
       const clampedCurrentTime = Math.max(chartStartTime, Math.min(chartEndTime, currentTimeMs));
-
-      // Calculate position as fraction (0.0 to 1.0) through the chart
       currentTimePosition = (clampedCurrentTime - chartStartTime) / (chartEndTime - chartStartTime);
-
     }
-
-    // Debug current time line positioning (removed excessive logging)
-    // if (isToday) {
-    //   // Find the closest time point for debugging purposes
-    //   const timeDiffs = timePoints.map((tp, index) => ({
-    //     index,
-    //     diff: Math.abs(tp.getTime() - now.getTime())
-    //   }));
-    //   const minDiff = Math.min(...timeDiffs.map(t => t.diff));
-    //   const closest = timeDiffs.find(t => t.diff === minDiff);
-    //   const closestIndex = closest ? closest.index : null;
-    //   const foundTimePoint = closestIndex !== null ? timePoints[closestIndex] : null;
-    //
-    //   console.log('🎯 CURRENT TIME LINE:', {
-    //     currentTime: now.toLocaleTimeString(),
-    //     position: currentTimePosition?.toFixed(3),
-    //     matchedTimePoint: foundTimePoint?.toLocaleTimeString(),
-    //     closestIndex: closestIndex,
-    //     totalPoints: timePoints.length
-    //   });
-    // }
 
     return {
       dataPoints,
-      labels,
       timePoints,
       maxLevel: Math.max(maxLevel, 1),
       bedtimeTime,
@@ -212,115 +178,232 @@ const DrugLevelChart = ({
 
   const bedtimeStatus = getBedtimeStatus(chartData.bedtimeLevel, chartData.maxLevel);
   
-  // Calculate chart width (full width of the chart area)
-  const chartWidth = screenWidth - (spacing.regular * 2);
+  // Calculate chart dimensions
+  const containerWidth = width || screenWidth;
+  const chartWidth = containerWidth - CHART_PADDING.left - CHART_PADDING.right;
+  const chartHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom;
+
+  // Calculate Y-axis range and labels (ascending order)
+  const yMin = 0;
+  const yMax = chartData.maxLevel * 1.1; // Add 10% padding at top
+  const yRange = yMax - yMin;
+  
+  // Generate Y-axis labels (5 segments) - from top to bottom for proper display
+  const numYLabels = 5;
+  const yLabels = [];
+  for (let i = numYLabels - 1; i >= 0; i--) { // Start from top (high value) to bottom (low value)
+    const value = yMin + (i / (numYLabels - 1)) * yRange;
+    const pixel = CHART_PADDING.top + chartHeight - (i / (numYLabels - 1)) * chartHeight;
+    yLabels.push({ value, pixel });
+  }
+
+  // Generate X-axis labels (time labels)
+  const numXLabels = 7; // Show ~7 time labels
+  const xLabels = [];
+  const labelStep = Math.floor(chartData.timePoints.length / (numXLabels - 1));
+  for (let i = 0; i < chartData.timePoints.length; i++) {
+    if (i % labelStep === 0 || i === chartData.timePoints.length - 1) {
+      const timePoint = chartData.timePoints[i];
+      const hour = timePoint.getHours();
+      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      const ampm = hour < 12 ? 'am' : 'pm';
+      const pixel = CHART_PADDING.left + (i / (chartData.timePoints.length - 1)) * chartWidth;
+      xLabels.push({
+        label: `${displayHour}${ampm}`,
+        pixel,
+        index: i
+      });
+    }
+  }
+
+  // Convert data points to pixel coordinates
+  const chartPoints = chartData.dataPoints.map((value, index) => {
+    const x = CHART_PADDING.left + (index / (chartData.dataPoints.length - 1)) * chartWidth;
+    const y = CHART_PADDING.top + chartHeight - ((value - yMin) / yRange) * chartHeight;
+    return { x, y, value };
+  });
+
+  // Build path for area fill (with smooth curve)
+  const areaPath = chartPoints.reduce((path, point, index) => {
+    if (index === 0) {
+      return `M ${point.x} ${CHART_PADDING.top + chartHeight} L ${point.x} ${point.y}`;
+    }
+    // Use smooth quadratic curves for transitions
+    const prevPoint = chartPoints[index - 1];
+    const midX = (prevPoint.x + point.x) / 2;
+    const midY = (prevPoint.y + point.y) / 2;
+    return `${path} Q ${prevPoint.x} ${prevPoint.y} ${midX} ${midY} T ${point.x} ${point.y}`;
+  }, '') + ` L ${chartPoints[chartPoints.length - 1].x} ${CHART_PADDING.top + chartHeight} Z`;
+
+  // Build path for line (with smooth curve)
+  const linePath = chartPoints.reduce((path, point, index) => {
+    if (index === 0) {
+      return `M ${point.x} ${point.y}`;
+    }
+    // Use smooth quadratic curves for transitions
+    const prevPoint = chartPoints[index - 1];
+    const midX = (prevPoint.x + point.x) / 2;
+    const midY = (prevPoint.y + point.y) / 2;
+    return `${path} Q ${prevPoint.x} ${prevPoint.y} ${midX} ${midY} T ${point.x} ${point.y}`;
+  }, '');
+
+  // Calculate vertical line positions
+  const currentTimeX = chartData.currentTimePosition !== null
+    ? CHART_PADDING.left + chartData.currentTimePosition * chartWidth
+    : null;
+  
+  const bedtimeX = chartData.bedtimeIndex !== null && chartData.bedtimeIndex >= 0 && chartData.bedtimeIndex < chartData.timePoints.length
+    ? CHART_PADDING.left + (chartData.bedtimeIndex / (chartData.timePoints.length - 1)) * chartWidth
+    : null;
+
+  // Calculate current time Y position for dot
+  const currentTimeY = currentTimeX !== null && chartData.currentLevel !== null
+    ? CHART_PADDING.top + chartHeight - ((chartData.currentLevel - yMin) / yRange) * chartHeight
+    : null;
 
   return (
-    <View style={styles.container}>
+    <View style={[
+      styles.container,
+      !showBorder && styles.containerNoBorder
+    ]}>
       <Text style={styles.title}>{habit.name} Levels Over Time</Text>
 
       <View style={styles.chartWrapper}>
-        <View style={styles.chartContainer}>
-          <LineChart
-            data={{
-              labels: chartData.labels,
-              datasets: [{
-                data: chartData.dataPoints,
-                color: () => colors.primary,
-                strokeWidth: 3,
-              }],
-            }}
-            width={chartWidth}
-            height={CHART_HEIGHT}
-            chartConfig={{
-              backgroundColor: colors.cardBackground,
-              backgroundGradientFrom: colors.cardBackground,
-              backgroundGradientTo: colors.cardBackground,
-              decimalPlaces: 1,
-              color: () => colors.primary,
-              labelColor: () => colors.textSecondary,
-              style: {
-                borderRadius: 16,
-                paddingLeft: 25,
-                paddingRight: 30,
-                paddingBottom: 25,
-              },
-              propsForDots: {
-                r: '0',
-              },
-              fillShadowGradient: colors.primary,
-              fillShadowGradientOpacity: 0.2,
-            }}
-            bezier
-            style={{
-              marginVertical: 8,
-              borderRadius: 16,
-            }}
-            withShadow={false}
-            withDots={false}
-            withInnerLines={false}
-            withOuterLines={false}
-            withVerticalLines={false}
-            withHorizontalLines={true}
-            withVerticalLabels={true}
-            withHorizontalLabels={true}
-            segments={4}
-            formatYLabel={formatYAxisLabel}
+        <Svg width={containerWidth} height={CHART_HEIGHT} viewBox={`0 0 ${containerWidth} ${CHART_HEIGHT}`}>
+          <Defs>
+            <LinearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor={colors.primary} stopOpacity="0.3" />
+              <Stop offset="100%" stopColor={colors.primary} stopOpacity="0.05" />
+            </LinearGradient>
+          </Defs>
+
+          {/* Grid lines */}
+          {yLabels.map((label, index) => (
+            <Line
+              key={`y-grid-${index}`}
+              x1={CHART_PADDING.left}
+              y1={label.pixel}
+              x2={CHART_PADDING.left + chartWidth}
+              y2={label.pixel}
+              stroke={colors.border}
+              strokeWidth={0.5}
+              strokeDasharray="2,2"
+            />
+          ))}
+
+          {/* Axes */}
+          <Line
+            x1={CHART_PADDING.left}
+            y1={CHART_PADDING.top}
+            x2={CHART_PADDING.left}
+            y2={CHART_PADDING.top + chartHeight}
+            stroke={colors.border}
+            strokeWidth={2}
+          />
+          <Line
+            x1={CHART_PADDING.left}
+            y1={CHART_PADDING.top + chartHeight}
+            x2={CHART_PADDING.left + chartWidth}
+            y2={CHART_PADDING.top + chartHeight}
+            stroke={colors.border}
+            strokeWidth={2}
           />
 
-          {/* Current time vertical line overlay */}
-          {chartData.currentTimePosition !== null && (
-            <View style={[
-              styles.verticalLine,
-              {
-                left: chartData.currentTimePosition * chartWidth,
-                borderLeftColor: colors.primary,
-                borderLeftWidth: 2,
-                borderStyle: 'dashed',
-              }
-            ]} />
+          {/* Y-axis labels */}
+          {yLabels.map((label, index) => (
+            <SvgText
+              key={`y-label-${index}`}
+              x={CHART_PADDING.left - 10}
+              y={label.pixel + 4}
+              fontSize={10}
+              fill={colors.textSecondary}
+              textAnchor="end"
+            >
+              {formatYAxisLabel(label.value)}
+            </SvgText>
+          ))}
+
+          {/* X-axis labels */}
+          {xLabels.map((label, index) => {
+            const isLastLabel = index === xLabels.length - 1;
+            // Don't clamp the last label - let it extend slightly beyond chart area
+            const xPosition = isLastLabel 
+              ? label.pixel 
+              : Math.max(CHART_PADDING.left, Math.min(label.pixel, CHART_PADDING.left + chartWidth - 20));
+            
+            return (
+              <SvgText
+                key={`x-label-${index}`}
+                x={xPosition}
+                y={CHART_HEIGHT - 10}
+                fontSize={10}
+                fill={colors.textSecondary}
+                textAnchor="middle"
+              >
+                {label.label}
+              </SvgText>
+            );
+          })}
+
+          {/* Area fill */}
+          <Path d={areaPath} fill="url(#areaGradient)" />
+
+          {/* Line path */}
+          <Path d={linePath} stroke={colors.primary} strokeWidth={3} fill="none" />
+
+          {/* Current time vertical line (dashed) */}
+          {currentTimeX !== null && (
+            <G>
+              <Line
+                x1={currentTimeX}
+                y1={CHART_PADDING.top}
+                x2={currentTimeX}
+                y2={CHART_PADDING.top + chartHeight}
+                stroke={colors.primary}
+                strokeWidth={2}
+                strokeDasharray="5,5"
+              />
+              {currentTimeY !== null && (
+                <Circle cx={currentTimeX} cy={currentTimeY} r={4} fill={colors.primary} />
+              )}
+            </G>
           )}
 
-          {/* Bedtime vertical line overlay */}
-          {chartData.bedtimeIndex !== null && chartData.bedtimeIndex >= 0 && (
-            <View style={[
-              styles.verticalLine,
-              {
-                left: 25 + (chartData.bedtimeIndex / (chartData.dataPoints.length - 1)) * (chartWidth - 25 - 30),
-                borderLeftColor: bedtimeStatus.color,
-                borderLeftWidth: 3,
-              }
-            ]} />
+          {/* Bedtime vertical line (solid, color-coded) */}
+          {bedtimeX !== null && (
+            <Line
+              x1={bedtimeX}
+              y1={CHART_PADDING.top}
+              x2={bedtimeX}
+              y2={CHART_PADDING.top + chartHeight}
+              stroke={bedtimeStatus.color}
+              strokeWidth={3}
+            />
           )}
-        </View>
+        </Svg>
       </View>
 
-      {/* Bedtime Status */}
-      <View style={styles.bedtimeStatus}>
-        <View style={styles.bedtimeHeader}>
-          <Ionicons name="moon" size={20} color={bedtimeStatus.color} />
-          <Text style={[styles.bedtimeTitle, { color: bedtimeStatus.color }]}>
-            Bedtime Level: {formatDrugLevel(chartData.bedtimeLevel, habit.unit || 'units')}
+      {/* Bedtime and Current Level Footnotes */}
+      <View style={styles.footnotes}>
+        <View style={styles.footnoteRow}>
+          <Ionicons name="moon" size={14} color={bedtimeStatus.color} />
+          <Text style={[styles.footnoteText, { color: bedtimeStatus.color }]}>
+            Bedtime: {formatDrugLevel(chartData.bedtimeLevel, habit.unit || 'units')} ({bedtimeStatus.status})
           </Text>
         </View>
-        <Text style={[styles.bedtimeStatusText, { color: bedtimeStatus.color }]}>
-          {bedtimeStatus.status} - {bedtimeStatus.status === 'Safe' ? 'Good for sleep' : bedtimeStatus.status === 'Moderate' ? 'Monitor sleep quality' : 'May disrupt sleep'}
-        </Text>
+        {chartData.currentTime && (
+          <View style={styles.footnoteRow}>
+            <Ionicons name="time" size={14} color={colors.primary} />
+            <Text style={styles.footnoteText}>
+              Current: {formatDrugLevel(chartData.currentLevel, habit.unit || 'units')}
+            </Text>
+          </View>
+        )}
         {!chartData.hasConsumptionEvents && (
           <Text style={styles.noDataText}>
             No consumption logged today
           </Text>
         )}
-      </View>
-
-      {/* Current Time Status */}
-      <View style={styles.currentStatus}>
-        <View style={styles.currentHeader}>
-          <Ionicons name="time" size={16} color={colors.primary} />
-          <Text style={styles.currentTitle}>
-            Current Level: {formatDrugLevel(chartData.currentLevel, habit.unit || 'units')}
-          </Text>
-        </View>
       </View>
     </View>
   );
@@ -334,6 +417,16 @@ const styles = StyleSheet.create({
     marginVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
+  },
+  containerNoBorder: {
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    marginVertical: 0,
   },
   title: {
     fontSize: typography.sizes.body,
@@ -346,64 +439,26 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     width: '100%',
     alignItems: 'center',
+    overflow: 'visible',
   },
-  chartContainer: {
-    position: 'relative',
-    width: '100%',
+  footnotes: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
   },
-  verticalLine: {
-    position: 'absolute',
-    top: 8,
-    bottom: 60,
-    width: 1,
-    backgroundColor: 'transparent',
-    zIndex: 10,
-  },
-  bedtimeStatus: {
-    backgroundColor: colors.background,
-    borderRadius: 8,
-    padding: spacing.regular,
-    marginTop: spacing.regular,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  bedtimeHeader: {
+  footnoteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  bedtimeTitle: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-  },
-  bedtimeStatusText: {
+  footnoteText: {
     fontSize: typography.sizes.small,
-    fontStyle: 'italic',
+    color: colors.textSecondary,
   },
   noDataText: {
     fontSize: typography.sizes.small,
     color: colors.textLight,
     marginTop: spacing.xs,
     fontStyle: 'italic',
-  },
-  currentStatus: {
-    backgroundColor: colors.background,
-    borderRadius: 8,
-    padding: spacing.regular,
-    marginTop: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  currentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  currentTitle: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
   },
   emptyContainer: {
     alignItems: 'center',

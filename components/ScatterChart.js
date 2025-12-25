@@ -137,6 +137,7 @@ const ScatterPlot = ({
 
   // Calculate trend line if requested
   let trendLinePoints = null;
+  let trendLinePath = null;
   if (showTrendLine && validData.length >= 3) {
     const regression = calculateLinearRegression(xValues, yValues);
     const { slope, intercept } = regression;
@@ -156,6 +157,26 @@ const ScatterPlot = ({
             x: toPixelX(x),
             y: toPixelY(clampedY),
           });
+        }
+      }
+      
+      // Build path string for dashed line
+      if (trendLinePoints.length >= 2) {
+        const validPoints = trendLinePoints.filter((point, index) => {
+          if (index === 0) return true;
+          const prevPoint = trendLinePoints[index - 1];
+          return prevPoint && point && 
+                 !isNaN(prevPoint.x) && !isNaN(prevPoint.y) &&
+                 !isNaN(point.x) && !isNaN(point.y);
+        });
+        
+        if (validPoints.length >= 2) {
+          trendLinePath = validPoints.reduce((path, point, index) => {
+            if (index === 0) {
+              return `M ${point.x} ${point.y}`;
+            }
+            return `${path} L ${point.x} ${point.y}`;
+          }, '');
         }
       }
     }
@@ -330,36 +351,17 @@ const ScatterPlot = ({
           ))}
 
           {/* Trend line (line of best fit) - rendered after points so it's visible on top */}
-          {trendLinePoints && trendLinePoints.length > 1 && (() => {
-            // Build path string for dashed line
-            const validPoints = trendLinePoints.filter((point, index) => {
-              if (index === 0) return true;
-              const prevPoint = trendLinePoints[index - 1];
-              return prevPoint && point && 
-                     !isNaN(prevPoint.x) && !isNaN(prevPoint.y) &&
-                     !isNaN(point.x) && !isNaN(point.y);
-            });
-            
-            if (validPoints.length < 2) return null;
-            
-            const pathData = validPoints.reduce((path, point, index) => {
-              if (index === 0) {
-                return `M ${point.x} ${point.y}`;
-              }
-              return `${path} L ${point.x} ${point.y}`;
-            }, '');
-            
-            return (
-              <Path
-                d={pathData}
-                stroke={trendLineColor}
-                strokeWidth={2}
-                fill="none"
-                opacity={0.8}
-                strokeDasharray="5,5"
-              />
-            );
-          })()}
+          {trendLinePath && (
+            <Path
+              key="trend-line"
+              d={trendLinePath}
+              stroke={trendLineColor}
+              strokeWidth={2}
+              fill="none"
+              opacity={0.8}
+              strokeDasharray="5,5"
+            />
+          )}
         </Svg>
       </View>
 

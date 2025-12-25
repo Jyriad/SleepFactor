@@ -10,7 +10,9 @@ import HabitLoggingScreen from '../screens/HabitLoggingScreen';
 const Stack = createNativeStackNavigator();
 
 const AppNavigator = () => {
+  console.log('🧭 AppNavigator component rendering...');
   const { isAuthenticated, loading, user } = useAuth();
+  console.log('🔐 Auth state:', { isAuthenticated, loading, user: user ? 'exists' : 'null' });
 
   // Keep showing loading screen until we're absolutely sure about auth state
   if (loading) {

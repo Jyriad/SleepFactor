@@ -94,7 +94,34 @@ Stores sleep metrics from wearables (HealthKit/Health Connect) or manual entry.
 
 ---
 
-### 5. `insights_cache`
+### 5. `consumption_options`
+Stores predefined and user-customizable consumption options for drug habits.
+
+**Columns:**
+- `id` (UUID, Primary Key) - Auto-generated UUID
+- `user_id` (UUID, Nullable, Foreign Key) - References `users(id)`, NULL for system defaults
+- `habit_id` (UUID, Foreign Key) - References `habits(id)`
+- `name` (TEXT) - Display name of the option (e.g., "Espresso", "Diet Coke")
+- `drug_amount` (NUMERIC) - Numeric value (mg for caffeine, drinks for alcohol)
+- `icon` (TEXT, Nullable) - Icon name for UI display
+- `is_custom` (BOOLEAN) - True for user-created options, false for system defaults
+- `is_active` (BOOLEAN) - Whether this option is available for use
+- `created_at` (TIMESTAMPTZ) - Timestamp when record was created
+- `updated_at` (TIMESTAMPTZ) - Timestamp when record was last updated
+
+**Constraints:**
+- Unique constraint on `(user_id, habit_id, name)` - No duplicate names per user per habit
+- Check constraint: `drug_amount > 0` - Amounts must be positive
+
+**Notes:**
+- RLS enabled - users can view system options (user_id IS NULL) OR their own custom options
+- Users can INSERT/UPDATE/DELETE only their own custom options (user_id IS NOT NULL)
+- System defaults are created during migration for Caffeine and Alcohol habits
+- Supports user customization of drug amounts and addition of new options
+
+---
+
+### 6. `insights_cache`
 Stores pre-calculated correlation insights between habits and sleep metrics.
 
 **Columns:**
@@ -146,6 +173,8 @@ Performance indexes have been created on:
 - `habit_logs`: `user_id`, `habit_id`, `date`, `(user_id, date)`
 - `habits`: `user_id`, `(user_id, is_active)`
 - `sleep_data`: `user_id`, `date`, `(user_id, date)`
+- `habit_consumption_events`: `user_id`, `habit_id`, `consumed_at`
+- `consumption_options`: `user_id`, `habit_id`, `(habit_id, is_active)`
 - `insights_cache`: `user_id`, `habit_id`, `(user_id, habit_id)`
 
 ---
@@ -154,6 +183,10 @@ Performance indexes have been created on:
 
 The schema is defined in:
 - `supabase/migrations/20250101000000_initial_schema.sql`
+- `supabase/migrations/20250105000000_add_drug_tracking.sql`
+- `supabase/migrations/20250106000000_add_consumption_types.sql`
+- `supabase/migrations/20250107000000_fix_habit_type_constraint.sql`
+- `supabase/migrations/20250108000000_add_consumption_options.sql`
 
 To apply migrations:
 ```bash
@@ -165,8 +198,9 @@ npx supabase db push
 ## Next Steps
 
 1. ✅ Schema created and applied
-2. Ready to implement authentication
-3. Ready to build habit management screens
-4. Ready to implement habit logging
-5. Ready to integrate health data (Phase 2)
+2. ✅ Authentication implemented
+3. ✅ Habit management screens built
+4. ✅ Habit logging implemented
+5. ✅ Health data integration (Phase 2)
+6. ✅ Consumption options system implemented
 
