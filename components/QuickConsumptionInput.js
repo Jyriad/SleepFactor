@@ -35,6 +35,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedOption, setSelectedOption] = useState(null);
   const [selectedServing, setSelectedServing] = useState(1); // Default to 1 serving
+  const [showCustomVolume, setShowCustomVolume] = useState(false);
+  const [customVolume, setCustomVolume] = useState('');
+  const [customDrugAmount, setCustomDrugAmount] = useState(0);
   const [quickAddAmount, setQuickAddAmount] = useState('');
 
   // Load consumption options from database
@@ -256,6 +259,23 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     return null; // No default volume
   };
 
+  const calculateCustomDrugAmount = (volume) => {
+    if (!selectedOption || !selectedOption.volume_ml || !selectedOption.drug_amount) return 0;
+
+    const volumeNum = parseFloat(volume) || 0;
+    if (volumeNum <= 0) return 0;
+
+    // Calculate: (custom_volume / base_volume) × base_drug_amount
+    const calculated = (volumeNum / selectedOption.volume_ml) * selectedOption.drug_amount;
+    return Math.round(calculated * 10) / 10; // Round to 1 decimal place
+  };
+
+  const handleCustomVolumeChange = (volume) => {
+    setCustomVolume(volume);
+    const calculatedAmount = calculateCustomDrugAmount(volume);
+    setCustomDrugAmount(calculatedAmount);
+  };
+
   const selectConsumptionOption = (option) => {
     // Add default volume if not provided by database
     const optionWithDefaults = {
@@ -271,6 +291,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
     setSelectedOption(optionWithDefaults);
     setSelectedServing(1); // Reset to default serving
+    setShowCustomVolume(false); // Reset custom volume
+    setCustomVolume('');
+    setCustomDrugAmount(0);
     setSelectedConsumptionType(option.id);
     const now = new Date();
     setSelectedHour(now.getHours());
@@ -330,7 +353,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     // consumptionType can be either a UUID (new format) or string (legacy format)
     let baseAmount = 1; // Default amount
     let drinkType = consumptionType;
-    let servingMultiplier = selectedServing || 1; // Use selected serving or default to 1
+    let totalAmount = 0;
 
     const resolvedOption = resolveConsumptionType(consumptionType);
     if (resolvedOption) {
@@ -342,8 +365,15 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       baseAmount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1; // Default caffeine or alcohol amount
     }
 
-    // Calculate total amount based on serving
-    const totalAmount = baseAmount * servingMultiplier;
+    // Calculate total amount based on serving type
+    if (selectedServing === 'custom') {
+      // Use custom calculated amount
+      totalAmount = customDrugAmount;
+    } else {
+      // Use multiplier calculation
+      const servingMultiplier = selectedServing || 1;
+      totalAmount = baseAmount * servingMultiplier;
+    }
 
     const newEvent = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
@@ -499,40 +529,95 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' per serving' : ''}
                 </Text>
                 <View style={styles.modalServingButtons}>
-                  {console.log('Rendering serving buttons for options:', selectedOption?.serving_options)}
-                  {(selectedOption?.serving_options || [1]).map((serving) => {
+                  {/* Standard serving buttons */}
+                  {[0.5, 1, 2].map((serving) => {
                     const totalDrugAmount = selectedOption.drug_amount * serving;
                     const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
-                    console.log('Rendering button for serving:', serving, 'totalDrugAmount:', totalDrugAmount, 'totalVolume:', totalVolume);
                     return (
                       <TouchableOpacity
                         key={serving}
                         style={[
                           styles.modalServingButton,
-                          selectedServing === serving && styles.modalServingButtonSelected
+                          selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
                         ]}
                         onPress={() => {
-                          console.log('Serving button pressed for serving:', serving);
+                          console.log('Standard serving button pressed for serving:', serving);
                           setSelectedServing(serving);
+                          setShowCustomVolume(false);
+                          setCustomVolume('');
+                          setCustomDrugAmount(0);
                         }}
                       >
                         <Text style={[
                           styles.modalServingButtonText,
-                          selectedServing === serving && styles.modalServingButtonTextSelected
+                          selectedServing === serving && !showCustomVolume && styles.modalServingButtonTextSelected
                         ]}>
                           {serving}x
                         </Text>
                         <Text style={[
                           styles.modalServingAmountText,
-                          selectedServing === serving && styles.modalServingAmountTextSelected
+                          selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
                         ]}>
                           {totalVolume ? `${totalVolume}ml` : ''}
-                          {totalVolume && totalDrugAmount ? ' • ' : ''}
-                          {totalDrugAmount ? `${totalDrugAmount.toFixed(1)} ${habit?.unit}` : ''}
+                          {totalVolume && totalDrugAmount ? '\n' : ''}
+                          {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
+
+                  {/* Other/Custom button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.modalServingButton,
+                      showCustomVolume && styles.modalServingButtonSelected
+                    ]}
+                    onPress={() => {
+                      console.log('Custom serving button pressed');
+                      setSelectedServing('custom');
+                      setShowCustomVolume(true);
+                      // Pre-fill with base volume as default
+                      const defaultVolume = selectedOption.volume_ml ? selectedOption.volume_ml.toString() : '';
+                      setCustomVolume(defaultVolume);
+                      setCustomDrugAmount(selectedOption.drug_amount || 0);
+                    }}
+                  >
+                    <Text style={[
+                      styles.modalServingButtonText,
+                      showCustomVolume && styles.modalServingButtonTextSelected
+                    ]}>
+                      Other
+                    </Text>
+                    <Text style={[
+                      styles.modalServingAmountText,
+                      showCustomVolume && styles.modalServingAmountTextSelected
+                    ]}>
+                      Custom{'\n'}Amount
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Custom Volume Input */}
+                {showCustomVolume && (
+                  <View style={styles.customVolumeSection}>
+                    <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
+                    <View style={styles.customVolumeInputRow}>
+                      <TextInput
+                        style={styles.customVolumeInput}
+                        value={customVolume}
+                        onChangeText={handleCustomVolumeChange}
+                        placeholder={selectedOption.volume_ml ? `${selectedOption.volume_ml}` : "300"}
+                        keyboardType="numeric"
+                        maxLength={4}
+                      />
+                      <Text style={styles.customVolumeUnit}>ml</Text>
+                      <Text style={styles.customVolumeArrow}>→</Text>
+                      <Text style={styles.customVolumeResult}>
+                        {customDrugAmount.toFixed(1)} {habit?.unit}
+                      </Text>
+                    </View>
+                  </View>
+                )}
                 </View>
               </View>
             )}
@@ -908,6 +993,54 @@ const styles = StyleSheet.create({
   },
   modalServingAmountTextSelected: {
     color: '#FFFFFF',
+  },
+  customVolumeSection: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  customVolumeLabel: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  customVolumeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  customVolumeInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    minWidth: 80,
+  },
+  customVolumeUnit: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  customVolumeArrow: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.bold,
+  },
+  customVolumeResult: {
+    fontSize: typography.sizes.body,
+    color: colors.primary,
+    fontWeight: typography.weights.bold,
+    minWidth: 60,
+    textAlign: 'center',
   },
   customBadge: {
     position: 'absolute',
