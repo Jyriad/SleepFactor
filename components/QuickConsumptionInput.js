@@ -497,16 +497,14 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             </TouchableOpacity>
           </>
         )}
-      </View>
+        {/* Consumption count indicator */}
+        {consumptionEvents.length > 0 && (
+          <Text style={styles.consumptionCount}>
+            {consumptionEvents.length} logged today
+          </Text>
+        )}
 
-      {/* Consumption count indicator */}
-      {consumptionEvents.length > 0 && (
-        <Text style={styles.consumptionCount}>
-          {consumptionEvents.length} logged today
-        </Text>
-      )}
-
-      {/* Time Selection Modal */}
+        {/* Time Selection Modal */}
       <Modal
         visible={showTimeModal}
         transparent={true}
@@ -911,6 +909,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         onOptionUpdated={handleUpdateOption}
         onOptionDeleted={handleDeleteOption}
       />
+      </View>
     </>
   );
 };
