@@ -384,9 +384,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   return (
     <View style={styles.container}>
-      {/* Habit Name Heading */}
-      <Text style={styles.habitHeading}>{habit.name}</Text>
-
       {/* Quick Consumption Buttons - compact horizontal layout */}
       <View style={styles.quickButtonsContainer}>
         {loadingOptions ? (
