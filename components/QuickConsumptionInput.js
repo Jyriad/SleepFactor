@@ -466,11 +466,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             {selectedOption && (
               <View style={styles.modalServingSection}>
                 <Text style={styles.servingLabel}>
-                  {selectedOption.name} ({selectedOption.drug_amount} {habit?.unit} per serving)
+                  {selectedOption.name}
+                  {selectedOption.volume_ml ? ` ${selectedOption.volume_ml}ml` : ''}
+                  {selectedOption.volume_ml && selectedOption.drug_amount ? ' • ' : ''}
+                  {selectedOption.drug_amount ? `${selectedOption.drug_amount} ${habit?.unit}` : ''}
+                  {selectedOption.drug_amount ? ' per serving' : ''}
                 </Text>
                 <View style={styles.modalServingButtons}>
                   {selectedOption.serving_options?.map((serving) => {
-                    const totalAmount = selectedOption.drug_amount * serving;
+                    const totalDrugAmount = selectedOption.drug_amount * serving;
+                    const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
                     return (
                       <TouchableOpacity
                         key={serving}
@@ -478,7 +483,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                           styles.modalServingButton,
                           selectedServing === serving && styles.modalServingButtonSelected
                         ]}
-                        onPress={() => setSelectedServing(serving)}
+                        onPress={() => {
+                          console.log('Serving button pressed:', serving);
+                          setSelectedServing(serving);
+                        }}
                       >
                         <Text style={[
                           styles.modalServingButtonText,
@@ -490,7 +498,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                           styles.modalServingAmountText,
                           selectedServing === serving && styles.modalServingAmountTextSelected
                         ]}>
-                          {totalAmount.toFixed(1)} {habit?.unit}
+                          {totalVolume ? `${totalVolume}ml` : ''}
+                          {totalVolume && totalDrugAmount ? ' • ' : ''}
+                          {totalDrugAmount ? `${totalDrugAmount.toFixed(1)} ${habit?.unit}` : ''}
                         </Text>
                       </TouchableOpacity>
                     );

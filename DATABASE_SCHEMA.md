@@ -107,6 +107,7 @@ Stores predefined and user-customizable consumption options for drug habits.
 - `icon` (TEXT, Nullable) - Icon name for UI display
 - `is_custom` (BOOLEAN) - True for user-created options, false for system defaults
 - `serving_options` (JSONB, Nullable) - Available serving multipliers as array (default: [0.5, 1, 1.5, 2])
+- `volume_ml` (INTEGER, Nullable) - Volume of drink in milliliters (e.g., 240 for coffee cup)
 - `is_active` (BOOLEAN) - Whether this option is available for use
 - `created_at` (TIMESTAMPTZ) - Timestamp when record was created
 - `updated_at` (TIMESTAMPTZ) - Timestamp when record was last updated
