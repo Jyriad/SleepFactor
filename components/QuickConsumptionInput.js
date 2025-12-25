@@ -242,8 +242,34 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   // User ID should be passed as prop
 
+  // Default volumes for common drinks (fallback if not in database)
+  const getDefaultVolume = (drinkName, habitType) => {
+    const name = drinkName.toLowerCase();
+    if (habitType === 'quick_consumption') {
+      if (name.includes('espresso')) return 30;
+      if (name.includes('coffee') || name.includes('tea') || name.includes('energy')) return 240;
+      if (name.includes('cola') || name.includes('soda')) return 355;
+      if (name.includes('beer')) return 355;
+      if (name.includes('wine') || name.includes('cocktail') || name.includes('margarita') || name.includes('martini')) return 148;
+      if (name.includes('shot')) return 44;
+    }
+    return null; // No default volume
+  };
+
   const selectConsumptionOption = (option) => {
-    setSelectedOption(option);
+    // Add default volume if not provided by database
+    const optionWithDefaults = {
+      ...option,
+      volume_ml: option.volume_ml || getDefaultVolume(option.name, 'quick_consumption'),
+      serving_options: option.serving_options || [0.5, 1, 1.5, 2]
+    };
+
+    console.log('Selected option:', optionWithDefaults);
+    console.log('Volume ML:', optionWithDefaults.volume_ml);
+    console.log('Drug amount:', optionWithDefaults.drug_amount);
+    console.log('Serving options:', optionWithDefaults.serving_options);
+
+    setSelectedOption(optionWithDefaults);
     setSelectedServing(1); // Reset to default serving
     setSelectedConsumptionType(option.id);
     const now = new Date();
@@ -468,14 +494,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 <Text style={styles.servingLabel}>
                   {selectedOption.name}
                   {selectedOption.volume_ml ? ` ${selectedOption.volume_ml}ml` : ''}
-                  {selectedOption.volume_ml && selectedOption.drug_amount ? ' • ' : ''}
+                  {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' • ' : ''}
                   {selectedOption.drug_amount ? `${selectedOption.drug_amount} ${habit?.unit}` : ''}
-                  {selectedOption.drug_amount ? ' per serving' : ''}
+                  {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' per serving' : ''}
                 </Text>
                 <View style={styles.modalServingButtons}>
-                  {selectedOption.serving_options?.map((serving) => {
+                  {console.log('Rendering serving buttons for options:', selectedOption?.serving_options)}
+                  {(selectedOption?.serving_options || [1]).map((serving) => {
                     const totalDrugAmount = selectedOption.drug_amount * serving;
                     const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
+                    console.log('Rendering button for serving:', serving, 'totalDrugAmount:', totalDrugAmount, 'totalVolume:', totalVolume);
                     return (
                       <TouchableOpacity
                         key={serving}
@@ -484,7 +512,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                           selectedServing === serving && styles.modalServingButtonSelected
                         ]}
                         onPress={() => {
-                          console.log('Serving button pressed:', serving);
+                          console.log('Serving button pressed for serving:', serving);
                           setSelectedServing(serving);
                         }}
                       >
