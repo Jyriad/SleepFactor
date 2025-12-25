@@ -34,6 +34,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedOption, setSelectedOption] = useState(null);
+  const [selectedServing, setSelectedServing] = useState(1); // Default to 1 serving
+  const [showServingSelector, setShowServingSelector] = useState(false);
   const [quickAddAmount, setQuickAddAmount] = useState('');
 
   // Load consumption options from database
@@ -241,12 +243,26 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   // User ID should be passed as prop
 
-  const openTimeModal = (consumptionType) => {
-    setSelectedConsumptionType(consumptionType);
+  const selectConsumptionOption = (option) => {
+    setSelectedOption(option);
+    setSelectedServing(1); // Reset to default serving
+    setShowServingSelector(true);
+  };
+
+  const selectServing = (serving) => {
+    setSelectedServing(serving);
+    // Now open time modal with the selected option and serving
+    setSelectedConsumptionType(selectedOption.id);
     const now = new Date();
     setSelectedHour(now.getHours());
     setSelectedMinute(now.getMinutes());
     setShowTimeModal(true);
+    setShowServingSelector(false);
+  };
+
+  const cancelServingSelection = () => {
+    setSelectedOption(null);
+    setShowServingSelector(false);
   };
 
   const handleHourChange = (value) => {
@@ -299,27 +315,37 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   const addConsumptionEvent = (consumptionType, consumptionTime) => {
     // consumptionType can be either a UUID (new format) or string (legacy format)
-    let amount = 1; // Default amount
+    let baseAmount = 1; // Default amount
     let drinkType = consumptionType;
+    let servingMultiplier = selectedServing || 1; // Use selected serving or default to 1
 
     const resolvedOption = resolveConsumptionType(consumptionType);
     if (resolvedOption) {
-      amount = resolvedOption.drug_amount;
+      baseAmount = resolvedOption.drug_amount;
       drinkType = resolvedOption.id; // Always store as UUID
     } else {
       // Fallback for completely unknown types - use default amount
       console.warn('Unknown consumption type:', consumptionType);
-      amount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1; // Default caffeine or alcohol amount
+      baseAmount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1; // Default caffeine or alcohol amount
     }
+
+    // Calculate total amount based on serving
+    const totalAmount = baseAmount * servingMultiplier;
 
     const newEvent = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       consumed_at: consumptionTime.toISOString(),
-      amount: amount,
+      amount: totalAmount,
+      base_amount: baseAmount, // Store base amount for reference
+      serving: servingMultiplier, // Store serving multiplier
       drink_type: drinkType,
     };
 
     onChange([...consumptionEvents, newEvent]);
+
+    // Reset selection state
+    setSelectedOption(null);
+    setSelectedServing(1);
   };
 
   const deleteConsumptionEvent = (eventId) => {
@@ -393,13 +419,13 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             {consumptionOptions.slice(0, 6).map((option) => {
               const isNoneOption = option.drug_amount === 0;
               return (
-                <TouchableOpacity
-                  key={option.id}
-                  style={[styles.quickButton, isNoneOption && styles.quickButtonNone]}
-                  onPress={() => openTimeModal(option.id)}
-                  onLongPress={() => handleLongPressOption(option)}
-                  delayLongPress={500}
-                >
+              <TouchableOpacity
+                key={option.id}
+                style={[styles.quickButton, isNoneOption && styles.quickButtonNone]}
+                onPress={() => selectConsumptionOption(option)}
+                onLongPress={() => handleLongPressOption(option)}
+                delayLongPress={500}
+              >
                   <Ionicons
                     name={option.icon || 'help-circle'}
                     size={14}
@@ -426,6 +452,56 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               <Text style={styles.moreButtonText}>+</Text>
             </TouchableOpacity>
           </>
+        )}
+
+        {/* Serving Selector */}
+        {showServingSelector && selectedOption && (
+          <View style={styles.servingSelectorContainer}>
+            <View style={styles.servingHeader}>
+              <Text style={styles.servingTitle}>
+                {selectedOption.name}
+              </Text>
+              <Text style={styles.servingAmount}>
+                {selectedOption.drug_amount} {habit?.unit} per serving
+              </Text>
+            </View>
+
+            <View style={styles.servingButtons}>
+              {selectedOption.serving_options?.map((serving) => {
+                const totalAmount = selectedOption.drug_amount * serving;
+                return (
+                  <TouchableOpacity
+                    key={serving}
+                    style={[
+                      styles.servingButton,
+                      selectedServing === serving && styles.servingButtonSelected
+                    ]}
+                    onPress={() => selectServing(serving)}
+                  >
+                    <Text style={[
+                      styles.servingButtonText,
+                      selectedServing === serving && styles.servingButtonTextSelected
+                    ]}>
+                      {serving}x
+                    </Text>
+                    <Text style={[
+                      styles.servingAmountText,
+                      selectedServing === serving && styles.servingAmountTextSelected
+                    ]}>
+                      {totalAmount.toFixed(1)} {habit?.unit}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              style={styles.cancelServingButton}
+              onPress={cancelServingSelection}
+            >
+              <Text style={styles.cancelServingText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -777,6 +853,69 @@ const styles = StyleSheet.create({
   },
   quickButtonTextNone: {
     color: colors.error,
+  },
+  servingSelectorContainer: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.regular,
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  servingHeader: {
+    marginBottom: spacing.md,
+  },
+  servingTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  servingAmount: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+  },
+  servingButtons: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  servingButton: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    padding: spacing.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  servingButtonSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  servingButtonText: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  servingButtonTextSelected: {
+    color: '#FFFFFF',
+  },
+  servingAmountText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+  },
+  servingAmountTextSelected: {
+    color: '#FFFFFF',
+  },
+  cancelServingButton: {
+    alignSelf: 'center',
+    padding: spacing.sm,
+  },
+  cancelServingText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
   },
   customBadge: {
     position: 'absolute',

@@ -648,7 +648,7 @@ const HabitLoggingScreen = () => {
                         <Text style={styles.habitName}>{habit.name}</Text>
                         <Text style={[
                           styles.habitStats,
-                          isHabitLoggedToday(habit) && styles.habitStatsLogged
+                          isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
                         ]}>
                           {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
                         </Text>
@@ -786,6 +786,10 @@ const styles = StyleSheet.create({
   },
   habitStatsLogged: {
     color: colors.primary, // Green color for logged status
+  },
+  habitStatsNotLogged: {
+    color: colors.error, // Red color for not logged status
+    fontWeight: '500', // Slightly bolder to emphasize
   },
   habitInput: {
     justifyContent: 'flex-end',
