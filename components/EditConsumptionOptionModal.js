@@ -44,7 +44,7 @@ const EditConsumptionOptionModal = ({
     if (visible && option) {
       setName(option.name || '');
       setDrugAmount(option.drug_amount?.toString() || '');
-      setVolume(option.volume_ml?.toString() || '');
+      setVolume(option.default_volume?.toString() || '');
       setServingUnit(option.serving_unit || 'ml');
       setNameError('');
       setAmountError('');

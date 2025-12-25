@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import AuthScreen from '../screens/AuthScreen';
 import TabNavigator from './TabNavigator';
 import HabitLoggingScreen from '../screens/HabitLoggingScreen';
+import AccountScreen from '../screens/AccountScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -29,11 +30,12 @@ const AppNavigator = () => {
         {isAuthenticated && user ? (
           <>
             <Stack.Screen name="MainTabs" component={TabNavigator} />
-            <Stack.Screen 
-              name="HabitLogging" 
+            <Stack.Screen
+              name="HabitLogging"
               component={HabitLoggingScreen}
               options={{ presentation: 'modal' }}
             />
+            <Stack.Screen name="Account" component={AccountScreen} />
           </>
         ) : (
           <Stack.Screen name="Auth" component={AuthScreen} />
