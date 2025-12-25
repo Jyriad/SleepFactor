@@ -452,9 +452,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
 
   return (
-    <View style={styles.container}>
-      {/* Quick Consumption Buttons - compact horizontal layout */}
-      <View style={styles.quickButtonsContainer}>
+    <>
+      <View style={styles.container}>
+        {/* Quick Consumption Buttons - compact horizontal layout */}
+        <View style={styles.quickButtonsContainer}>
         {loadingOptions ? (
           <Text style={styles.loadingText}>Loading options...</Text>
         ) : (
@@ -910,7 +911,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         onOptionUpdated={handleUpdateOption}
         onOptionDeleted={handleDeleteOption}
       />
-    </View>
+      </View>
+    </>
   );
 };
 
