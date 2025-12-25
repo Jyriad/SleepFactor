@@ -514,7 +514,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       >
         <View style={styles.modalOverlay}>
           <View style={styles.timePickerModal}>
-            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
               <Text style={styles.modalTitle}>
                 Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
               </Text>
@@ -691,22 +691,21 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               </View>
             </View>
 
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setShowTimeModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.addButton]}
+                  onPress={confirmTimeModal}
+                >
+                  <Text style={styles.addButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowTimeModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.addButton]}
-                onPress={confirmTimeModal}
-              >
-                <Text style={styles.addButtonText}>Add</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
@@ -1080,16 +1079,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalScrollView: {
-    flex: 1,
-    width: '100%',
+  modalScrollContent: {
+    padding: spacing.regular,
   },
   timePickerModal: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.regular,
     width: '90%',
     maxWidth: 350,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: typography.sizes.large,
