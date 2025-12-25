@@ -1,16 +1,17 @@
 import React from 'react';
-import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from './contexts/AuthContext';
 import AppNavigator from './navigation/AppNavigator';
-import { StatusBar } from 'expo-status-bar';
+
+console.log('🚀 App component is rendering...');
 
 export default function App() {
+  console.log('📱 App function called');
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <AppNavigator />
-        <StatusBar style="auto" />
       </AuthProvider>
     </GestureHandlerRootView>
   );

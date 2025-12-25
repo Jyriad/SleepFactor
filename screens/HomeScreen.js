@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,9 +48,6 @@ import DatePickerModal from '../components/DatePickerModal';
 import NavigationCard from '../components/NavigationCard';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
-import BedtimeDrugIndicator from '../components/BedtimeDrugIndicator';
-import DrugLevelChart from '../components/DrugLevelChart';
-import { getCurrentDrugLevel } from '../utils/drugHalfLife';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -60,8 +58,6 @@ const HomeScreen = () => {
   const [loggedDates, setLoggedDates] = useState([]);
   const [datesWithUnsavedChanges, setDatesWithUnsavedChanges] = useState([]);
   const [habitCount, setHabitCount] = useState(0);
-  const [drugHabits, setDrugHabits] = useState([]);
-  const [drugConsumptionEvents, setDrugConsumptionEvents] = useState({});
   const [loading, setLoading] = useState(true);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
 
@@ -95,7 +91,6 @@ const HomeScreen = () => {
     React.useCallback(() => {
       checkHabitsLogged();
       checkTodaysHabitsLogged();
-      fetchDrugHabitsAndEvents();
     }, [selectedDate, user])
   );
 
@@ -104,7 +99,6 @@ const HomeScreen = () => {
     checkHabitsLogged();
     fetchHabitCount();
     fetchSleepData();
-    fetchDrugHabitsAndEvents();
     // Reset initial sync attempted when date changes
     setInitialSyncAttempted(false);
   }, [selectedDate, user]);
@@ -373,62 +367,6 @@ const HomeScreen = () => {
     }
   };
 
-  const fetchDrugHabitsAndEvents = async () => {
-    if (!user) return;
-
-    try {
-      // Fetch drug and quick_consumption habits (both are drug-related)
-      const { data: habitsData, error: habitsError } = await supabase
-        .from('habits')
-        .select('*')
-        .eq('user_id', user.id)
-        .in('type', ['drug', 'quick_consumption'])
-        .eq('is_active', true);
-
-      if (habitsError) throw habitsError;
-
-      setDrugHabits(habitsData || []);
-
-      // If we have drug habits, fetch their consumption events for recent days (for carryover effects)
-      if (habitsData && habitsData.length > 0) {
-        const habitIds = habitsData.map(h => h.id);
-
-        // Calculate how far back to look based on longest half-life
-        const maxHalfLife = Math.max(...habitsData.map(h => h.half_life_hours || 5));
-        const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24)); // At least 3 days, or 3 half-lives worth
-
-        // Ensure selectedDate is a Date object for consistent calculations
-        const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-        const historyStart = new Date(dateObj);
-        historyStart.setDate(historyStart.getDate() - historyDays);
-
-        const { data: eventsData, error: eventsError } = await supabase
-          .from('habit_consumption_events')
-          .select('*')
-          .eq('user_id', user.id)
-          .in('habit_id', habitIds)
-          .gte('consumed_at', historyStart.toISOString())
-          .order('consumed_at', { ascending: true });
-
-        if (eventsError) throw eventsError;
-
-        // Group events by habit_id
-        const eventsMap = {};
-        eventsData?.forEach(event => {
-          if (!eventsMap[event.habit_id]) {
-            eventsMap[event.habit_id] = [];
-          }
-          eventsMap[event.habit_id].push(event);
-        });
-
-        setDrugConsumptionEvents(eventsMap);
-      } else {
-        setDrugConsumptionEvents({});
-      }
-    } catch (error) {
-      console.error('Error fetching drug habits and events:', error);
-    }
-  };
 
   const handleLogHabits = () => {
     navigation.navigate('HabitLogging', { date: selectedDate });
@@ -636,13 +574,6 @@ const HomeScreen = () => {
     }
   };
 
-  // Memoized calculations to prevent unnecessary re-renders
-  const habitsWithEvents = useMemo(() => {
-    return drugHabits.filter(habit => {
-      const events = drugConsumptionEvents[habit.id] || [];
-      return events.length > 0;
-    });
-  }, [drugHabits, drugConsumptionEvents]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -697,35 +628,6 @@ const HomeScreen = () => {
           />
         )}
 
-        {/* Drug Level Widgets */}
-        {!loading && drugHabits.length > 0 && (
-          <View style={styles.drugWidgetsContainer}>
-            <Text style={styles.drugWidgetsTitle}>Drug Levels Today</Text>
-            {drugHabits.map((habit) => {
-              const events = drugConsumptionEvents[habit.id] || [];
-              const bedtime = sleepData?.sleep_start_time || null;
-              
-              return (
-                <View key={habit.id} style={styles.drugHabitContainer}>
-                  <DrugLevelChart
-                    consumptionEvents={events}
-                    habit={habit}
-                    selectedDate={selectedDate}
-                    sleepStartTime={sleepData?.sleep_start_time || null}
-                    bedtime={bedtime}
-                  />
-                  <BedtimeDrugIndicator
-                    consumptionEvents={events}
-                    habit={habit}
-                    bedtime={bedtime}
-                    sleepStartTime={sleepData?.sleep_start_time || null}
-                    compact={false}
-                  />
-                </View>
-              );
-            })}
-          </View>
-        )}
 
 
         {/* Sleep Data Card */}
@@ -1339,19 +1241,6 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginLeft: spacing.xs,
     flex: 1,
-  },
-  drugWidgetsContainer: {
-    marginTop: spacing.regular,
-    paddingHorizontal: spacing.regular,
-  },
-  drugWidgetsTitle: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  drugHabitContainer: {
-    marginBottom: spacing.regular,
   },
 });
 

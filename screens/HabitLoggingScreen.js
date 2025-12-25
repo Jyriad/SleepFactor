@@ -6,6 +6,7 @@ import {
   ScrollView,
   Alert,
   TouchableOpacity,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +23,8 @@ import HabitInput from '../components/HabitInput';
 import RestedFeelingSlider from '../components/RestedFeelingSlider';
 import Button from '../components/Button';
 import DatePickerModal from '../components/DatePickerModal';
-import DrugLevelChart from '../components/DrugLevelChart';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
@@ -283,6 +285,50 @@ const HabitLoggingScreen = () => {
     }
   };
 
+  const refreshConsumptionEvents = async () => {
+    try {
+      // Calculate date range for selected date
+      const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+      const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+      const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
+
+      // Load consumption events for drug and quick_consumption habits
+      const consumptionHabits = habits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
+      const consumptionEventsMap = {};
+
+      if (consumptionHabits.length > 0) {
+        const habitIds = consumptionHabits.map(h => h.id);
+
+        const { data: eventsData, error: eventsError } = await supabase
+          .from('habit_consumption_events')
+          .select('*')
+          .in('habit_id', habitIds)
+          .gte('consumed_at', startOfDay.toISOString())
+          .lt('consumed_at', endOfDay.toISOString())
+          .eq('user_id', user?.id)
+          .order('consumed_at', { ascending: true });
+
+        if (eventsError) {
+          console.error('Error loading consumption events:', eventsError);
+        } else {
+          // Group events by habit_id
+          if (eventsData) {
+            eventsData.forEach(event => {
+              if (!consumptionEventsMap[event.habit_id]) {
+                consumptionEventsMap[event.habit_id] = [];
+              }
+              consumptionEventsMap[event.habit_id].push(event);
+            });
+          }
+        }
+      }
+
+      setConsumptionEvents(consumptionEventsMap);
+    } catch (error) {
+      console.error('Error refreshing consumption events:', error);
+    }
+  };
+
   const handleHabitChange = (habitId, value) => {
     const habit = habits.find(h => h.id === habitId);
     if (!habit) return;
@@ -480,23 +526,11 @@ const HabitLoggingScreen = () => {
                       onChange={(value) => handleHabitChange(habit.id, value)}
                       unit={habit.unit}
                       selectedDate={selectedDate}
+                      userId={user?.id}
+                      onConsumptionAdded={refreshConsumptionEvents}
                     />
                   </View>
                   
-                  {/* Drug Level Chart for drug/quick_consumption habits */}
-                  {(habit.type === 'drug' || habit.type === 'quick_consumption') && 
-                   consumptionEvents[habit.id] && 
-                   consumptionEvents[habit.id].length > 0 && (
-                    <View style={styles.drugChartContainer}>
-                      <DrugLevelChart
-                        consumptionEvents={consumptionEvents[habit.id]}
-                        habit={habit}
-                        selectedDate={selectedDate}
-                        sleepStartTime={sleepData?.sleep_start_time || null}
-                        bedtime={sleepData?.sleep_start_time || null}
-                      />
-                    </View>
-                  )}
                 </View>
               ))}
             </>
@@ -619,9 +653,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
-  },
-  drugChartContainer: {
-    marginTop: spacing.md,
   },
   restedFeelingContainer: {
     backgroundColor: colors.cardBackground,
