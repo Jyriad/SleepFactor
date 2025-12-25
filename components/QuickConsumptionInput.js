@@ -514,115 +514,115 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       >
         <View style={styles.modalOverlay}>
           <View style={styles.timePickerModal}>
-            <Text style={styles.modalTitle}>
-              Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
-            </Text>
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>
+                Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
+              </Text>
 
-            {/* Serving Selection */}
-            {selectedOption && (
-              <View style={styles.modalServingSection}>
-                <Text style={styles.servingLabel}>
-                  {selectedOption.name}
-                  {selectedOption.volume_ml ? ` ${selectedOption.volume_ml}ml` : ''}
-                  {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' • ' : ''}
-                  {selectedOption.drug_amount ? `${selectedOption.drug_amount} ${habit?.unit}` : ''}
-                  {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' per serving' : ''}
-                </Text>
-                <View style={styles.modalServingButtons}>
-                  {/* Standard serving buttons */}
-                  {[0.5, 1, 2].map((serving) => {
-                    const totalDrugAmount = selectedOption.drug_amount * serving;
-                    const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
-                    return (
-                      <TouchableOpacity
-                        key={serving}
-                        style={[
-                          styles.modalServingButton,
-                          selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
-                        ]}
-                        onPress={() => {
-                          console.log('Standard serving button pressed for serving:', serving);
-                          setSelectedServing(serving);
-                          setShowCustomVolume(false);
-                          setCustomVolume('');
-                          setCustomDrugAmount(0);
-                        }}
-                      >
-                        <Text style={[
-                          styles.modalServingButtonText,
-                          selectedServing === serving && !showCustomVolume && styles.modalServingButtonTextSelected
-                        ]}>
-                          {serving}x
-                        </Text>
-                        <Text style={[
-                          styles.modalServingAmountText,
-                          selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
-                        ]}>
-                          {totalVolume ? `${totalVolume}ml` : ''}
-                          {totalVolume && totalDrugAmount ? '\n' : ''}
-                          {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+              {/* Serving Selection */}
+              {selectedOption && (
+                <View style={styles.modalServingSection}>
+                  <Text style={styles.servingLabel}>
+                    {selectedOption.name}
+                    {selectedOption.volume_ml ? ` ${selectedOption.volume_ml}ml` : ''}
+                    {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' • ' : ''}
+                    {selectedOption.drug_amount ? `${selectedOption.drug_amount} ${habit?.unit}` : ''}
+                    {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' per serving' : ''}
+                  </Text>
+                  <View style={styles.modalServingButtons}>
+                    {/* Standard serving buttons */}
+                    {[0.5, 1, 2].map((serving) => {
+                      const totalDrugAmount = selectedOption.drug_amount * serving;
+                      const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
+                      return (
+                        <TouchableOpacity
+                          key={serving}
+                          style={[
+                            styles.modalServingButton,
+                            selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
+                          ]}
+                          onPress={() => {
+                            console.log('Standard serving button pressed for serving:', serving);
+                            setSelectedServing(serving);
+                            setShowCustomVolume(false);
+                            setCustomVolume('');
+                            setCustomDrugAmount(0);
+                          }}
+                        >
+                          <Text style={[
+                            styles.modalServingButtonText,
+                            selectedServing === serving && !showCustomVolume && styles.modalServingButtonTextSelected
+                          ]}>
+                            {serving}x
+                          </Text>
+                          <Text style={[
+                            styles.modalServingAmountText,
+                            selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
+                          ]}>
+                            {totalVolume ? `${totalVolume}ml` : ''}
+                            {totalVolume && totalDrugAmount ? '\n' : ''}
+                            {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
 
-                  {/* Other/Custom button */}
-                  <TouchableOpacity
-                    style={[
-                      styles.modalServingButton,
-                      showCustomVolume && styles.modalServingButtonSelected
-                    ]}
-                    onPress={() => {
-                      console.log('Custom serving button pressed');
-                      setSelectedServing('custom');
-                      setShowCustomVolume(true);
-                      // Pre-fill with base volume as default
-                      const defaultVolume = selectedOption.volume_ml ? selectedOption.volume_ml.toString() : '';
-                      setCustomVolume(defaultVolume);
-                      setCustomDrugAmount(selectedOption.drug_amount || 0);
-                    }}
-                  >
-                    <Text style={[
-                      styles.modalServingButtonText,
-                      showCustomVolume && styles.modalServingButtonTextSelected
-                    ]}>
-                      Other
-                    </Text>
-                    <Text style={[
-                      styles.modalServingAmountText,
-                      showCustomVolume && styles.modalServingAmountTextSelected
-                    ]}>
-                      Custom{'\n'}Amount
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Custom Volume Input */}
-                {showCustomVolume && (
-                  <View style={styles.customVolumeSection}>
-                    <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
-                    <View style={styles.customVolumeInputRow}>
-                      <TextInput
-                        style={styles.customVolumeInput}
-                        value={customVolume}
-                        onChangeText={handleCustomVolumeChange}
-                        placeholder={selectedOption.volume_ml ? `${selectedOption.volume_ml}` : "300"}
-                        keyboardType="numeric"
-                        maxLength={4}
-                      />
-                      <Text style={styles.customVolumeUnit}>ml</Text>
-                      <Text style={styles.customVolumeArrow}>→</Text>
-                      <Text style={styles.customVolumeResult}>
-                        {customDrugAmount.toFixed(1)} {habit?.unit}
+                    {/* Other/Custom button */}
+                    <TouchableOpacity
+                      style={[
+                        styles.modalServingButton,
+                        showCustomVolume && styles.modalServingButtonSelected
+                      ]}
+                      onPress={() => {
+                        console.log('Custom serving button pressed');
+                        setSelectedServing('custom');
+                        setShowCustomVolume(true);
+                        // Pre-fill with base volume as default
+                        const defaultVolume = selectedOption.volume_ml ? selectedOption.volume_ml.toString() : '';
+                        setCustomVolume(defaultVolume);
+                        setCustomDrugAmount(selectedOption.drug_amount || 0);
+                      }}
+                    >
+                      <Text style={[
+                        styles.modalServingButtonText,
+                        showCustomVolume && styles.modalServingButtonTextSelected
+                      ]}>
+                        Other
                       </Text>
-                    </View>
+                      <Text style={[
+                        styles.modalServingAmountText,
+                        showCustomVolume && styles.modalServingAmountTextSelected
+                      ]}>
+                        Custom{'\n'}Amount
+                      </Text>
+                    </TouchableOpacity>
                   </View>
-                )}
-                </View>
-              </View>
-            )}
 
-            <View style={styles.timePickerContainer}>
+                  {/* Custom Volume Input */}
+                  {showCustomVolume && (
+                    <View style={styles.customVolumeSection}>
+                      <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
+                      <View style={styles.customVolumeInputRow}>
+                        <TextInput
+                          style={styles.customVolumeInput}
+                          value={customVolume}
+                          onChangeText={handleCustomVolumeChange}
+                          placeholder={selectedOption.volume_ml ? `${selectedOption.volume_ml}` : "300"}
+                          keyboardType="numeric"
+                          maxLength={4}
+                        />
+                        <Text style={styles.customVolumeUnit}>ml</Text>
+                        <Text style={styles.customVolumeArrow}>→</Text>
+                        <Text style={styles.customVolumeResult}>
+                          {customDrugAmount.toFixed(1)} {habit?.unit}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.timePickerContainer}>
               <View style={styles.pickerGroup}>
                 <Text style={styles.timeLabel}>Hour</Text>
                 <Picker
@@ -690,6 +690,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 </TouchableOpacity>
               </View>
             </View>
+
+            </ScrollView>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -1077,6 +1079,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalScrollView: {
+    flex: 1,
+    width: '100%',
   },
   timePickerModal: {
     backgroundColor: colors.cardBackground,
