@@ -81,6 +81,7 @@ Stores sleep metrics from wearables (HealthKit/Health Connect) or manual entry.
 - `awake_minutes` (INTEGER) - Time awake during the night
 - `awakenings_count` (INTEGER) - Number of times user woke up (default: 0)
 - `sleep_score` (NUMERIC, Nullable) - Overall sleep score (0-100) if available
+- `rested_feeling` (INTEGER, Nullable) - User's subjective rating of how rested they felt (1-5 scale)
 - `source` (TEXT) - Data source: 'healthkit', 'health_connect', or 'manual'
 - `created_at` (TIMESTAMPTZ) - Timestamp when record was created
 - `updated_at` (TIMESTAMPTZ) - Timestamp when record was last updated
