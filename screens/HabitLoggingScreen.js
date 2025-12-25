@@ -634,33 +634,56 @@ const HabitLoggingScreen = () => {
           ) : (
             <>
               {/* All Habits - Simple List */}
-              {habits.map((habit) => (
-                <View key={habit.id} style={styles.habitRow}>
-                  <View style={styles.habitInfo}>
-                    <Text style={styles.habitName}>{habit.name}</Text>
-                    <Text style={[
-                      styles.habitStats,
-                      isHabitLoggedToday(habit) && styles.habitStatsLogged
+              {habits.map((habit) => {
+                // Drug/quick_consumption habits need full-width layout for buttons
+                const isDrugHabit = habit.type === 'drug' || habit.type === 'quick_consumption';
+
+                return (
+                  <View key={habit.id} style={[
+                    styles.habitRow,
+                    isDrugHabit && styles.habitRowFullWidth
+                  ]}>
+                    {!isDrugHabit && (
+                      <View style={styles.habitInfo}>
+                        <Text style={styles.habitName}>{habit.name}</Text>
+                        <Text style={[
+                          styles.habitStats,
+                          isHabitLoggedToday(habit) && styles.habitStatsLogged
+                        ]}>
+                          {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={[
+                      styles.habitInput,
+                      isDrugHabit && styles.habitInputFullWidth
                     ]}>
-                      {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
-                    </Text>
+                      {isDrugHabit && (
+                        <View style={styles.drugHabitHeader}>
+                          <Text style={styles.habitName}>{habit.name}</Text>
+                          <Text style={[
+                            styles.habitStats,
+                            isHabitLoggedToday(habit) && styles.habitStatsLogged
+                          ]}>
+                            {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
+                          </Text>
+                        </View>
+                      )}
+                      <HabitInput
+                        habit={habit}
+                        value={(habit.type === 'drug' || habit.type === 'quick_consumption')
+                          ? (consumptionEvents[habit.id] || [])
+                          : (habitLogs[habit.id] || '')}
+                        onChange={(value) => handleHabitChange(habit.id, value)}
+                        unit={habit.unit}
+                        selectedDate={selectedDate}
+                        userId={user?.id}
+                        onConsumptionAdded={refreshConsumptionEvents}
+                      />
+                    </View>
                   </View>
-                  <View style={styles.habitInput}>
-                    <HabitInput
-                      habit={habit}
-                      value={(habit.type === 'drug' || habit.type === 'quick_consumption')
-                        ? (consumptionEvents[habit.id] || [])
-                        : (habitLogs[habit.id] || '')}
-                      onChange={(value) => handleHabitChange(habit.id, value)}
-                      unit={habit.unit}
-                      selectedDate={selectedDate}
-                      userId={user?.id}
-                      onConsumptionAdded={refreshConsumptionEvents}
-                    />
-                  </View>
-                  
-                </View>
-              ))}
+                );
+              })}
             </>
           )}
         </View>
@@ -767,6 +790,19 @@ const styles = StyleSheet.create({
   habitInput: {
     justifyContent: 'flex-end',
     minWidth: 120, // Ensure consistent width for input controls
+  },
+  habitRowFullWidth: {
+    flexDirection: 'column', // Stack vertically for drug habits
+    alignItems: 'stretch', // Full width
+  },
+  habitInputFullWidth: {
+    width: '100%', // Full width for drug habit inputs
+  },
+  drugHabitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
   },
   loadingText: {
     fontSize: typography.sizes.body,

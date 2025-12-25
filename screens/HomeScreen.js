@@ -370,18 +370,18 @@ const HomeScreen = () => {
 
 
   const handleLogHabits = () => {
-    navigation.navigate('HabitLogging', { date: selectedDate });
+    navigation.navigate('HabitLogging', { date: selectedDate.toISOString() });
   };
 
   const handleLogTodaysHabits = () => {
     const today = getToday();
     setSelectedDate(today);
-    navigation.navigate('HabitLogging', { date: today });
+    navigation.navigate('HabitLogging', { date: today.toISOString() });
   };
 
   const handleCalendarDateSelect = (date) => {
     setSelectedDate(date);
-    navigation.navigate('HabitLogging', { date });
+    navigation.navigate('HabitLogging', { date: date.toISOString() });
   };
 
   const handleSyncNow = async () => {
