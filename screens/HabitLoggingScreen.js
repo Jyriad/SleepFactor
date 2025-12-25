@@ -744,10 +744,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     minHeight: 70, // Reduced from previous larger size
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   habitInfo: {
     flex: 1,
-    marginRight: spacing.sm,
+    marginRight: spacing.md,
   },
   habitName: {
     fontSize: typography.sizes.body, // Reduced from large
@@ -763,7 +765,8 @@ const styles = StyleSheet.create({
     color: colors.primary, // Green color for logged status
   },
   habitInput: {
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 120, // Ensure consistent width for input controls
   },
   loadingText: {
     fontSize: typography.sizes.body,

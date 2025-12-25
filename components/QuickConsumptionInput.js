@@ -390,18 +390,27 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           <Text style={styles.loadingText}>Loading options...</Text>
         ) : (
           <>
-            {consumptionOptions.slice(0, 6).map((option) => (
-              <TouchableOpacity
-                key={option.id}
-                style={styles.quickButton}
-                onPress={() => openTimeModal(option.id)}
-                onLongPress={() => handleLongPressOption(option)}
-                delayLongPress={500}
-              >
-                <Ionicons name={option.icon || 'help-circle'} size={14} color={colors.primary} />
-                <Text style={styles.quickButtonText} numberOfLines={1}>
-                  {option.name.split(' ')[0]}
-                </Text>
+            {consumptionOptions.slice(0, 6).map((option) => {
+              const isNoneOption = option.drug_amount === 0;
+              return (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[styles.quickButton, isNoneOption && styles.quickButtonNone]}
+                  onPress={() => openTimeModal(option.id)}
+                  onLongPress={() => handleLongPressOption(option)}
+                  delayLongPress={500}
+                >
+                  <Ionicons
+                    name={option.icon || 'help-circle'}
+                    size={14}
+                    color={isNoneOption ? colors.error : colors.primary}
+                  />
+                  <Text
+                    style={[styles.quickButtonText, isNoneOption && styles.quickButtonTextNone]}
+                    numberOfLines={1}
+                  >
+                    {option.name.split(' ')[0]}
+                  </Text>
                 {option.is_custom && (
                   <View style={styles.customBadge}>
                     <Ionicons name="person" size={8} color={colors.primary} />
@@ -759,6 +768,14 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
     color: colors.primary,
+  },
+  quickButtonNone: {
+    backgroundColor: colors.error + '15', // Light red background
+    borderWidth: 1,
+    borderColor: colors.error,
+  },
+  quickButtonTextNone: {
+    color: colors.error,
   },
   customBadge: {
     position: 'absolute',
