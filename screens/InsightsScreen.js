@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -39,6 +40,13 @@ const InsightsScreen = () => {
   useEffect(() => {
     loadInsights();
   }, [user, selectedMetric, selectedTimeRange]);
+
+  // Refresh insights data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadInsights();
+    }, [user, selectedMetric, selectedTimeRange])
+  );
 
   const loadInsights = async () => {
     if (!user) return;
