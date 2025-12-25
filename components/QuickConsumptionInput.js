@@ -411,13 +411,14 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   >
                     {option.name.split(' ')[0]}
                   </Text>
-                {option.is_custom && (
-                  <View style={styles.customBadge}>
-                    <Ionicons name="person" size={8} color={colors.primary} />
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+                  {option.is_custom && (
+                    <View style={styles.customBadge}>
+                      <Ionicons name="person" size={8} color={colors.primary} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
             <TouchableOpacity
               style={styles.moreButton}
               onPress={() => setShowPlusMenu(true)}
