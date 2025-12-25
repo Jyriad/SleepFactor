@@ -911,7 +911,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         onOptionUpdated={handleUpdateOption}
         onOptionDeleted={handleDeleteOption}
       />
-      </View>
     </>
   );
 };
