@@ -251,6 +251,23 @@ const InsightsScreen = () => {
                   The following habits don't have enough data points to determine correlation
                 </Text>
               </View>
+
+              {/* Icon Legend */}
+              <View style={styles.legendContainer}>
+                <View style={styles.legendItem}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                  <Text style={styles.legendText}>Days tracked</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <Ionicons name="moon-outline" size={16} color={colors.textSecondary} />
+                  <Text style={styles.legendText}>Days with sleep data</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <Ionicons name="link-outline" size={16} color={colors.primary} />
+                  <Text style={styles.legendText}>Paired data points</Text>
+                </View>
+              </View>
+
               {insights.placeholders.map(renderInsightCard)}
             </View>
           )}
@@ -340,7 +357,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: spacing.xl,
+    paddingBottom: 120, // Increased from spacing.xl to account for navigation footer bar
   },
   insightsSection: {
     marginBottom: spacing.xl,
@@ -365,6 +382,25 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     lineHeight: 18,
     flex: 1,
+  },
+  legendContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.regular,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.regular,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+    minWidth: '45%',
+  },
+  legendText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    lineHeight: 16,
   },
   subtitle: {
     fontSize: typography.sizes.body,
