@@ -1245,5 +1245,3 @@ const styles = StyleSheet.create({
 };
 
 export default QuickConsumptionInput;
-
-export default QuickConsumptionInput;
