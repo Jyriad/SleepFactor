@@ -53,6 +53,12 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
   const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // Ensure selectedDate is always a Date object
+  const safeSetSelectedDate = (date) => {
+    const dateObj = date instanceof Date ? date : new Date(date);
+    setSelectedDate(dateObj);
+  };
   const [habitsLogged, setHabitsLogged] = useState(false);
   const [todaysHabitsLogged, setTodaysHabitsLogged] = useState(false);
   const [loggedDates, setLoggedDates] = useState([]);
@@ -370,18 +376,20 @@ const HomeScreen = () => {
 
 
   const handleLogHabits = () => {
-    navigation.navigate('HabitLogging', { date: selectedDate.toISOString() });
+    const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    navigation.navigate('HabitLogging', { date: dateToUse.toISOString() });
   };
 
   const handleLogTodaysHabits = () => {
     const today = getToday();
-    setSelectedDate(today);
+    safeSetSelectedDate(today);
     navigation.navigate('HabitLogging', { date: today.toISOString() });
   };
 
   const handleCalendarDateSelect = (date) => {
-    setSelectedDate(date);
-    navigation.navigate('HabitLogging', { date: date.toISOString() });
+    safeSetSelectedDate(date);
+    const dateObj = date instanceof Date ? date : new Date(date);
+    navigation.navigate('HabitLogging', { date: dateObj.toISOString() });
   };
 
   const handleSyncNow = async () => {
@@ -597,7 +605,7 @@ const HomeScreen = () => {
         {/* Date Selector */}
         <DateSelector
           selectedDate={selectedDate}
-          onDateChange={setSelectedDate}
+          onDateChange={safeSetSelectedDate}
           loggedDates={loggedDates}
           datesWithUnsavedChanges={datesWithUnsavedChanges}
         />
