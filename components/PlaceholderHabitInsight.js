@@ -27,43 +27,20 @@ const PlaceholderHabitInsight = ({ insight, width }) => {
             {getHabitTypeDescription(habit)}
           </Text>
         </View>
-        <View style={styles.placeholderIcon}>
-          <Ionicons name="analytics-outline" size={24} color={colors.textSecondary} />
-        </View>
-      </View>
-
-      <View style={styles.content}>
-        <Text style={styles.placeholderTitle}>Not Enough Data for Insight</Text>
-        <Text style={styles.placeholderText}>
-          We need at least 10 days of paired data to generate meaningful correlations between this habit and your sleep.
-        </Text>
-
-        <View style={styles.statsContainer}>
-          <View style={styles.statRow}>
-            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-            <Text style={styles.statText}>
-              <Text style={styles.statValue}>{daysTracked}</Text> days tracked
-            </Text>
+        <View style={styles.statsRow}>
+          <View style={styles.stat}>
+            <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+            <Text style={styles.statNumber}>{daysTracked}</Text>
           </View>
-
-          <View style={styles.statRow}>
-            <Ionicons name="moon-outline" size={16} color={colors.textSecondary} />
-            <Text style={styles.statText}>
-              <Text style={styles.statValue}>{daysWithSleepData}</Text> days with sleep data
-            </Text>
+          <View style={styles.stat}>
+            <Ionicons name="moon-outline" size={14} color={colors.textSecondary} />
+            <Text style={styles.statNumber}>{daysWithSleepData}</Text>
           </View>
-
-          <View style={styles.statRow}>
-            <Ionicons name="link-outline" size={16} color={colors.primary} />
-            <Text style={styles.statText}>
-              <Text style={styles.statValue}>{daysWithPairedData}</Text> paired data points
-            </Text>
+          <View style={styles.stat}>
+            <Ionicons name="link-outline" size={14} color={colors.primary} />
+            <Text style={[styles.statNumber, styles.statNumberPrimary]}>{daysWithPairedData}</Text>
           </View>
         </View>
-
-        <Text style={styles.encouragementText}>
-          Keep tracking this habit to unlock insights about how it affects your sleep!
-        </Text>
       </View>
     </View>
   );
@@ -72,83 +49,49 @@ const PlaceholderHabitInsight = ({ insight, width }) => {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.cardBackground,
-    borderRadius: 16,
-    padding: spacing.lg,
-    marginBottom: spacing.regular,
+    borderRadius: 12,
+    padding: spacing.regular,
+    marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.regular,
+    alignItems: 'center',
   },
   habitInfo: {
     flex: 1,
   },
   habitName: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  habitType: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-  },
-  placeholderIcon: {
-    opacity: 0.5,
-  },
-  content: {
-    alignItems: 'center',
-  },
-  placeholderTitle: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  habitType: {
+    fontSize: typography.sizes.xs,
     color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
   },
-  placeholderText: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: spacing.lg,
-  },
-  statsContainer: {
-    backgroundColor: colors.background,
-    borderRadius: 12,
-    padding: spacing.regular,
-    width: '100%',
-    marginBottom: spacing.lg,
-  },
-  statRow: {
+  statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    gap: spacing.md,
   },
-  statText: {
+  stat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  statNumber: {
     fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginLeft: spacing.sm,
-  },
-  statValue: {
     fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-  },
-  encouragementText: {
-    fontSize: typography.sizes.small,
-    color: colors.primary,
+    color: colors.textSecondary,
+    minWidth: 16,
     textAlign: 'center',
-    fontStyle: 'italic',
-    lineHeight: 18,
+  },
+  statNumberPrimary: {
+    color: colors.primary,
   },
 });
 

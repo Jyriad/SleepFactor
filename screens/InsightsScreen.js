@@ -24,7 +24,7 @@ const InsightsScreen = () => {
 
   // State for insights data
   const [loading, setLoading] = useState(true);
-  const [insights, setInsights] = useState([]);
+  const [insights, setInsights] = useState({ validInsights: [], placeholders: [] });
 
   // State for selectors
   const [selectedMetric, setSelectedMetric] = useState('total_sleep_minutes');
@@ -235,9 +235,28 @@ const InsightsScreen = () => {
             Discover how your habits impact {metricInfo.label.toLowerCase()}
           </Text>
 
-          {insights.length > 0 ? (
-            insights.map(renderInsightCard)
-          ) : (
+          {/* Valid Insights Section */}
+          {insights.validInsights.length > 0 && (
+            <View style={styles.insightsSection}>
+              {insights.validInsights.map(renderInsightCard)}
+            </View>
+          )}
+
+          {/* Placeholder Habits Section */}
+          {insights.placeholders.length > 0 && (
+            <View style={styles.placeholdersSection}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.sectionHeaderText}>
+                  The following habits don't have enough data points to determine correlation
+                </Text>
+              </View>
+              {insights.placeholders.map(renderInsightCard)}
+            </View>
+          )}
+
+          {/* Empty State - only show if no insights or placeholders */}
+          {insights.validInsights.length === 0 && insights.placeholders.length === 0 && (
             renderEmptyState()
           )}
         </View>
@@ -322,6 +341,30 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: spacing.regular,
     paddingBottom: spacing.xl,
+  },
+  insightsSection: {
+    marginBottom: spacing.xl,
+  },
+  placeholdersSection: {
+    marginTop: spacing.lg,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.regular,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sectionHeaderText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginLeft: spacing.sm,
+    lineHeight: 18,
+    flex: 1,
   },
   subtitle: {
     fontSize: typography.sizes.body,

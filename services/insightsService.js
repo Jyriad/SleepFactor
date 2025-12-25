@@ -23,7 +23,7 @@ class InsightsService {
    * @param {string} sleepMetric - Sleep metric to analyze (e.g., 'total_sleep_minutes')
    * @param {Date} startDate - Start date for analysis
    * @param {Date} endDate - End date for analysis
-   * @returns {Promise<Array>} Array of habit insights (full insights or placeholders)
+   * @returns {Promise<Object>} Object with validInsights and placeholders arrays
    */
   async getHabitsInsights(userId, sleepMetric, startDate, endDate) {
     try {
@@ -48,8 +48,11 @@ class InsightsService {
         sleepByDate[sleep.date] = sleep;
       });
 
-      // Calculate insights for each habit (or create placeholder)
-      const insights = [];
+      // Separate valid insights from placeholders
+      const validInsights = [];
+      const placeholders = [];
+
+      // Calculate insights for each habit
       for (const habit of habits) {
         const habitData = logsByHabit[habit.id] || [];
         console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
@@ -59,17 +62,21 @@ class InsightsService {
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric);
         if (insight) {
           console.log(`   ✅ Insight generated with ${insight.totalDataPoints} paired data points`);
-          insights.push(insight);
+          validInsights.push(insight);
         } else {
           // Create placeholder insight with tracking statistics
           console.log(`   📊 Creating placeholder with tracking stats`);
           const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate);
-          insights.push(placeholderInsight);
+          placeholders.push(placeholderInsight);
         }
       }
 
-      console.log(`\n📈 Total insights returned: ${insights.length}`);
-      return insights;
+      console.log(`\n📈 Valid insights: ${validInsights.length}, Placeholders: ${placeholders.length}`);
+
+      return {
+        validInsights,
+        placeholders
+      };
     } catch (error) {
       console.error('Error getting habits insights:', error);
       throw error;
