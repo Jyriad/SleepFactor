@@ -663,7 +663,7 @@ const HabitLoggingScreen = () => {
                           <Text style={styles.habitName}>{habit.name}</Text>
                           <Text style={[
                             styles.habitStats,
-                            isHabitLoggedToday(habit) && styles.habitStatsLogged
+                            isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
                           ]}>
                             {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
                           </Text>

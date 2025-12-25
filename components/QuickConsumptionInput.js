@@ -35,7 +35,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedOption, setSelectedOption] = useState(null);
   const [selectedServing, setSelectedServing] = useState(1); // Default to 1 serving
-  const [showServingSelector, setShowServingSelector] = useState(false);
   const [quickAddAmount, setQuickAddAmount] = useState('');
 
   // Load consumption options from database
@@ -246,23 +245,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const selectConsumptionOption = (option) => {
     setSelectedOption(option);
     setSelectedServing(1); // Reset to default serving
-    setShowServingSelector(true);
-  };
-
-  const selectServing = (serving) => {
-    setSelectedServing(serving);
-    // Now open time modal with the selected option and serving
-    setSelectedConsumptionType(selectedOption.id);
+    setSelectedConsumptionType(option.id);
     const now = new Date();
     setSelectedHour(now.getHours());
     setSelectedMinute(now.getMinutes());
     setShowTimeModal(true);
-    setShowServingSelector(false);
-  };
-
-  const cancelServingSelection = () => {
-    setSelectedOption(null);
-    setShowServingSelector(false);
   };
 
   const handleHourChange = (value) => {
@@ -453,56 +440,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             </TouchableOpacity>
           </>
         )}
-
-        {/* Serving Selector */}
-        {showServingSelector && selectedOption && (
-          <View style={styles.servingSelectorContainer}>
-            <View style={styles.servingHeader}>
-              <Text style={styles.servingTitle}>
-                {selectedOption.name}
-              </Text>
-              <Text style={styles.servingAmount}>
-                {selectedOption.drug_amount} {habit?.unit} per serving
-              </Text>
-            </View>
-
-            <View style={styles.servingButtons}>
-              {selectedOption.serving_options?.map((serving) => {
-                const totalAmount = selectedOption.drug_amount * serving;
-                return (
-                  <TouchableOpacity
-                    key={serving}
-                    style={[
-                      styles.servingButton,
-                      selectedServing === serving && styles.servingButtonSelected
-                    ]}
-                    onPress={() => selectServing(serving)}
-                  >
-                    <Text style={[
-                      styles.servingButtonText,
-                      selectedServing === serving && styles.servingButtonTextSelected
-                    ]}>
-                      {serving}x
-                    </Text>
-                    <Text style={[
-                      styles.servingAmountText,
-                      selectedServing === serving && styles.servingAmountTextSelected
-                    ]}>
-                      {totalAmount.toFixed(1)} {habit?.unit}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              style={styles.cancelServingButton}
-              onPress={cancelServingSelection}
-            >
-              <Text style={styles.cancelServingText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
       {/* Consumption count indicator */}
@@ -522,8 +459,45 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         <View style={styles.modalOverlay}>
           <View style={styles.timePickerModal}>
             <Text style={styles.modalTitle}>
-              When did you consume {selectedConsumptionType ? getConsumptionTypeName(selectedConsumptionType).toLowerCase() : ''}?
+              Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
             </Text>
+
+            {/* Serving Selection */}
+            {selectedOption && (
+              <View style={styles.modalServingSection}>
+                <Text style={styles.servingLabel}>
+                  {selectedOption.name} ({selectedOption.drug_amount} {habit?.unit} per serving)
+                </Text>
+                <View style={styles.modalServingButtons}>
+                  {selectedOption.serving_options?.map((serving) => {
+                    const totalAmount = selectedOption.drug_amount * serving;
+                    return (
+                      <TouchableOpacity
+                        key={serving}
+                        style={[
+                          styles.modalServingButton,
+                          selectedServing === serving && styles.modalServingButtonSelected
+                        ]}
+                        onPress={() => setSelectedServing(serving)}
+                      >
+                        <Text style={[
+                          styles.modalServingButtonText,
+                          selectedServing === serving && styles.modalServingButtonTextSelected
+                        ]}>
+                          {serving}x
+                        </Text>
+                        <Text style={[
+                          styles.modalServingAmountText,
+                          selectedServing === serving && styles.modalServingAmountTextSelected
+                        ]}>
+                          {totalAmount.toFixed(1)} {habit?.unit}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             <View style={styles.timePickerContainer}>
               <View style={styles.pickerGroup}>
@@ -854,68 +828,48 @@ const styles = StyleSheet.create({
   quickButtonTextNone: {
     color: colors.error,
   },
-  servingSelectorContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    padding: spacing.regular,
-    marginTop: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+  modalServingSection: {
+    marginBottom: spacing.lg,
   },
-  servingHeader: {
-    marginBottom: spacing.md,
-  },
-  servingTitle: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  servingAmount: {
+  servingLabel: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
   },
-  servingButtons: {
+  modalServingButtons: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    justifyContent: 'space-around',
     marginBottom: spacing.md,
   },
-  servingButton: {
-    flex: 1,
+  modalServingButton: {
     backgroundColor: colors.background,
     borderRadius: 8,
     padding: spacing.sm,
     alignItems: 'center',
+    minWidth: 60,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  servingButtonSelected: {
+  modalServingButtonSelected: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  servingButtonText: {
+  modalServingButtonText: {
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
     color: colors.textSecondary,
     marginBottom: 2,
   },
-  servingButtonTextSelected: {
+  modalServingButtonTextSelected: {
     color: '#FFFFFF',
   },
-  servingAmountText: {
+  modalServingAmountText: {
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
   },
-  servingAmountTextSelected: {
+  modalServingAmountTextSelected: {
     color: '#FFFFFF',
-  },
-  cancelServingButton: {
-    alignSelf: 'center',
-    padding: spacing.sm,
-  },
-  cancelServingText: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
   },
   customBadge: {
     position: 'absolute',
