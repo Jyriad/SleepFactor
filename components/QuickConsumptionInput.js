@@ -1240,7 +1240,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     textAlign: 'center',
   },
-});
+};
 
 export default QuickConsumptionInput;
 
