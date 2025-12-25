@@ -42,6 +42,7 @@ const ProfileScreen = () => {
   const {
     hasPermissions,
     isInitialized,
+    isLoading,
     performSync,
   } = useHealthSync();
 
@@ -100,6 +101,29 @@ const ProfileScreen = () => {
         },
       ]
     );
+  };
+
+  const handleSyncData = async () => {
+    try {
+      const result = await performSync({
+        daysBack: 30,
+        userId: user.id,
+        force: true
+      });
+
+      if (result.success) {
+        const syncedRecords = result.syncedRecords || 0;
+        Alert.alert(
+          'Sync Complete',
+          `Successfully synced 30 days of sleep data and health metrics.\n\nSynced ${syncedRecords} records.`
+        );
+      } else {
+        Alert.alert('Sync Failed', result.error || 'Failed to sync data');
+      }
+    } catch (error) {
+      Alert.alert('Sync Error', 'An unexpected error occurred during sync');
+      console.error('Sync error:', error);
+    }
   };
 
   const handleDeleteSleepData = () => {
@@ -198,12 +222,20 @@ const ProfileScreen = () => {
               <Text style={styles.value}>{getDataSourceDisplay(hasPermissions)}</Text>
             </View>
             {hasPermissions && (
-              <Button
-                title="Disconnect"
-                onPress={handleDisconnect}
-                variant="secondary"
-                style={styles.disconnectButton}
-              />
+              <>
+                <Button
+                  title="Sync 30 Days of Data"
+                  onPress={handleSyncData}
+                  loading={isLoading}
+                  style={styles.syncButton}
+                />
+                <Button
+                  title="Disconnect"
+                  onPress={handleDisconnect}
+                  variant="secondary"
+                  style={styles.disconnectButton}
+                />
+              </>
             )}
           </View>
 
@@ -323,6 +355,9 @@ const styles = StyleSheet.create({
   },
   dataButton: {
     marginBottom: spacing.sm,
+  },
+  syncButton: {
+    marginTop: spacing.regular,
   },
   disconnectButton: {
     marginTop: spacing.regular,
