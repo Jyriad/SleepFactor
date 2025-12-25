@@ -469,11 +469,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 onLongPress={() => handleLongPressOption(option)}
                 delayLongPress={500}
               >
-                  <Ionicons
-                    name={option.icon || 'help-circle'}
-                    size={14}
-                    color={isNoneOption ? colors.textPrimary : colors.primary}
-                  />
                   <Text
                     style={[styles.quickButtonText, isNoneOption && styles.quickButtonTextNone]}
                     numberOfLines={1}

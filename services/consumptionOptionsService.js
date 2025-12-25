@@ -71,7 +71,7 @@ class ConsumptionOptionsService {
   /**
    * Create a new custom option for a user
    */
-  async createCustomOption(userId, habitId, name, drugAmount, icon = null) {
+  async createCustomOption(userId, habitId, name, drugAmount, icon = null, volumeMl = null, servingUnit = 'ml', drugUnit = null) {
     try {
       // Validate inputs
       if (!userId || !habitId || !name || !drugAmount) {
@@ -82,6 +82,31 @@ class ConsumptionOptionsService {
         return { success: false, error: 'Drug amount must be greater than 0' };
       }
 
+      if (volumeMl !== null && (volumeMl <= 0 || volumeMl > 10000)) {
+        return { success: false, error: 'Volume must be between 1 and 10000 ml' };
+      }
+
+      // Auto-determine drug_unit based on habit type if not provided
+      let finalDrugUnit = drugUnit;
+      if (!finalDrugUnit) {
+        const { data: habit } = await supabase
+          .from('habits')
+          .select('name')
+          .eq('id', habitId)
+          .single();
+
+        if (habit) {
+          const habitName = habit.name.toLowerCase();
+          if (habitName.includes('caffeine')) {
+            finalDrugUnit = 'mg';
+          } else if (habitName.includes('alcohol')) {
+            finalDrugUnit = 'ml';
+          } else {
+            finalDrugUnit = 'units';
+          }
+        }
+      }
+
       const { data, error } = await supabase
         .from('consumption_options')
         .insert({
@@ -90,6 +115,9 @@ class ConsumptionOptionsService {
           name: name.trim(),
           drug_amount: drugAmount,
           icon: icon,
+          volume_ml: volumeMl,
+          serving_unit: servingUnit,
+          drug_unit: finalDrugUnit,
           is_custom: true,
           is_active: true
         })
@@ -107,7 +135,7 @@ class ConsumptionOptionsService {
   /**
    * Update an existing custom option
    */
-  async updateCustomOption(optionId, name, drugAmount, icon = null) {
+  async updateCustomOption(optionId, name, drugAmount, icon = null, volumeMl = null, servingUnit = null, drugUnit = null) {
     try {
       // Validate inputs
       if (!optionId || !name || !drugAmount) {
@@ -118,14 +146,25 @@ class ConsumptionOptionsService {
         return { success: false, error: 'Drug amount must be greater than 0' };
       }
 
+      if (volumeMl !== null && (volumeMl <= 0 || volumeMl > 10000)) {
+        return { success: false, error: 'Volume must be between 1 and 10000 ml' };
+      }
+
+      const updateData = {
+        name: name.trim(),
+        drug_amount: drugAmount,
+        updated_at: new Date().toISOString()
+      };
+
+      // Only include fields that are not null
+      if (icon !== null) updateData.icon = icon;
+      if (volumeMl !== null) updateData.volume_ml = volumeMl;
+      if (servingUnit !== null) updateData.serving_unit = servingUnit;
+      if (drugUnit !== null) updateData.drug_unit = drugUnit;
+
       const { data, error } = await supabase
         .from('consumption_options')
-        .update({
-          name: name.trim(),
-          drug_amount: drugAmount,
-          icon: icon,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', optionId)
         .select()
         .single();

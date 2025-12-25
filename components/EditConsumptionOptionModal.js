@@ -16,9 +16,10 @@ import { typography, spacing } from '../constants';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import Button from './Button';
 
-const ICON_OPTIONS = [
-  'cafe', 'beer', 'wine', 'flask', 'flash', 'water',
-  'leaf', 'flame', 'star', 'heart', 'pizza', 'ice-cream'
+// Icon options removed for now - keeping database column for future use
+
+const SERVING_UNITS = [
+  'ml', 'spoons', 'shots', 'pills', 'tablets', 'cups', 'cans', 'bottles', 'pieces', 'grams', 'ounces'
 ];
 
 const EditConsumptionOptionModal = ({
@@ -31,19 +32,23 @@ const EditConsumptionOptionModal = ({
 }) => {
   const [name, setName] = useState('');
   const [drugAmount, setDrugAmount] = useState('');
-  const [selectedIcon, setSelectedIcon] = useState('cafe');
+  const [volume, setVolume] = useState('');
+  const [servingUnit, setServingUnit] = useState('ml');
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState('');
   const [amountError, setAmountError] = useState('');
+  const [volumeError, setVolumeError] = useState('');
 
   // Initialize form with option data
   useEffect(() => {
     if (visible && option) {
       setName(option.name || '');
       setDrugAmount(option.drug_amount?.toString() || '');
-      setSelectedIcon(option.icon || 'cafe');
+      setVolume(option.volume_ml?.toString() || '');
+      setServingUnit(option.serving_unit || 'ml');
       setNameError('');
       setAmountError('');
+      setVolumeError('');
     }
   }, [visible, option]);
 
@@ -76,6 +81,25 @@ const EditConsumptionOptionModal = ({
       setAmountError('');
     }
 
+    // Validate volume (optional field)
+    if (volume.trim()) {
+      const volumeNum = parseFloat(volume);
+      if (isNaN(volumeNum)) {
+        setVolumeError('Valid volume is required');
+        isValid = false;
+      } else if (volumeNum <= 0) {
+        setVolumeError('Volume must be greater than 0');
+        isValid = false;
+      } else if (volumeNum > 10000) {
+        setVolumeError('Volume seems too high');
+        isValid = false;
+      } else {
+        setVolumeError('');
+      }
+    } else {
+      setVolumeError('');
+    }
+
     return isValid;
   };
 
@@ -84,11 +108,15 @@ const EditConsumptionOptionModal = ({
 
     setSaving(true);
     try {
+      const volumeMl = volume.trim() ? parseFloat(volume) : null;
       const result = await consumptionOptionsService.updateCustomOption(
         option.id,
         name.trim(),
         parseFloat(drugAmount),
-        selectedIcon
+        null, // No icon for now
+        volumeMl,
+        servingUnit,
+        getDrugUnit() // Use the determined drug unit
       );
 
       if (result.success) {
@@ -142,8 +170,16 @@ const EditConsumptionOptionModal = ({
   const getUnitLabel = () => {
     if (!habitName) return 'units';
     const name = habitName.toLowerCase();
+    if (name.includes('caffeine')) return 'mg of active ingredient';
+    if (name.includes('alcohol')) return 'ml of active ingredient';
+    return 'units';
+  };
+
+  const getDrugUnit = () => {
+    if (!habitName) return 'units';
+    const name = habitName.toLowerCase();
     if (name.includes('caffeine')) return 'mg';
-    if (name.includes('alcohol')) return 'drinks';
+    if (name.includes('alcohol')) return 'ml';
     return 'units';
   };
 
@@ -167,7 +203,14 @@ const EditConsumptionOptionModal = ({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={styles.content}
+                showsVerticalScrollIndicator={false}
+                bounces={true}
+                alwaysBounceVertical={false}
+                decelerationRate="normal"
+                contentContainerStyle={{ paddingBottom: 20 }}
+              >
                 <Text style={styles.subtitle}>
                   Edit "{option.name}" for {habitName?.toLowerCase() || 'this habit'}
                 </Text>
@@ -207,36 +250,58 @@ const EditConsumptionOptionModal = ({
                   {amountError ? <Text style={styles.errorText}>{amountError}</Text> : null}
                 </View>
 
-                {/* Icon Selection */}
+                {/* Volume Input */}
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Icon</Text>
-                  <View style={styles.iconGrid}>
-                    {ICON_OPTIONS.map((icon) => (
+                  <Text style={styles.label}>Amount per Serving - Optional</Text>
+                  <TextInput
+                    style={[styles.textInput, volumeError ? styles.inputError : null]}
+                    value={volume}
+                    onChangeText={(text) => {
+                      setVolume(text);
+                      if (volumeError) setVolumeError('');
+                    }}
+                    placeholder="e.g., 240"
+                    placeholderTextColor={colors.textLight}
+                    keyboardType="numeric"
+                    maxLength={5}
+                  />
+                  {volumeError ? <Text style={styles.errorText}>{volumeError}</Text> : null}
+                  <Text style={styles.helpText}>
+                    Amount per serving (e.g., 240 ml, 1 spoon, 2 pills).
+                  </Text>
+                </View>
+
+                {/* Serving Unit Selection */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Serving Unit</Text>
+                  <View style={styles.unitGrid}>
+                    {SERVING_UNITS.map((unit) => (
                       <TouchableOpacity
-                        key={icon}
+                        key={unit}
                         style={[
-                          styles.iconOption,
-                          selectedIcon === icon && styles.selectedIcon
+                          styles.unitOption,
+                          servingUnit === unit && styles.selectedUnit
                         ]}
-                        onPress={() => setSelectedIcon(icon)}
+                        onPress={() => setServingUnit(unit)}
                       >
-                        <Ionicons
-                          name={icon}
-                          size={24}
-                          color={selectedIcon === icon ? colors.primary : colors.textSecondary}
-                        />
+                        <Text style={[
+                          styles.unitText,
+                          servingUnit === unit && styles.selectedUnitText
+                        ]}>
+                          {unit}
+                        </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </View>
 
+
                 {/* Preview */}
                 <View style={styles.preview}>
                   <Text style={styles.previewLabel}>Preview:</Text>
                   <View style={styles.previewOption}>
-                    <Ionicons name={selectedIcon} size={16} color={colors.primary} />
                     <Text style={styles.previewText}>
-                      {name.trim() || 'Option Name'} ({drugAmount || '0'} {getUnitLabel()})
+                      {name.trim() || 'Option Name'} ({drugAmount || '0'} {getUnitLabel()}{volume.trim() ? `, ${volume} ${servingUnit}` : ''})
                     </Text>
                   </View>
                 </View>
@@ -303,7 +368,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: '100%',
     maxWidth: 400,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   header: {
     flexDirection: 'row',
@@ -355,25 +420,39 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginTop: spacing.xs,
   },
-  iconGrid: {
+  helpText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  unitGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
-  iconOption: {
-    width: 48,
-    height: 48,
+  unitOption: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: 8,
     borderWidth: 2,
     borderColor: colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: colors.background,
+    minWidth: 60,
+    alignItems: 'center',
   },
-  selectedIcon: {
+  selectedUnit: {
     borderColor: colors.primary,
-    backgroundColor: colors.primary + '10', // Light primary background
+    backgroundColor: colors.primary + '10',
+  },
+  unitText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  selectedUnitText: {
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
   },
   preview: {
     marginTop: spacing.regular,

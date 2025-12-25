@@ -5,13 +5,22 @@
 -- MODIFY CONSTRAINT TO ALLOW ZERO AMOUNTS
 -- ============================================
 
--- Drop the existing constraint that requires drug_amount > 0
+-- Drop the existing constraint that requires drug_amount > 0 (if it exists)
 ALTER TABLE public.consumption_options
 DROP CONSTRAINT IF EXISTS positive_drug_amount;
 
--- Add new constraint that allows zero amounts (for "None consumed")
-ALTER TABLE public.consumption_options
-ADD CONSTRAINT drug_amount_non_negative CHECK (drug_amount >= 0);
+-- Add new constraint that allows zero amounts (for "None consumed") - only if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'drug_amount_non_negative'
+        AND table_name = 'consumption_options'
+    ) THEN
+        ALTER TABLE public.consumption_options
+        ADD CONSTRAINT drug_amount_non_negative CHECK (drug_amount >= 0);
+    END IF;
+END $$;
 
 -- ============================================
 -- ADD "NONE CONSUMED" OPTIONS
