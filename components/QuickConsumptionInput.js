@@ -514,198 +514,201 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       >
         <View style={styles.modalOverlay}>
           <View style={styles.timePickerModal}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
-              <Text style={styles.modalTitle}>
-                Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
-              </Text>
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScrollView}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>
+                  Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
+                </Text>
 
-              {/* Serving Selection */}
-              {selectedOption && (
-                <View style={styles.modalServingSection}>
-                  <Text style={styles.servingLabel}>
-                    {selectedOption.name}
-                    {selectedOption.volume_ml ? ` ${selectedOption.volume_ml}ml` : ''}
-                    {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' • ' : ''}
-                    {selectedOption.drug_amount ? `${selectedOption.drug_amount} ${habit?.unit}` : ''}
-                    {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' per serving' : ''}
-                  </Text>
-                  <View style={styles.modalServingButtons}>
-                    {/* Standard serving buttons */}
-                    {[0.5, 1, 2].map((serving) => {
-                      const totalDrugAmount = selectedOption.drug_amount * serving;
-                      const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
-                      return (
-                        <TouchableOpacity
-                          key={serving}
-                          style={[
-                            styles.modalServingButton,
-                            selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
-                          ]}
-                          onPress={() => {
-                            console.log('Standard serving button pressed for serving:', serving);
-                            setSelectedServing(serving);
-                            setShowCustomVolume(false);
-                            setCustomVolume('');
-                            setCustomDrugAmount(0);
-                          }}
-                        >
-                          <Text style={[
-                            styles.modalServingButtonText,
-                            selectedServing === serving && !showCustomVolume && styles.modalServingButtonTextSelected
-                          ]}>
-                            {serving}x
-                          </Text>
-                          <Text style={[
-                            styles.modalServingAmountText,
-                            selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
-                          ]}>
-                            {totalVolume ? `${totalVolume}ml` : ''}
-                            {totalVolume && totalDrugAmount ? '\n' : ''}
-                            {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                {/* Serving Selection */}
+                {selectedOption && (
+                  <View style={styles.modalServingSection}>
+                    <Text style={styles.servingLabel}>
+                      {selectedOption.name}
+                      {selectedOption.volume_ml ? ` ${selectedOption.volume_ml}ml` : ''}
+                      {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' • ' : ''}
+                      {selectedOption.drug_amount ? `${selectedOption.drug_amount} ${habit?.unit}` : ''}
+                      {(selectedOption.volume_ml || selectedOption.drug_amount) ? ' per serving' : ''}
+                    </Text>
+                    <View style={styles.modalServingButtons}>
+                      {/* Standard serving buttons */}
+                      {[0.5, 1, 2].map((serving) => {
+                        const totalDrugAmount = selectedOption.drug_amount * serving;
+                        const totalVolume = selectedOption.volume_ml ? selectedOption.volume_ml * serving : null;
+                        return (
+                          <TouchableOpacity
+                            key={serving}
+                            style={[
+                              styles.modalServingButton,
+                              selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
+                            ]}
+                            onPress={() => {
+                              console.log('Standard serving button pressed for serving:', serving);
+                              setSelectedServing(serving);
+                              setShowCustomVolume(false);
+                              setCustomVolume('');
+                              setCustomDrugAmount(0);
+                            }}
+                          >
+                            <Text style={[
+                              styles.modalServingButtonText,
+                              selectedServing === serving && !showCustomVolume && styles.modalServingButtonTextSelected
+                            ]}>
+                              {serving}x
+                            </Text>
+                            <Text style={[
+                              styles.modalServingAmountText,
+                              selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
+                            ]}>
+                              {totalVolume ? `${totalVolume}ml` : ''}
+                              {totalVolume && totalDrugAmount ? '\n' : ''}
+                              {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
 
-                    {/* Other/Custom button */}
-                    <TouchableOpacity
-                      style={[
-                        styles.modalServingButton,
-                        showCustomVolume && styles.modalServingButtonSelected
-                      ]}
-                      onPress={() => {
-                        console.log('Custom serving button pressed');
-                        setSelectedServing('custom');
-                        setShowCustomVolume(true);
-                        // Pre-fill with base volume as default
-                        const defaultVolume = selectedOption.volume_ml ? selectedOption.volume_ml.toString() : '';
-                        setCustomVolume(defaultVolume);
-                        setCustomDrugAmount(selectedOption.drug_amount || 0);
-                      }}
-                    >
-                      <Text style={[
-                        styles.modalServingButtonText,
-                        showCustomVolume && styles.modalServingButtonTextSelected
-                      ]}>
-                        Other
-                      </Text>
-                      <Text style={[
-                        styles.modalServingAmountText,
-                        showCustomVolume && styles.modalServingAmountTextSelected
-                      ]}>
-                        Custom{'\n'}Amount
-                      </Text>
-                    </TouchableOpacity>
+                      {/* Other/Custom button */}
+                      <TouchableOpacity
+                        style={[
+                          styles.modalServingButton,
+                          showCustomVolume && styles.modalServingButtonSelected
+                        ]}
+                        onPress={() => {
+                          console.log('Custom serving button pressed');
+                          setSelectedServing('custom');
+                          setShowCustomVolume(true);
+                          // Pre-fill with base volume as default
+                          const defaultVolume = selectedOption.volume_ml ? selectedOption.volume_ml.toString() : '';
+                          setCustomVolume(defaultVolume);
+                          setCustomDrugAmount(selectedOption.drug_amount || 0);
+                        }}
+                      >
+                        <Text style={[
+                          styles.modalServingButtonText,
+                          showCustomVolume && styles.modalServingButtonTextSelected
+                        ]}>
+                          Other
+                        </Text>
+                        <Text style={[
+                          styles.modalServingAmountText,
+                          showCustomVolume && styles.modalServingAmountTextSelected
+                        ]}>
+                          Custom{'\n'}Amount
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Custom Volume Input */}
+                    {showCustomVolume && (
+                      <View style={styles.customVolumeSection}>
+                        <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
+                        <View style={styles.customVolumeInputRow}>
+                          <TextInput
+                            style={styles.customVolumeInput}
+                            value={customVolume}
+                            onChangeText={handleCustomVolumeChange}
+                            placeholder={selectedOption.volume_ml ? `${selectedOption.volume_ml}` : "300"}
+                            keyboardType="numeric"
+                            maxLength={4}
+                          />
+                          <Text style={styles.customVolumeUnit}>ml</Text>
+                          <Text style={styles.customVolumeArrow}>→</Text>
+                          <Text style={styles.customVolumeResult}>
+                            {customDrugAmount.toFixed(1)} {habit?.unit}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                <View style={styles.timePickerContainer}>
+                  <View style={styles.pickerGroup}>
+                    <Text style={styles.timeLabel}>Hour</Text>
+                    <Picker
+                      pickerData={hourData}
+                      selectedValue={selectedHour.toString()}
+                      onValueChange={handleHourChange}
+                      textColor={colors.textSecondary}
+                      selectTextColor={colors.primary}
+                      textSize={20}
+                      itemHeight={50}
+                      style={styles.wheelPicker}
+                    />
                   </View>
 
-                  {/* Custom Volume Input */}
-                  {showCustomVolume && (
-                    <View style={styles.customVolumeSection}>
-                      <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
-                      <View style={styles.customVolumeInputRow}>
-                        <TextInput
-                          style={styles.customVolumeInput}
-                          value={customVolume}
-                          onChangeText={handleCustomVolumeChange}
-                          placeholder={selectedOption.volume_ml ? `${selectedOption.volume_ml}` : "300"}
-                          keyboardType="numeric"
-                          maxLength={4}
-                        />
-                        <Text style={styles.customVolumeUnit}>ml</Text>
-                        <Text style={styles.customVolumeArrow}>→</Text>
-                        <Text style={styles.customVolumeResult}>
-                          {customDrugAmount.toFixed(1)} {habit?.unit}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
+                  <View style={styles.pickerGroup}>
+                    <Text style={styles.timeLabel}>Minute</Text>
+                    <Picker
+                      pickerData={minuteData}
+                      selectedValue={selectedMinute.toString()}
+                      onValueChange={handleMinuteChange}
+                      textColor={colors.textSecondary}
+                      selectTextColor={colors.primary}
+                      textSize={20}
+                      itemHeight={50}
+                      style={styles.wheelPicker}
+                    />
+                  </View>
                 </View>
-              )}
 
-              <View style={styles.timePickerContainer}>
-              <View style={styles.pickerGroup}>
-                <Text style={styles.timeLabel}>Hour</Text>
-                <Picker
-                  pickerData={hourData}
-                  selectedValue={selectedHour.toString()}
-                  onValueChange={handleHourChange}
-                  textColor={colors.textSecondary}
-                  selectTextColor={colors.primary}
-                  textSize={20}
-                  itemHeight={50}
-                  style={styles.wheelPicker}
-                />
-              </View>
-
-              <View style={styles.pickerGroup}>
-                <Text style={styles.timeLabel}>Minute</Text>
-                <Picker
-                  pickerData={minuteData}
-                  selectedValue={selectedMinute.toString()}
-                  onValueChange={handleMinuteChange}
-                  textColor={colors.textSecondary}
-                  selectTextColor={colors.primary}
-                  textSize={20}
-                  itemHeight={50}
-                  style={styles.wheelPicker}
-                />
-              </View>
-            </View>
-
-            <View style={styles.quickTimeOptions}>
-              <Text style={styles.quickTimeLabel}>Quick Time:</Text>
-              <View style={styles.quickTimeButtons}>
-                <TouchableOpacity
-                  style={styles.quickTimeButton}
-                  onPress={() => {
-                    const morning = new Date(selectedDate);
-                    morning.setHours(10, 0, 0, 0);
-                    addConsumptionEvent(selectedConsumptionType, morning);
-                    setShowTimeModal(false);
-                  }}
-                >
-                  <Text style={styles.quickTimeButtonText}>Morning</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickTimeButton}
-                  onPress={() => {
-                    const afternoon = new Date(selectedDate);
-                    afternoon.setHours(15, 0, 0, 0);
-                    addConsumptionEvent(selectedConsumptionType, afternoon);
-                    setShowTimeModal(false);
-                  }}
-                >
-                  <Text style={styles.quickTimeButtonText}>Afternoon</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickTimeButton}
-                  onPress={() => {
-                    const evening = new Date(selectedDate);
-                    evening.setHours(19, 0, 0, 0);
-                    addConsumptionEvent(selectedConsumptionType, evening);
-                    setShowTimeModal(false);
-                  }}
-                >
-                  <Text style={styles.quickTimeButtonText}>Evening</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setShowTimeModal(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.addButton]}
-                  onPress={confirmTimeModal}
-                >
-                  <Text style={styles.addButtonText}>Add</Text>
-                </TouchableOpacity>
+                <View style={styles.quickTimeOptions}>
+                  <Text style={styles.quickTimeLabel}>Quick Time:</Text>
+                  <View style={styles.quickTimeButtons}>
+                    <TouchableOpacity
+                      style={styles.quickTimeButton}
+                      onPress={() => {
+                        const morning = new Date(selectedDate);
+                        morning.setHours(10, 0, 0, 0);
+                        addConsumptionEvent(selectedConsumptionType, morning);
+                        setShowTimeModal(false);
+                      }}
+                    >
+                      <Text style={styles.quickTimeButtonText}>Morning</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.quickTimeButton}
+                      onPress={() => {
+                        const afternoon = new Date(selectedDate);
+                        afternoon.setHours(15, 0, 0, 0);
+                        addConsumptionEvent(selectedConsumptionType, afternoon);
+                        setShowTimeModal(false);
+                      }}
+                    >
+                      <Text style={styles.quickTimeButtonText}>Afternoon</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.quickTimeButton}
+                      onPress={() => {
+                        const evening = new Date(selectedDate);
+                        evening.setHours(19, 0, 0, 0);
+                        addConsumptionEvent(selectedConsumptionType, evening);
+                        setShowTimeModal(false);
+                      }}
+                    >
+                      <Text style={styles.quickTimeButtonText}>Evening</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
             </ScrollView>
+
+            {/* Sticky Buttons */}
+            <View style={styles.stickyModalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowTimeModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.addButton]}
+                onPress={confirmTimeModal}
+              >
+                <Text style={styles.addButtonText}>Add</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1079,15 +1082,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalScrollContent: {
-    padding: spacing.regular,
-  },
   timePickerModal: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     width: '90%',
     maxWidth: 350,
-    maxHeight: '80%',
+    maxHeight: 550, // Fixed height for consistent UX
+    flexDirection: 'column',
+  },
+  modalScrollView: {
+    flex: 1,
+  },
+  modalContent: {
+    padding: spacing.regular,
+    paddingBottom: spacing.xl + spacing.regular, // Extra padding for sticky buttons
+  },
   },
   modalTitle: {
     fontSize: typography.sizes.large,
@@ -1146,6 +1155,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  stickyModalButtons: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: spacing.regular,
+    backgroundColor: colors.cardBackground,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
   },
   modalButton: {
     flex: 1,
