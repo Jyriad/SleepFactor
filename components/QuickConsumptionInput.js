@@ -120,8 +120,15 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         console.error('Error adding quick consumption:', result.error);
         Alert.alert('Error', 'Failed to add consumption');
       } else {
-        // Update the bedtime drug level calculation
-        await updateBedtimeDrugLevel(habit?.id, selectedDate);
+        // Immediately update the bedtime drug level in habit_logs
+        try {
+          console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate}`);
+          await updateBedtimeDrugLevel(habit?.id, selectedDate);
+          console.log('✅ Auto-saved bedtime drug level for quick consumption');
+        } catch (levelError) {
+          console.error('Failed to auto-save bedtime drug level:', levelError);
+          // Don't block the consumption logging if level calculation fails
+        }
 
         // Refresh the habit data to show the new consumption
         if (onConsumptionAdded) {
@@ -136,9 +143,13 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   // Calculate and update bedtime drug level after consumption events change
   const updateBedtimeDrugLevel = async (habitId, selectedDate) => {
-    if (!userId) return;
+    if (!userId) {
+      console.log('❌ No userId for bedtime level update');
+      return;
+    }
 
     try {
+      console.log(`🔍 Starting bedtime level calculation for habit ${habitId}`);
       // Only update for caffeine and alcohol habits
       const { data: habit, error: habitError } = await supabase
         .from('habits')
@@ -213,7 +224,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       if (logError) {
         console.error(`Error updating bedtime level for ${habit.name}:`, logError);
       } else {
-        console.log(`✅ Updated ${habit.name} bedtime level: ${bedtimeLevel.toFixed(2)} ${habit.unit}`);
+        console.log(`✅ Updated ${habit.name} bedtime level: ${bedtimeLevel.toFixed(2)} ${habit.unit} for date: ${selectedDate}`);
       }
 
     } catch (error) {

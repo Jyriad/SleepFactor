@@ -487,9 +487,14 @@ const HabitLoggingScreen = () => {
         (habit.name.toLowerCase() === 'caffeine' || habit.name.toLowerCase() === 'alcohol')
       );
 
+      console.log(`🔬 Auto-saving bedtime levels for ${drugHabits.length} drug habits:`, drugHabits.map(h => h.name));
+
       for (const habit of drugHabits) {
         try {
+          console.log(`🧮 Calculating bedtime level for ${habit.name} on ${selectedDate}`);
           const bedtimeLevel = await calculateBedtimeDrugLevel(habit, selectedDate);
+          console.log(`📊 Bedtime level result: ${bedtimeLevel}`);
+
           if (bedtimeLevel !== null) {
             // Update or insert the habit log with the calculated bedtime level
             const habitLogEntry = {
