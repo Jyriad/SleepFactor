@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import insightsService from '../services/insightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
+import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -89,6 +90,14 @@ const InsightsScreen = () => {
           key={insight.habit.id}
           insight={insight}
           sleepMetric={metricInfo}
+          width={cardWidth}
+        />
+      );
+    } else if (insight.type === 'placeholder') {
+      return (
+        <PlaceholderHabitInsight
+          key={insight.habit.id}
+          insight={insight}
           width={cardWidth}
         />
       );

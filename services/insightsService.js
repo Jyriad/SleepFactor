@@ -23,7 +23,7 @@ class InsightsService {
    * @param {string} sleepMetric - Sleep metric to analyze (e.g., 'total_sleep_minutes')
    * @param {Date} startDate - Start date for analysis
    * @param {Date} endDate - End date for analysis
-   * @returns {Promise<Array>} Array of habit insights
+   * @returns {Promise<Array>} Array of habit insights (full insights or placeholders)
    */
   async getHabitsInsights(userId, sleepMetric, startDate, endDate) {
     try {
@@ -42,24 +42,33 @@ class InsightsService {
       // Group logs by habit
       const logsByHabit = this.groupLogsByHabit(habitLogs);
 
-      // Calculate insights for each habit
+      // Create sleep data lookup by date
+      const sleepByDate = {};
+      sleepData.forEach(sleep => {
+        sleepByDate[sleep.date] = sleep;
+      });
+
+      // Calculate insights for each habit (or create placeholder)
       const insights = [];
       for (const habit of habits) {
         const habitData = logsByHabit[habit.id] || [];
         console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
         console.log(`   Type: ${habit.type}`);
         console.log(`   Habit logs found: ${habitData.length} days`);
-        
+
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric);
         if (insight) {
           console.log(`   ✅ Insight generated with ${insight.totalDataPoints} paired data points`);
           insights.push(insight);
         } else {
-          console.log(`   ❌ No insight generated (insufficient data or no matches)`);
+          // Create placeholder insight with tracking statistics
+          console.log(`   📊 Creating placeholder with tracking stats`);
+          const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate);
+          insights.push(placeholderInsight);
         }
       }
 
-      console.log(`\n📈 Total insights generated: ${insights.length}`);
+      console.log(`\n📈 Total insights returned: ${insights.length}`);
       return insights;
     } catch (error) {
       console.error('Error getting habits insights:', error);
@@ -455,6 +464,46 @@ class InsightsService {
     const startDate = new Date(now);
     startDate.setDate(startDate.getDate() - days);
     return { startDate, endDate };
+  }
+
+  /**
+   * Create a placeholder insight for habits with insufficient data
+   * @param {Object} habit - Habit object
+   * @param {Array} habitData - Array of habit logs for this habit
+   * @param {Object} sleepByDate - Sleep data lookup by date
+   * @returns {Object} Placeholder insight object
+   */
+  createPlaceholderInsight(habit, habitData, sleepByDate) {
+    // Calculate tracking statistics
+    let daysTracked = 0;
+    let daysWithSleepData = 0;
+    let daysWithPairedData = 0;
+
+    habitData.forEach(log => {
+      daysTracked++;
+
+      // Check if we have sleep data for this date
+      // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
+      const logDate = new Date(log.date);
+      const nextDay = new Date(logDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayStr = nextDay.toISOString().split('T')[0];
+
+      if (sleepByDate[nextDayStr]) {
+        daysWithSleepData++;
+        daysWithPairedData++;
+      }
+    });
+
+    return {
+      habit,
+      type: 'placeholder',
+      totalDataPoints: habitData.length,
+      daysTracked,
+      daysWithSleepData,
+      daysWithPairedData,
+      needsMoreData: daysWithPairedData < this.MIN_DATA_POINTS
+    };
   }
 }
 
