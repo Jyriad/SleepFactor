@@ -472,7 +472,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   <Ionicons
                     name={option.icon || 'help-circle'}
                     size={14}
-                    color={isNoneOption ? colors.error : colors.primary}
+                    color={isNoneOption ? colors.textPrimary : colors.primary}
                   />
                   <Text
                     style={[styles.quickButtonText, isNoneOption && styles.quickButtonTextNone]}
