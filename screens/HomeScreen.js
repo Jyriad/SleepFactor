@@ -91,6 +91,7 @@ const HomeScreen = () => {
     React.useCallback(() => {
       checkHabitsLogged();
       checkTodaysHabitsLogged();
+      fetchHabitCount();
     }, [selectedDate, user])
   );
 
