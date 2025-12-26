@@ -685,11 +685,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   >
                     {option.name.split(' ')[0]}
                   </Text>
-                  {option.is_custom && (
-                    <View style={styles.customBadge}>
-                      <Ionicons name="person" size={8} color={colors.primary} />
-                    </View>
-                  )}
                 </TouchableOpacity>
               );
             })}
@@ -1313,17 +1308,6 @@ const styles = StyleSheet.create({
     minWidth: 60,
     textAlign: 'center',
   },
-  customBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: colors.primary,
-    borderRadius: 6,
-    width: 12,
-    height: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   moreButton: {
     backgroundColor: colors.primary,
     borderRadius: 6,
@@ -1354,8 +1338,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 2,
-    marginBottom: 2,
+    paddingVertical: 1,
+    marginBottom: 1,
   },
   loggedItemText: {
     fontSize: typography.sizes.small,
