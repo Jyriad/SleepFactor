@@ -281,7 +281,10 @@ const ProfileScreen = () => {
             <Text style={styles.sectionTitle}>About</Text>
             <View style={styles.infoCard}>
               <Text style={styles.label}>Version</Text>
-              <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.34'}</Text>
+              <View style={styles.versionContainer}>
+                <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.34'}</Text>
+                <Text style={styles.developmentBadge}>Development</Text>
+              </View>
             </View>
           </View>
 
@@ -344,6 +347,20 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
+  },
+  versionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  developmentBadge: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
+    color: colors.error,
+    backgroundColor: colors.error + '20', // Semi-transparent red background
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   sectionDescription: {
     fontSize: typography.sizes.small,
