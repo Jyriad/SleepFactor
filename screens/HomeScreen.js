@@ -303,6 +303,8 @@ const HomeScreen = () => {
 
     try {
       const dateString = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+      console.log('🔍 fetchHabitCountForDate:', { date, dateString, userId: user.id });
+
       // Get habit logs - now only contains manual user entries (no automatic calculations)
       const { data, error } = await supabase
         .from('habit_logs')
@@ -313,16 +315,24 @@ const HomeScreen = () => {
         .eq('user_id', user.id)
         .eq('date', dateString);
 
-      if (error) throw error;
+      if (error) {
+        console.log('❌ Supabase error:', error);
+        throw error;
+      }
+
+      console.log('📋 Raw habit logs data:', data);
 
       // Filter out automatic health metrics - habit_logs now only contains manual entries
-      const manualHabitLogs = data?.filter(log =>
-        !healthMetricsService.isHealthMetricHabit(log.habits)
-      ) || [];
+      const manualHabitLogs = data?.filter(log => {
+        const isHealthMetric = healthMetricsService.isHealthMetricHabit(log.habits);
+        console.log(`   Filtering ${log.habits?.name}: isHealthMetric=${isHealthMetric}, included=${!isHealthMetric}`);
+        return !isHealthMetric;
+      }) || [];
 
+      console.log('✅ Final count:', manualHabitLogs.length);
       return manualHabitLogs.length;
     } catch (error) {
-      console.error('Error fetching habit count for date:', error);
+      console.error('❌ Error fetching habit count for date:', error);
       return 0;
     }
   };
@@ -330,26 +340,36 @@ const HomeScreen = () => {
   const fetchHabitCount = async () => {
     if (!user) return;
 
+    console.log('🔢 fetchHabitCount called for date:', selectedDate);
+
     // Check cache first
     const cachedCount = getCachedHabitCount(selectedDate);
+    console.log('📦 Cached count:', cachedCount);
+
     if (cachedCount !== undefined) {
       // Fetch fresh data to check if cache is stale
+      console.log('🔄 Checking if cache is stale...');
       const freshCount = await fetchHabitCountForDate(selectedDate);
+      console.log('🆕 Fresh count:', freshCount);
 
       // If cache doesn't match fresh data, cache is stale - clear all caches
       if (cachedCount !== freshCount) {
+        console.log('♻️ Cache is stale, clearing all caches');
         clearAllCaches();
         setHabitCount(freshCount);
         updateHabitCountCache(selectedDate, freshCount);
         return;
       }
 
+      console.log('✅ Using cached count:', cachedCount);
       setHabitCount(cachedCount);
       return;
     }
 
     // Fetch from database if not cached
+    console.log('📡 Fetching from database...');
     const count = await fetchHabitCountForDate(selectedDate);
+    console.log('📊 Database count:', count);
     setHabitCount(count);
     updateHabitCountCache(selectedDate, count);
   };
