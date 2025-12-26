@@ -305,8 +305,11 @@ const HomeScreen = () => {
       const dateString = typeof date === 'string' ? date : date.toISOString().split('T')[0];
       console.log('🔍 fetchHabitCountForDate:', { date, dateString, userId: user.id });
 
-      // Get habit logs - now only contains manual user entries (no automatic calculations)
-      const { data, error } = await supabase
+      // Track unique habits that have been logged
+      const loggedHabits = new Set();
+
+      // 1. Get regular habit logs (binary/numeric habits)
+      const { data: habitLogs, error: habitLogsError } = await supabase
         .from('habit_logs')
         .select(`
           habit_id,
@@ -315,22 +318,53 @@ const HomeScreen = () => {
         .eq('user_id', user.id)
         .eq('date', dateString);
 
-      if (error) {
-        console.log('❌ Supabase error:', error);
-        throw error;
+      if (habitLogsError) {
+        console.log('❌ Habit logs error:', habitLogsError);
+      } else {
+        console.log('📋 Regular habit logs:', habitLogs);
+
+        // Add regular habits (excluding health metrics)
+        habitLogs?.forEach(log => {
+          if (!healthMetricsService.isHealthMetricHabit(log.habits)) {
+            loggedHabits.add(log.habit_id);
+            console.log(`   ✅ Added regular habit: ${log.habits?.name}`);
+          } else {
+            console.log(`   ❌ Excluded health metric: ${log.habits?.name}`);
+          }
+        });
       }
 
-      console.log('📋 Raw habit logs data:', data);
+      // 2. Get consumption events for drug habits (caffeine/alcohol)
+      const { data: consumptionEvents, error: consumptionError } = await supabase
+        .from('consumption_events')
+        .select(`
+          habit_id,
+          consumed_at,
+          habits!inner(name, type)
+        `)
+        .eq('user_id', user.id)
+        .gte('consumed_at', `${dateString}T00:00:00.000Z`)
+        .lt('consumed_at', `${dateString}T23:59:59.999Z`);
 
-      // Filter out automatic health metrics - habit_logs now only contains manual entries
-      const manualHabitLogs = data?.filter(log => {
-        const isHealthMetric = healthMetricsService.isHealthMetricHabit(log.habits);
-        console.log(`   Filtering ${log.habits?.name}: isHealthMetric=${isHealthMetric}, included=${!isHealthMetric}`);
-        return !isHealthMetric;
-      }) || [];
+      if (consumptionError) {
+        console.log('❌ Consumption events error:', consumptionError);
+      } else {
+        console.log('📋 Consumption events:', consumptionEvents);
 
-      console.log('✅ Final count:', manualHabitLogs.length);
-      return manualHabitLogs.length;
+        // Add drug habits that have consumption events
+        consumptionEvents?.forEach(event => {
+          if (event.habits?.type === 'quick_consumption' &&
+              (event.habits?.name?.toLowerCase().includes('caffeine') ||
+               event.habits?.name?.toLowerCase().includes('alcohol'))) {
+            loggedHabits.add(event.habit_id);
+            console.log(`   ✅ Added drug habit: ${event.habits?.name}`);
+          }
+        });
+      }
+
+      const finalCount = loggedHabits.size;
+      console.log('✅ Final count:', finalCount, 'unique habits logged');
+      return finalCount;
     } catch (error) {
       console.error('❌ Error fetching habit count for date:', error);
       return 0;
