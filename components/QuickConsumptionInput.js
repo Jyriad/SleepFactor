@@ -1338,20 +1338,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 1,
-    marginBottom: 1,
+    paddingVertical: 0,
+    marginBottom: 0,
   },
   loggedItemText: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     flex: 1,
+    lineHeight: typography.sizes.small,
   },
   loggedItemActions: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 2,
   },
   actionButton: {
-    padding: spacing.xs,
+    padding: 2,
   },
   modalOverlay: {
     flex: 1,
