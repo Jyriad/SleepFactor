@@ -212,18 +212,19 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         ? getBedtimeDrugLevel(eventsData, bedtimeDate, habit.half_life_hours || 5)
         : 0;
 
-      // Update the habit log with the calculated bedtime level
-      const habitLogEntry = {
+      // Update the drug levels table with the calculated bedtime level
+      const drugLevelEntry = {
         user_id: userId,
         habit_id: habitId,
         date: selectedDate,
-        value: `${bedtimeLevel.toFixed(2)} ${habit.unit} at bedtime`,
-        numeric_value: bedtimeLevel,
+        level_value: bedtimeLevel,
+        unit: habit.unit,
+        calculated_at: new Date().toISOString(),
       };
 
       const { error: logError } = await supabase
-        .from('habit_logs')
-        .upsert(habitLogEntry, {
+        .from('drug_levels')
+        .upsert(drugLevelEntry, {
           onConflict: 'user_id,habit_id,date',
         });
 

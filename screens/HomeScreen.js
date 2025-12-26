@@ -303,11 +303,10 @@ const HomeScreen = () => {
 
     try {
       const dateString = typeof date === 'string' ? date : date.toISOString().split('T')[0];
-      // Get habit logs with habit details to filter out automatic health metrics
+      // Get habit logs - now only contains manual user entries (no automatic calculations)
       const { data, error } = await supabase
         .from('habit_logs')
         .select(`
-          value,
           habit_id,
           habits!inner(*)
         `)
@@ -316,10 +315,9 @@ const HomeScreen = () => {
 
       if (error) throw error;
 
-      // Filter out automatic health metrics and automatic bedtime entries - only count manual habits
+      // Filter out automatic health metrics - habit_logs now only contains manual entries
       const manualHabitLogs = data?.filter(log =>
-        !healthMetricsService.isHealthMetricHabit(log.habits) &&
-        !log.value?.includes('at bedtime')
+        !healthMetricsService.isHealthMetricHabit(log.habits)
       ) || [];
 
       return manualHabitLogs.length;
