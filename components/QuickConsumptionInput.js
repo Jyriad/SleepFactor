@@ -391,11 +391,13 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         totalAmount = customDrugAmount;
         volumeConsumed = parseInt(customVolume) || selectedOption?.default_volume || 0;
         servingMultiplier = 'custom'; // Indicate custom serving
+        console.log('Custom serving:', { customVolume, volumeConsumed, customDrugAmount });
       } else {
         // Use multiplier calculation
         servingMultiplier = selectedServing || 1;
         totalAmount = baseAmount * servingMultiplier;
         volumeConsumed = selectedOption?.default_volume ? selectedOption.default_volume * servingMultiplier : 0;
+        console.log('Standard serving:', { selectedServing: servingMultiplier, volumeConsumed, totalAmount });
       }
 
       // Save to database
@@ -463,10 +465,12 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         totalAmount = customDrugAmount;
         volumeConsumed = parseInt(customVolume) || resolvedOption?.default_volume || 0;
         servingMultiplier = 'custom';
+        console.log('Update custom serving:', { customVolume, volumeConsumed, customDrugAmount, totalAmount });
       } else {
         servingMultiplier = selectedServing || 1;
         totalAmount = baseAmount * servingMultiplier;
         volumeConsumed = resolvedOption?.default_volume ? resolvedOption.default_volume * servingMultiplier : 0;
+        console.log('Update standard serving:', { selectedServing: servingMultiplier, volumeConsumed, totalAmount });
       }
 
       // Find the event to update
@@ -502,6 +506,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               ...event,
               consumed_at: consumptionTime.toISOString(),
               amount: totalAmount,
+              volume: volumeConsumed,
               base_amount: baseAmount,
               serving: servingMultiplier,
               drink_type: resolvedOption?.id || consumptionType,
@@ -576,10 +581,18 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     if (event.serving === 'custom') {
       setSelectedServing('custom');
       setCustomDrugAmount(event.amount);
-      setCustomVolume(event.base_amount ? (event.amount / event.base_amount * (resolvedOption?.default_volume || 100)).toString() : '100');
+      // Use stored volume if available (new format), otherwise calculate from old format
+      if (event.volume) {
+        setCustomVolume(event.volume.toString());
+      } else {
+        setCustomVolume(event.base_amount ? (event.amount / event.base_amount * (resolvedOption?.default_volume || 100)).toString() : '100');
+      }
+      setShowCustomVolume(true);
     } else {
       setSelectedServing(event.serving || 1);
       setShowCustomVolume(false);
+      setCustomVolume('');
+      setCustomDrugAmount(0);
     }
 
     // Set the time
@@ -702,9 +715,22 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             let volumeDisplay;
             if (event.volume && resolvedOption?.serving_unit) {
               volumeDisplay = `${event.volume}${resolvedOption.serving_unit}`;
+            } else if (event.volume) {
+              volumeDisplay = `${event.volume}ml`; // Fallback if no serving_unit
             } else {
               volumeDisplay = `${event.amount} ${habit?.unit}`;
             }
+
+            // Debug logging
+            console.log('Volume display debug:', {
+              eventId: event.id,
+              volume: event.volume,
+              amount: event.amount,
+              drinkType: event.drink_type,
+              resolvedOption: resolvedOption?.name,
+              servingUnit: resolvedOption?.serving_unit,
+              volumeDisplay
+            });
 
             return (
               <View key={event.id} style={styles.loggedItemRow}>
@@ -1328,8 +1354,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.xs,
-    marginBottom: spacing.xs,
+    paddingVertical: 2,
+    marginBottom: 2,
   },
   loggedItemText: {
     fontSize: typography.sizes.small,
