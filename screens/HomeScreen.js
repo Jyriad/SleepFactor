@@ -316,10 +316,20 @@ const HomeScreen = () => {
       if (error) throw error;
 
       // Filter out automatic health metrics and automatic bedtime entries - only count manual habits
-      const manualHabitLogs = data?.filter(log =>
-        !healthMetricsService.isHealthMetricHabit(log.habits) &&
-        !log.value?.includes('at bedtime')
-      ) || [];
+      const manualHabitLogs = data?.filter(log => {
+        const isHealthMetric = healthMetricsService.isHealthMetricHabit(log.habits);
+        const hasBedtime = log.value?.includes('at bedtime');
+        console.log('Habit log entry:', {
+          habit: log.habits?.name,
+          value: log.value,
+          isHealthMetric,
+          hasBedtime,
+          included: !isHealthMetric && !hasBedtime
+        });
+        return !isHealthMetric && !hasBedtime;
+      }) || [];
+
+      console.log('Total manual habits counted:', manualHabitLogs.length);
 
       return manualHabitLogs.length;
     } catch (error) {
