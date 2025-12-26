@@ -330,7 +330,7 @@ const HomeScreen = () => {
 
       // 2. Get consumption events for drug habits (caffeine/alcohol)
       const { data: consumptionEvents, error: consumptionError } = await supabase
-        .from('consumption_events')
+        .from('habit_consumption_events')
         .select(`
           habit_id,
           consumed_at,
