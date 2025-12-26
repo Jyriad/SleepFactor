@@ -1,20 +1,20 @@
 {
   "cli": {
-    "version": ">= 5.9.0"
+    "version": ">= 5.9.0",
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
+      "developmentClient": true,
+      "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "package": "com.sleepfactor.app.dev"
-      },
-      "ios": {
-        "bundleIdentifier": "com.sleepfactor.app.dev"
+        "buildType": "app-bundle"
       }
     },
     "production": {
+      "channel": "production",
       "android": {
-        "buildType": "aab"
+        "buildType": "apk"
       }
     }
   },

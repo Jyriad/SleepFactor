@@ -1,0 +1,103 @@
+const isDev = process.env.EAS_BUILD_PROFILE === "development";
+
+export default {
+  name: isDev ? "SleepFactor Dev" : "SleepFactor",
+  slug: "SleepFactor",
+  scheme: "sleepfactor",
+  version: "1.1.83",
+  orientation: "portrait",
+  icon: "./assets/icon.png",
+  userInterfaceStyle: "light",
+  newArchEnabled: true,
+  splash: {
+    image: "./assets/splash-icon.png",
+    resizeMode: "contain",
+    backgroundColor: "#ffffff"
+  },
+  ios: {
+    supportsTablet: true,
+    bundleIdentifier: isDev ? "com.sleepfactor.app.dev" : "com.sleepfactor.app"
+  },
+  android: {
+    adaptiveIcon: {
+      foregroundImage: "./assets/adaptive-icon.png",
+      backgroundColor: "#ffffff"
+    },
+    edgeToEdgeEnabled: true,
+    package: isDev ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
+    permissions: [
+      "android.permission.health.READ_SLEEP",
+      "android.permission.health.READ_STEPS",
+      "android.permission.health.READ_HEART_RATE",
+      "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+      "android.permission.health.READ_TOTAL_CALORIES_BURNED",
+      "android.permission.health.READ_EXERCISE",
+      "android.permission.health.READ_RESPIRATORY_RATE",
+      "android.permission.health.READ_BLOOD_GLUCOSE",
+      "android.permission.health.READ_BLOOD_PRESSURE",
+      "android.permission.health.READ_BODY_TEMPERATURE",
+      "android.permission.health.READ_OXYGEN_SATURATION",
+      "android.permission.health.READ_WEIGHT",
+      "android.permission.health.READ_HEIGHT",
+      "android.permission.health.READ_BODY_FAT",
+      "android.permission.health.READ_RESTING_HEART_RATE"
+    ]
+  },
+  web: {
+    favicon: "./assets/favicon.png"
+  },
+  plugins: [
+    [
+      "expo-health-connect",
+      {
+        permissions: [
+          "android.permission.health.READ_SLEEP",
+          "android.permission.health.READ_STEPS",
+          "android.permission.health.READ_HEART_RATE",
+          "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+          "android.permission.health.READ_TOTAL_CALORIES_BURNED",
+          "android.permission.health.READ_EXERCISE",
+          "android.permission.health.READ_RESPIRATORY_RATE",
+          "android.permission.health.READ_BLOOD_GLUCOSE",
+          "android.permission.health.READ_BLOOD_PRESSURE",
+          "android.permission.health.READ_BODY_TEMPERATURE",
+          "android.permission.health.READ_OXYGEN_SATURATION",
+          "android.permission.health.READ_WEIGHT",
+          "android.permission.health.READ_HEIGHT",
+          "android.permission.health.READ_BODY_FAT",
+          "android.permission.health.READ_RESTING_HEART_RATE"
+        ]
+      }
+    ],
+    [
+      "@kingstinct/react-native-healthkit",
+      {
+        NSHealthShareUsageDescription: "SleepFactor needs access to your health data to analyze how your habits affect your sleep quality.",
+        NSHealthUpdateUsageDescription: "SleepFactor needs to write sleep data to help track your sleep patterns.",
+        background: false
+      }
+    ],
+    [
+      "expo-build-properties",
+      {
+        android: {
+          compileSdkVersion: 35,
+          targetSdkVersion: 34,
+          minSdkVersion: 26
+        }
+      }
+    ]
+  ],
+  extra: {
+    eas: {
+      projectId: "430fa5de-f870-4b36-99b7-f5563e95a1f2"
+    }
+  },
+  owner: "jyriad",
+  runtimeVersion: {
+    policy: "appVersion"
+  },
+  updates: {
+    url: "https://u.expo.dev/430fa5de-f870-4b36-99b7-f5563e95a1f2"
+  }
+};

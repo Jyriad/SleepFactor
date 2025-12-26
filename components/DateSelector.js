@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { getDatesArray } from '../utils/dateHelpers';
+import { getDatesArray, formatDateForDB } from '../utils/dateHelpers';
 
 const DateSelector = ({ selectedDate, onDateChange, loggedDates = [], datesWithUnsavedChanges = [] }) => {
   const dates = getDatesArray();
@@ -10,7 +10,7 @@ const DateSelector = ({ selectedDate, onDateChange, loggedDates = [], datesWithU
   return (
     <View style={styles.container}>
       {dates.map((dateItem) => {
-        const isSelected = dateItem.date === selectedDate;
+        const isSelected = dateItem.date === (typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate));
         const isLogged = loggedDates.includes(dateItem.date);
         const hasUnsavedChanges = datesWithUnsavedChanges.includes(dateItem.date);
         return (
@@ -18,8 +18,6 @@ const DateSelector = ({ selectedDate, onDateChange, loggedDates = [], datesWithU
             key={dateItem.date}
             style={[
               styles.dateButton,
-              isLogged && !isSelected && styles.loggedDateButton,
-              hasUnsavedChanges && !isSelected && !isLogged && styles.unsavedDateButton,
               isSelected && styles.selectedDateButton,
             ]}
             onPress={() => onDateChange(dateItem.date)}
@@ -62,7 +60,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     marginHorizontal: spacing.xs,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.primary,
   },
   loggedDateButton: {
     backgroundColor: 'rgba(16, 185, 129, 0.2)', // colors.success with 20% opacity
@@ -76,12 +74,12 @@ const styles = StyleSheet.create({
   },
   dayName: {
     fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
+    color: colors.primary,
     fontWeight: typography.weights.medium,
   },
   dayNumber: {
     fontSize: typography.sizes.body,
-    color: colors.textPrimary,
+    color: colors.primary,
     fontWeight: typography.weights.bold,
     marginTop: 2,
   },

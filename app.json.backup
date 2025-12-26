@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "SleepFactor",
+    "name": process.env.EAS_BUILD_PROFILE === "development" ? "SleepFactor Dev" : "SleepFactor",
     "slug": "SleepFactor",
     "scheme": "sleepfactor",
-    "version": "1.1.83",
+    "version": "1.1.56",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
