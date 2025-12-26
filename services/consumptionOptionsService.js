@@ -115,7 +115,7 @@ class ConsumptionOptionsService {
           name: name.trim(),
           drug_amount: drugAmount,
           icon: icon,
-          volume_ml: volumeMl,
+          default_volume: volumeMl,
           serving_unit: servingUnit,
           drug_unit: finalDrugUnit,
           is_custom: true,
@@ -158,7 +158,7 @@ class ConsumptionOptionsService {
 
       // Only include fields that are not null
       if (icon !== null) updateData.icon = icon;
-      if (volumeMl !== null) updateData.volume_ml = volumeMl;
+      if (volumeMl !== null) updateData.default_volume = volumeMl;
       if (servingUnit !== null) updateData.serving_unit = servingUnit;
       if (drugUnit !== null) updateData.drug_unit = drugUnit;
 

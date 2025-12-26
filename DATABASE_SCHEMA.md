@@ -107,7 +107,7 @@ Stores predefined and user-customizable consumption options for drug habits.
 - `icon` (TEXT, Nullable) - Icon name for UI display
 - `is_custom` (BOOLEAN) - True for user-created options, false for system defaults
 - `serving_options` (JSONB, Nullable) - Available serving multipliers as array (default: [0.5, 1, 1.5, 2])
-- `volume_ml` (INTEGER, Nullable) - Volume/amount of drink in serving units (e.g., 240 for coffee cup)
+- `default_volume` (INTEGER, Nullable) - Default volume/amount of drink in serving units (e.g., 240 for coffee cup)
 - `serving_unit` (TEXT) - Unit of measurement for servings (ml, spoons, pills, shots, etc.)
 - `drug_unit` (TEXT) - Unit for the drug_amount field (mg for caffeine, ml for alcohol, etc.)
 - `is_active` (BOOLEAN) - Whether this option is available for use

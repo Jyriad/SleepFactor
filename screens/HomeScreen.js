@@ -72,6 +72,10 @@ const HomeScreen = () => {
   const [sleepDataLoading, setSleepDataLoading] = useState(false);
   const [initialSyncAttempted, setInitialSyncAttempted] = useState(false);
 
+  // Personal sleep averages state
+  const [personalAverages, setPersonalAverages] = useState(null);
+  const [averagesLoading, setAveragesLoading] = useState(false);
+
   // Data cache for recent dates (today + last 5 days)
   const [sleepDataCache, setSleepDataCache] = useState(new Map());
   const [habitCountCache, setHabitCountCache] = useState(new Map());
@@ -114,6 +118,7 @@ const HomeScreen = () => {
   useEffect(() => {
     checkTodaysHabitsLogged();
     fetchLoggedDates();
+    calculatePersonalAverages();
   }, [user]);
 
   // Preload data for recent dates on app launch
@@ -298,8 +303,12 @@ const HomeScreen = () => {
 
     try {
       const dateString = typeof date === 'string' ? date : date.toISOString().split('T')[0];
-      // Get habit logs with habit details to filter out automatic health metrics
-      const { data, error } = await supabase
+
+      // Track unique habits that have been logged
+      const loggedHabits = new Set();
+
+      // 1. Get regular habit logs (binary/numeric habits)
+      const { data: habitLogs, error: habitLogsError } = await supabase
         .from('habit_logs')
         .select(`
           habit_id,
@@ -308,14 +317,43 @@ const HomeScreen = () => {
         .eq('user_id', user.id)
         .eq('date', dateString);
 
-      if (error) throw error;
+      if (habitLogsError) {
+        console.error('Error fetching habit logs:', habitLogsError);
+      } else {
+        // Add regular habits (excluding health metrics)
+        habitLogs?.forEach(log => {
+          if (!healthMetricsService.isHealthMetricHabit(log.habits)) {
+            loggedHabits.add(log.habit_id);
+          }
+        });
+      }
 
-      // Filter out automatic health metrics - only count manual habits
-      const manualHabitLogs = data?.filter(log =>
-        !healthMetricsService.isHealthMetricHabit(log.habits)
-      ) || [];
+      // 2. Get consumption events for drug habits (caffeine/alcohol)
+      const { data: consumptionEvents, error: consumptionError } = await supabase
+        .from('habit_consumption_events')
+        .select(`
+          habit_id,
+          consumed_at,
+          habits!inner(name, type)
+        `)
+        .eq('user_id', user.id)
+        .gte('consumed_at', `${dateString}T00:00:00.000Z`)
+        .lt('consumed_at', `${dateString}T23:59:59.999Z`);
 
-      return manualHabitLogs.length;
+      if (consumptionError) {
+        console.error('Error fetching consumption events:', consumptionError);
+      } else {
+        // Add drug habits that have consumption events
+        consumptionEvents?.forEach(event => {
+          if (event.habits?.type === 'quick_consumption' &&
+              (event.habits?.name?.toLowerCase().includes('caffeine') ||
+               event.habits?.name?.toLowerCase().includes('alcohol'))) {
+            loggedHabits.add(event.habit_id);
+          }
+        });
+      }
+
+      return loggedHabits.size;
     } catch (error) {
       console.error('Error fetching habit count for date:', error);
       return 0;
@@ -515,7 +553,10 @@ const HomeScreen = () => {
           {minutes}{percentage !== null ? ` (${percentage}%)` : ''}
         </Text>
         {avgComparison !== null && (
-          <Text style={styles.metricComparison}>
+          <Text style={[
+            styles.metricComparison,
+            avgComparison > 0 ? styles.metricComparisonPositive : styles.metricComparisonNegative
+          ]}>
             {Math.abs(avgComparison)}% {avgComparison > 0 ? 'above' : 'below'} average
           </Text>
         )}
@@ -529,11 +570,14 @@ const HomeScreen = () => {
     const totalSleep = sleepData.total_sleep_minutes;
     const metrics = {};
 
+    // Use personal averages if available, otherwise fall back to population averages
+    const averagesToUse = personalAverages || AVERAGE_SLEEP_PERCENTAGES;
+
     // Calculate percentages and comparisons for each sleep stage
     Object.keys(SLEEP_METRIC_CONFIG).forEach(key => {
       const minutes = sleepData[key] || 0;
       const percentage = totalSleep > 0 ? Math.round((minutes / totalSleep) * 100) : 0;
-      const avgPercentage = AVERAGE_SLEEP_PERCENTAGES[key] || 0;
+      const avgPercentage = averagesToUse[key] || 0;
       const comparison = percentage - avgPercentage;
 
       metrics[key] = {
@@ -547,7 +591,7 @@ const HomeScreen = () => {
     // Handle awakenings (count-based comparison)
     if (sleepData.awakenings_count !== undefined) {
       const userAwakenings = sleepData.awakenings_count;
-      const avgAwakenings = AVERAGE_SLEEP_PERCENTAGES.awakenings_count;
+      const avgAwakenings = averagesToUse.awakenings_count;
       const ratio = userAwakenings / avgAwakenings;
 
       let comparisonText = '';
@@ -580,6 +624,71 @@ const HomeScreen = () => {
         return 'Manual Entry';
       default:
         return 'Unknown';
+    }
+  };
+
+  // Calculate personal sleep averages from historical data
+  const calculatePersonalAverages = async () => {
+    if (!user) return;
+
+    setAveragesLoading(true);
+    try {
+      // Get last 30 days of sleep data for calculating personal averages
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const { data: historicalData, error } = await supabase
+        .from('sleep_data')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      if (!historicalData || historicalData.length === 0) {
+        // No historical data, use population averages as fallback
+        setPersonalAverages(AVERAGE_SLEEP_PERCENTAGES);
+        return;
+      }
+
+      // Calculate averages from historical data
+      const totals = {
+        deep_sleep_minutes: 0,
+        light_sleep_minutes: 0,
+        rem_sleep_minutes: 0,
+        awake_minutes: 0,
+        total_sleep_minutes: 0,
+        awakenings_count: 0,
+        record_count: historicalData.length
+      };
+
+      historicalData.forEach(record => {
+        totals.deep_sleep_minutes += record.deep_sleep_minutes || 0;
+        totals.light_sleep_minutes += record.light_sleep_minutes || 0;
+        totals.rem_sleep_minutes += record.rem_sleep_minutes || 0;
+        totals.awake_minutes += record.awake_minutes || 0;
+        totals.total_sleep_minutes += record.total_sleep_minutes || 0;
+        totals.awakenings_count += record.awakenings_count || 0;
+      });
+
+      // Calculate average percentages
+      const avgTotalSleep = totals.total_sleep_minutes / totals.record_count;
+      const personalAverages = {
+        deep_sleep_minutes: avgTotalSleep > 0 ? Math.round((totals.deep_sleep_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.deep_sleep_minutes,
+        light_sleep_minutes: avgTotalSleep > 0 ? Math.round((totals.light_sleep_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.light_sleep_minutes,
+        rem_sleep_minutes: avgTotalSleep > 0 ? Math.round((totals.rem_sleep_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.rem_sleep_minutes,
+        awake_minutes: avgTotalSleep > 0 ? Math.round((totals.awake_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.awake_minutes,
+        awakenings_count: Math.round(totals.awakenings_count / totals.record_count * 10) / 10 // Round to 1 decimal place
+      };
+
+      setPersonalAverages(personalAverages);
+    } catch (error) {
+      console.error('Error calculating personal averages:', error);
+      // Fallback to population averages on error
+      setPersonalAverages(AVERAGE_SLEEP_PERCENTAGES);
+    } finally {
+      setAveragesLoading(false);
     }
   };
 
@@ -888,7 +997,12 @@ const HomeScreen = () => {
                             <Text style={styles.metricValue}>
                               {metrics.awakenings.count}
                             </Text>
-                            <Text style={styles.metricComparison}>
+                            <Text style={[
+                              styles.metricComparison,
+                              metrics.awakenings.comparisonText.includes('more than average') ? styles.metricComparisonNegative :
+                              metrics.awakenings.comparisonText.includes('fewer than average') ? styles.metricComparisonPositive :
+                              styles.metricComparison
+                            ]}>
                               {metrics.awakenings.comparisonText}
                             </Text>
                           </View>
@@ -1210,9 +1324,16 @@ const styles = StyleSheet.create({
   },
   metricComparison: {
     fontSize: 11, // Smaller than typography.sizes.xs (12px)
-    color: colors.textSecondary,
     marginTop: 1, // Reduced from 2px
     lineHeight: 12, // Tighter line height
+  },
+  metricComparisonPositive: {
+    color: '#10B981', // Green for above average
+    fontWeight: typography.weights.medium,
+  },
+  metricComparisonNegative: {
+    color: '#F59E0B', // Amber/orange for below average
+    fontWeight: typography.weights.medium,
   },
   connectButton: {
     backgroundColor: colors.primary,

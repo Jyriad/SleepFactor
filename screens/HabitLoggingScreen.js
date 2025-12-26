@@ -125,13 +125,21 @@ const HabitLoggingScreen = () => {
 
         if (eventsError) throw eventsError;
 
-        // Group events by habit_id
+        // Group events by habit_id, but only include events for the selected date
         if (eventsData) {
+          const selectedDateStr = dateObj.toDateString(); // Compare dates by string for simplicity
+
           eventsData.forEach(event => {
-            if (!consumptionEventsMap[event.habit_id]) {
-              consumptionEventsMap[event.habit_id] = [];
+            const eventDate = new Date(event.consumed_at);
+            const eventDateStr = eventDate.toDateString();
+
+            // Only include events that match the selected date
+            if (eventDateStr === selectedDateStr) {
+              if (!consumptionEventsMap[event.habit_id]) {
+                consumptionEventsMap[event.habit_id] = [];
+              }
+              consumptionEventsMap[event.habit_id].push(event);
             }
-            consumptionEventsMap[event.habit_id].push(event);
           });
         }
       }
