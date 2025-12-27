@@ -4,6 +4,39 @@ import Svg, { Rect, Line, Circle, G, Text as SvgText } from 'react-native-svg';
 import { colors, typography, spacing } from '../constants';
 
 /**
+ * Error boundary for SVG components to prevent layout event errors
+ */
+class SVGErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    console.warn('BoxPlot SVG Error Boundary caught error:', error.message);
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.warn('BoxPlot SVG Error Boundary details:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={[this.props.style, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+            Chart temporarily unavailable
+          </Text>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+/**
  * Box plot component for visualizing statistical distributions
  * Shows min, Q1, median, Q3, max, and outliers
  */
@@ -26,8 +59,21 @@ const BoxPlot = ({
 
   const { min, q1, median, q3, max, outliers, count } = data;
 
-  // Validate all data values are valid numbers
-  const isValidValue = (val) => val !== null && val !== undefined && !isNaN(val);
+  // Validate all data values are valid numbers and not strings
+  const isValidValue = (val) => val !== null && val !== undefined &&
+                                  typeof val !== 'string' &&
+                                  !isNaN(val) && isFinite(val);
+
+  // Check if all required values are valid
+  if (!isValidValue(min) || !isValidValue(q1) || !isValidValue(median) ||
+      !isValidValue(q3) || !isValidValue(max) || !isValidValue(count)) {
+    console.log('BoxPlot: Invalid or missing data values');
+    return (
+      <View style={[styles.container, { width, height, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center' }]}>Unable to display chart due to invalid data</Text>
+      </View>
+    );
+  }
   
   if (!isValidValue(min) || !isValidValue(q1) || !isValidValue(median) || 
       !isValidValue(q3) || !isValidValue(max) || !isValidValue(count)) {
@@ -92,13 +138,20 @@ const BoxPlot = ({
   const medianX2 = orientation === 'vertical' ? boxX + boxWidth : medianPos;
   const medianY2 = orientation === 'vertical' ? medianPos : boxY + boxHeight;
 
-  return (
-    <View style={[styles.container, { width, height }]}>
-      {title && (
-        <Text style={styles.title}>{title}</Text>
-      )}
+  // Add comprehensive error handling around the entire render
+  try {
+    return (
+      <View style={[styles.container, { width, height }]}>
+        {title && (
+          <Text style={styles.title}>{title}</Text>
+        )}
 
-      <Svg width={width} height={height - (showStats ? 40 : 0)}>
+        <SVGErrorBoundary style={{ width, height }}>
+          <Svg
+            width={width}
+            height={height - (showStats ? 40 : 0)}
+            onError={(error) => console.warn('BoxPlot SVG rendering error:', error)}
+          >
         {/* Whisker lines */}
         <Line
           x1={whiskerX1}
@@ -170,6 +223,7 @@ const BoxPlot = ({
           );
         })}
       </Svg>
+        </SVGErrorBoundary>
 
       {/* Statistics */}
       {showStats && (
@@ -181,6 +235,16 @@ const BoxPlot = ({
       )}
     </View>
   );
+  } catch (error) {
+    console.error('BoxPlot: Unexpected error during render:', error);
+    return (
+      <View style={[styles.container, { width, height, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center', color: colors.error || '#ff6b6b' }]}>
+          Chart unavailable
+        </Text>
+      </View>
+    );
+  }
 };
 
 /**

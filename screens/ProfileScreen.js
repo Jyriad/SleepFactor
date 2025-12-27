@@ -12,7 +12,7 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Hardcoded version constant - UPDATE THIS MANUALLY alongside app.json for immediate UI updates
-const APP_VERSION = '1.2.3';
+const APP_VERSION = '1.2.4';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
