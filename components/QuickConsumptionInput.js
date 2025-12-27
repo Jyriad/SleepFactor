@@ -22,10 +22,10 @@ import Button from './Button';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
 import EditConsumptionOptionModal from './EditConsumptionOptionModal';
 
-const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId }) => {
+const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded }) => {
   const consumptionEvents = value || []; // Use value prop directly as controlled component
 
-  // Check if "None" has been selected (special "none" event exists)
+  // Check if "None" has been explicitly selected (special none event exists)
   const hasNoneEvent = consumptionEvents.some(event => event.drink_type === 'none');
   const isNoneSelected = hasNoneEvent;
 
@@ -299,26 +299,34 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         // "None" is currently selected - deselect it by deleting the none event
         const deselectNone = async () => {
           try {
-            // Find and delete the "none" event
-            const noneEvent = consumptionEvents.find(event => event.drink_type === 'none');
+            // Delete all consumption events for this habit and date
+            const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+            const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+            const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
 
-            if (noneEvent) {
-              const { error: deleteError } = await supabase
-                .from('habit_consumption_events')
-                .delete()
-                .eq('id', noneEvent.id);
+            const { error: deleteError } = await supabase
+              .from('habit_consumption_events')
+              .delete()
+              .eq('user_id', userId)
+              .eq('habit_id', habit?.id)
+              .gte('consumed_at', startOfDay.toISOString())
+              .lte('consumed_at', endOfDay.toISOString());
 
-              if (deleteError) throw deleteError;
+            if (deleteError) throw deleteError;
 
-              // Update bedtime drug level
-              try {
-                await updateBedtimeDrugLevel(habit?.id, selectedDate);
-              } catch (levelError) {
-                console.error('Failed to auto-update bedtime drug level:', levelError);
-              }
+            // Update bedtime drug level
+            try {
+              await updateBedtimeDrugLevel(habit?.id, selectedDate);
+            } catch (levelError) {
+              console.error('Failed to auto-update bedtime drug level:', levelError);
+            }
 
-              // Update local state by removing the none event
-              onChange([]);
+            // Update local state by clearing all events
+            onChange([]);
+
+            // Refresh the consumption events to update the UI
+            if (onConsumptionAdded) {
+              onConsumptionAdded();
             }
           } catch (error) {
             console.error('Error deselecting None:', error);
@@ -328,64 +336,65 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
         deselectNone();
       } else {
-        // Selecting "None" - save a special "none" consumption event and save immediately
-        const saveNoneSelection = async () => {
-        try {
-          // Delete existing events for this date
-          const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-          const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
-          const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
-
-          await supabase
-            .from('habit_consumption_events')
-            .delete()
-            .eq('user_id', userId)
-            .eq('habit_id', habit?.id)
-            .gte('consumed_at', startOfDay.toISOString())
-            .lte('consumed_at', endOfDay.toISOString());
-
-          // Insert a special "none" consumption event
-          const noneEventTime = new Date(dateObj);
-          noneEventTime.setHours(12, 0, 0, 0); // Noon as default time for "none"
-
-          const { error: insertError } = await supabase
-            .from('habit_consumption_events')
-            .insert({
-              user_id: userId,
-              habit_id: habit?.id,
-              consumed_at: noneEventTime.toISOString(),
-              amount: 0, // Special amount for "none"
-              drink_type: 'none', // Special drink_type for "none"
-            });
-
-          if (insertError) throw insertError;
-
-          // Immediately update the bedtime drug level in habit_logs
+        // Selecting "None" - create a special none event
+        const selectNone = async () => {
           try {
-            console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate} (None selected)`);
-            await updateBedtimeDrugLevel(habit?.id, selectedDate);
-            console.log('✅ Auto-saved bedtime drug level for None selection');
-          } catch (levelError) {
-            console.error('Failed to auto-save bedtime drug level:', levelError);
+            // Delete all existing consumption events for this habit and date
+            const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+            const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+            const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
+
+            const { error: deleteError } = await supabase
+              .from('habit_consumption_events')
+              .delete()
+              .eq('user_id', userId)
+              .eq('habit_id', habit?.id)
+              .gte('consumed_at', startOfDay.toISOString())
+              .lte('consumed_at', endOfDay.toISOString());
+
+            if (deleteError) throw deleteError;
+
+            // Insert a special "none" consumption event with proper UUID
+            const noneEventTime = new Date(dateObj);
+            noneEventTime.setHours(12, 0, 0, 0); // Noon as default time for "none"
+
+            const { data: noneEvent, error: insertError } = await supabase
+              .from('habit_consumption_events')
+              .insert({
+                user_id: userId,
+                habit_id: habit?.id,
+                consumed_at: noneEventTime.toISOString(),
+                amount: 0, // Special amount for "none"
+                drink_type: 'none', // Special drink_type for "none"
+              })
+              .select()
+              .single();
+
+            if (insertError) throw insertError;
+
+            // Update bedtime drug level to 0 (no consumption)
+            try {
+              console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate} (None selected)`);
+              await updateBedtimeDrugLevel(habit?.id, selectedDate);
+              console.log('✅ Auto-saved bedtime drug level for None selection');
+            } catch (levelError) {
+              console.error('Failed to auto-save bedtime drug level:', levelError);
+            }
+
+            // Update local state with the none event (now has proper UUID)
+            onChange([noneEvent]);
+
+            // Refresh the consumption events to update the UI
+            if (onConsumptionAdded) {
+              onConsumptionAdded();
+            }
+          } catch (error) {
+            console.error('Error saving None selection:', error);
+            Alert.alert('Error', 'Failed to save None selection');
           }
+        };
 
-          // Update local state with the "none" event
-          const noneEvent = {
-            id: 'none-' + habit?.id + '-' + dateObj.toISOString().split('T')[0], // Temporary ID
-            user_id: userId,
-            habit_id: habit?.id,
-            consumed_at: noneEventTime.toISOString(),
-            amount: 0,
-            drink_type: 'none',
-          };
-          onChange([noneEvent]);
-        } catch (error) {
-          console.error('Error saving None selection:', error);
-          Alert.alert('Error', 'Failed to save None selection');
-        }
-      };
-
-      saveNoneSelection();
+        selectNone();
       }
       return;
     }
@@ -510,6 +519,20 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         console.log('Standard serving:', { selectedServing: servingMultiplier, volumeConsumed, totalAmount });
       }
 
+      // First, delete any existing "none" events for this habit and date
+      const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+      const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+      const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
+
+      await supabase
+        .from('habit_consumption_events')
+        .delete()
+        .eq('user_id', userId)
+        .eq('habit_id', habit?.id)
+        .eq('drink_type', 'none')
+        .gte('consumed_at', startOfDay.toISOString())
+        .lte('consumed_at', endOfDay.toISOString());
+
       // Save to database
       const result = await supabase
         .from('habit_consumption_events')
@@ -537,9 +560,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         serving: servingMultiplier, // Store serving multiplier
       };
 
-      onChange([...consumptionEvents, newEvent]);
+      // Filter out any "none" events and add the new consumption event
+      const filteredEvents = consumptionEvents.filter(event => event.drink_type !== 'none');
+      onChange([...filteredEvents, newEvent]);
 
-      // Clear None selection since we're adding consumption
+      // Refresh the consumption events to update the UI
+      if (onConsumptionAdded) {
+        onConsumptionAdded();
+      }
+
+      // None selection is automatically cleared since we're adding consumption
 
       // Immediately update the bedtime drug level in habit_logs
       try {

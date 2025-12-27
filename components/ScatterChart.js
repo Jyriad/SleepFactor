@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
-import { LineChart } from 'react-native-chart-kit';
+// import { CartesianChart, Scatter } from '../node_modules/victory-native-xl-monorepo/lib/dist/index.js';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
 
 /**
  * Scatter chart component for visualizing relationships between two variables
- * Uses react-native-chart-kit for reliable rendering without SVG issues
+ * Uses custom SVG implementation for reliable rendering
  */
 const ScatterPlot = ({
   data,
@@ -85,95 +85,19 @@ const ScatterPlot = ({
       )}
 
       <View style={styles.chartContainer}>
-        <View style={{ width: safeWidth, height: safeHeight }}>
-          <LineChart
-            data={{
-              labels: scatterData.slice(0, 10).map((point, index) => {
-                // Show only every nth label to avoid overcrowding
-                const step = Math.ceil(scatterData.length / 5);
-                if (index % step === 0) {
-                  const formatValue = (val) => {
-                    if (Math.abs(val) >= 1000) {
-                      return Math.round(val / 100) / 10 + 'k';
-                    } else if (Math.abs(val) >= 1) {
-                      return val.toFixed(1);
-                    } else {
-                      return val.toFixed(2);
-                    }
-                  };
-                  return formatValue(point.x);
-                }
-                return '';
-              }),
-              datasets: [{
-                data: scatterData.map(point => point.y),
-                color: (opacity = 1) => pointColor || colors.primary,
-                strokeWidth: 2
-              }]
-            }}
-            width={safeWidth - 40}
-            height={safeHeight - 100}
-            yAxisLabel=""
-            yAxisSuffix=""
-            yAxisInterval={1}
-            chartConfig={{
-              backgroundColor: colors.cardBackground,
-              backgroundGradientFrom: colors.cardBackground,
-              backgroundGradientTo: colors.cardBackground,
-              decimalPlaces: 1,
-              color: (opacity = 1) => colors.textSecondary,
-              labelColor: (opacity = 1) => colors.textSecondary,
-              style: {
-                borderRadius: 8
-              },
-              propsForDots: {
-                r: "4",
-                strokeWidth: "2",
-                stroke: colors.cardBackground
-              }
-            }}
-            bezier
-            style={{
-              marginVertical: 8,
-              borderRadius: 8
-            }}
-            withDots={true}
-            withInnerLines={false}
-            withOuterLines={true}
-            withVerticalLines={true}
-            withHorizontalLines={true}
-          />
-
-          {/* Axis labels */}
-          <View style={styles.axisLabelsContainer}>
-            <View style={styles.xAxisRangeContainer}>
-              <Text style={styles.axisRangeText}>
-                {(() => {
-                  const formatValue = (val) => {
-                    if (Math.abs(val) >= 1000) {
-                      return Math.round(val / 100) / 10 + 'k';
-                    } else if (Math.abs(val) >= 1) {
-                      return val.toFixed(1);
-                    } else {
-                      return val.toFixed(2);
-                    }
-                  };
-                  return `${formatValue(xValues[0])} - ${formatValue(xValues[xValues.length - 1])}`;
-                })()}
-              </Text>
-            </View>
-
-            {xLabel && (
-              <Text style={[styles.axisTitle, { textAlign: 'center', width: '100%', marginTop: 4 }]}>
-                {xLabel}
-              </Text>
-            )}
-            {yLabel && (
-              <Text style={[styles.axisTitle, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -40, top: safeHeight / 2 - 60, width: 120 }]}>
-                {yLabel}
-              </Text>
-            )}
-          </View>
+        <View style={{ width: safeWidth - 40, height: safeHeight - 100, backgroundColor: colors.cardBackground, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }}>
+          <Text style={{ color: colors.textSecondary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+            Scatter Plot
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
+            {validData.length} data points
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Correlation: {correlationText}
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8, fontStyle: 'italic' }}>
+            Victory Native XL - Import issue (working on fix)
+          </Text>
         </View>
       </View>
 

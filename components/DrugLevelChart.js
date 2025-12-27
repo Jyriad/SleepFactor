@@ -6,7 +6,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Line, Path, Circle, G, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
+// import { CartesianChart, Line, Area, Scatter } from '../node_modules/victory-native-xl-monorepo/lib/dist/index.js';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import {
@@ -216,50 +216,38 @@ const DrugLevelChart = ({
     }
   }
 
-  // Convert data points to pixel coordinates
-  const chartPoints = chartData.dataPoints.map((value, index) => {
-    const x = CHART_PADDING.left + (index / (chartData.dataPoints.length - 1)) * chartWidth;
-    const y = CHART_PADDING.top + chartHeight - ((value - yMin) / yRange) * chartHeight;
-    return { x, y, value };
-  });
+  // Prepare data for victory-native
+  const chartDataPoints = chartData.dataPoints.map((value, index) => ({
+    x: index,
+    y: value,
+    timePoint: chartData.timePoints[index]
+  }));
 
-  // Build path for area fill (with smooth curve)
-  const areaPath = chartPoints.reduce((path, point, index) => {
-    if (index === 0) {
-      return `M ${point.x} ${CHART_PADDING.top + chartHeight} L ${point.x} ${point.y}`;
-    }
-    // Use smooth quadratic curves for transitions
-    const prevPoint = chartPoints[index - 1];
-    const midX = (prevPoint.x + point.x) / 2;
-    const midY = (prevPoint.y + point.y) / 2;
-    return `${path} Q ${prevPoint.x} ${prevPoint.y} ${midX} ${midY} T ${point.x} ${point.y}`;
-  }, '') + ` L ${chartPoints[chartPoints.length - 1].x} ${CHART_PADDING.top + chartHeight} Z`;
+  // Vertical line data
+  const verticalLines = [];
 
-  // Build path for line (with smooth curve)
-  const linePath = chartPoints.reduce((path, point, index) => {
-    if (index === 0) {
-      return `M ${point.x} ${point.y}`;
-    }
-    // Use smooth quadratic curves for transitions
-    const prevPoint = chartPoints[index - 1];
-    const midX = (prevPoint.x + point.x) / 2;
-    const midY = (prevPoint.y + point.y) / 2;
-    return `${path} Q ${prevPoint.x} ${prevPoint.y} ${midX} ${midY} T ${point.x} ${point.y}`;
-  }, '');
+  // Current time vertical line
+  if (chartData.currentTimePosition !== null) {
+    verticalLines.push({
+      x: chartData.currentTimePosition * (chartData.timePoints.length - 1),
+      label: 'Current Time'
+    });
+  }
 
-  // Calculate vertical line positions
-  const currentTimeX = chartData.currentTimePosition !== null
-    ? CHART_PADDING.left + chartData.currentTimePosition * chartWidth
-    : null;
-  
-  const bedtimeX = chartData.bedtimeIndex !== null && chartData.bedtimeIndex >= 0 && chartData.bedtimeIndex < chartData.timePoints.length
-    ? CHART_PADDING.left + (chartData.bedtimeIndex / (chartData.timePoints.length - 1)) * chartWidth
-    : null;
+  // Bedtime vertical line
+  if (chartData.bedtimeIndex !== null && chartData.bedtimeIndex >= 0 && chartData.bedtimeIndex < chartData.timePoints.length) {
+    verticalLines.push({
+      x: chartData.bedtimeIndex,
+      label: 'Bedtime',
+      color: bedtimeStatus.color
+    });
+  }
 
-  // Calculate current time Y position for dot
-  const currentTimeY = currentTimeX !== null && chartData.currentLevel !== null
-    ? CHART_PADDING.top + chartHeight - ((chartData.currentLevel - yMin) / yRange) * chartHeight
-    : null;
+  // Current time dot data
+  const currentTimeDot = chartData.currentTimePosition !== null && chartData.currentLevel !== null ? [{
+    x: chartData.currentTimePosition * (chartData.timePoints.length - 1),
+    y: chartData.currentLevel
+  }] : [];
 
   return (
     <View style={[
@@ -269,118 +257,20 @@ const DrugLevelChart = ({
       <Text style={styles.title}>{habit.name} Levels Over Time</Text>
 
       <View style={styles.chartWrapper}>
-        <Svg width={containerWidth} height={CHART_HEIGHT} viewBox={`0 0 ${containerWidth} ${CHART_HEIGHT}`}>
-          <Defs>
-            <LinearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor={colors.primary} stopOpacity="0.3" />
-              <Stop offset="100%" stopColor={colors.primary} stopOpacity="0.05" />
-            </LinearGradient>
-          </Defs>
-
-          {/* Grid lines */}
-          {yLabels.map((label, index) => (
-            <Line
-              key={`y-grid-${index}`}
-              x1={CHART_PADDING.left}
-              y1={label.pixel}
-              x2={CHART_PADDING.left + chartWidth}
-              y2={label.pixel}
-              stroke={colors.border}
-              strokeWidth={0.5}
-              strokeDasharray="2,2"
-            />
-          ))}
-
-          {/* Axes */}
-          <Line
-            x1={CHART_PADDING.left}
-            y1={CHART_PADDING.top}
-            x2={CHART_PADDING.left}
-            y2={CHART_PADDING.top + chartHeight}
-            stroke={colors.border}
-            strokeWidth={2}
-          />
-          <Line
-            x1={CHART_PADDING.left}
-            y1={CHART_PADDING.top + chartHeight}
-            x2={CHART_PADDING.left + chartWidth}
-            y2={CHART_PADDING.top + chartHeight}
-            stroke={colors.border}
-            strokeWidth={2}
-          />
-
-          {/* Y-axis labels */}
-          {yLabels.map((label, index) => (
-            <SvgText
-              key={`y-label-${index}`}
-              x={CHART_PADDING.left - 10}
-              y={label.pixel + 4}
-              fontSize={10}
-              fill={colors.textSecondary}
-              textAnchor="end"
-            >
-              {formatYAxisLabel(label.value)}
-            </SvgText>
-          ))}
-
-          {/* X-axis labels */}
-          {xLabels.map((label, index) => {
-            const isLastLabel = index === xLabels.length - 1;
-            // Don't clamp the last label - let it extend slightly beyond chart area
-            const xPosition = isLastLabel 
-              ? label.pixel 
-              : Math.max(CHART_PADDING.left, Math.min(label.pixel, CHART_PADDING.left + chartWidth - 20));
-            
-            return (
-              <SvgText
-                key={`x-label-${index}`}
-                x={xPosition}
-                y={CHART_HEIGHT - 10}
-                fontSize={10}
-                fill={colors.textSecondary}
-                textAnchor="middle"
-              >
-                {label.label}
-              </SvgText>
-            );
-          })}
-
-          {/* Area fill */}
-          <Path d={areaPath} fill="url(#areaGradient)" />
-
-          {/* Line path */}
-          <Path d={linePath} stroke={colors.primary} strokeWidth={3} fill="none" />
-
-          {/* Current time vertical line (dashed) */}
-          {currentTimeX !== null && (
-            <G>
-              <Line
-                x1={currentTimeX}
-                y1={CHART_PADDING.top}
-                x2={currentTimeX}
-                y2={CHART_PADDING.top + chartHeight}
-                stroke={colors.primary}
-                strokeWidth={2}
-                strokeDasharray="5,5"
-              />
-              {currentTimeY !== null && (
-                <Circle cx={currentTimeX} cy={currentTimeY} r={4} fill={colors.primary} />
-              )}
-            </G>
-          )}
-
-          {/* Bedtime vertical line (solid, color-coded) */}
-          {bedtimeX !== null && (
-            <Line
-              x1={bedtimeX}
-              y1={CHART_PADDING.top}
-              x2={bedtimeX}
-              y2={CHART_PADDING.top + chartHeight}
-              stroke={bedtimeStatus.color}
-              strokeWidth={3}
-            />
-          )}
-        </Svg>
+        <View style={{ width: containerWidth, height: CHART_HEIGHT, backgroundColor: colors.cardBackground, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }}>
+          <Text style={{ color: colors.textSecondary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+            Drug Level Chart
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
+            {habit.name} levels over time
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            {chartDataPoints.length} data points
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8, fontStyle: 'italic' }}>
+            Victory Native XL - Import issue (working on fix)
+          </Text>
+        </View>
       </View>
 
       {/* Bedtime and Current Level Footnotes */}

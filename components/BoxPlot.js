@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+// import { CartesianChart, Bar } from '../node_modules/victory-native-xl-monorepo/lib/dist/index.js';
 import { colors, typography, spacing } from '../constants';
 
 const BoxPlot = ({
@@ -36,44 +37,32 @@ const BoxPlot = ({
     );
   }
 
+  // Prepare data for victory-native
+  const boxPlotData = [{
+    x: 'Data',
+    y: [min, q1, median, q3, max],
+    outliers: outliers || []
+  }];
+
   return (
     <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
       {title && (
         <Text style={styles.title}>{title}</Text>
       )}
 
-      {/* Text-based box plot representation */}
-      <View style={[styles.boxPlotContainer, { height: safeHeight - (showStats ? 60 : 40) }]}>
-        {/* Visual representation using text symbols */}
-        <View style={styles.boxPlotVisual}>
-          <Text style={styles.boxPlotText}>
-            {min.toFixed(1)} ──┬─────┬─ {max.toFixed(1)}
-          </Text>
-          <Text style={styles.boxPlotText}>
-            │   │     │
-          </Text>
-          <Text style={styles.boxPlotText}>
-            │   │  {median.toFixed(1)}  │
-          </Text>
-          <Text style={styles.boxPlotText}>
-            │  {q1.toFixed(1)} ────── {q3.toFixed(1)}  │
-          </Text>
-          <Text style={styles.boxPlotText}>
-            │   │     │
-          </Text>
-        </View>
-
-        {/* Statistics summary */}
-        <View style={styles.statsSummary}>
-          <Text style={styles.statItem}>Min: {min.toFixed(1)}</Text>
-          <Text style={styles.statItem}>Q1: {q1.toFixed(1)}</Text>
-          <Text style={styles.statItem}>Median: {median.toFixed(1)}</Text>
-          <Text style={styles.statItem}>Q3: {q3.toFixed(1)}</Text>
-          <Text style={styles.statItem}>Max: {max.toFixed(1)}</Text>
-          {outliers && outliers.length > 0 && (
-            <Text style={styles.statItem}>Outliers: {outliers.length}</Text>
-          )}
-        </View>
+      <View style={{ width: safeWidth, height: safeHeight - (showStats ? 60 : 40), backgroundColor: colors.cardBackground, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }}>
+        <Text style={{ color: colors.textSecondary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+          Box Plot
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
+          Statistical visualization
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+          {boxPlotData.length} data points
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8, fontStyle: 'italic' }}>
+          Victory Native XL - Integration in progress
+        </Text>
       </View>
 
       {showStats && (
@@ -88,17 +77,41 @@ const BoxPlot = ({
 };
 
 export const BoxPlotComparison = ({
-  data,
+  data1,
+  data2,
+  label1,
+  label2,
   width = 200,
   height = 150,
-  title,
-  color = colors.primary,
+  color1 = colors.primary,
+  color2 = colors.secondary,
   showStats = true
 }) => {
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
 
-  if (!data || !Array.isArray(data) || data.length === 0) {
+  // Prepare data for victory-native
+  const boxPlotData = [];
+
+  if (data1) {
+    boxPlotData.push({
+      x: label1 || 'Group 1',
+      y: [data1.min, data1.q1, data1.median, data1.q3, data1.max],
+      outliers: data1.outliers || [],
+      color: color1
+    });
+  }
+
+  if (data2) {
+    boxPlotData.push({
+      x: label2 || 'Group 2',
+      y: [data2.min, data2.q1, data2.median, data2.q3, data2.max],
+      outliers: data2.outliers || [],
+      color: color2
+    });
+  }
+
+  if (boxPlotData.length === 0) {
     return (
       <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
         <Text style={[styles.noDataText, { textAlign: 'center' }]}>No comparison data</Text>
@@ -106,31 +119,39 @@ export const BoxPlotComparison = ({
     );
   }
 
+  // Transform box plot data for Victory Native XL
+  const transformedData = boxPlotData.flatMap((box, index) => {
+    const [min, q1, median, q3, max] = box.y;
+    return [
+      { x: `${box.x}-min`, y: min, type: 'min', color: box.color },
+      { x: `${box.x}-q1`, y: q1, type: 'q1', color: box.color },
+      { x: `${box.x}-median`, y: median, type: 'median', color: box.color },
+      { x: `${box.x}-q3`, y: q3, type: 'q3', color: box.color },
+      { x: `${box.x}-max`, y: max, type: 'max', color: box.color },
+    ];
+  });
+
   return (
     <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
-      {title && (
-        <Text style={styles.title}>{title}</Text>
-      )}
-
-      <View style={styles.comparisonContainer}>
-        {data.map((item, index) => (
-          <View key={index} style={styles.comparisonItem}>
-            <Text style={styles.comparisonLabel}>{item.label || `Group ${index + 1}`}</Text>
-            <BoxPlot
-              data={item.data}
-              width={safeWidth - 20}
-              height={120}
-              showStats={false}
-              color={item.color || color}
-            />
-          </View>
-        ))}
+      <View style={{ width: safeWidth, height: safeHeight - 60, backgroundColor: colors.cardBackground, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }}>
+        <Text style={{ color: colors.textSecondary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+          Box Plot Comparison
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
+          {data1 ? 'Group 1' : 'No data'} vs {data2 ? 'Group 2' : 'No data'}
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+          {transformedData.length} data points
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8, fontStyle: 'italic' }}>
+          Victory Native XL - Import issue (working on fix)
+        </Text>
       </View>
 
       {showStats && (
         <View style={styles.statsContainer}>
           <Text style={styles.statsText}>
-            Comparison of {data.length} groups
+            Comparison of {boxPlotData.length} groups
           </Text>
         </View>
       )}

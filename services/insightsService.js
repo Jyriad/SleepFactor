@@ -33,13 +33,6 @@ class InsightsService {
       const drugLevels = await this.getDrugLevels(userId, startDate, endDate);
       const sleepData = await this.getSleepData(userId, startDate, endDate);
 
-      console.log(`📊 Insights Analysis:`);
-      console.log(`   Date range: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
-      console.log(`   Sleep metric: ${sleepMetric}`);
-      console.log(`   Total habits: ${habits.length}`);
-      console.log(`   Total habit logs: ${habitLogs.length}`);
-      console.log(`   Total sleep data records: ${sleepData.length}`);
-
       // Group logs by habit
       const logsByHabit = this.groupLogsByHabit(habitLogs);
 
@@ -63,30 +56,20 @@ class InsightsService {
         if (habit.type === 'quick_consumption') {
           // For quick_consumption habits (alcohol/caffeine), use drug levels
           habitData = drugLevelsByHabit[habit.id] || [];
-          console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
-          console.log(`   Type: ${habit.type} (drug levels)`);
-          console.log(`   Drug level records found: ${habitData.length} days`);
         } else {
           // For other habit types, use habit logs
           habitData = logsByHabit[habit.id] || [];
-          console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
-          console.log(`   Type: ${habit.type}`);
-          console.log(`   Habit logs found: ${habitData.length} days`);
         }
 
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric);
         if (insight) {
-          console.log(`   ✅ Insight generated with ${insight.totalDataPoints} paired data points`);
           validInsights.push(insight);
         } else {
           // Create placeholder insight with tracking statistics
-          console.log(`   📊 Creating placeholder with tracking stats`);
           const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
           placeholders.push(placeholderInsight);
         }
       }
-
-      console.log(`\n📈 Valid insights: ${validInsights.length}, Placeholders: ${placeholders.length}`);
 
       return {
         validInsights,
@@ -232,8 +215,6 @@ class InsightsService {
    */
   calculateHabitInsight(habit, habitData, sleepData, sleepMetric) {
     if (!habitData || habitData.length < this.MIN_DATA_POINTS) {
-      const dataType = habit.type === 'quick_consumption' ? 'drug levels' : 'habit logs';
-      console.log(`   ⚠️ Insufficient ${dataType}: ${habitData?.length || 0} (need at least ${this.MIN_DATA_POINTS})`);
       return null; // Insufficient data
     }
 
@@ -242,7 +223,6 @@ class InsightsService {
     sleepData.forEach(sleep => {
       sleepByDate[sleep.date] = sleep;
     });
-    console.log(`   Sleep data dates available: ${Object.keys(sleepByDate).length} unique dates`);
 
     // Combine habit data with sleep data
     // IMPORTANT: Date matching depends on data type
@@ -304,41 +284,18 @@ class InsightsService {
       }
     });
 
-    console.log(`   Matched data points: ${dataPoints.length} days with both habit and sleep data`);
-    if (matchedDates.length > 0 && matchedDates.length <= 5) {
-      console.log(`   Sample matches: ${matchedDates.join(', ')}`);
-    } else if (matchedDates.length > 5) {
-      console.log(`   Sample matches (first 5): ${matchedDates.slice(0, 5).join(', ')}...`);
-    }
-    
-    if (unmatchedLogs.length > 0) {
-      console.log(`   Unmatched logs: ${unmatchedLogs.length} days`);
-      if (unmatchedLogs.length <= 3) {
-        unmatchedLogs.forEach(um => {
-          console.log(`     - Habit date ${um.habitDate}: expected sleep date ${um.expectedSleepDate}, found: ${um.hasSleepData ? 'yes' : 'no'}, metric value: ${um.sleepMetricValue}`);
-        });
-      }
-    }
-
     if (dataPoints.length < this.MIN_DATA_POINTS) {
-      console.log(`   ⚠️ Insufficient paired data points: ${dataPoints.length} (need at least ${this.MIN_DATA_POINTS})`);
       return null; // Insufficient paired data points
     }
 
     if (habit.type === 'binary') {
       const insight = this.calculateBinaryInsight(habit, dataPoints);
-      console.log(`   ✅ Binary insight: ${insight.yesDataPoints} yes, ${insight.noDataPoints} no`);
       return insight;
     } else if (habit.type === 'numeric') {
       const insight = this.calculateNumericalInsight(habit, dataPoints);
-      const correlationValue = (insight.correlation !== null && insight.correlation !== undefined && !isNaN(insight.correlation)) 
-        ? insight.correlation.toFixed(3) 
-        : 'N/A';
-      console.log(`   ✅ Numerical insight: correlation ${correlationValue}, strength: ${insight.correlationStrength}`);
       return insight;
     }
 
-    console.log(`   ⚠️ Unsupported habit type: ${habit.type}`);
     return null; // Unsupported habit type
   }
 
