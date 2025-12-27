@@ -211,12 +211,61 @@ const ScatterPlot = ({
               />
             )}
           </VictoryChart>
-          {/* Grid lines */}
-          {xGridValues.map((grid, index) => (
-            <Line
-              key={`x-grid-${index}`}
-              x1={grid.pixel}
-              y1={padding.top}
+        </View>
+
+
+        {/* Statistics */}
+        <View style={styles.statsContainer}>
+          <Text style={styles.statsText}>
+            n={validData.length} | {correlationText}
+          </Text>
+        </View>
+      </View>
+    );
+  } catch (error) {
+    console.error('ScatterChart: Unexpected error during render:', error);
+    return (
+      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center', color: colors.error || '#ff6b6b' }]}>
+          Chart unavailable
+        </Text>
+      </View>
+    );
+  }
+};
+
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  chartContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noDataText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  statsContainer: {
+    marginTop: spacing.xs,
+  },
+  statsText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontFamily: 'monospace',
+  },
+});
+
+export default ScatterPlot;
               x2={grid.pixel}
               y2={padding.top + chartHeight}
               stroke={colors.border}
