@@ -33,13 +33,20 @@ const AppNavigator = ({ navigationRef }) => {
     if (navigationRef.current && !loading) {
       const targetRoute = isAuthenticated && user ? "MainTabs" : "Auth";
       console.log('🔄 [AppNavigator] Auth state changed - resetting navigation to:', targetRoute);
+      console.log('🔄 [AppNavigator] Current auth state - isAuthenticated:', isAuthenticated, 'user:', !!user);
 
-      navigationRef.current.reset({
-        index: 0,
-        routes: [{ name: targetRoute }],
-      });
+      // More aggressive reset to ensure clean navigation state
+      try {
+        navigationRef.current.reset({
+          index: 0,
+          routes: [{ name: targetRoute }],
+        });
+        console.log('✅ [AppNavigator] Navigation reset completed successfully');
+      } catch (error) {
+        console.error('❌ [AppNavigator] Navigation reset failed:', error);
+      }
     }
-  }, [isAuthenticated, user, loading, navigationRef]);
+  }, [isAuthenticated, user, loading]);
 
   return (
     <NavigationContainer

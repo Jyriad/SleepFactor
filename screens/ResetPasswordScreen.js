@@ -46,10 +46,11 @@ const ResetPasswordScreen = () => {
         if (!url) {
           console.error('❌ No URL provided to ResetPasswordScreen');
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-          // Navigate back to main app instead of Auth since Auth might not be available
+          // Navigate back to Auth screen for unauthenticated users, MainTabs for authenticated users
+          // Check if user is authenticated by trying to access auth context or navigation state
           navigation.reset({
             index: 0,
-            routes: [{ name: 'MainTabs' }],
+            routes: [{ name: 'Auth' }], // Always go to Auth when there's no valid reset link
           });
           return;
         }
