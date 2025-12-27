@@ -46,12 +46,9 @@ const ResetPasswordScreen = () => {
         if (!url) {
           console.error('❌ No URL provided to ResetPasswordScreen');
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-          // Navigate back to Auth screen for unauthenticated users, MainTabs for authenticated users
-          // Check if user is authenticated by trying to access auth context or navigation state
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Auth' }], // Always go to Auth when there's no valid reset link
-          });
+          // Don't try to navigate - let the auth state change handler manage navigation
+          // This prevents conflicts with the main navigation reset logic
+          console.log('ℹ️ [ResetPasswordScreen] Not navigating - letting auth state handler manage navigation');
           return;
         }
 
@@ -60,10 +57,7 @@ const ResetPasswordScreen = () => {
         if (!codeMatch) {
           console.error('❌ No code found in URL:', url);
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'MainTabs' }],
-          });
+          // Don't navigate - let user manually go back
           return;
         }
 
@@ -77,10 +71,7 @@ const ResetPasswordScreen = () => {
         if (error) {
           console.error('Error exchanging code for session:', error);
           Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'MainTabs' }],
-          });
+          // Don't navigate - let user manually go back
           return;
         }
 
@@ -89,10 +80,7 @@ const ResetPasswordScreen = () => {
       } catch (error) {
         console.error('Error processing reset link:', error);
         Alert.alert('Error', 'Failed to process reset link. Please try again.');
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }],
-        });
+        // Don't navigate - let user manually go back
       }
     };
 
@@ -129,7 +117,7 @@ const ResetPasswordScreen = () => {
         [
           {
             text: 'OK',
-            onPress: () => navigation.replace('MainTabs')
+            onPress: () => navigation.goBack() // Let user go back manually
           }
         ]
       );
