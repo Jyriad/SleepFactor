@@ -215,9 +215,26 @@ export const signInWithGoogle = async () => {
     } else if (result.type === 'dismiss') {
       console.warn('⚠️ [OAuth] User dismissed the flow');
       console.log('🔍 [OAuth] Dismiss result details:', result);
-      // In development, this often happens due to deep linking issues with dev builds
+
+      // In development builds, check if OAuth actually succeeded via deep link
+      if (__DEV__) {
+        console.log('🔧 [OAuth] Checking for successful OAuth completion despite dismiss...');
+
+        // Give a moment for deep link processing
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Check if user is now authenticated
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          console.log('✅ [OAuth] OAuth succeeded despite dismiss result!');
+          return { data: session, error: null };
+        }
+
+        console.log('❌ [OAuth] OAuth did not succeed - user actually dismissed');
+      }
+
       const errorMessage = __DEV__
-        ? 'OAuth flow was dismissed. This may happen in development builds due to deep linking configuration. Try again or use production build.'
+        ? 'OAuth flow was dismissed. If you completed sign-in in the browser, try again.'
         : 'OAuth flow was dismissed';
       return { data: null, error: errorMessage };
     } else {
