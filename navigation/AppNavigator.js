@@ -88,7 +88,6 @@ const AppNavigator = ({ navigationRef }) => {
         screenOptions={{ headerShown: false }}
         initialRouteName={initialRoute}
       >
-        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
         {isAuthenticated && user ? (
           <>
             <Stack.Screen name="MainTabs" component={TabNavigator} />
@@ -100,7 +99,10 @@ const AppNavigator = ({ navigationRef }) => {
             <Stack.Screen name="Account" component={AccountScreen} />
           </>
         ) : (
-          <Stack.Screen name="Auth" component={AuthScreen} />
+          <>
+            <Stack.Screen name="Auth" component={AuthScreen} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
