@@ -7,6 +7,7 @@ import AuthScreen from '../screens/AuthScreen';
 import TabNavigator from './TabNavigator';
 import HabitLoggingScreen from '../screens/HabitLoggingScreen';
 import AccountScreen from '../screens/AccountScreen';
+import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -32,6 +33,7 @@ const AppNavigator = () => {
           screens: {
             MainTabs: 'main',
             Account: 'account',
+            ResetPassword: 'reset-password',
           },
         },
       }}
@@ -48,7 +50,10 @@ const AppNavigator = () => {
             <Stack.Screen name="Account" component={AccountScreen} />
           </>
         ) : (
-          <Stack.Screen name="Auth" component={AuthScreen} />
+          <>
+            <Stack.Screen name="Auth" component={AuthScreen} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
