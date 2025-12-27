@@ -273,47 +273,27 @@ const ScatterPlot = ({
                   showTextOnXAxis
                   xAxisLabelsVerticalShift={scatterData.length > 10 ? 20 : 10}
                 />
-                {/* X-axis labels */}
-                <View style={styles.xAxisLabelsContainer}>
-                  {(() => {
-                    // Show up to 5 evenly-spaced x-axis labels
-                    const numLabels = Math.min(5, scatterData.length);
-                    const step = Math.floor(scatterData.length / numLabels);
-                    const labels = [];
-                    
-                    for (let i = 0; i < scatterData.length; i += step) {
-                      if (labels.length >= numLabels) break;
-                      const point = scatterData[i];
-                      const formatXValue = (val) => {
-                        if (Math.abs(val) >= 1000) {
-                          return Math.round(val).toString();
-                        } else if (Math.abs(val) >= 1) {
-                          return val.toFixed(1);
-                        } else {
-                          return val.toFixed(2);
-                        }
-                      };
-                      
-                      labels.push(
-                        <View
-                          key={i}
-                          style={{
-                            position: 'absolute',
-                            left: `${(i / Math.max(1, scatterData.length - 1)) * 100}%`,
-                            transform: [{ translateX: -20 }],
-                          }}
-                        >
-                          <Text style={styles.xAxisLabel}>
-                            {formatXValue(point.x)}
-                          </Text>
-                        </View>
-                      );
-                    }
-                    return labels;
-                  })()}
-                </View>
-                {/* Axis titles */}
+                {/* Simple axis range labels */}
                 <View style={styles.axisLabelsContainer}>
+                  {/* X-axis range */}
+                  <View style={styles.xAxisRangeContainer}>
+                    <Text style={styles.axisRangeText}>
+                      {(() => {
+                        const formatValue = (val) => {
+                          if (Math.abs(val) >= 1000) {
+                            return Math.round(val).toString();
+                          } else if (Math.abs(val) >= 1) {
+                            return val.toFixed(1);
+                          } else {
+                            return val.toFixed(2);
+                          }
+                        };
+                        return `${formatValue(xValues[0])} - ${formatValue(xValues[xValues.length - 1])}`;
+                      })()}
+                    </Text>
+                  </View>
+
+                  {/* Axis titles */}
                   {xLabel && (
                     <Text style={[styles.axisTitle, { textAlign: 'center', width: '100%', marginTop: 4 }]}>
                       {xLabel}
@@ -401,18 +381,14 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
   },
-  xAxisLabelsContainer: {
-    position: 'relative',
-    width: '100%',
-    height: 30,
-    marginTop: 4,
-    paddingHorizontal: 20,
+  xAxisRangeContainer: {
+    alignItems: 'center',
+    marginBottom: 4,
   },
-  xAxisLabel: {
-    position: 'absolute',
-    fontSize: 9,
+  axisRangeText: {
+    fontSize: 10,
     color: colors.textSecondary,
-    top: 0,
+    fontFamily: 'monospace',
   },
   axisTitle: {
     fontSize: typography.sizes.small,
