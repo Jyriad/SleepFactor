@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
@@ -27,6 +27,19 @@ const AppNavigator = ({ navigationRef }) => {
 
   const initialRoute = isAuthenticated && user ? "MainTabs" : "Auth";
   console.log('🧭 [AppNavigator] NavigationContainer - Initial route:', initialRoute);
+
+  // Reset navigation when auth state changes
+  useEffect(() => {
+    if (navigationRef.current && !loading) {
+      const targetRoute = isAuthenticated && user ? "MainTabs" : "Auth";
+      console.log('🔄 [AppNavigator] Auth state changed - resetting navigation to:', targetRoute);
+
+      navigationRef.current.reset({
+        index: 0,
+        routes: [{ name: targetRoute }],
+      });
+    }
+  }, [isAuthenticated, user, loading, navigationRef]);
 
   return (
     <NavigationContainer

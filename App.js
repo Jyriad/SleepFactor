@@ -29,6 +29,8 @@ export default function App() {
       console.log('🔗 [App.js] Deep link received:', url);
       console.log('🔗 [App.js] Event object:', JSON.stringify(event, null, 2));
       console.log('🔗 [App.js] Navigation ref available:', !!navigationRef.current);
+      console.log('🔗 [App.js] URL contains reset-password:', url.includes('reset-password'));
+      console.log('🔗 [App.js] URL contains code=:', url.includes('code='));
 
       if (url && url.includes('reset-password')) {
         console.log('🔑 [App.js] Password reset deep link detected');
@@ -85,7 +87,8 @@ export default function App() {
           console.error('❌ [App.js] Error handling OAuth deep link:', error);
         }
       } else {
-        console.log('🔗 [App.js] Not a password reset or OAuth link');
+        console.log('🔗 [App.js] Not a password reset or OAuth link - URL:', url);
+        console.log('🔗 [App.js] Checking if this should navigate anywhere...');
       }
     };
 
