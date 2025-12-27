@@ -1,8 +1,24 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { VictoryChart, VictoryScatter, VictoryLine, VictoryAxis, VictoryLabel } from 'victory-native';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
+
+// Import victory-native components - check what's actually exported
+import * as Victory from 'victory-native';
+
+const VictoryChart = Victory.VictoryChart;
+const VictoryScatter = Victory.VictoryScatter;
+const VictoryLine = Victory.VictoryLine;
+const VictoryAxis = Victory.VictoryAxis;
+
+// Debug: Log what's actually available
+console.log('Victory components check:', {
+  VictoryChart: !!VictoryChart,
+  VictoryScatter: !!VictoryScatter,
+  VictoryLine: !!VictoryLine,
+  VictoryAxis: !!VictoryAxis,
+  availableExports: Object.keys(Victory).filter(k => k.startsWith('Victory'))
+});
 
 
 
@@ -170,7 +186,20 @@ const ScatterPlot = ({
         )}
 
         <View style={styles.chartContainer}>
-          <VictoryChart
+          {!VictoryChart ? (
+            <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8, padding: spacing.regular }]}>
+              <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: spacing.xs }}>
+                Chart visualization
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
+                {scatterData.length} data points
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 10, textAlign: 'center', marginTop: spacing.xs, fontStyle: 'italic' }}>
+                Victory-native unavailable
+              </Text>
+            </View>
+          ) : (
+            <VictoryChart
             width={safeWidth}
             height={safeHeight}
             padding={{ top: 20, bottom: 60, left: 70, right: 40 }}
@@ -227,6 +256,7 @@ const ScatterPlot = ({
               />
             )}
           </VictoryChart>
+          )}
         </View>
 
 
