@@ -48,6 +48,7 @@
     "@expo/cli": "^54.0.20",
     "babel-preset-expo": "^54.0.8",
     "eas-cli": "^16.28.0",
+    "react-native-svg-transformer": "^1.5.2",
     "supabase": "^2.64.2"
   }
 }

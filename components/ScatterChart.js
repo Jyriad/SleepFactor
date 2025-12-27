@@ -1,24 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { LineChart } from 'react-native-gifted-charts';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
-
-// Import victory-native components - check what's actually exported
-import * as Victory from 'victory-native';
-
-const VictoryChart = Victory.VictoryChart;
-const VictoryScatter = Victory.VictoryScatter;
-const VictoryLine = Victory.VictoryLine;
-const VictoryAxis = Victory.VictoryAxis;
-
-// Debug: Log what's actually available
-console.log('Victory components check:', {
-  VictoryChart: !!VictoryChart,
-  VictoryScatter: !!VictoryScatter,
-  VictoryLine: !!VictoryLine,
-  VictoryAxis: !!VictoryAxis,
-  availableExports: Object.keys(Victory).filter(k => k.startsWith('Victory'))
-});
 
 
 
@@ -186,77 +170,55 @@ const ScatterPlot = ({
         )}
 
         <View style={styles.chartContainer}>
-          {!VictoryChart ? (
-            <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8, padding: spacing.regular }]}>
-              <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: spacing.xs }}>
-                Chart visualization
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                {scatterData.length} data points
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 10, textAlign: 'center', marginTop: spacing.xs, fontStyle: 'italic' }}>
-                Victory-native unavailable
-              </Text>
-            </View>
-          ) : (
-            <VictoryChart
-            width={safeWidth}
-            height={safeHeight}
-            padding={{ top: 20, bottom: 60, left: 70, right: 40 }}
-            domain={{ x: [plotXMin, plotXMax], y: [plotYMin, plotYMax] }}
-            theme={{
-              axis: {
-                style: {
-                  axis: { stroke: colors.border },
-                  axisLabel: { fill: colors.textSecondary, fontSize: 12, padding: 30 },
-                  tickLabels: { fill: colors.textSecondary, fontSize: 10 },
-                  ticks: { stroke: colors.border, size: 4 },
-                  grid: { stroke: colors.border, opacity: 0.3 }
-                }
-              }
-            }}
-          >
-            <VictoryAxis
-              label={xLabel || "X Variable"}
-              style={{
-                axisLabel: { padding: 30 },
-                tickLabels: { angle: xValues.length > 10 ? -45 : 0 }
-              }}
+          <View style={{ width: safeWidth, height: safeHeight }}>
+            <LineChart
+              data={scatterData.map((point) => ({
+                value: point.y,
+              }))}
+              width={safeWidth - 40}
+              height={safeHeight - 60}
+              yAxisThickness={1}
+              xAxisThickness={1}
+              xAxisColor={colors.border}
+              yAxisColor={colors.border}
+              yAxisTextStyle={{ color: colors.textSecondary, fontSize: 10 }}
+              dataPointsColor={pointColor || colors.primary}
+              dataPointsRadius={4}
+              hideDataPoints={false}
+              showVerticalLines
+              verticalLinesColor={colors.border}
+              showHorizontalLines
+              horizontalLinesColor={colors.border}
+              rulesColor={colors.border}
+              rulesType="solid"
+              initialSpacing={10}
+              spacing={(safeWidth - 100) / Math.max(1, scatterData.length - 1)}
+              maxValue={plotYMax}
+              minValue={plotYMin}
+              yAxisLabelSuffix=""
+              yAxisLabelPrefix=""
+              hideYAxisText={false}
+              hideRules={false}
+              curved={false}
+              areaChart={false}
+              color={pointColor || colors.primary}
+              thickness={0}
+              textColor1={colors.textSecondary}
+              textShiftY={-2}
+              textShiftX={-5}
+              textFontSize={10}
             />
-            <VictoryAxis
-              dependentAxis
-              label={yLabel || "Y Variable"}
-              style={{
-                axisLabel: { padding: 45 }
-              }}
-            />
-
-            <VictoryScatter
-              data={scatterData}
-              size={4}
-              style={{
-                data: {
-                  fill: pointColor || colors.primary,
-                  stroke: colors.cardBackground,
-                  strokeWidth: 1
-                }
-              }}
-            />
-
-            {trendLineData && trendLineData.length >= 2 && (
-              <VictoryLine
-                data={trendLineData}
-                style={{
-                  data: {
-                    stroke: trendLineColor || colors.secondary,
-                    strokeWidth: 2,
-                    strokeDasharray: "5,5"
-                  }
-                }}
-              />
+            {xLabel && (
+              <Text style={[styles.axisLabel, { textAlign: 'center', marginTop: 8 }]}>
+                {xLabel}
+              </Text>
             )}
-          </VictoryChart>
-          )}
+            {yLabel && (
+              <Text style={[styles.axisLabel, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -30, top: safeHeight / 2 - 40 }]}>
+                {yLabel}
+              </Text>
+            )}
+          </View>
         </View>
 
 
@@ -308,6 +270,11 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontFamily: 'monospace',
+  },
+  axisLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
   },
 });
 
