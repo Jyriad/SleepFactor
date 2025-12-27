@@ -29,6 +29,7 @@ export default function App() {
 
         // Store the deep link URL to be processed when navigation is ready
         setPendingDeepLink(url);
+        console.log('🔑 [App.js] Stored as pending deep link for password reset');
 
         // Try to navigate immediately if navigation is ready
         if (navigationRef.current) {
@@ -85,8 +86,11 @@ export default function App() {
     Linking.getInitialURL().then((url) => {
       if (url) {
         console.log('🔗 Initial URL:', url);
+        // Make sure we handle the initial URL properly
         handleDeepLink({ url });
       }
+    }).catch((error) => {
+      console.error('❌ [App.js] Error getting initial URL:', error);
     });
 
     // Listen for future deep link events
@@ -101,7 +105,15 @@ export default function App() {
   useEffect(() => {
     if (navigationRef.current && pendingDeepLink) {
       console.log('🔄 [App.js] Navigation became available, processing pending deep link');
-      navigationRef.current.navigate('ResetPassword', { url: pendingDeepLink });
+      console.log('🔄 [App.js] Pending deep link URL:', pendingDeepLink);
+
+      // Only navigate to ResetPassword if it's actually a password reset link
+      if (pendingDeepLink.includes('reset-password')) {
+        navigationRef.current.navigate('ResetPassword', { url: pendingDeepLink });
+      } else {
+        console.warn('⚠️ [App.js] Pending deep link is not a password reset link:', pendingDeepLink);
+      }
+
       setPendingDeepLink(null);
     }
   }, [navigationRef.current, pendingDeepLink]);
