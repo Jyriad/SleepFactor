@@ -295,8 +295,43 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     const isNoneOption = option.drug_amount === 0;
 
     if (isNoneOption) {
-      // Selecting "None" - save a special "none" consumption event and save immediately
-      const saveNoneSelection = async () => {
+      if (hasNoneEvent) {
+        // "None" is currently selected - deselect it by deleting the none event
+        const deselectNone = async () => {
+          try {
+            // Find and delete the "none" event
+            const noneEvent = consumptionEvents.find(event => event.drink_type === 'none');
+            if (noneEvent) {
+              const { error: deleteError } = await supabase
+                .from('habit_consumption_events')
+                .delete()
+                .eq('id', noneEvent.id);
+
+              if (deleteError) throw deleteError;
+
+              // Update bedtime drug level
+              try {
+                console.log(`🔄 Auto-updating bedtime drug level for ${habit?.name} on ${selectedDate} (None deselected)`);
+                await updateBedtimeDrugLevel(habit?.id, selectedDate);
+                console.log('✅ Auto-updated bedtime drug level for None deselection');
+              } catch (levelError) {
+                console.error('Failed to auto-update bedtime drug level:', levelError);
+              }
+
+              // Update local state by removing the none event
+              onChange([]);
+              if (onNoneSelected) onNoneSelected(false);
+            }
+          } catch (error) {
+            console.error('Error deselecting None:', error);
+            Alert.alert('Error', 'Failed to deselect None');
+          }
+        };
+
+        deselectNone();
+      } else {
+        // Selecting "None" - save a special "none" consumption event and save immediately
+        const saveNoneSelection = async () => {
         try {
           // Delete existing events for this date
           const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
@@ -353,6 +388,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       };
 
       saveNoneSelection();
+      }
       return;
     }
 
