@@ -26,7 +26,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
     padding: spacing.lg,
-    marginHorizontal: spacing.regular,
     marginVertical: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',

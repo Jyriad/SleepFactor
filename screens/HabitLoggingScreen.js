@@ -21,8 +21,6 @@ import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import DateSelector from '../components/DateSelector';
 import HabitInput from '../components/HabitInput';
-import RestedFeelingSlider from '../components/RestedFeelingSlider';
-import Button from '../components/Button';
 import DatePickerModal from '../components/DatePickerModal';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -36,13 +34,10 @@ const HabitLoggingScreen = () => {
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [habits, setHabits] = useState([]);
   const [habitLogs, setHabitLogs] = useState({});
-  const [restedFeeling, setRestedFeeling] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
   const [habitLogCounts, setHabitLogCounts] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
-  const [sleepData, setSleepData] = useState(null);
 
   useEffect(() => {
     loadHabitsAndLogs();
@@ -53,22 +48,53 @@ const HabitLoggingScreen = () => {
     const timeoutId = setTimeout(() => {
       if (Object.keys(habitLogs).length > 0) {
         saveHabitLogsToStorage();
+        // Also save to database immediately for regular habits
+        saveRegularHabitsToDatabase();
       }
     }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [habitLogs, selectedDate]);
 
+
+  const saveRegularHabitsToDatabase = async () => {
+    if (!user) return;
+
+    try {
+      const habitLogEntries = Object.entries(habitLogs)
+        .filter(([habitId, value]) => value !== '' && value !== null && value !== undefined)
+        .map(([habitId, value]) => ({
+          user_id: user.id,
+          habit_id: habitId,
+          date: selectedDate,
+          value: String(value),
+        }));
+
+      if (habitLogEntries.length > 0) {
+        const { error: logsError } = await supabase
+          .from('habit_logs')
+          .upsert(habitLogEntries, {
+            onConflict: 'user_id,habit_id,date',
+          });
+
+        if (logsError) throw logsError;
+      }
+    } catch (error) {
+      console.error('Error auto-saving regular habits:', error);
+    }
+  };
+
   const loadHabitsAndLogs = async () => {
     if (!user) return;
 
     setLoading(true);
     try {
-      // Load all habits
+      // Load all active habits (exclude untracked habits)
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
         .eq('user_id', user.id)
+        .neq('is_active', false) // Exclude explicitly untracked habits
         .order('is_pinned', { ascending: false })
         .order('priority', { ascending: true });
 
@@ -125,13 +151,21 @@ const HabitLoggingScreen = () => {
 
         if (eventsError) throw eventsError;
 
-        // Group events by habit_id
+        // Group events by habit_id, but only include events for the selected date
         if (eventsData) {
+          const selectedDateStr = dateObj.toDateString(); // Compare dates by string for simplicity
+
           eventsData.forEach(event => {
-            if (!consumptionEventsMap[event.habit_id]) {
-              consumptionEventsMap[event.habit_id] = [];
+            const eventDate = new Date(event.consumed_at);
+            const eventDateStr = eventDate.toDateString();
+
+            // Only include events that match the selected date
+            if (eventDateStr === selectedDateStr) {
+              if (!consumptionEventsMap[event.habit_id]) {
+                consumptionEventsMap[event.habit_id] = [];
+              }
+              consumptionEventsMap[event.habit_id].push(event);
             }
-            consumptionEventsMap[event.habit_id].push(event);
           });
         }
       }
@@ -162,20 +196,6 @@ const HabitLoggingScreen = () => {
         setHabitLogCounts(counts);
       }
 
-      // Load sleep data (for rested feeling and bedtime)
-      const { data: sleepDataResult } = await supabase
-        .from('sleep_data')
-        .select('rested_feeling, sleep_start_time')
-        .eq('user_id', user.id)
-        .eq('date', selectedDate)
-        .single();
-
-      if (sleepDataResult) {
-        setSleepData(sleepDataResult);
-        if (sleepDataResult.rested_feeling !== null && sleepDataResult.rested_feeling !== undefined) {
-          setRestedFeeling(sleepDataResult.rested_feeling);
-        }
-      }
     } catch (error) {
       console.error('Error loading habits and logs:', error);
       Alert.alert('Error', 'Failed to load habits. Please try again.');
@@ -286,6 +306,7 @@ const HabitLoggingScreen = () => {
     }
   };
 
+
   const refreshConsumptionEvents = async () => {
     try {
       // Calculate date range for selected date
@@ -333,7 +354,7 @@ const HabitLoggingScreen = () => {
   // Check if a habit is logged for the selected date
   const isHabitLoggedToday = (habit) => {
     if (habit.type === 'drug' || habit.type === 'quick_consumption') {
-      // For consumption habits, check if there are any consumption events
+      // For consumption habits, check if there are any consumption events (including "none" events)
       const events = consumptionEvents[habit.id];
       return events && events.length > 0;
     } else {
@@ -361,6 +382,7 @@ const HabitLoggingScreen = () => {
       }));
     }
   };
+
 
   // Calculate bedtime drug level for a given habit and date
   const calculateBedtimeDrugLevel = async (habit, date) => {
@@ -430,151 +452,6 @@ const HabitLoggingScreen = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!user) return;
-
-    setSaving(true);
-    try {
-      // Save regular habit logs
-      const habitLogEntries = Object.entries(habitLogs)
-        .filter(([habitId, value]) => value !== '' && value !== null && value !== undefined)
-        .map(([habitId, value]) => ({
-          user_id: user.id,
-          habit_id: habitId,
-          date: selectedDate,
-          value: String(value),
-        }));
-
-      if (habitLogEntries.length > 0) {
-        const { error: logsError } = await supabase
-          .from('habit_logs')
-          .upsert(habitLogEntries, {
-            onConflict: 'user_id,habit_id,date',
-          });
-
-        if (logsError) throw logsError;
-      }
-
-      // Save consumption events
-      const consumptionEventEntries = [];
-      Object.entries(consumptionEvents).forEach(([habitId, events]) => {
-        if (events && Array.isArray(events) && events.length > 0) {
-          events.forEach(event => {
-            consumptionEventEntries.push({
-              user_id: user.id,
-              habit_id: habitId,
-              consumed_at: event.consumed_at,
-              amount: event.amount,
-              drink_type: event.drink_type || null,
-            });
-          });
-        }
-      });
-
-      if (consumptionEventEntries.length > 0) {
-        // Delete existing events for this date first
-        const habitIds = Object.keys(consumptionEvents);
-        const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-        const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
-        const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
-
-        await supabase
-          .from('habit_consumption_events')
-          .delete()
-          .eq('user_id', user.id)
-          .in('habit_id', habitIds)
-          .gte('consumed_at', startOfDay.toISOString())
-          .lte('consumed_at', endOfDay.toISOString());
-
-        // Insert new events
-        const { error: eventsError } = await supabase
-          .from('habit_consumption_events')
-          .insert(consumptionEventEntries);
-
-        if (eventsError) throw eventsError;
-      }
-
-      // Calculate and update bedtime drug levels for caffeine and alcohol habits
-      const drugHabits = habits.filter(habit =>
-        habit.type === 'quick_consumption' &&
-        (habit.name.toLowerCase() === 'caffeine' || habit.name.toLowerCase() === 'alcohol')
-      );
-
-      console.log(`🔬 Auto-saving bedtime levels for ${drugHabits.length} drug habits:`, drugHabits.map(h => h.name));
-
-      for (const habit of drugHabits) {
-        try {
-          console.log(`🧮 Calculating bedtime level for ${habit.name} on ${selectedDate}`);
-          const bedtimeLevel = await calculateBedtimeDrugLevel(habit, selectedDate);
-          console.log(`📊 Bedtime level result: ${bedtimeLevel}`);
-
-          if (bedtimeLevel !== null) {
-            // Update or insert the habit log with the calculated bedtime level
-            const habitLogEntry = {
-              user_id: user.id,
-              habit_id: habit.id,
-              date: selectedDate,
-              value: `${bedtimeLevel.toFixed(2)} ${habit.unit} at bedtime`,
-              numeric_value: bedtimeLevel,
-            };
-
-            const { error: logError } = await supabase
-              .from('habit_logs')
-              .upsert(habitLogEntry, {
-                onConflict: 'user_id,habit_id,date',
-              });
-
-            if (logError) {
-              console.error(`Error updating bedtime level for ${habit.name}:`, logError);
-              // Don't throw here - we don't want to fail the entire save operation
-            } else {
-              console.log(`✅ Updated ${habit.name} bedtime level: ${bedtimeLevel.toFixed(2)} ${habit.unit}`);
-            }
-          }
-        } catch (error) {
-          console.error(`Error calculating bedtime level for ${habit.name}:`, error);
-          // Continue with other habits even if one fails
-        }
-      }
-
-      // Save rested feeling
-      if (restedFeeling !== null) {
-        const { error: sleepError } = await supabase
-          .from('sleep_data')
-          .upsert({
-            user_id: user.id,
-            date: selectedDate,
-            rested_feeling: restedFeeling,
-          }, {
-            onConflict: 'user_id,date',
-          });
-
-        if (sleepError) throw sleepError;
-      }
-
-      // Clear stored habit logs
-      if (user) {
-        try {
-          const storageKey = `habitLogs_${user.id}_${selectedDate}`;
-          await AsyncStorage.removeItem(storageKey);
-        } catch (error) {
-          console.error('Error clearing stored habit logs:', error);
-        }
-      }
-
-      Alert.alert('Success', 'Habits logged successfully!', [
-        {
-          text: 'OK',
-          onPress: () => navigation.goBack(),
-        },
-      ]);
-    } catch (error) {
-      console.error('Error saving habits:', error);
-      Alert.alert('Error', 'Failed to save habits. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const getDateRangeText = () => {
     const date = new Date(selectedDate);
@@ -688,24 +565,7 @@ const HabitLoggingScreen = () => {
           )}
         </View>
 
-        {/* Rested Feeling Slider */}
-        <View style={styles.restedFeelingContainer}>
-          <Text style={styles.restedFeelingTitle}>How rested did you feel?</Text>
-          <RestedFeelingSlider
-            value={restedFeeling}
-            onChange={setRestedFeeling}
-          />
-        </View>
 
-        {/* Save Button */}
-        {!loading && habits.length > 0 && (
-          <Button
-            title="Save Habits"
-            onPress={handleSubmit}
-            loading={saving}
-            style={styles.saveButton}
-          />
-        )}
       </ScrollView>
 
       {/* Calendar Modal */}
@@ -829,25 +689,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
-  },
-  restedFeelingContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    padding: spacing.regular,
-    marginHorizontal: spacing.regular,
-    marginBottom: spacing.regular,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  restedFeelingTitle: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  saveButton: {
-    marginHorizontal: spacing.regular,
-    marginBottom: spacing.xxl,
   },
 });
 

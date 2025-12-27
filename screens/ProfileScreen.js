@@ -4,21 +4,27 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  TouchableOpacity,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { signOut } from '../services/auth';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
+import NavigationCard from '../components/NavigationCard';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
 
 const ProfileScreen = () => {
+  const navigation = useNavigation();
   const { user } = useAuth();
+  const { preferences, updatePreference } = useUserPreferences();
 
   // Clear user-specific cached data from AsyncStorage
   const clearUserCaches = async (userId) => {
@@ -203,15 +209,21 @@ const ProfileScreen = () => {
         <Text style={styles.title}>Profile</Text>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollViewContent}
+      >
         <View style={styles.content}>
-          {/* User Info */}
+          {/* Account Navigation */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Account</Text>
-            <View style={styles.infoCard}>
-              <Text style={styles.label}>Email</Text>
-              <Text style={styles.value}>{user?.email || 'Not available'}</Text>
-            </View>
+            <NavigationCard
+              icon="person"
+              title="Account Details"
+              subtitle="View your email, manage password, and account statistics"
+              onPress={() => navigation.navigate('Account')}
+            />
           </View>
 
           {/* Data Connections */}
@@ -271,6 +283,43 @@ const ProfileScreen = () => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
             <View style={styles.infoCard}>
+              <Text style={styles.label}>Time Format</Text>
+              <View style={styles.timeFormatContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.timeFormatOption,
+                    preferences.timeFormat === '12' && styles.timeFormatOptionSelected,
+                  ]}
+                  onPress={() => updatePreference('timeFormat', '12')}
+                >
+                  <Text
+                    style={[
+                      styles.timeFormatText,
+                      preferences.timeFormat === '12' && styles.timeFormatTextSelected,
+                    ]}
+                  >
+                    12 Hour
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.timeFormatOption,
+                    preferences.timeFormat === '24' && styles.timeFormatOptionSelected,
+                  ]}
+                  onPress={() => updatePreference('timeFormat', '24')}
+                >
+                  <Text
+                    style={[
+                      styles.timeFormatText,
+                      preferences.timeFormat === '24' && styles.timeFormatTextSelected,
+                    ]}
+                  >
+                    24 Hour
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={[styles.infoCard, styles.notificationsCard]}>
               <Text style={styles.label}>Notifications</Text>
               <Text style={styles.value}>Coming soon</Text>
             </View>
@@ -282,8 +331,7 @@ const ProfileScreen = () => {
             <View style={styles.infoCard}>
               <Text style={styles.label}>Version</Text>
               <View style={styles.versionContainer}>
-                <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.34'}</Text>
-                <Text style={styles.developmentBadge}>Development</Text>
+                <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.47'}</Text>
               </View>
             </View>
           </View>
@@ -318,6 +366,9 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollViewContent: {
+    paddingBottom: 80, // Account for bottom navigation bar height (60px) + positioning (8px) + extra buffer
   },
   content: {
     paddingHorizontal: spacing.regular,
@@ -382,6 +433,50 @@ const styles = StyleSheet.create({
   logoutButton: {
     marginTop: spacing.xxl,
     marginBottom: spacing.xl,
+  },
+  notificationsCard: {
+    marginTop: spacing.md,
+  },
+  timeFormatContainer: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  timeFormatOption: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  timeFormatOptionSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  timeFormatText: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  timeFormatTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: typography.weights.medium,
+  },
+  versionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  developmentBadge: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
+    color: colors.error,
+    backgroundColor: colors.error + '20', // Semi-transparent red background
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
 });
 

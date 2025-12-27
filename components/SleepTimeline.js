@@ -3,8 +3,11 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
 
 const SleepTimeline = ({ sleepData }) => {
+  const { formatTime } = useUserPreferences();
+
   if (!sleepData) return null;
 
   // Use actual sleep stage intervals if available, otherwise fall back to aggregated data
@@ -140,13 +143,6 @@ const SleepTimeline = ({ sleepData }) => {
   }, [sleepData]);
 
   if (!timelineData || timelineData.segments.length === 0) return null;
-
-  // Format time for display (HH:MM)
-  const formatTime = (date) => {
-    const hours = date.getHours();
-    const mins = date.getMinutes();
-    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-  };
 
   const { segments, sleepStart, sleepEnd } = timelineData;
   const startTime = formatTime(sleepStart);

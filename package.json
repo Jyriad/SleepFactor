@@ -1,6 +1,6 @@
 {
   "name": "sleepfactor",
-  "version": "1.1.80",
+  "version": "1.1.83",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -22,11 +22,16 @@
     "expo-auth-session": "^7.0.10",
     "expo-build-properties": "^1.0.10",
     "expo-constants": "~18.0.12",
+    "expo-dev-client": "~6.0.20",
     "expo-health-connect": "^0.1.1",
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "^8.0.10",
     "expo-status-bar": "~3.0.9",
+<<<<<<< HEAD
     "expo-updates": "^29.0.15",
+=======
+    "expo-updates": "~29.0.15",
+>>>>>>> Development
     "expo-web-browser": "^15.0.10",
     "react": "19.1.0",
     "react-native": "0.81.5",

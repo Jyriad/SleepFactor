@@ -5,7 +5,7 @@ import { typography, spacing } from '../constants';
 import { formatDateTitle } from '../utils/dateHelpers';
 import Button from './Button';
 
-const HabitSummaryCard = ({ date, habitCount, onPress }) => {
+const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress }) => {
   const dateTitle = formatDateTitle(date);
   const hasHabits = habitCount > 0;
 
@@ -13,7 +13,12 @@ const HabitSummaryCard = ({ date, habitCount, onPress }) => {
     <View style={styles.card}>
       <View style={styles.header}>
         <Text style={styles.title}>
-          {hasHabits ? `${habitCount} habit${habitCount === 1 ? '' : 's'} logged` : 'No habits logged'}
+          {totalHabitCount > 0
+            ? `${habitCount} out of ${totalHabitCount} habit${totalHabitCount === 1 ? '' : 's'} logged`
+            : hasHabits
+              ? `${habitCount} habit${habitCount === 1 ? '' : 's'} logged`
+              : 'No habits logged'
+          }
         </Text>
       </View>
       <Text style={styles.dateText}>
@@ -33,8 +38,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
     padding: spacing.lg,
-    marginHorizontal: spacing.regular,
-    marginVertical: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
   },

@@ -4,11 +4,17 @@
     "appVersionSource": "local"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
     "production": {
       "channel": "production",
       "android": {
-        "buildType": "apk",
-        "credentialsSource": "remote"
+        "buildType": "apk"
       }
     }
   },
