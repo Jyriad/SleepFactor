@@ -170,47 +170,14 @@ const ScatterPlot = ({
         )}
 
         <View style={styles.chartContainer}>
-          <VictoryChart
-            width={safeWidth}
-            height={safeHeight}
-            padding={{ top: 20, bottom: 60, left: 70, right: 40 }}
-            domain={{ x: [plotXMin, plotXMax], y: [plotYMin, plotYMax] }}
-          >
-            <VictoryAxis
-              label={xLabel || "X Axis"}
-              style={{
-                axisLabel: { padding: 30, fill: colors.textSecondary, fontSize: 12 },
-                tickLabels: { fill: colors.textSecondary, fontSize: 10 }
-              }}
-            />
-            <VictoryAxis
-              dependentAxis
-              label={yLabel || "Y Axis"}
-              style={{
-                axisLabel: { padding: 45, fill: colors.textSecondary, fontSize: 12 },
-                tickLabels: { fill: colors.textSecondary, fontSize: 10 }
-              }}
-            />
-
-            {/* Scatter points */}
-            <VictoryScatter
-              data={scatterData}
-              size={4}
-              style={{
-                data: { fill: pointColor }
-              }}
-            />
-
-            {/* Trend line */}
-            {trendLineData && trendLineData.length >= 2 && (
-              <VictoryLine
-                data={trendLineData}
-                style={{
-                  data: { stroke: trendLineColor, strokeWidth: 2, strokeDasharray: "5,5" }
-                }}
-              />
-            )}
-          </VictoryChart>
+          <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8 }]}>
+            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+              Chart visualization
+            </Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              {scatterData.length} data points
+            </Text>
+          </View>
         </View>
 
 
