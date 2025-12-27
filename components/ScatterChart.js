@@ -118,9 +118,10 @@ const ScatterPlot = ({
   });
 
   if (validData.length === 0) {
+    console.log('ScatterChart: No data points after null/undefined filtering');
     return (
-      <View style={[styles.container, { width, height }]}>
-        <Text style={styles.noDataText}>No valid data points</Text>
+      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center' }]}>Insufficient data for chart</Text>
       </View>
     );
   }
@@ -131,9 +132,10 @@ const ScatterPlot = ({
 
   // Validate that we have numeric values
   if (xValues.length === 0 || yValues.length === 0) {
+    console.log('ScatterChart: No valid data points after filtering');
     return (
-      <View style={[styles.container, { width, height }]}>
-        <Text style={styles.noDataText}>No valid numeric data points</Text>
+      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center' }]}>No data available for visualization</Text>
       </View>
     );
   }
@@ -146,9 +148,10 @@ const ScatterPlot = ({
 
   // Validate ranges are finite numbers
   if (!isFinite(xMin) || !isFinite(xMax) || !isFinite(yMin) || !isFinite(yMax)) {
+    console.log('ScatterChart: Invalid data ranges detected');
     return (
-      <View style={[styles.container, { width, height }]}>
-        <Text style={styles.noDataText}>Invalid data ranges</Text>
+      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center' }]}>Unable to display chart due to data issues</Text>
       </View>
     );
   }
@@ -286,19 +289,21 @@ const ScatterPlot = ({
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
 
-  return (
-    <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
-      {title && (
-        <Text style={styles.title}>{title}</Text>
-      )}
+  // Add comprehensive error handling around the entire render
+  try {
+    return (
+      <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
+        {title && (
+          <Text style={styles.title}>{title}</Text>
+        )}
 
-      <View style={styles.chartContainer}>
-        <SVGErrorBoundary style={{ width: safeWidth, height: safeHeight }}>
-          <Svg
-            width={safeWidth}
-            height={safeHeight}
-            onError={(error) => console.warn('SVG rendering error:', error)}
-          >
+        <View style={styles.chartContainer}>
+          <SVGErrorBoundary style={{ width: safeWidth, height: safeHeight }}>
+            <Svg
+              width={safeWidth}
+              height={safeHeight}
+              onError={(error) => console.warn('SVG rendering error:', error)}
+            >
           {/* Grid lines */}
           {xGridValues.map((grid, index) => (
             <Line
@@ -462,6 +467,16 @@ const ScatterPlot = ({
       </View>
     </View>
   );
+  } catch (error) {
+    console.error('ScatterChart: Unexpected error during render:', error);
+    return (
+      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center', color: colors.error || '#ff6b6b' }]}>
+          Chart unavailable
+        </Text>
+      </View>
+    );
+  }
 };
 
 const styles = StyleSheet.create({
