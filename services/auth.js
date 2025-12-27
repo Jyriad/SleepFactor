@@ -2,6 +2,7 @@
 import { supabase } from './supabase';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import * as AuthSession from 'expo-auth-session';
 
 // Complete web browser auth session for OAuth
 WebBrowser.maybeCompleteAuthSession();
@@ -102,9 +103,8 @@ export const onAuthStateChange = (callback) => {
  * For Expo, use the hardcoded scheme to avoid localhost issues
  */
 const getRedirectUrl = () => {
-  // Use hardcoded scheme to avoid Linking.createURL generating localhost URLs
-  // This is the most reliable approach for Expo Go
-  return 'sleepfactor://';
+  // Use Linking.createURL which handles development vs production automatically
+  return Linking.createURL('');
 };
 
 /**
@@ -140,7 +140,10 @@ export const signInWithGoogle = async () => {
 
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+    const result = await AuthSession.startAsync({
+      authUrl: data.url,
+      returnUrl: redirectUrl,
+    });
     
     if (result.type === 'success') {
       const url = result.url;
@@ -212,7 +215,11 @@ export const signInWithGoogle = async () => {
       return { data: null, error: 'OAuth flow was cancelled' };
     } else if (result.type === 'dismiss') {
       console.warn('⚠️ [OAuth] User dismissed the flow');
-      return { data: null, error: 'OAuth flow was dismissed' };
+      // In development, this often happens due to deep linking issues with dev builds
+      const errorMessage = __DEV__
+        ? 'OAuth flow was dismissed. This may happen in development builds due to deep linking configuration. Try again or use production build.'
+        : 'OAuth flow was dismissed';
+      return { data: null, error: errorMessage };
     } else {
       console.error('❌ [OAuth] Unexpected result type:', result.type);
     }
@@ -259,7 +266,10 @@ export const signInWithFacebook = async () => {
 
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+    const result = await AuthSession.startAsync({
+      authUrl: data.url,
+      returnUrl: redirectUrl,
+    });
     
     if (result.type === 'success') {
       const url = result.url;
