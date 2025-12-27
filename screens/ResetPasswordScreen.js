@@ -43,69 +43,47 @@ const ResetPasswordScreen = () => {
         console.log('🔑 ResetPasswordScreen: URL to process:', url);
         console.log('🔑 ResetPasswordScreen: Full URL object:', { url });
 
-        if (url && (url.includes('#') || url.includes('access_token') || url.includes('token'))) {
-          console.log('🔑 ResetPasswordScreen: URL contains auth parameters, parsing tokens...');
+        // Handle code-based authentication flow (current Supabase default)
+        const urlCode = route.params?.code;
+        console.log('🔑 ResetPasswordScreen: Code from route params:', urlCode);
 
-          // Extract access_token - try different patterns
-          let accessToken = null;
-          let refreshToken = null;
+        if (urlCode) {
+          console.log('🔑 ResetPasswordScreen: Exchanging code for session...');
 
-          // Try hash fragment first (most common)
-          const hashAccessMatch = url.match(/#.*access_token=([^&]+)/);
-          if (hashAccessMatch) {
-            accessToken = decodeURIComponent(hashAccessMatch[1]);
+          const { data, error } = await supabase.auth.exchangeCodeForSession(urlCode);
+
+          if (error) {
+            console.error('Error exchanging code for session:', error);
+            Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
+            navigation.replace('Auth');
+            return;
           }
 
-          // Try query param
-          if (!accessToken) {
-            const queryAccessMatch = url.match(/[?&]access_token=([^&]+)/);
-            if (queryAccessMatch) {
-              accessToken = decodeURIComponent(queryAccessMatch[1]);
-            }
-          }
+          console.log('🔑 ResetPasswordScreen: Session established successfully');
+          setSessionSet(true);
+        } else {
+          // Fallback: try to extract code from URL directly
+          const codeMatch = url.match(/[?&]code=([^&]+)/);
+          if (codeMatch) {
+            const extractedCode = decodeURIComponent(codeMatch[1]);
+            console.log('🔑 ResetPasswordScreen: Extracted code from URL:', extractedCode);
 
-          // Extract refresh_token - try different patterns
-          const hashRefreshMatch = url.match(/#.*refresh_token=([^&]+)/);
-          if (hashRefreshMatch) {
-            refreshToken = decodeURIComponent(hashRefreshMatch[1]);
-          }
-
-          if (!refreshToken) {
-            const queryRefreshMatch = url.match(/[?&]refresh_token=([^&]+)/);
-            if (queryRefreshMatch) {
-              refreshToken = decodeURIComponent(queryRefreshMatch[1]);
-            }
-          }
-
-          console.log('🔑 ResetPasswordScreen: Extracted tokens:', {
-            hasAccessToken: !!accessToken,
-            hasRefreshToken: !!refreshToken,
-            accessTokenLength: accessToken?.length,
-            refreshTokenLength: refreshToken?.length
-          });
-
-          if (accessToken && refreshToken) {
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
+            const { data, error } = await supabase.auth.exchangeCodeForSession(extractedCode);
 
             if (error) {
-              console.error('Error setting session:', error);
+              console.error('Error exchanging extracted code for session:', error);
               Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
               navigation.replace('Auth');
               return;
             }
 
+            console.log('🔑 ResetPasswordScreen: Session established from extracted code');
             setSessionSet(true);
           } else {
+            console.log('🔑 ResetPasswordScreen: No code found in route params or URL');
             Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
             navigation.replace('Auth');
           }
-        } else {
-          console.log('🔑 ResetPasswordScreen: No valid URL found');
-          Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-          navigation.replace('Auth');
         }
       } catch (error) {
         console.error('Error processing reset link:', error);

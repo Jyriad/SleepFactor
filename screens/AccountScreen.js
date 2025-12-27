@@ -96,7 +96,7 @@ const AccountScreen = () => {
 
       Alert.alert(
         'Password Reset Sent',
-        'Check your email for password reset instructions. The link will open the app to complete your password reset.'
+        'Check your email for password reset instructions. The link will open the app to complete your password reset. If you don\'t have the app installed, you can reset your password on the web.'
       );
     } catch (error) {
       console.error('Password reset error:', error);

@@ -33,7 +33,12 @@ const AppNavigator = () => {
           screens: {
             MainTabs: 'main',
             Account: 'account',
-            ResetPassword: 'reset-password',
+            ResetPassword: {
+              path: 'reset-password',
+              parse: {
+                code: (code) => code,
+              },
+            },
           },
         },
       }}
