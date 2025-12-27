@@ -9,7 +9,7 @@ import {
   TextInput,
   SafeAreaView,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
