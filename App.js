@@ -15,6 +15,13 @@ export default function App() {
   const navigationRef = useRef();
   const [pendingDeepLink, setPendingDeepLink] = useState(null);
 
+  // Debug logging for pending deep link state changes
+  useEffect(() => {
+    if (pendingDeepLink) {
+      console.log('🔗 [App.js] pendingDeepLink state set to:', pendingDeepLink);
+    }
+  }, [pendingDeepLink]);
+
   useEffect(() => {
     // Handle deep links when app is opened
     const handleDeepLink = async (event) => {
@@ -106,12 +113,14 @@ export default function App() {
     if (navigationRef.current && pendingDeepLink) {
       console.log('🔄 [App.js] Navigation became available, processing pending deep link');
       console.log('🔄 [App.js] Pending deep link URL:', pendingDeepLink);
+      console.log('🔄 [App.js] Does URL contain reset-password?', pendingDeepLink.includes('reset-password'));
 
       // Only navigate to ResetPassword if it's actually a password reset link
       if (pendingDeepLink.includes('reset-password')) {
+        console.log('🔄 [App.js] Navigating to ResetPassword screen');
         navigationRef.current.navigate('ResetPassword', { url: pendingDeepLink });
       } else {
-        console.warn('⚠️ [App.js] Pending deep link is not a password reset link:', pendingDeepLink);
+        console.warn('⚠️ [App.js] Pending deep link is not a password reset link - NOT navigating:', pendingDeepLink);
       }
 
       setPendingDeepLink(null);
