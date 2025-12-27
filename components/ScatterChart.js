@@ -218,16 +218,32 @@ const ScatterPlot = ({
             {LineChart ? (
               <View style={{ width: safeWidth, height: safeHeight }}>
                 <LineChart
-                  data={scatterData.map((point) => ({
-                    value: point.y,
-                  }))}
+                  data={scatterData.map((point, index) => {
+                    // Format x value for display (round if large, show decimals if small)
+                    const formatXValue = (val) => {
+                      if (Math.abs(val) >= 1000) {
+                        return Math.round(val).toString();
+                      } else if (Math.abs(val) >= 1) {
+                        return val.toFixed(1);
+                      } else {
+                        return val.toFixed(2);
+                      }
+                    };
+                    
+                    return {
+                      value: point.y,
+                      label: formatXValue(point.x),
+                      labelTextStyle: { color: colors.textSecondary, fontSize: 9 },
+                    };
+                  })}
                   width={safeWidth - 40}
-                  height={safeHeight - 60}
+                  height={safeHeight - 80}
                   yAxisThickness={1}
                   xAxisThickness={1}
                   xAxisColor={colors.border}
                   yAxisColor={colors.border}
                   yAxisTextStyle={{ color: colors.textSecondary, fontSize: 10 }}
+                  xAxisLabelTextStyle={{ color: colors.textSecondary, fontSize: 9, rotation: scatterData.length > 10 ? -45 : 0 }}
                   dataPointsColor={pointColor || colors.primary}
                   dataPointsRadius={4}
                   hideDataPoints={false}
@@ -244,6 +260,7 @@ const ScatterPlot = ({
                   yAxisLabelSuffix=""
                   yAxisLabelPrefix=""
                   hideYAxisText={false}
+                  hideXAxisText={false}
                   hideRules={false}
                   curved={false}
                   areaChart={false}
@@ -253,17 +270,61 @@ const ScatterPlot = ({
                   textShiftY={-2}
                   textShiftX={-5}
                   textFontSize={10}
+                  showTextOnXAxis
+                  xAxisLabelsVerticalShift={scatterData.length > 10 ? 20 : 10}
                 />
-                {xLabel && (
-                  <Text style={[styles.axisLabel, { textAlign: 'center', marginTop: 8 }]}>
-                    {xLabel}
-                  </Text>
-                )}
-                {yLabel && (
-                  <Text style={[styles.axisLabel, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -30, top: safeHeight / 2 - 40 }]}>
-                    {yLabel}
-                  </Text>
-                )}
+                {/* X-axis labels */}
+                <View style={styles.xAxisLabelsContainer}>
+                  {(() => {
+                    // Show up to 5 evenly-spaced x-axis labels
+                    const numLabels = Math.min(5, scatterData.length);
+                    const step = Math.floor(scatterData.length / numLabels);
+                    const labels = [];
+                    
+                    for (let i = 0; i < scatterData.length; i += step) {
+                      if (labels.length >= numLabels) break;
+                      const point = scatterData[i];
+                      const formatXValue = (val) => {
+                        if (Math.abs(val) >= 1000) {
+                          return Math.round(val).toString();
+                        } else if (Math.abs(val) >= 1) {
+                          return val.toFixed(1);
+                        } else {
+                          return val.toFixed(2);
+                        }
+                      };
+                      
+                      labels.push(
+                        <View
+                          key={i}
+                          style={{
+                            position: 'absolute',
+                            left: `${(i / Math.max(1, scatterData.length - 1)) * 100}%`,
+                            transform: [{ translateX: -20 }],
+                          }}
+                        >
+                          <Text style={styles.xAxisLabel}>
+                            {formatXValue(point.x)}
+                          </Text>
+                        </View>
+                      );
+                    }
+                    return labels;
+                  })()}
+                </View>
+                {/* Axis titles */}
+                <View style={styles.axisLabelsContainer}>
+                  {xLabel && (
+                    <Text style={[styles.axisTitle, { textAlign: 'center', width: '100%', marginTop: 4 }]}>
+                      {xLabel}
+                    </Text>
+                  )}
+                  {yLabel && (
+                    <Text style={[styles.axisTitle, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -40, top: safeHeight / 2 - 60, width: 120 }]}>
+                      {yLabel}
+                    </Text>
+                  )}
+                </View>
               </View>
             ) : (
               <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8, padding: spacing.regular }]}>
@@ -332,6 +393,28 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   axisLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  axisLabelsContainer: {
+    position: 'relative',
+    width: '100%',
+  },
+  xAxisLabelsContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 30,
+    marginTop: 4,
+    paddingHorizontal: 20,
+  },
+  xAxisLabel: {
+    position: 'absolute',
+    fontSize: 9,
+    color: colors.textSecondary,
+    top: 0,
+  },
+  axisTitle: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
