@@ -10,6 +10,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Hardcoded version constant - UPDATE THIS MANUALLY alongside app.json for immediate UI updates
+const APP_VERSION = '1.1.86';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
@@ -331,7 +334,7 @@ const ProfileScreen = () => {
             <View style={styles.infoCard}>
               <Text style={styles.label}>Version</Text>
               <View style={styles.versionContainer}>
-                <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.47'}</Text>
+                <Text style={styles.value}>{APP_VERSION}</Text>
               </View>
             </View>
           </View>
