@@ -26,6 +26,8 @@ const ResetPasswordScreen = () => {
   const [sessionSet, setSessionSet] = useState(false);
 
   useEffect(() => {
+    console.log('🔑 [ResetPasswordScreen] Component mounted/updated');
+
     // Extract tokens from URL parameters and set session
     const setupSessionFromUrl = async () => {
       try {
@@ -85,6 +87,11 @@ const ResetPasswordScreen = () => {
     };
 
     setupSessionFromUrl();
+
+    // Cleanup effect to track unmounting
+    return () => {
+      console.log('🔑 [ResetPasswordScreen] Component unmounting');
+    };
   }, [navigation, route.params]);
 
   const handleResetPassword = async () => {

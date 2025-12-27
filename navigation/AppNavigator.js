@@ -42,6 +42,29 @@ const AppNavigator = ({ navigationRef }) => {
           routes: [{ name: targetRoute }],
         });
         console.log('✅ [AppNavigator] Navigation reset completed successfully');
+
+        // Verify the reset actually worked (similar to OAuth dismiss verification)
+        setTimeout(() => {
+          try {
+            const currentRoute = navigationRef.current.getCurrentRoute();
+            console.log('🔍 [AppNavigator] Verification - current route after reset:', currentRoute?.name);
+
+            if (currentRoute?.name !== targetRoute) {
+              console.warn('⚠️ [AppNavigator] Navigation reset verification failed!');
+              console.warn('⚠️ [AppNavigator] Expected:', targetRoute, 'Actual:', currentRoute?.name);
+              console.log('🔧 [AppNavigator] Attempting corrective navigation...');
+
+              // Force navigation as fallback (similar to OAuth session check)
+              navigationRef.current.navigate(targetRoute);
+              console.log('✅ [AppNavigator] Corrective navigation attempted');
+            } else {
+              console.log('✅ [AppNavigator] Navigation reset verification passed');
+            }
+          } catch (verifyError) {
+            console.error('❌ [AppNavigator] Error during navigation verification:', verifyError);
+          }
+        }, 100); // Small delay to let reset complete
+
       } catch (error) {
         console.error('❌ [AppNavigator] Navigation reset failed:', error);
       }
