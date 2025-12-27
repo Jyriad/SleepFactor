@@ -353,12 +353,26 @@ class InsightsService {
       // Convert binary to numeric: 1 for yes/true, 0 for no/false
       return log.value && (log.value.toLowerCase() === 'yes' || log.value === '1' || log.value === true) ? 1 : 0;
     } else if (habit.type === 'numeric') {
-      // Use numeric_value if available, otherwise parse value
-      let value = log.numeric_value !== null && log.numeric_value !== undefined
-        ? log.numeric_value
-        : parseFloat(log.value);
+      // Use numeric_value if available, otherwise parse value with sanitization
+      let value;
+      if (log.numeric_value !== null && log.numeric_value !== undefined) {
+        value = log.numeric_value;
+      } else {
+        // Sanitize the string value before parsing
+        const stringValue = String(log.value || '').trim();
+        // Skip invalid strings that start with letters or contain invalid characters
+        if (!stringValue || stringValue.startsWith('N') || stringValue.startsWith('n') ||
+            stringValue === 'null' || stringValue === 'undefined' ||
+            stringValue.includes(' ') || isNaN(Number(stringValue))) {
+          console.warn('Skipping invalid numeric value:', stringValue, 'for habit:', habit.name);
+          return 0; // Skip this log entry
+        }
+        value = parseFloat(stringValue);
+      }
+
       // Ensure value is a valid number
-      if (value === null || value === undefined || isNaN(value)) {
+      if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
+        console.warn('Invalid parsed numeric value:', value, 'for habit:', habit.name);
         return 0;
       }
       return value;

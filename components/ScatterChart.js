@@ -1,76 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Svg, { Circle, Line, G, Text as SvgText, Path } from 'react-native-svg';
+import { VictoryChart, VictoryScatter, VictoryLine, VictoryAxis, VictoryLabel } from 'victory-native';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
 
-/**
- * Error boundary for SVG components to prevent layout event errors
- */
-class SVGErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
 
-  static getDerivedStateFromError(error) {
-    console.warn('SVG Error Boundary caught error:', error.message);
-    return { hasError: true };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.warn('SVG Error Boundary details:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={[this.props.style, { justifyContent: 'center', alignItems: 'center' }]}>
-          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-            Chart temporarily unavailable
-          </Text>
-        </View>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-/**
- * Generate nice, rounded axis labels
- * Returns an array of nicely rounded values between min and max
- */
-const getNiceLabels = (min, max, numLabels = 5) => {
-  const range = max - min;
-  if (range === 0) return [min];
-  
-  const rawStep = range / (numLabels - 1);
-  
-  // Calculate a "nice" step size (round to nearest power of 10, 2, 5, etc.)
-  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-  const normalizedStep = rawStep / magnitude;
-  
-  let niceStep;
-  if (normalizedStep <= 1) niceStep = 1 * magnitude;
-  else if (normalizedStep <= 2) niceStep = 2 * magnitude;
-  else if (normalizedStep <= 5) niceStep = 5 * magnitude;
-  else niceStep = 10 * magnitude;
-  
-  // Round min down and max up to nice values
-  const niceMin = Math.floor(min / niceStep) * niceStep;
-  const niceMax = Math.ceil(max / niceStep) * niceStep;
-  
-  const labels = [];
-  for (let value = niceMin; value <= niceMax + niceStep * 0.001; value += niceStep) {
-    // Only include values that are within or close to our range
-    if (value >= niceMin - niceStep * 0.001 && value <= niceMax + niceStep * 0.001) {
-      labels.push(value);
-    }
-  }
-  
-  return labels;
-};
 
 /**
  * Scatter chart component for visualizing relationships between two variables
@@ -177,101 +111,39 @@ const ScatterPlot = ({
   const plotYMin = Math.max(0, yMin - yPadding); // Don't go below 0 for sleep metrics
   const plotYMax = yMax + yPadding;
 
-  // Chart dimensions - increased bottom padding for axis title, left for Y-axis title
-  const padding = { top: 20, right: 40, bottom: 60, left: 70 };
-  const chartWidth = Math.max(safeWidth - padding.left - padding.right, 50);
-  const chartHeight = Math.max(safeHeight - padding.top - padding.bottom, 50);
-
-  // Convert data point to pixel coordinates
-  const toPixelX = (x) => {
-    return padding.left + ((x - plotXMin) / (plotXMax - plotXMin)) * chartWidth;
-  };
-
-  const toPixelY = (y) => {
-    return padding.top + chartHeight - ((y - plotYMin) / (plotYMax - plotYMin)) * chartHeight;
-  };
-
-  // Prepare scatter plot data
-  const scatterPoints = validData.map(point => ({
+  // Prepare scatter plot data for Victory
+  const scatterData = validData.map(point => ({
     x: point.x,
     y: point.y,
-    pixelX: toPixelX(point.x),
-    pixelY: toPixelY(point.y),
   }));
 
   // Calculate trend line if requested
-  let trendLinePoints = null;
-  let trendLinePath = null;
+  let trendLineData = null;
   if (showTrendLine && validData.length >= 3) {
     try {
       const regression = calculateLinearRegression(xValues, yValues);
       const { slope, intercept } = regression;
 
-    // Validate regression values
-    if (slope !== null && slope !== undefined && !isNaN(slope) && isFinite(slope) &&
-        intercept !== null && intercept !== undefined && !isNaN(intercept) && isFinite(intercept)) {
-      // Generate trend line points
-      const numPoints = 100;
-      trendLinePoints = [];
-      for (let i = 0; i <= numPoints; i++) {
-        const x = plotXMin + (i / numPoints) * (plotXMax - plotXMin);
-        const y = slope * x + intercept;
-        const clampedY = Math.max(plotYMin, Math.min(plotYMax, y));
-        if (!isNaN(x) && !isNaN(clampedY) && isFinite(x) && isFinite(clampedY)) {
-          trendLinePoints.push({
-            x: toPixelX(x),
-            y: toPixelY(clampedY),
-          });
+      // Validate regression values
+      if (slope !== null && slope !== undefined && !isNaN(slope) && isFinite(slope) &&
+          intercept !== null && intercept !== undefined && !isNaN(intercept) && isFinite(intercept)) {
+        // Generate trend line points
+        const numPoints = 50;
+        trendLineData = [];
+        for (let i = 0; i <= numPoints; i++) {
+          const x = plotXMin + (i / numPoints) * (plotXMax - plotXMin);
+          const y = slope * x + intercept;
+          const clampedY = Math.max(plotYMin, Math.min(plotYMax, y));
+          if (!isNaN(x) && !isNaN(clampedY) && isFinite(x) && isFinite(clampedY)) {
+            trendLineData.push({ x, y: clampedY });
+          }
         }
       }
-      
-      // Build path string for dashed line
-      if (trendLinePoints.length >= 2) {
-        const validPoints = trendLinePoints.filter((point, index) => {
-          if (index === 0) return true;
-          const prevPoint = trendLinePoints[index - 1];
-          return prevPoint && point && 
-                 !isNaN(prevPoint.x) && !isNaN(prevPoint.y) &&
-                 !isNaN(point.x) && !isNaN(point.y);
-        });
-        
-        if (validPoints.length >= 2) {
-          trendLinePath = validPoints.reduce((path, point, index) => {
-            if (index === 0) {
-              return `M ${point.x} ${point.y}`;
-            }
-            return `${path} L ${point.x} ${point.y}`;
-          }, '');
-        }
-      }
-    }
     } catch (error) {
       console.warn('Error calculating trend line:', error);
-      trendLinePoints = null;
-      trendLinePath = null;
+      trendLineData = null;
     }
   }
-
-  // Generate nice, rounded grid lines and axis labels
-  let xNiceLabels = [plotXMin, (plotXMin + plotXMax) / 2, plotXMax];
-  let yNiceLabels = [plotYMin, (plotYMin + plotYMax) / 2, plotYMax];
-
-  try {
-    xNiceLabels = getNiceLabels(plotXMin, plotXMax, 5);
-    yNiceLabels = getNiceLabels(plotYMin, plotYMax, 5);
-  } catch (error) {
-    console.warn('Error generating axis labels, using fallback:', error);
-  }
-
-  const xGridValues = xNiceLabels.map(value => ({
-    value: value,
-    pixel: toPixelX(value),
-  }));
-
-  const yGridValues = yNiceLabels.map(value => ({
-    value: value,
-    pixel: toPixelY(value),
-  }));
 
   // Calculate correlation coefficient text with validation
   let correlationText = 'No correlation data';
@@ -298,12 +170,47 @@ const ScatterPlot = ({
         )}
 
         <View style={styles.chartContainer}>
-          <SVGErrorBoundary style={{ width: safeWidth, height: safeHeight }}>
-            <Svg
-              width={safeWidth}
-              height={safeHeight}
-              onError={(error) => console.warn('SVG rendering error:', error)}
-            >
+          <VictoryChart
+            width={safeWidth}
+            height={safeHeight}
+            padding={{ top: 20, bottom: 60, left: 70, right: 40 }}
+            domain={{ x: [plotXMin, plotXMax], y: [plotYMin, plotYMax] }}
+          >
+            <VictoryAxis
+              label={xLabel || "X Axis"}
+              style={{
+                axisLabel: { padding: 30, fill: colors.textSecondary, fontSize: 12 },
+                tickLabels: { fill: colors.textSecondary, fontSize: 10 }
+              }}
+            />
+            <VictoryAxis
+              dependentAxis
+              label={yLabel || "Y Axis"}
+              style={{
+                axisLabel: { padding: 45, fill: colors.textSecondary, fontSize: 12 },
+                tickLabels: { fill: colors.textSecondary, fontSize: 10 }
+              }}
+            />
+
+            {/* Scatter points */}
+            <VictoryScatter
+              data={scatterData}
+              size={4}
+              style={{
+                data: { fill: pointColor }
+              }}
+            />
+
+            {/* Trend line */}
+            {trendLineData && trendLineData.length >= 2 && (
+              <VictoryLine
+                data={trendLineData}
+                style={{
+                  data: { stroke: trendLineColor, strokeWidth: 2, strokeDasharray: "5,5" }
+                }}
+              />
+            )}
+          </VictoryChart>
           {/* Grid lines */}
           {xGridValues.map((grid, index) => (
             <Line
@@ -452,21 +359,18 @@ const ScatterPlot = ({
               fill="none"
               opacity={0.8}
               strokeDasharray="5,5"
-            />
-          )}
-        </Svg>
-        </SVGErrorBoundary>
-      </View>
+          </VictoryChart>
+        </View>
 
 
-      {/* Statistics */}
-      <View style={styles.statsContainer}>
-        <Text style={styles.statsText}>
-          n={validData.length} | {correlationText}
-        </Text>
+        {/* Statistics */}
+        <View style={styles.statsContainer}>
+          <Text style={styles.statsText}>
+            n={validData.length} | {correlationText}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
+    );
   } catch (error) {
     console.error('ScatterChart: Unexpected error during render:', error);
     return (
