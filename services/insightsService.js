@@ -287,7 +287,7 @@ class InsightsService {
         } else {
           unmatchedLogs.push({
             habitDate: log.date,
-            expectedSleepDate: nextDayStr,
+            expectedSleepDate: sleepDataDate,
             hasSleepData: !!sleep,
             sleepMetricValue: sleep?.[sleepMetric],
             habitValue: habitValue,
@@ -297,7 +297,7 @@ class InsightsService {
       } else {
         unmatchedLogs.push({
           habitDate: log.date,
-          expectedSleepDate: nextDayStr,
+          expectedSleepDate: sleepDataDate,
           hasSleepData: !!sleep,
           sleepMetricValue: sleep?.[sleepMetric]
         });
