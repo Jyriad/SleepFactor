@@ -11,7 +11,7 @@ import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
 const Stack = createNativeStackNavigator();
 
-const AppNavigator = () => {
+const AppNavigator = ({ navigationRef }) => {
   console.log('🧭 AppNavigator component rendering...');
   const { isAuthenticated, loading, user } = useAuth();
   console.log('🔐 Auth state:', { isAuthenticated, loading, user: user ? 'exists' : 'null' });
@@ -27,6 +27,7 @@ const AppNavigator = () => {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       linking={{
         prefixes: ['sleepfactor://'],
         config: {

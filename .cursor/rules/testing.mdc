@@ -1,3 +1,119 @@
+# Testing Rules for SleepFactor App
+
+## Overview
+SleepFactor maintains two separate apps on Android devices for testing:
+1. **SleepFactor** (Production) - Stable app built from main branch for daily habit logging
+2. **SleepFactor Dev** (Development) - Development shell app for testing new features
+
+## Production Testing Workflow
+
+### Purpose
+- Test stable, production-ready code
+- Log daily habits without interruption from development changes
+- Ensure core functionality works reliably
+
+### When to Use
+- Before merging feature branches to main
+- When testing bug fixes that affect core functionality
+- For daily habit logging and data collection
+
+### Steps
+1. **Switch to main branch**:
+  
+   git checkout main
+   git pull origin main
+   2. **Build production APK**:
+  
+   npx eas build --platform android --profile production
+   3. **Install and test**:
+   - Download APK from Expo build link
+   - Install over existing "SleepFactor" app (same package ID)
+   - Test core functionality: habit logging, sleep tracking, insights
+
+4. **Version update process** (when ready for release):
+   - Update version in app.json (+0.0.1)
+   - Update APP_VERSION in ProfileScreen.js
+   - Commit with message: "Release vX.X.X"
+   - Push to main branch
+
+## Development Testing Workflow
+
+### Purpose
+- Test new features and changes before production deployment
+- Rapid iteration on development branches
+- Full native feature testing on physical device
+
+### When to Use
+- When developing new features or UI improvements
+- When testing changes to core functionality
+- When debugging issues that require device testing
+
+### Prerequisites
+- Node.js version 20+ (required for Expo SDK 54)
+- "SleepFactor Dev" development APK installed on test device
+- Development server running locally
+
+### Development APK Management
+- **Rebuild frequency**: Rebuild development APK when:
+  - Adding new native dependencies
+  - Changing app configuration (permissions, plugins)
+  - After major version updates
+  - When existing dev APK becomes incompatible
+
+- **Build command**:
+ 
+  npx eas build --platform android --profile development
+  ### Testing Process
+1. **Prepare development environment**:
+  
+   # Switch to development branch
+   git checkout Development  # or feature branch
+   
+   # Ensure Node.js 20+
+   node --version  # Should show v20.x.x
+   2. **Launch development app on device**:
+   - Open "SleepFactor Dev" app on Android device
+   - Ensure it's the latest development APK
+
+3. **Start development server**:
+  
+   npx expo start --dev-client
+   4. **Connect and test**:
+   - Scan QR code with "SleepFactor Dev" app
+   - Test new features/functionality
+   - Monitor console logs for errors
+   - Test on real device for accurate UX feedback
+
+### Testing Checklist
+- [ ] App launches without crashes
+- [ ] Navigation works correctly
+- [ ] Data persists between sessions
+- [ ] Network requests function properly
+- [ ] Error handling displays appropriate messages
+- [ ] Performance is acceptable on device
+- [ ] UI renders correctly on Android device
+- [ ] Core user flows complete successfully
+
+### Troubleshooting Common Issues
+- **"toReversed is not a function"**: Update Node.js to version 20+
+- **Build fails**: Check for syntax errors, run `npx expo install --fix`
+- **App won't connect**: Restart development server, check network connection
+- **Native features broken**: Rebuild development APK after dependency changes
+
+## Testing Priorities
+1. **Android first**: Test on Android device before iOS
+2. **Core functionality**: Habit logging, sleep tracking, data persistence
+3. **User experience**: Ensure intuitive navigation and clear feedback
+4. **Error scenarios**: Test edge cases and error conditions
+5. **Performance**: Verify app runs smoothly on target device
+
+## Version Control Integration
+- Development branches: Test thoroughly before merging to main
+- Main branch: Only stable, tested code
+- Tag releases: Use semantic versioning (v1.2.3 format)
+- Commit messages: Include testing notes for significant changes
 ---
+alwaysApply: true
+------
 alwaysApply: true
 ---

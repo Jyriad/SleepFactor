@@ -32,59 +32,42 @@ const ResetPasswordScreen = () => {
         console.log('🔑 ResetPasswordScreen: Setting up session from URL');
         console.log('🔑 ResetPasswordScreen: Route params:', route.params);
 
-        // First try to get URL from route params (passed by navigation)
-        let url = route.params?.url;
-
-        // If not in route params, get from initial URL
-        if (!url) {
-          url = await Linking.getInitialURL();
-        }
-
+        // Get URL from route params (passed by manual navigation from App.js)
+        const url = route.params?.url;
         console.log('🔑 ResetPasswordScreen: URL to process:', url);
-        console.log('🔑 ResetPasswordScreen: Full URL object:', { url });
 
-        // Handle code-based authentication flow (current Supabase default)
-        const urlCode = route.params?.code;
-        console.log('🔑 ResetPasswordScreen: Code from route params:', urlCode);
-
-        if (urlCode) {
-          console.log('🔑 ResetPasswordScreen: Exchanging code for session...');
-
-          const { data, error } = await supabase.auth.exchangeCodeForSession(urlCode);
-
-          if (error) {
-            console.error('Error exchanging code for session:', error);
-            Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
-            navigation.replace('Auth');
-            return;
-          }
-
-          console.log('🔑 ResetPasswordScreen: Session established successfully');
-          setSessionSet(true);
-        } else {
-          // Fallback: try to extract code from URL directly
-          const codeMatch = url.match(/[?&]code=([^&]+)/);
-          if (codeMatch) {
-            const extractedCode = decodeURIComponent(codeMatch[1]);
-            console.log('🔑 ResetPasswordScreen: Extracted code from URL:', extractedCode);
-
-            const { data, error } = await supabase.auth.exchangeCodeForSession(extractedCode);
-
-            if (error) {
-              console.error('Error exchanging extracted code for session:', error);
-              Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
-              navigation.replace('Auth');
-              return;
-            }
-
-            console.log('🔑 ResetPasswordScreen: Session established from extracted code');
-            setSessionSet(true);
-          } else {
-            console.log('🔑 ResetPasswordScreen: No code found in route params or URL');
-            Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-            navigation.replace('Auth');
-          }
+        if (!url) {
+          console.error('❌ No URL provided to ResetPasswordScreen');
+          Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
+          navigation.replace('Auth');
+          return;
         }
+
+        // Extract code from the URL
+        const codeMatch = url.match(/[?&]code=([^&]+)/);
+        if (!codeMatch) {
+          console.error('❌ No code found in URL:', url);
+          Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
+          navigation.replace('Auth');
+          return;
+        }
+
+        const code = decodeURIComponent(codeMatch[1]);
+        console.log('🔑 ResetPasswordScreen: Extracted code:', code);
+
+        console.log('🔑 ResetPasswordScreen: Exchanging code for session...');
+
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+        if (error) {
+          console.error('Error exchanging code for session:', error);
+          Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
+          navigation.replace('Auth');
+          return;
+        }
+
+        console.log('🔑 ResetPasswordScreen: Session established successfully');
+        setSessionSet(true);
       } catch (error) {
         console.error('Error processing reset link:', error);
         Alert.alert('Error', 'Failed to process reset link. Please try again.');
