@@ -16,19 +16,11 @@ const AppNavigator = ({ navigationRef }) => {
   const { isAuthenticated, loading, user } = useAuth();
   console.log('🔐 [AppNavigator] Auth state:', { isAuthenticated, loading, user: user ? 'exists' : 'null' });
 
-  // Keep showing loading screen until we're absolutely sure about auth state
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1E3A8A" />
-      </View>
-    );
-  }
-
   const initialRoute = isAuthenticated && user ? "MainTabs" : "Auth";
   console.log('🧭 [AppNavigator] NavigationContainer - Initial route:', initialRoute);
 
   // Reset navigation when auth state changes
+  // IMPORTANT: This useEffect must come BEFORE any conditional returns to maintain hooks order
   useEffect(() => {
     if (navigationRef.current && !loading) {
       const targetRoute = isAuthenticated && user ? "MainTabs" : "Auth";
@@ -46,10 +38,18 @@ const AppNavigator = ({ navigationRef }) => {
         // Verify the reset actually worked (similar to OAuth dismiss verification)
         setTimeout(() => {
           try {
-            const currentRoute = navigationRef.current.getCurrentRoute();
-            console.log('🔍 [AppNavigator] Verification - current route after reset:', currentRoute?.name);
+            const rootState = navigationRef.current.getRootState();
+            const currentRoute = rootState?.routes[rootState.index];
+            console.log('🔍 [AppNavigator] Verification - root route after reset:', currentRoute?.name);
+            console.log('🔍 [AppNavigator] Verification - full root state:', JSON.stringify(rootState, null, 2));
 
-            if (currentRoute?.name !== targetRoute) {
+            // For MainTabs, the actual route might be the current tab (e.g., "Home")
+            // Check if we're on the correct navigator, not the exact tab
+            const isOnCorrectNavigator = targetRoute === "MainTabs"
+              ? (currentRoute?.name === "MainTabs" || ["Home", "Habits", "Insights", "Profile"].includes(currentRoute?.name))
+              : currentRoute?.name === targetRoute;
+
+            if (!isOnCorrectNavigator) {
               console.warn('⚠️ [AppNavigator] Navigation reset verification failed!');
               console.warn('⚠️ [AppNavigator] Expected:', targetRoute, 'Actual:', currentRoute?.name);
               console.log('🔧 [AppNavigator] Attempting corrective navigation...');
@@ -63,13 +63,22 @@ const AppNavigator = ({ navigationRef }) => {
           } catch (verifyError) {
             console.error('❌ [AppNavigator] Error during navigation verification:', verifyError);
           }
-        }, 100); // Small delay to let reset complete
+        }, 300); // Increased delay for tab navigation to settle
 
       } catch (error) {
         console.error('❌ [AppNavigator] Navigation reset failed:', error);
       }
     }
-  }, [isAuthenticated, user, loading]);
+  }, [isAuthenticated, user, loading, navigationRef]);
+
+  // Keep showing loading screen until we're absolutely sure about auth state
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1E3A8A" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer

@@ -27,6 +27,7 @@ const ResetPasswordScreen = () => {
 
   useEffect(() => {
     console.log('🔑 [ResetPasswordScreen] Component mounted/updated');
+    console.log('🔑 [ResetPasswordScreen] Mount stack trace:', new Error().stack);
 
     // Extract tokens from URL parameters and set session
     const setupSessionFromUrl = async () => {
