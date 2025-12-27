@@ -30,6 +30,7 @@ class InsightsService {
       // Load habits and their logs
       const habits = await this.getActiveHabits(userId);
       const habitLogs = await this.getHabitLogs(userId, startDate, endDate);
+      const drugLevels = await this.getDrugLevels(userId, startDate, endDate);
       const sleepData = await this.getSleepData(userId, startDate, endDate);
 
       console.log(`📊 Insights Analysis:`);
@@ -41,6 +42,9 @@ class InsightsService {
 
       // Group logs by habit
       const logsByHabit = this.groupLogsByHabit(habitLogs);
+
+      // Group drug levels by habit for quick_consumption habits
+      const drugLevelsByHabit = this.groupDrugLevelsByHabit(drugLevels);
 
       // Create sleep data lookup by date
       const sleepByDate = {};
@@ -54,10 +58,21 @@ class InsightsService {
 
       // Calculate insights for each habit
       for (const habit of habits) {
-        const habitData = logsByHabit[habit.id] || [];
-        console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
-        console.log(`   Type: ${habit.type}`);
-        console.log(`   Habit logs found: ${habitData.length} days`);
+        // Use different data sources based on habit type
+        let habitData;
+        if (habit.type === 'quick_consumption') {
+          // For quick_consumption habits (alcohol/caffeine), use drug levels
+          habitData = drugLevelsByHabit[habit.id] || [];
+          console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
+          console.log(`   Type: ${habit.type} (drug levels)`);
+          console.log(`   Drug level records found: ${habitData.length} days`);
+        } else {
+          // For other habit types, use habit logs
+          habitData = logsByHabit[habit.id] || [];
+          console.log(`\n🔍 Analyzing habit: ${habit.name} (ID: ${habit.id})`);
+          console.log(`   Type: ${habit.type}`);
+          console.log(`   Habit logs found: ${habitData.length} days`);
+        }
 
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric);
         if (insight) {
@@ -66,7 +81,7 @@ class InsightsService {
         } else {
           // Create placeholder insight with tracking statistics
           console.log(`   📊 Creating placeholder with tracking stats`);
-          const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate);
+          const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
           placeholders.push(placeholderInsight);
         }
       }
@@ -150,6 +165,32 @@ class InsightsService {
   }
 
   /**
+   * Get drug levels within date range for quick_consumption habits
+   * @param {string} userId - User ID
+   * @param {Date} startDate - Start date
+   * @param {Date} endDate - End date
+   * @returns {Promise<Array>} Array of drug levels
+   */
+  async getDrugLevels(userId, startDate, endDate) {
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('drug_levels')
+      .select(`
+        *,
+        habits!inner(name, type, unit)
+      `)
+      .eq('user_id', userId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  /**
    * Group habit logs by habit ID
    * @param {Array} habitLogs - Array of habit logs
    * @returns {Object} Object with habit IDs as keys and arrays of logs as values
@@ -166,16 +207,33 @@ class InsightsService {
   }
 
   /**
+   * Group drug levels by habit for quick_consumption habits
+   * @param {Array} drugLevels - Array of drug level records
+   * @returns {Object} Object with habit IDs as keys and drug level arrays as values
+   */
+  groupDrugLevelsByHabit(drugLevels) {
+    const grouped = {};
+    drugLevels.forEach(level => {
+      if (!grouped[level.habit_id]) {
+        grouped[level.habit_id] = [];
+      }
+      grouped[level.habit_id].push(level);
+    });
+    return grouped;
+  }
+
+  /**
    * Calculate insights for a single habit
    * @param {Object} habit - Habit object
-   * @param {Array} habitLogs - Array of habit logs for this habit
+   * @param {Array} habitData - Array of habit data (logs or drug levels) for this habit
    * @param {Array} sleepData - Array of sleep data
    * @param {string} sleepMetric - Sleep metric to analyze
    * @returns {Object|null} Insight object or null if insufficient data
    */
-  calculateHabitInsight(habit, habitLogs, sleepData, sleepMetric) {
-    if (!habitLogs || habitLogs.length < this.MIN_DATA_POINTS) {
-      console.log(`   ⚠️ Insufficient habit logs: ${habitLogs?.length || 0} (need at least ${this.MIN_DATA_POINTS})`);
+  calculateHabitInsight(habit, habitData, sleepData, sleepMetric) {
+    if (!habitData || habitData.length < this.MIN_DATA_POINTS) {
+      const dataType = habit.type === 'quick_consumption' ? 'drug levels' : 'habit logs';
+      console.log(`   ⚠️ Insufficient ${dataType}: ${habitData?.length || 0} (need at least ${this.MIN_DATA_POINTS})`);
       return null; // Insufficient data
     }
 
@@ -186,22 +244,30 @@ class InsightsService {
     });
     console.log(`   Sleep data dates available: ${Object.keys(sleepByDate).length} unique dates`);
 
-    // Combine habit logs with sleep data
-    // IMPORTANT: Sleep data date represents the "night of" (morning after)
-    // So habit logs from day X should match with sleep data from day X+1
+    // Combine habit data with sleep data
+    // IMPORTANT: Date matching depends on data type
+    // - Habit logs: sleep data date should be the next day (sleep from day X is stored as day X+1)
+    // - Drug levels: date corresponds directly to sleep data date
     // Example: Steps on Jan 1 should match with sleep from Jan 1-2 (stored as Jan 2)
     const dataPoints = [];
     const unmatchedLogs = [];
     const matchedDates = [];
-    
-    habitLogs.forEach(log => {
-      // Get the next day's date (sleep from day X is stored as day X+1)
-      const logDate = new Date(log.date);
-      const nextDay = new Date(logDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      const nextDayStr = nextDay.toISOString().split('T')[0];
-      
-      const sleep = sleepByDate[nextDayStr];
+
+    habitData.forEach(log => {
+      // Date logic depends on habit type
+      let sleepDataDate;
+      if (habit.type === 'quick_consumption') {
+        // For drug levels, the date corresponds directly to sleep data date
+        sleepDataDate = log.date;
+      } else {
+        // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
+        const logDate = new Date(log.date);
+        const nextDay = new Date(logDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        sleepDataDate = nextDay.toISOString().split('T')[0];
+      }
+
+      const sleep = sleepByDate[sleepDataDate];
       if (sleep && sleep[sleepMetric] !== null && sleep[sleepMetric] !== undefined) {
         const habitValue = this.getHabitValue(log, habit);
         const sleepValue = sleep[sleepMetric];
@@ -288,9 +354,18 @@ class InsightsService {
       return log.value && (log.value.toLowerCase() === 'yes' || log.value === '1' || log.value === true) ? 1 : 0;
     } else if (habit.type === 'numeric') {
       // Use numeric_value if available, otherwise parse value
-      let value = log.numeric_value !== null && log.numeric_value !== undefined 
-        ? log.numeric_value 
+      let value = log.numeric_value !== null && log.numeric_value !== undefined
+        ? log.numeric_value
         : parseFloat(log.value);
+      // Ensure value is a valid number
+      if (value === null || value === undefined || isNaN(value)) {
+        return 0;
+      }
+      return value;
+    } else if (habit.type === 'quick_consumption') {
+      // For quick_consumption habits, use the drug level value
+      // This comes from the drug_levels table (level_value field)
+      let value = log.level_value;
       // Ensure value is a valid number
       if (value === null || value === undefined || isNaN(value)) {
         return 0;
@@ -480,7 +555,7 @@ class InsightsService {
    * @param {Object} sleepByDate - Sleep data lookup by date
    * @returns {Object} Placeholder insight object
    */
-  createPlaceholderInsight(habit, habitData, sleepByDate) {
+  createPlaceholderInsight(habit, habitData, sleepByDate, sleepData) {
     // Calculate tracking statistics
     let daysTracked = 0;
     let daysWithSleepData = 0;
@@ -490,13 +565,19 @@ class InsightsService {
       daysTracked++;
 
       // Check if we have sleep data for this date
-      // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
-      const logDate = new Date(log.date);
-      const nextDay = new Date(logDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      const nextDayStr = nextDay.toISOString().split('T')[0];
+      let sleepDataDate;
+      if (habit.type === 'quick_consumption') {
+        // For drug levels, the date corresponds directly to sleep data date
+        sleepDataDate = log.date;
+      } else {
+        // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
+        const logDate = new Date(log.date);
+        const nextDay = new Date(logDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        sleepDataDate = nextDay.toISOString().split('T')[0];
+      }
 
-      if (sleepByDate[nextDayStr]) {
+      if (sleepByDate[sleepDataDate]) {
         daysWithSleepData++;
         daysWithPairedData++;
       }
