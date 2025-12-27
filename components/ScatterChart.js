@@ -100,12 +100,22 @@ const ScatterPlot = ({
     );
   }
 
-  // Filter out invalid data points (NaN, null, undefined)
-  const validData = data.filter(point => 
-    point && 
-    point.x !== null && point.x !== undefined && !isNaN(point.x) && isFinite(point.x) &&
-    point.y !== null && point.y !== undefined && !isNaN(point.y) && isFinite(point.y)
-  );
+  // Filter out invalid data points (NaN, null, undefined, strings starting with 'N')
+  const validData = data.filter(point => {
+    if (!point) return false;
+
+    // Check x value
+    const xValid = point.x !== null && point.x !== undefined &&
+                   typeof point.x !== 'string' &&
+                   !isNaN(point.x) && isFinite(point.x);
+
+    // Check y value
+    const yValid = point.y !== null && point.y !== undefined &&
+                   typeof point.y !== 'string' &&
+                   !isNaN(point.y) && isFinite(point.y);
+
+    return xValid && yValid;
+  });
 
   if (validData.length === 0) {
     return (
@@ -119,11 +129,29 @@ const ScatterPlot = ({
   const xValues = validData.map(point => point.x);
   const yValues = validData.map(point => point.y);
 
-  // Calculate ranges for scaling
+  // Validate that we have numeric values
+  if (xValues.length === 0 || yValues.length === 0) {
+    return (
+      <View style={[styles.container, { width, height }]}>
+        <Text style={styles.noDataText}>No valid numeric data points</Text>
+      </View>
+    );
+  }
+
+  // Calculate ranges for scaling with validation
   const xMin = Math.min(...xValues);
   const xMax = Math.max(...xValues);
   const yMin = Math.min(...yValues);
   const yMax = Math.max(...yValues);
+
+  // Validate ranges are finite numbers
+  if (!isFinite(xMin) || !isFinite(xMax) || !isFinite(yMin) || !isFinite(yMax)) {
+    return (
+      <View style={[styles.container, { width, height }]}>
+        <Text style={styles.noDataText}>Invalid data ranges</Text>
+      </View>
+    );
+  }
 
   // Validate ranges
   if (isNaN(xMin) || isNaN(xMax) || isNaN(yMin) || isNaN(yMax)) {
@@ -172,8 +200,9 @@ const ScatterPlot = ({
   let trendLinePoints = null;
   let trendLinePath = null;
   if (showTrendLine && validData.length >= 3) {
-    const regression = calculateLinearRegression(xValues, yValues);
-    const { slope, intercept } = regression;
+    try {
+      const regression = calculateLinearRegression(xValues, yValues);
+      const { slope, intercept } = regression;
 
     // Validate regression values
     if (slope !== null && slope !== undefined && !isNaN(slope) && isFinite(slope) &&
@@ -213,11 +242,23 @@ const ScatterPlot = ({
         }
       }
     }
+    } catch (error) {
+      console.warn('Error calculating trend line:', error);
+      trendLinePoints = null;
+      trendLinePath = null;
+    }
   }
 
   // Generate nice, rounded grid lines and axis labels
-  const xNiceLabels = getNiceLabels(plotXMin, plotXMax, 5);
-  const yNiceLabels = getNiceLabels(plotYMin, plotYMax, 5);
+  let xNiceLabels = [plotXMin, (plotXMin + plotXMax) / 2, plotXMax];
+  let yNiceLabels = [plotYMin, (plotYMin + plotYMax) / 2, plotYMax];
+
+  try {
+    xNiceLabels = getNiceLabels(plotXMin, plotXMax, 5);
+    yNiceLabels = getNiceLabels(plotYMin, plotYMax, 5);
+  } catch (error) {
+    console.warn('Error generating axis labels, using fallback:', error);
+  }
 
   const xGridValues = xNiceLabels.map(value => ({
     value: value,
@@ -229,13 +270,17 @@ const ScatterPlot = ({
     pixel: toPixelY(value),
   }));
 
-  // Calculate correlation coefficient text
-  const correlationValue = (correlation !== null && correlation !== undefined && !isNaN(correlation)) 
-    ? correlation 
-    : 0;
-  const correlationText = (correlationValue !== 0 && correlationValue !== null && correlationValue !== undefined && !isNaN(correlationValue)) ?
-    `r = ${correlationValue.toFixed(2)} (${correlationStrength || 'weak'})` :
-    'No correlation data';
+  // Calculate correlation coefficient text with validation
+  let correlationText = 'No correlation data';
+  try {
+    if (correlation !== null && correlation !== undefined && !isNaN(correlation) && isFinite(correlation)) {
+      const roundedCorrelation = Math.round(correlation * 100) / 100; // Round to 2 decimal places
+      correlationText = `r = ${roundedCorrelation} (${correlationStrength || 'weak'})`;
+    }
+  } catch (error) {
+    console.warn('Error formatting correlation:', error);
+    correlationText = 'Correlation data unavailable';
+  }
 
   // Validate dimensions to prevent layout errors
   const safeWidth = Math.max(width, 100);
