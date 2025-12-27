@@ -319,7 +319,7 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
-            <View style={styles.infoCard}>
+            <View style={[styles.infoCard, styles.notificationsCard]}>
               <Text style={styles.label}>Notifications</Text>
               <Text style={styles.value}>Coming soon</Text>
             </View>
@@ -331,8 +331,7 @@ const ProfileScreen = () => {
             <View style={styles.infoCard}>
               <Text style={styles.label}>Version</Text>
               <View style={styles.versionContainer}>
-                <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.34'}</Text>
-                <Text style={styles.developmentBadge}>Development</Text>
+                <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.47'}</Text>
               </View>
             </View>
           </View>
@@ -420,6 +419,9 @@ const styles = StyleSheet.create({
   logoutButton: {
     marginTop: spacing.xxl,
     marginBottom: spacing.xl,
+  },
+  notificationsCard: {
+    marginTop: spacing.md,
   },
   timeFormatContainer: {
     flexDirection: 'row',

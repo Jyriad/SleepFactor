@@ -64,6 +64,7 @@ const HomeScreen = () => {
   const [loggedDates, setLoggedDates] = useState([]);
   const [datesWithUnsavedChanges, setDatesWithUnsavedChanges] = useState([]);
   const [habitCount, setHabitCount] = useState(0);
+  const [totalHabitCount, setTotalHabitCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
 
@@ -119,7 +120,9 @@ const HomeScreen = () => {
     checkTodaysHabitsLogged();
     fetchLoggedDates();
     calculatePersonalAverages();
+    fetchTotalHabitCount(); // Fetch total habit count once on mount
   }, [user]);
+
 
   // Preload data for recent dates on app launch
   useEffect(() => {
@@ -343,11 +346,9 @@ const HomeScreen = () => {
       if (consumptionError) {
         console.error('Error fetching consumption events:', consumptionError);
       } else {
-        // Add drug habits that have consumption events
+        // Add quick_consumption habits that have consumption events (including "none" events)
         consumptionEvents?.forEach(event => {
-          if (event.habits?.type === 'quick_consumption' &&
-              (event.habits?.name?.toLowerCase().includes('caffeine') ||
-               event.habits?.name?.toLowerCase().includes('alcohol'))) {
+          if (event.habits?.type === 'quick_consumption') {
             loggedHabits.add(event.habit_id);
           }
         });
@@ -357,6 +358,41 @@ const HomeScreen = () => {
     } catch (error) {
       console.error('Error fetching habit count for date:', error);
       return 0;
+    }
+  };
+
+  const fetchTotalHabitCount = async () => {
+    if (!user) return;
+
+    try {
+      // Get all active habits for the user, excluding health metrics and untracked habits
+      const { data, error } = await supabase
+        .from('habits')
+        .select('id, name, type')
+        .eq('user_id', user.id)
+        .neq('is_active', false); // Get all habits that are not explicitly inactive/untracked
+
+      if (error) throw error;
+
+      // Filter out health metric habits and untracked habits
+      const allHabits = data || [];
+      const healthMetrics = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
+      const untracked = allHabits.filter(habit => habit.is_active === false);
+      const manualHabits = allHabits.filter(habit =>
+        !healthMetricsService.isHealthMetricHabit(habit) && habit.is_active !== false
+      );
+
+      console.log('=== HABIT COUNT DEBUG ===');
+      console.log('Total habits in DB:', allHabits.length);
+      console.log('Health metric habits:', healthMetrics.length, healthMetrics.map(h => h.name));
+      console.log('Untracked habits:', untracked.length, untracked.map(h => h.name));
+      console.log('Active manual habits:', manualHabits.length, manualHabits.map(h => h.name));
+      console.log('========================');
+
+      setTotalHabitCount(manualHabits.length);
+    } catch (error) {
+      console.error('Error fetching total habit count:', error);
+      setTotalHabitCount(0);
     }
   };
 
@@ -739,11 +775,14 @@ const HomeScreen = () => {
 
         {/* Habit Summary Card - Hide if viewing today and habits aren't logged (to avoid duplicate message) */}
         {!loading && !(isToday(selectedDate) && !todaysHabitsLogged) && (
-          <HabitSummaryCard
-            date={selectedDate}
-            habitCount={habitCount}
-            onPress={handleLogHabits}
-          />
+          <View style={styles.section}>
+            <HabitSummaryCard
+              date={selectedDate}
+              habitCount={habitCount}
+              totalHabitCount={totalHabitCount}
+              onPress={handleLogHabits}
+            />
+          </View>
         )}
 
 
@@ -1191,7 +1230,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   section: {
-    marginTop: spacing.md,
+    marginBottom: 15,
+    marginHorizontal: spacing.regular,
   },
   sectionTitle: {
     fontSize: typography.sizes.medium,
@@ -1238,7 +1278,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
     padding: spacing.lg,
-    marginHorizontal: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
   },

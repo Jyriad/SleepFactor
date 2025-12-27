@@ -39,6 +39,7 @@ const HabitManagementScreen = () => {
   const { user } = useAuth();
   const [manualHabits, setManualHabits] = useState([]);
   const [automaticHabits, setAutomaticHabits] = useState([]);
+  const [untrackedHabits, setUntrackedHabits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -134,7 +135,7 @@ const HabitManagementScreen = () => {
           id: `predef-${predef.name}`,
           user_id: user.id,
           is_custom: false,
-          is_pinned: false,
+          is_active: true, // Default to tracked
           priority: index + ALWAYS_AVAILABLE_HABITS.length,
         }));
 
@@ -152,18 +153,25 @@ const HabitManagementScreen = () => {
 
       const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits, ...healthMetricHabits];
 
-      // Separate habits into manual and automatic categories
-      const manual = allHabits.filter(habit => !healthMetricsService.isHealthMetricHabit(habit));
+      // Separate habits into tracked, automatic, and untracked categories
+      const tracked = allHabits.filter(habit =>
+        !healthMetricsService.isHealthMetricHabit(habit) && habit.is_active !== false
+      );
       const automatic = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
+      const untracked = allHabits.filter(habit =>
+        !healthMetricsService.isHealthMetricHabit(habit) && habit.is_active === false
+      );
 
-      console.log(`📊 Separated into ${manual.length} manual and ${automatic.length} automatic habits`);
+      console.log(`📊 Separated into ${tracked.length} tracked, ${automatic.length} automatic, and ${untracked.length} untracked habits`);
 
       // Ensure all habits have valid IDs for DraggableFlatList
-      const validManual = manual.filter(habit => habit && (habit.id || habit.name));
+      const validTracked = tracked.filter(habit => habit && (habit.id || habit.name));
       const validAutomatic = automatic.filter(habit => habit && (habit.id || habit.name));
+      const validUntracked = untracked.filter(habit => habit && (habit.id || habit.name));
 
-      setManualHabits(validManual);
+      setManualHabits(validTracked);
       setAutomaticHabits(validAutomatic);
+      setUntrackedHabits(validUntracked);
       setDataLoaded(true);
     } catch (error) {
       console.error('Error loading habits:', error);
@@ -532,20 +540,20 @@ const HabitManagementScreen = () => {
       const isPlaceholder = habit.id && habit.id.startsWith('predef-');
       const isAlwaysAvailable = habit.id && habit.id.startsWith('always-');
       if (isPlaceholder) {
-        // Create the habit as tracked regularly (pinned)
+        // Create the habit as tracked (active)
         await createPredefinedHabit(habit);
         return;
       }
       if (isAlwaysAvailable) {
-        // Always available habits are already in the database, just toggle pinning
+        // Always available habits are already in the database, just toggle active state
         // Don't return, continue with normal toggle logic
       }
 
-      const newIsPinned = !habit.is_pinned;
+      const newIsActive = habit.is_active === false; // Toggle from current state
 
       // Get max priority for the target section
-      const allHabits = [...manualHabits, ...automaticHabits];
-      const targetHabits = allHabits.filter(h => h.is_pinned === newIsPinned);
+      const allHabits = [...manualHabits, ...automaticHabits, ...untrackedHabits];
+      const targetHabits = allHabits.filter(h => (h.is_active !== false) === newIsActive);
       const maxPriority = targetHabits.length > 0
         ? Math.max(...targetHabits.map(h => h.priority || 0)) + 1
         : 0;
@@ -554,7 +562,7 @@ const HabitManagementScreen = () => {
       const { error } = await supabase
         .from('habits')
         .update({
-          is_pinned: newIsPinned,
+          is_active: newIsActive,
           priority: maxPriority,
           updated_at: new Date().toISOString(),
         })
@@ -874,13 +882,13 @@ const HabitManagementScreen = () => {
           <>
             <View style={styles.toggleSection}>
               <Text style={styles.toggleLabel}>
-                {habit.is_pinned ? 'Regular' : 'Occasional'}
+                {habit.is_active !== false ? 'Tracking' : 'Untracked'}
               </Text>
               <Switch
-                value={habit.is_pinned}
+                value={habit.is_active !== false}
                 onValueChange={() => toggleHabitTracking(habit)}
                 trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor={habit.is_pinned ? '#FFFFFF' : '#FFFFFF'}
+                thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
               />
             </View>
 
@@ -1001,6 +1009,56 @@ const HabitManagementScreen = () => {
                   );
                 })}
               </View>
+
+              {/* Untracked Habits Section */}
+              {untrackedHabits.length > 0 && (
+                <View style={styles.sectionContainer}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Untracked Habits</Text>
+                    <Text style={styles.sectionSubtitle}>
+                      Habits you've temporarily paused tracking
+                    </Text>
+                  </View>
+
+                  {untrackedHabits.map((habit) => (
+                    <View key={habit.id || habit.name} style={styles.untrackedHabitItem}>
+                      <View style={styles.habitInfo}>
+                        <Text style={styles.habitName}>{habit.name}</Text>
+                        <Text style={styles.habitType}>
+                          {getHabitTypeDescription(habit)}
+                        </Text>
+                      </View>
+                      <View style={styles.toggleSection}>
+                        <Text style={styles.toggleLabel}>
+                          {habit.is_active !== false ? 'Tracking' : 'Untracked'}
+                        </Text>
+                        <Switch
+                          value={habit.is_active !== false}
+                          onValueChange={() => toggleHabitTracking(habit)}
+                          trackColor={{ false: colors.border, true: colors.primary }}
+                          thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
+                        />
+                      </View>
+                      {habit.is_custom && (
+                        <View style={styles.actionSection}>
+                          <TouchableOpacity
+                            style={styles.editButton}
+                            onPress={() => openEditModal(habit)}
+                          >
+                            <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.deleteButton}
+                            onPress={() => deleteCustomHabit(habit.id)}
+                          >
+                            <Ionicons name="trash-outline" size={20} color={colors.error} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
 
               {/* Add Custom Habit Section */}
               <View style={styles.addSection}>
@@ -1498,6 +1556,18 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     lineHeight: 16,
+  },
+  untrackedHabitItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+    opacity: 0.7, // Slightly faded to indicate untracked status
   },
 });
 

@@ -24,6 +24,11 @@ import EditConsumptionOptionModal from './EditConsumptionOptionModal';
 
 const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId }) => {
   const consumptionEvents = value || []; // Use value prop directly as controlled component
+
+  // Check if "None" has been selected (special "none" event exists)
+  const hasNoneEvent = consumptionEvents.some(event => event.drink_type === 'none');
+  const isNoneSelected = hasNoneEvent;
+
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
   const [selectedHour, setSelectedHour] = useState(new Date().getHours());
@@ -126,6 +131,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         console.error('Error adding quick consumption:', result.error);
         Alert.alert('Error', 'Failed to add consumption');
       } else {
+        // Clear None selection since we're adding consumption
+
         // Immediately update the bedtime drug level in habit_logs
         try {
           console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate}`);
@@ -285,6 +292,74 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   };
 
   const selectConsumptionOption = (option) => {
+    const isNoneOption = option.drug_amount === 0;
+
+    if (isNoneOption) {
+      // Selecting "None" - save a special "none" consumption event and save immediately
+      const saveNoneSelection = async () => {
+        try {
+          // Delete existing events for this date
+          const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+          const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+          const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
+
+          await supabase
+            .from('habit_consumption_events')
+            .delete()
+            .eq('user_id', userId)
+            .eq('habit_id', habit?.id)
+            .gte('consumed_at', startOfDay.toISOString())
+            .lte('consumed_at', endOfDay.toISOString());
+
+          // Insert a special "none" consumption event
+          const noneEventTime = new Date(dateObj);
+          noneEventTime.setHours(12, 0, 0, 0); // Noon as default time for "none"
+
+          const { error: insertError } = await supabase
+            .from('habit_consumption_events')
+            .insert({
+              user_id: userId,
+              habit_id: habit?.id,
+              consumed_at: noneEventTime.toISOString(),
+              amount: 0, // Special amount for "none"
+              drink_type: 'none', // Special drink_type for "none"
+            });
+
+          if (insertError) throw insertError;
+
+          // Immediately update the bedtime drug level in habit_logs
+          try {
+            console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate} (None selected)`);
+            await updateBedtimeDrugLevel(habit?.id, selectedDate);
+            console.log('✅ Auto-saved bedtime drug level for None selection');
+          } catch (levelError) {
+            console.error('Failed to auto-save bedtime drug level:', levelError);
+          }
+
+          // Update local state with the "none" event
+          const noneEvent = {
+            id: 'none-' + habit?.id + '-' + dateObj.toISOString().split('T')[0], // Temporary ID
+            user_id: userId,
+            habit_id: habit?.id,
+            consumed_at: noneEventTime.toISOString(),
+            amount: 0,
+            drink_type: 'none',
+          };
+          onChange([noneEvent]);
+        } catch (error) {
+          console.error('Error saving None selection:', error);
+          Alert.alert('Error', 'Failed to save None selection');
+        }
+      };
+
+      saveNoneSelection();
+      return;
+    }
+
+    // Selecting a non-None option - just open the modal, don't clear None selection yet
+    // None selection will only be cleared when consumption is actually logged
+
+    // If "None" was selected (no consumption events), selecting another option will add the first consumption
     // Use database values directly - no hardcoded fallbacks
     const optionWithDefaults = {
       ...option,
@@ -430,6 +505,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
       onChange([...consumptionEvents, newEvent]);
 
+      // Clear None selection since we're adding consumption
+
       // Immediately update the bedtime drug level in habit_logs
       try {
         console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate}`);
@@ -556,6 +633,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       // Remove from local state
       onChange(consumptionEvents.filter(event => event.id !== eventId));
 
+      // Clear None selection since we're removing consumption
+
       // Update bedtime drug level
       try {
         console.log(`🔄 Auto-updating bedtime drug level for ${habit?.name} on ${selectedDate} after deletion`);
@@ -657,6 +736,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   };
 
   const getConsumptionTypeName = (type) => {
+    if (type === 'none') return 'None';
     const option = resolveConsumptionType(type);
     return option?.name || type;
   };
@@ -672,16 +752,23 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           <>
             {consumptionOptions.slice(0, 6).map((option) => {
               const isNoneOption = option.drug_amount === 0;
+              const isNoneSelected = isNoneOption && hasNoneEvent;
               return (
               <TouchableOpacity
                 key={option.id}
-                style={[styles.quickButton, isNoneOption && styles.quickButtonNone]}
+                style={[
+                  styles.quickButton,
+                  isNoneOption && (isNoneSelected ? styles.quickButtonNoneSelected : styles.quickButtonNone)
+                ]}
                 onPress={() => selectConsumptionOption(option)}
                 onLongPress={() => handleLongPressOption(option)}
                 delayLongPress={500}
               >
                   <Text
-                    style={[styles.quickButtonText, isNoneOption && styles.quickButtonTextNone]}
+                    style={[
+                      styles.quickButtonText,
+                      isNoneOption && (isNoneSelected ? styles.quickButtonTextNoneSelected : styles.quickButtonTextNone)
+                    ]}
                     numberOfLines={1}
                   >
                     {option.name.split(' ')[0]}
@@ -699,8 +786,17 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         )}
       </View>
 
-      {/* Logged Consumption Items */}
-      {consumptionEvents.length > 0 && (
+      {/* Logged Consumption Items or None Message */}
+      {hasNoneEvent ? (
+        <View style={styles.loggedItemsContainer}>
+          <Text style={styles.loggedItemsTitle}>
+            No consumption logged today
+          </Text>
+          <Text style={styles.noneMessage}>
+            You selected "None" - no {habit?.name?.toLowerCase()} consumption for this day
+          </Text>
+        </View>
+      ) : consumptionEvents.length > 0 ? (
         <View style={styles.loggedItemsContainer}>
           <Text style={styles.loggedItemsTitle}>
             Logged Today ({consumptionEvents.length})
@@ -764,7 +860,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             );
           })}
         </View>
-      )}
+      ) : null}
 
       {/* Time Selection Modal */}
       <Modal
@@ -1215,8 +1311,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.textSecondary,
   },
+  quickButtonNoneSelected: {
+    backgroundColor: colors.primary, // Blue background when selected
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
   quickButtonTextNone: {
     color: colors.textSecondary,
+  },
+  quickButtonTextNoneSelected: {
+    color: '#FFFFFF', // White text when selected
   },
   modalServingSection: {
     marginBottom: spacing.lg,
@@ -1334,6 +1438,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
+  },
+  noneMessage: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: spacing.sm,
   },
   loggedItemRow: {
     flexDirection: 'row',
