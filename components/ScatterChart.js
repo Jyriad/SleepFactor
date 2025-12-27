@@ -5,6 +5,39 @@ import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
 
 /**
+ * Error boundary for SVG components to prevent layout event errors
+ */
+class SVGErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    console.warn('SVG Error Boundary caught error:', error.message);
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.warn('SVG Error Boundary details:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={[this.props.style, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+            Chart temporarily unavailable
+          </Text>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+/**
  * Generate nice, rounded axis labels
  * Returns an array of nicely rounded values between min and max
  */
@@ -115,8 +148,8 @@ const ScatterPlot = ({
 
   // Chart dimensions - increased bottom padding for axis title, left for Y-axis title
   const padding = { top: 20, right: 40, bottom: 60, left: 70 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
+  const chartWidth = Math.max(safeWidth - padding.left - padding.right, 50);
+  const chartHeight = Math.max(safeHeight - padding.top - padding.bottom, 50);
 
   // Convert data point to pixel coordinates
   const toPixelX = (x) => {
@@ -204,14 +237,23 @@ const ScatterPlot = ({
     `r = ${correlationValue.toFixed(2)} (${correlationStrength || 'weak'})` :
     'No correlation data';
 
+  // Validate dimensions to prevent layout errors
+  const safeWidth = Math.max(width, 100);
+  const safeHeight = Math.max(height, 100);
+
   return (
-    <View style={[styles.container, { width, height }]}>
+    <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
       {title && (
         <Text style={styles.title}>{title}</Text>
       )}
 
       <View style={styles.chartContainer}>
-        <Svg width={width} height={height}>
+        <SVGErrorBoundary style={{ width: safeWidth, height: safeHeight }}>
+          <Svg
+            width={safeWidth}
+            height={safeHeight}
+            onError={(error) => console.warn('SVG rendering error:', error)}
+          >
           {/* Grid lines */}
           {xGridValues.map((grid, index) => (
             <Line
@@ -363,6 +405,7 @@ const ScatterPlot = ({
             />
           )}
         </Svg>
+        </SVGErrorBoundary>
       </View>
 
 
