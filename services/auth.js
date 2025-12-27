@@ -2,7 +2,6 @@
 import { supabase } from './supabase';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import * as AuthSession from 'expo-auth-session';
 
 // Complete web browser auth session for OAuth
 WebBrowser.maybeCompleteAuthSession();
@@ -103,8 +102,15 @@ export const onAuthStateChange = (callback) => {
  * For Expo, use the hardcoded scheme to avoid localhost issues
  */
 const getRedirectUrl = () => {
-  // Use Linking.createURL which handles development vs production automatically
-  return Linking.createURL('');
+  // For development builds, use the Expo development client scheme
+  // For production, use the standard app scheme
+  if (__DEV__) {
+    // Development build - use exp+slug scheme
+    return 'exp+sleepfactor://';
+  } else {
+    // Production build - use standard scheme
+    return 'sleepfactor://';
+  }
 };
 
 /**
@@ -140,10 +146,7 @@ export const signInWithGoogle = async () => {
 
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
-    const result = await AuthSession.startAsync({
-      authUrl: data.url,
-      returnUrl: redirectUrl,
-    });
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
     
     if (result.type === 'success') {
       const url = result.url;
@@ -266,10 +269,7 @@ export const signInWithFacebook = async () => {
 
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
-    const result = await AuthSession.startAsync({
-      authUrl: data.url,
-      returnUrl: redirectUrl,
-    });
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
     
     if (result.type === 'success') {
       const url = result.url;
