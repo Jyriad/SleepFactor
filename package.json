@@ -1,6 +1,6 @@
 {
   "name": "sleepfactor",
-  "version": "1.1.85",
+  "version": "1.1.86",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
