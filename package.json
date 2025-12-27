@@ -27,11 +27,7 @@
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "^8.0.10",
     "expo-status-bar": "~3.0.9",
-<<<<<<< HEAD
-    "expo-updates": "^29.0.15",
-=======
     "expo-updates": "~29.0.15",
->>>>>>> Development
     "expo-web-browser": "^15.0.10",
     "react": "19.1.0",
     "react-native": "0.81.5",

@@ -301,6 +301,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           try {
             // Find and delete the "none" event
             const noneEvent = consumptionEvents.find(event => event.drink_type === 'none');
+
             if (noneEvent) {
               const { error: deleteError } = await supabase
                 .from('habit_consumption_events')
@@ -311,16 +312,13 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
               // Update bedtime drug level
               try {
-                console.log(`🔄 Auto-updating bedtime drug level for ${habit?.name} on ${selectedDate} (None deselected)`);
                 await updateBedtimeDrugLevel(habit?.id, selectedDate);
-                console.log('✅ Auto-updated bedtime drug level for None deselection');
               } catch (levelError) {
                 console.error('Failed to auto-update bedtime drug level:', levelError);
               }
 
               // Update local state by removing the none event
               onChange([]);
-              if (onNoneSelected) onNoneSelected(false);
             }
           } catch (error) {
             console.error('Error deselecting None:', error);
