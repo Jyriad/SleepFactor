@@ -141,7 +141,9 @@ export const signInWithGoogle = async () => {
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
-    
+
+    console.log('🔍 [OAuth] WebBrowser result:', result);
+
     if (result.type === 'success') {
       const url = result.url;
       if (url) {
@@ -212,6 +214,7 @@ export const signInWithGoogle = async () => {
       return { data: null, error: 'OAuth flow was cancelled' };
     } else if (result.type === 'dismiss') {
       console.warn('⚠️ [OAuth] User dismissed the flow');
+      console.log('🔍 [OAuth] Dismiss result details:', result);
       // In development, this often happens due to deep linking issues with dev builds
       const errorMessage = __DEV__
         ? 'OAuth flow was dismissed. This may happen in development builds due to deep linking configuration. Try again or use production build.'
@@ -264,7 +267,9 @@ export const signInWithFacebook = async () => {
     // Open the OAuth URL in browser with proper options
     // Remove the options object - it might be causing issues
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
-    
+
+    console.log('🔍 [OAuth] WebBrowser result:', result);
+
     if (result.type === 'success') {
       const url = result.url;
       if (url) {
