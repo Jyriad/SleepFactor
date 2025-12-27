@@ -1,8 +1,52 @@
-import React from 'react';
+import React, { Component } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
-import { LineChart } from 'react-native-gifted-charts';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
+
+// Error boundary for chart rendering
+class ChartErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.warn('Chart rendering error caught:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={[this.props.style, { justifyContent: 'center', alignItems: 'center', padding: spacing.regular, backgroundColor: colors.cardBackground, borderRadius: 8 }]}>
+          <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: spacing.xs }}>
+            Chart visualization
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
+            {this.props.dataPoints || 0} data points
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 10, textAlign: 'center', marginTop: spacing.xs, fontStyle: 'italic' }}>
+            Interactive chart unavailable
+          </Text>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Try to import LineChart, but fallback gracefully if it fails
+let LineChart = null;
+try {
+  const GiftedCharts = require('react-native-gifted-charts');
+  LineChart = GiftedCharts.LineChart;
+} catch (error) {
+  console.warn('react-native-gifted-charts not available, using fallback');
+}
 
 
 
@@ -170,55 +214,71 @@ const ScatterPlot = ({
         )}
 
         <View style={styles.chartContainer}>
-          <View style={{ width: safeWidth, height: safeHeight }}>
-            <LineChart
-              data={scatterData.map((point) => ({
-                value: point.y,
-              }))}
-              width={safeWidth - 40}
-              height={safeHeight - 60}
-              yAxisThickness={1}
-              xAxisThickness={1}
-              xAxisColor={colors.border}
-              yAxisColor={colors.border}
-              yAxisTextStyle={{ color: colors.textSecondary, fontSize: 10 }}
-              dataPointsColor={pointColor || colors.primary}
-              dataPointsRadius={4}
-              hideDataPoints={false}
-              showVerticalLines
-              verticalLinesColor={colors.border}
-              showHorizontalLines
-              horizontalLinesColor={colors.border}
-              rulesColor={colors.border}
-              rulesType="solid"
-              initialSpacing={10}
-              spacing={(safeWidth - 100) / Math.max(1, scatterData.length - 1)}
-              maxValue={plotYMax}
-              minValue={plotYMin}
-              yAxisLabelSuffix=""
-              yAxisLabelPrefix=""
-              hideYAxisText={false}
-              hideRules={false}
-              curved={false}
-              areaChart={false}
-              color={pointColor || colors.primary}
-              thickness={0}
-              textColor1={colors.textSecondary}
-              textShiftY={-2}
-              textShiftX={-5}
-              textFontSize={10}
-            />
-            {xLabel && (
-              <Text style={[styles.axisLabel, { textAlign: 'center', marginTop: 8 }]}>
-                {xLabel}
-              </Text>
+          <ChartErrorBoundary style={{ width: safeWidth, height: safeHeight }} dataPoints={scatterData.length}>
+            {LineChart ? (
+              <View style={{ width: safeWidth, height: safeHeight }}>
+                <LineChart
+                  data={scatterData.map((point) => ({
+                    value: point.y,
+                  }))}
+                  width={safeWidth - 40}
+                  height={safeHeight - 60}
+                  yAxisThickness={1}
+                  xAxisThickness={1}
+                  xAxisColor={colors.border}
+                  yAxisColor={colors.border}
+                  yAxisTextStyle={{ color: colors.textSecondary, fontSize: 10 }}
+                  dataPointsColor={pointColor || colors.primary}
+                  dataPointsRadius={4}
+                  hideDataPoints={false}
+                  showVerticalLines
+                  verticalLinesColor={colors.border}
+                  showHorizontalLines
+                  horizontalLinesColor={colors.border}
+                  rulesColor={colors.border}
+                  rulesType="solid"
+                  initialSpacing={10}
+                  spacing={(safeWidth - 100) / Math.max(1, scatterData.length - 1)}
+                  maxValue={plotYMax}
+                  minValue={plotYMin}
+                  yAxisLabelSuffix=""
+                  yAxisLabelPrefix=""
+                  hideYAxisText={false}
+                  hideRules={false}
+                  curved={false}
+                  areaChart={false}
+                  color={pointColor || colors.primary}
+                  thickness={0}
+                  textColor1={colors.textSecondary}
+                  textShiftY={-2}
+                  textShiftX={-5}
+                  textFontSize={10}
+                />
+                {xLabel && (
+                  <Text style={[styles.axisLabel, { textAlign: 'center', marginTop: 8 }]}>
+                    {xLabel}
+                  </Text>
+                )}
+                {yLabel && (
+                  <Text style={[styles.axisLabel, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -30, top: safeHeight / 2 - 40 }]}>
+                    {yLabel}
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8, padding: spacing.regular }]}>
+                <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: spacing.xs }}>
+                  Chart visualization
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
+                  {scatterData.length} data points
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 10, textAlign: 'center', marginTop: spacing.xs, fontStyle: 'italic' }}>
+                  Chart library unavailable
+                </Text>
+              </View>
             )}
-            {yLabel && (
-              <Text style={[styles.axisLabel, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -30, top: safeHeight / 2 - 40 }]}>
-                {yLabel}
-              </Text>
-            )}
-          </View>
+          </ChartErrorBoundary>
         </View>
 
 
