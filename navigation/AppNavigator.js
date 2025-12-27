@@ -25,13 +25,23 @@ const AppNavigator = ({ navigationRef }) => {
     );
   }
 
+  const initialRoute = isAuthenticated && user ? "MainTabs" : "Auth";
+  console.log('🧭 [AppNavigator] NavigationContainer - Initial route:', initialRoute);
+
   return (
     <NavigationContainer
       ref={navigationRef}
     >
       <Stack.Navigator
         screenOptions={{ headerShown: false }}
-        initialRouteName={isAuthenticated && user ? "MainTabs" : "Auth"}
+        initialRouteName={initialRoute}
+      >
+        {(() => {
+          const initialRoute = isAuthenticated && user ? "MainTabs" : "Auth";
+          console.log('🧭 [AppNavigator] Stack Navigator - Initial route:', initialRoute);
+          console.log('🧭 [AppNavigator] Stack Navigator - isAuthenticated:', isAuthenticated, 'user:', !!user);
+          return null;
+        })()}
       >
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
         {isAuthenticated && user ? (
