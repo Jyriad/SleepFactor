@@ -170,14 +170,63 @@ const ScatterPlot = ({
         )}
 
         <View style={styles.chartContainer}>
-          <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8 }]}>
-            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
-              Chart visualization
-            </Text>
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-              {scatterData.length} data points
-            </Text>
-          </View>
+          <VictoryChart
+            width={safeWidth}
+            height={safeHeight}
+            padding={{ top: 20, bottom: 60, left: 70, right: 40 }}
+            domain={{ x: [plotXMin, plotXMax], y: [plotYMin, plotYMax] }}
+            theme={{
+              axis: {
+                style: {
+                  axis: { stroke: colors.border },
+                  axisLabel: { fill: colors.textSecondary, fontSize: 12, padding: 30 },
+                  tickLabels: { fill: colors.textSecondary, fontSize: 10 },
+                  ticks: { stroke: colors.border, size: 4 },
+                  grid: { stroke: colors.border, opacity: 0.3 }
+                }
+              }
+            }}
+          >
+            <VictoryAxis
+              label={xLabel || "X Variable"}
+              style={{
+                axisLabel: { padding: 30 },
+                tickLabels: { angle: xValues.length > 10 ? -45 : 0 }
+              }}
+            />
+            <VictoryAxis
+              dependentAxis
+              label={yLabel || "Y Variable"}
+              style={{
+                axisLabel: { padding: 45 }
+              }}
+            />
+
+            <VictoryScatter
+              data={scatterData}
+              size={4}
+              style={{
+                data: {
+                  fill: pointColor || colors.primary,
+                  stroke: colors.cardBackground,
+                  strokeWidth: 1
+                }
+              }}
+            />
+
+            {trendLineData && trendLineData.length >= 2 && (
+              <VictoryLine
+                data={trendLineData}
+                style={{
+                  data: {
+                    stroke: trendLineColor || colors.secondary,
+                    strokeWidth: 2,
+                    strokeDasharray: "5,5"
+                  }
+                }}
+              />
+            )}
+          </VictoryChart>
         </View>
 
 
