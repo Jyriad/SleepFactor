@@ -102,15 +102,9 @@ export const onAuthStateChange = (callback) => {
  * For Expo, use the hardcoded scheme to avoid localhost issues
  */
 const getRedirectUrl = () => {
-  // For development builds, use the Expo development client scheme
-  // For production, use the standard app scheme
-  if (__DEV__) {
-    // Development build - use exp+slug scheme
-    return 'exp+sleepfactor://';
-  } else {
-    // Production build - use standard scheme
-    return 'sleepfactor://';
-  }
+  // Use the same scheme for both development and production
+  // Expo development clients can handle the standard app scheme
+  return 'sleepfactor://';
 };
 
 /**
