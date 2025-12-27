@@ -210,6 +210,9 @@ export const signInWithGoogle = async () => {
     } else if (result.type === 'cancel') {
       console.warn('⚠️ [OAuth] User cancelled the flow');
       return { data: null, error: 'OAuth flow was cancelled' };
+    } else if (result.type === 'dismiss') {
+      console.warn('⚠️ [OAuth] User dismissed the flow');
+      return { data: null, error: 'OAuth flow was dismissed' };
     } else {
       console.error('❌ [OAuth] Unexpected result type:', result.type);
     }
