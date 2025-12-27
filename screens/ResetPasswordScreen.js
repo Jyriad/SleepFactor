@@ -29,13 +29,19 @@ const ResetPasswordScreen = () => {
     // Extract tokens from URL parameters and set session
     const setupSessionFromUrl = async () => {
       try {
-        console.log('🔑 ResetPasswordScreen: Setting up session from URL');
-        console.log('🔑 ResetPasswordScreen: Route params:', route.params);
+        console.log('🔑 [ResetPasswordScreen] Setting up session from URL');
+        console.log('🔑 [ResetPasswordScreen] Route name:', route.name);
+        console.log('🔑 [ResetPasswordScreen] Route params:', route.params);
+        console.log('🔑 [ResetPasswordScreen] Route params keys:', route.params ? Object.keys(route.params) : 'NO_PARAMS');
+        console.log('🔑 [ResetPasswordScreen] Full route object:', JSON.stringify(route, null, 2));
 
         // Get URL from route params (passed by React Navigation deep linking)
         const url = route.params?.url;
-        console.log('🔑 ResetPasswordScreen: URL to process:', url);
-        console.log('🔑 ResetPasswordScreen: All route params:', JSON.stringify(route.params, null, 2));
+        console.log('🔑 [ResetPasswordScreen] URL from params:', url);
+
+        // Also check if there's a code parameter directly
+        const directCode = route.params?.code;
+        console.log('🔑 [ResetPasswordScreen] Direct code param:', directCode);
 
         if (!url) {
           console.error('❌ No URL provided to ResetPasswordScreen');

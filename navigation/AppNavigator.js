@@ -12,9 +12,9 @@ import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 const Stack = createNativeStackNavigator();
 
 const AppNavigator = ({ navigationRef }) => {
-  console.log('🧭 AppNavigator component rendering...');
+  console.log('🧭 [AppNavigator] Component rendering...');
   const { isAuthenticated, loading, user } = useAuth();
-  console.log('🔐 Auth state:', { isAuthenticated, loading, user: user ? 'exists' : 'null' });
+  console.log('🔐 [AppNavigator] Auth state:', { isAuthenticated, loading, user: user ? 'exists' : 'null' });
 
   // Keep showing loading screen until we're absolutely sure about auth state
   if (loading) {
@@ -28,21 +28,6 @@ const AppNavigator = ({ navigationRef }) => {
   return (
     <NavigationContainer
       ref={navigationRef}
-      linking={{
-        prefixes: ['sleepfactor://'],
-        config: {
-          screens: {
-            MainTabs: 'main',
-            Account: 'account',
-            ResetPassword: {
-              path: 'reset-password',
-              parse: {
-                url: (url) => url,
-              },
-            },
-          },
-        },
-      }}
     >
       <Stack.Navigator
         screenOptions={{ headerShown: false }}
