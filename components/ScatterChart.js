@@ -349,16 +349,6 @@ const ScatterPlot = ({
             />
           ))}
 
-          {/* Trend line (line of best fit) - rendered after points so it's visible on top */}
-          {trendLinePath && (
-            <Path
-              key="trend-line"
-              d={trendLinePath}
-              stroke={trendLineColor}
-              strokeWidth={2}
-              fill="none"
-              opacity={0.8}
-              strokeDasharray="5,5"
           </VictoryChart>
         </View>
 
