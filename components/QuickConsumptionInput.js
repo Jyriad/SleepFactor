@@ -826,9 +826,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           <Text style={styles.loggedItemsTitle}>
             No consumption logged today
           </Text>
-          <Text style={styles.noneMessage}>
-            You selected "None" - no {habit?.name?.toLowerCase()} consumption for this day
-          </Text>
         </View>
       ) : consumptionEvents.length > 0 ? (
         <View style={styles.loggedItemsContainer}>
@@ -1472,13 +1469,6 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
-  },
-  noneMessage: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    paddingVertical: spacing.sm,
   },
   loggedItemRow: {
     flexDirection: 'row',
