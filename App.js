@@ -20,19 +20,7 @@ export default function App() {
       console.log('🔗 Deep link received:', url);
 
       if (url && url.includes('reset-password')) {
-        console.log('🔑 Password reset deep link detected, navigating to reset screen');
-
-        // Wait a bit for navigation to be ready, then navigate manually
-        setTimeout(() => {
-          if (navigationRef.current) {
-            console.log('🔄 Navigating to ResetPassword screen');
-            navigationRef.current.navigate('ResetPassword', {
-              url: url
-            });
-          } else {
-            console.error('❌ Navigation ref not available');
-          }
-        }, 1000); // Give time for auth state to settle
+        console.log('🔑 Password reset deep link detected - React Navigation will handle automatically');
       }
     };
 

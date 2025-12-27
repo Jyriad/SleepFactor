@@ -37,7 +37,7 @@ const AppNavigator = ({ navigationRef }) => {
             ResetPassword: {
               path: 'reset-password',
               parse: {
-                code: (code) => code,
+                url: (url) => url,
               },
             },
           },

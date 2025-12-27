@@ -32,14 +32,19 @@ const ResetPasswordScreen = () => {
         console.log('🔑 ResetPasswordScreen: Setting up session from URL');
         console.log('🔑 ResetPasswordScreen: Route params:', route.params);
 
-        // Get URL from route params (passed by manual navigation from App.js)
+        // Get URL from route params (passed by React Navigation deep linking)
         const url = route.params?.url;
         console.log('🔑 ResetPasswordScreen: URL to process:', url);
+        console.log('🔑 ResetPasswordScreen: All route params:', JSON.stringify(route.params, null, 2));
 
         if (!url) {
           console.error('❌ No URL provided to ResetPasswordScreen');
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-          navigation.replace('Auth');
+          // Navigate back to main app instead of Auth since Auth might not be available
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' }],
+          });
           return;
         }
 
@@ -48,7 +53,10 @@ const ResetPasswordScreen = () => {
         if (!codeMatch) {
           console.error('❌ No code found in URL:', url);
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
-          navigation.replace('Auth');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' }],
+          });
           return;
         }
 
@@ -62,7 +70,10 @@ const ResetPasswordScreen = () => {
         if (error) {
           console.error('Error exchanging code for session:', error);
           Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
-          navigation.replace('Auth');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' }],
+          });
           return;
         }
 
@@ -71,7 +82,10 @@ const ResetPasswordScreen = () => {
       } catch (error) {
         console.error('Error processing reset link:', error);
         Alert.alert('Error', 'Failed to process reset link. Please try again.');
-        navigation.replace('Auth');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs' }],
+        });
       }
     };
 
