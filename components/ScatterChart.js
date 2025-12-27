@@ -1,59 +1,12 @@
-import React, { Component } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { LineChart } from 'react-native-chart-kit';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
 
-// Error boundary for chart rendering
-class ChartErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.warn('Chart rendering error caught:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={[this.props.style, { justifyContent: 'center', alignItems: 'center', padding: spacing.regular, backgroundColor: colors.cardBackground, borderRadius: 8 }]}>
-          <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: spacing.xs }}>
-            Chart visualization
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-            {this.props.dataPoints || 0} data points
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 10, textAlign: 'center', marginTop: spacing.xs, fontStyle: 'italic' }}>
-            Interactive chart unavailable
-          </Text>
-        </View>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-// Try to import LineChart, but fallback gracefully if it fails
-let LineChart = null;
-try {
-  const GiftedCharts = require('react-native-gifted-charts');
-  LineChart = GiftedCharts.LineChart;
-} catch (error) {
-  console.warn('react-native-gifted-charts not available, using fallback');
-}
-
-
-
 /**
  * Scatter chart component for visualizing relationships between two variables
- * Custom SVG implementation for full control and reliability
- * Shows individual data points and optional trend line
+ * Uses react-native-chart-kit for reliable rendering without SVG issues
  */
 const ScatterPlot = ({
   data,
@@ -65,7 +18,7 @@ const ScatterPlot = ({
   showTrendLine = true,
   color = colors.primary,
   pointColor = colors.primary,
-  trendLineColor = colors.error, // Use error color (red) for better visibility
+  trendLineColor = colors.error,
   correlation = null,
   correlationStrength = 'weak',
   trendDirection = 'none'
@@ -78,269 +31,160 @@ const ScatterPlot = ({
     );
   }
 
-  // Filter out invalid data points (NaN, null, undefined, strings starting with 'N')
+  // Filter out invalid data points
   const validData = data.filter(point => {
     if (!point) return false;
-
-    // Check x value
-    const xValid = point.x !== null && point.x !== undefined &&
-                   typeof point.x !== 'string' &&
-                   !isNaN(point.x) && isFinite(point.x);
-
-    // Check y value
-    const yValid = point.y !== null && point.y !== undefined &&
-                   typeof point.y !== 'string' &&
-                   !isNaN(point.y) && isFinite(point.y);
-
+    const xValid = point.x !== null && point.x !== undefined && !isNaN(point.x) && isFinite(point.x);
+    const yValid = point.y !== null && point.y !== undefined && !isNaN(point.y) && isFinite(point.y);
     return xValid && yValid;
   });
 
   if (validData.length === 0) {
-    console.log('ScatterChart: No data points after null/undefined filtering');
     return (
-      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={[styles.noDataText, { textAlign: 'center' }]}>Insufficient data for chart</Text>
+      <View style={[styles.container, { width, height, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.noDataText, { textAlign: 'center' }]}>No valid data for visualization</Text>
       </View>
     );
   }
 
-  // Extract x and y values from valid data
+  // Extract x and y values
   const xValues = validData.map(point => point.x);
   const yValues = validData.map(point => point.y);
 
-  // Validate that we have numeric values
-  if (xValues.length === 0 || yValues.length === 0) {
-    console.log('ScatterChart: No valid data points after filtering');
-    return (
-      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={[styles.noDataText, { textAlign: 'center' }]}>No data available for visualization</Text>
-      </View>
-    );
-  }
-
-  // Calculate ranges for scaling with validation
+  // Calculate ranges
   const xMin = Math.min(...xValues);
   const xMax = Math.max(...xValues);
   const yMin = Math.min(...yValues);
   const yMax = Math.max(...yValues);
 
-  // Validate ranges are finite numbers
-  if (!isFinite(xMin) || !isFinite(xMax) || !isFinite(yMin) || !isFinite(yMax)) {
-    console.log('ScatterChart: Invalid data ranges detected');
-    return (
-      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={[styles.noDataText, { textAlign: 'center' }]}>Unable to display chart due to data issues</Text>
-      </View>
-    );
-  }
-
-  // Validate ranges
-  if (isNaN(xMin) || isNaN(xMax) || isNaN(yMin) || isNaN(yMax)) {
-    return (
-      <View style={[styles.container, { width, height }]}>
-        <Text style={styles.noDataText}>Invalid data range</Text>
-      </View>
-    );
-  }
-
-  const xRange = xMax - xMin;
-  const yRange = yMax - yMin;
-
-  // Add padding to ranges (10% on each side)
-  const xPadding = xRange * 0.1 || 1;
-  const yPadding = yRange * 0.1 || 1;
-
-  const plotXMin = xMin - xPadding;
-  const plotXMax = xMax + xPadding;
-  const plotYMin = Math.max(0, yMin - yPadding); // Don't go below 0 for sleep metrics
-  const plotYMax = yMax + yPadding;
-
-  // Prepare scatter plot data for Victory
+  // Prepare data for chart
   const scatterData = validData.map(point => ({
     x: point.x,
     y: point.y,
   }));
 
-  // Calculate trend line if requested
-  let trendLineData = null;
-  if (showTrendLine && validData.length >= 3) {
-    try {
-      const regression = calculateLinearRegression(xValues, yValues);
-      const { slope, intercept } = regression;
-
-      // Validate regression values
-      if (slope !== null && slope !== undefined && !isNaN(slope) && isFinite(slope) &&
-          intercept !== null && intercept !== undefined && !isNaN(intercept) && isFinite(intercept)) {
-        // Generate trend line points
-        const numPoints = 50;
-        trendLineData = [];
-        for (let i = 0; i <= numPoints; i++) {
-          const x = plotXMin + (i / numPoints) * (plotXMax - plotXMin);
-          const y = slope * x + intercept;
-          const clampedY = Math.max(plotYMin, Math.min(plotYMax, y));
-          if (!isNaN(x) && !isNaN(clampedY) && isFinite(x) && isFinite(clampedY)) {
-            trendLineData.push({ x, y: clampedY });
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('Error calculating trend line:', error);
-      trendLineData = null;
-    }
-  }
-
-  // Calculate correlation coefficient text with validation
+  // Calculate correlation text
   let correlationText = 'No correlation data';
   try {
     if (correlation !== null && correlation !== undefined && !isNaN(correlation) && isFinite(correlation)) {
-      const roundedCorrelation = Math.round(correlation * 100) / 100; // Round to 2 decimal places
+      const roundedCorrelation = Math.round(correlation * 100) / 100;
       correlationText = `r = ${roundedCorrelation} (${correlationStrength || 'weak'})`;
     }
   } catch (error) {
-    console.warn('Error formatting correlation:', error);
     correlationText = 'Correlation data unavailable';
   }
 
-  // Validate dimensions to prevent layout errors
+  // Validate dimensions
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
 
-  // Add comprehensive error handling around the entire render
-  try {
-    return (
-      <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
-        {title && (
-          <Text style={styles.title}>{title}</Text>
-        )}
+  return (
+    <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
+      {title && (
+        <Text style={styles.title}>{title}</Text>
+      )}
 
-        <View style={styles.chartContainer}>
-          <ChartErrorBoundary style={{ width: safeWidth, height: safeHeight }} dataPoints={scatterData.length}>
-            {LineChart ? (
-              <View style={{ width: safeWidth, height: safeHeight }}>
-                <LineChart
-                  data={scatterData.map((point, index) => {
-                    // Format x value for display (round if large, show decimals if small)
-                    const formatXValue = (val) => {
-                      if (Math.abs(val) >= 1000) {
-                        return Math.round(val).toString();
-                      } else if (Math.abs(val) >= 1) {
-                        return val.toFixed(1);
-                      } else {
-                        return val.toFixed(2);
-                      }
-                    };
-                    
-                    return {
-                      value: point.y,
-                      label: formatXValue(point.x),
-                      labelTextStyle: { color: colors.textSecondary, fontSize: 9 },
-                    };
-                  })}
-                  width={safeWidth - 40}
-                  height={safeHeight - 80}
-                  yAxisThickness={1}
-                  xAxisThickness={1}
-                  xAxisColor={colors.border}
-                  yAxisColor={colors.border}
-                  yAxisTextStyle={{ color: colors.textSecondary, fontSize: 10 }}
-                  xAxisLabelTextStyle={{ color: colors.textSecondary, fontSize: 9, rotation: scatterData.length > 10 ? -45 : 0 }}
-                  dataPointsColor={pointColor || colors.primary}
-                  dataPointsRadius={4}
-                  hideDataPoints={false}
-                  showVerticalLines
-                  verticalLinesColor={colors.border}
-                  showHorizontalLines
-                  horizontalLinesColor={colors.border}
-                  rulesColor={colors.border}
-                  rulesType="solid"
-                  initialSpacing={10}
-                  spacing={(safeWidth - 100) / Math.max(1, scatterData.length - 1)}
-                  maxValue={plotYMax}
-                  minValue={plotYMin}
-                  yAxisLabelSuffix=""
-                  yAxisLabelPrefix=""
-                  hideYAxisText={false}
-                  hideXAxisText={false}
-                  hideRules={false}
-                  curved={false}
-                  areaChart={false}
-                  color={pointColor || colors.primary}
-                  thickness={0}
-                  textColor1={colors.textSecondary}
-                  textShiftY={-2}
-                  textShiftX={-5}
-                  textFontSize={10}
-                  showTextOnXAxis
-                  xAxisLabelsVerticalShift={scatterData.length > 10 ? 20 : 10}
-                />
-                {/* Simple axis range labels */}
-                <View style={styles.axisLabelsContainer}>
-                  {/* X-axis range */}
-                  <View style={styles.xAxisRangeContainer}>
-                    <Text style={styles.axisRangeText}>
-                      {(() => {
-                        const formatValue = (val) => {
-                          if (Math.abs(val) >= 1000) {
-                            return Math.round(val).toString();
-                          } else if (Math.abs(val) >= 1) {
-                            return val.toFixed(1);
-                          } else {
-                            return val.toFixed(2);
-                          }
-                        };
-                        return `${formatValue(xValues[0])} - ${formatValue(xValues[xValues.length - 1])}`;
-                      })()}
-                    </Text>
-                  </View>
+      <View style={styles.chartContainer}>
+        <View style={{ width: safeWidth, height: safeHeight }}>
+          <LineChart
+            data={{
+              labels: scatterData.slice(0, 10).map((point, index) => {
+                // Show only every nth label to avoid overcrowding
+                const step = Math.ceil(scatterData.length / 5);
+                if (index % step === 0) {
+                  const formatValue = (val) => {
+                    if (Math.abs(val) >= 1000) {
+                      return Math.round(val / 100) / 10 + 'k';
+                    } else if (Math.abs(val) >= 1) {
+                      return val.toFixed(1);
+                    } else {
+                      return val.toFixed(2);
+                    }
+                  };
+                  return formatValue(point.x);
+                }
+                return '';
+              }),
+              datasets: [{
+                data: scatterData.map(point => point.y),
+                color: (opacity = 1) => pointColor || colors.primary,
+                strokeWidth: 2
+              }]
+            }}
+            width={safeWidth - 40}
+            height={safeHeight - 100}
+            yAxisLabel=""
+            yAxisSuffix=""
+            yAxisInterval={1}
+            chartConfig={{
+              backgroundColor: colors.cardBackground,
+              backgroundGradientFrom: colors.cardBackground,
+              backgroundGradientTo: colors.cardBackground,
+              decimalPlaces: 1,
+              color: (opacity = 1) => colors.textSecondary,
+              labelColor: (opacity = 1) => colors.textSecondary,
+              style: {
+                borderRadius: 8
+              },
+              propsForDots: {
+                r: "4",
+                strokeWidth: "2",
+                stroke: colors.cardBackground
+              }
+            }}
+            bezier
+            style={{
+              marginVertical: 8,
+              borderRadius: 8
+            }}
+            withDots={true}
+            withInnerLines={false}
+            withOuterLines={true}
+            withVerticalLines={true}
+            withHorizontalLines={true}
+          />
 
-                  {/* Axis titles */}
-                  {xLabel && (
-                    <Text style={[styles.axisTitle, { textAlign: 'center', width: '100%', marginTop: 4 }]}>
-                      {xLabel}
-                    </Text>
-                  )}
-                  {yLabel && (
-                    <Text style={[styles.axisTitle, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -40, top: safeHeight / 2 - 60, width: 120 }]}>
-                      {yLabel}
-                    </Text>
-                  )}
-                </View>
-              </View>
-            ) : (
-              <View style={[styles.chartContainer, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.cardBackground, borderRadius: 8, padding: spacing.regular }]}>
-                <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: spacing.xs }}>
-                  Chart visualization
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                  {scatterData.length} data points
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 10, textAlign: 'center', marginTop: spacing.xs, fontStyle: 'italic' }}>
-                  Chart library unavailable
-                </Text>
-              </View>
+          {/* Axis labels */}
+          <View style={styles.axisLabelsContainer}>
+            <View style={styles.xAxisRangeContainer}>
+              <Text style={styles.axisRangeText}>
+                {(() => {
+                  const formatValue = (val) => {
+                    if (Math.abs(val) >= 1000) {
+                      return Math.round(val / 100) / 10 + 'k';
+                    } else if (Math.abs(val) >= 1) {
+                      return val.toFixed(1);
+                    } else {
+                      return val.toFixed(2);
+                    }
+                  };
+                  return `${formatValue(xValues[0])} - ${formatValue(xValues[xValues.length - 1])}`;
+                })()}
+              </Text>
+            </View>
+
+            {xLabel && (
+              <Text style={[styles.axisTitle, { textAlign: 'center', width: '100%', marginTop: 4 }]}>
+                {xLabel}
+              </Text>
             )}
-          </ChartErrorBoundary>
-        </View>
-
-
-        {/* Statistics */}
-        <View style={styles.statsContainer}>
-          <Text style={styles.statsText}>
-            n={validData.length} | {correlationText}
-          </Text>
+            {yLabel && (
+              <Text style={[styles.axisTitle, { transform: [{ rotate: '-90deg' }], position: 'absolute', left: -40, top: safeHeight / 2 - 60, width: 120 }]}>
+                {yLabel}
+              </Text>
+            )}
+          </View>
         </View>
       </View>
-    );
-  } catch (error) {
-    console.error('ScatterChart: Unexpected error during render:', error);
-    return (
-      <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={[styles.noDataText, { textAlign: 'center', color: colors.error || '#ff6b6b' }]}>
-          Chart unavailable
+
+      {/* Statistics */}
+      <View style={styles.statsContainer}>
+        <Text style={styles.statsText}>
+          n={validData.length} | {correlationText}
         </Text>
       </View>
-    );
-  }
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
@@ -364,19 +208,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontStyle: 'italic',
   },
-  statsContainer: {
-    marginTop: spacing.xs,
-  },
-  statsText: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontFamily: 'monospace',
-  },
-  axisLabel: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
-  },
   axisLabelsContainer: {
     position: 'relative',
     width: '100%',
@@ -394,6 +225,14 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
+  },
+  statsContainer: {
+    marginTop: spacing.xs,
+  },
+  statsText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontFamily: 'monospace',
   },
 });
 
