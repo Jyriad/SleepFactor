@@ -106,12 +106,6 @@ const AccountScreen = () => {
     }
   };
 
-  const handleChangeEmail = () => {
-    Alert.alert(
-      'Change Email',
-      'Email changes are not yet supported. Please contact support if you need to change your email address.'
-    );
-  };
 
   const StatCard = ({ title, value, icon, color = colors.primary }) => (
     <View style={styles.statCard}>
@@ -142,20 +136,7 @@ const AccountScreen = () => {
         <View style={styles.content}>
           {/* Account Information */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account Information</Text>
-            <View style={styles.infoCard}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Email</Text>
-                <Text style={styles.infoValue}>{user?.email || 'Not available'}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.changeButton}
-                onPress={handleChangeEmail}
-              >
-                <Text style={styles.changeButtonText}>Change Email</Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.sectionTitle}>Account Security</Text>
 
             <View style={styles.infoCard}>
               <View style={styles.infoRow}>

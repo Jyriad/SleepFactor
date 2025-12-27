@@ -224,7 +224,7 @@ const ProfileScreen = () => {
             <NavigationCard
               icon="person"
               title="Account Details"
-              subtitle="View your email, manage password, and account statistics"
+              subtitle="Manage password and view account statistics"
               onPress={() => navigation.navigate('Account')}
             />
           </View>
