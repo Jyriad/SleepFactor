@@ -43,7 +43,10 @@ const AppNavigator = () => {
         },
       }}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        screenOptions={{ headerShown: false }}
+        initialRouteName={isAuthenticated && user ? "MainTabs" : "Auth"}
+      >
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
         {isAuthenticated && user ? (
           <>
