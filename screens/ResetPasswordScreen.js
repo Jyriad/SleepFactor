@@ -19,6 +19,7 @@ import Button from '../components/Button';
 
 const ResetPasswordScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,19 +30,59 @@ const ResetPasswordScreen = () => {
     const setupSessionFromUrl = async () => {
       try {
         console.log('🔑 ResetPasswordScreen: Setting up session from URL');
+        console.log('🔑 ResetPasswordScreen: Route params:', route.params);
 
-        // Get the current URL that opened the app
-        const url = await Linking.getInitialURL();
-        console.log('🔑 ResetPasswordScreen: Initial URL:', url);
+        // First try to get URL from route params (passed by navigation)
+        let url = route.params?.url;
 
-        if (url && url.includes('#')) {
-          // Extract access_token
-          const accessTokenMatch = url.match(/[#&]access_token=([^&]+)/);
-          const accessToken = accessTokenMatch ? decodeURIComponent(accessTokenMatch[1]) : null;
+        // If not in route params, get from initial URL
+        if (!url) {
+          url = await Linking.getInitialURL();
+        }
 
-          // Extract refresh_token
-          const refreshTokenMatch = url.match(/[#&]refresh_token=([^&]+)/);
-          const refreshToken = refreshTokenMatch ? decodeURIComponent(refreshTokenMatch[1]) : null;
+        console.log('🔑 ResetPasswordScreen: URL to process:', url);
+        console.log('🔑 ResetPasswordScreen: Full URL object:', { url });
+
+        if (url && (url.includes('#') || url.includes('access_token') || url.includes('token'))) {
+          console.log('🔑 ResetPasswordScreen: URL contains auth parameters, parsing tokens...');
+
+          // Extract access_token - try different patterns
+          let accessToken = null;
+          let refreshToken = null;
+
+          // Try hash fragment first (most common)
+          const hashAccessMatch = url.match(/#.*access_token=([^&]+)/);
+          if (hashAccessMatch) {
+            accessToken = decodeURIComponent(hashAccessMatch[1]);
+          }
+
+          // Try query param
+          if (!accessToken) {
+            const queryAccessMatch = url.match(/[?&]access_token=([^&]+)/);
+            if (queryAccessMatch) {
+              accessToken = decodeURIComponent(queryAccessMatch[1]);
+            }
+          }
+
+          // Extract refresh_token - try different patterns
+          const hashRefreshMatch = url.match(/#.*refresh_token=([^&]+)/);
+          if (hashRefreshMatch) {
+            refreshToken = decodeURIComponent(hashRefreshMatch[1]);
+          }
+
+          if (!refreshToken) {
+            const queryRefreshMatch = url.match(/[?&]refresh_token=([^&]+)/);
+            if (queryRefreshMatch) {
+              refreshToken = decodeURIComponent(queryRefreshMatch[1]);
+            }
+          }
+
+          console.log('🔑 ResetPasswordScreen: Extracted tokens:', {
+            hasAccessToken: !!accessToken,
+            hasRefreshToken: !!refreshToken,
+            accessTokenLength: accessToken?.length,
+            refreshTokenLength: refreshToken?.length
+          });
 
           if (accessToken && refreshToken) {
             const { error } = await supabase.auth.setSession({
@@ -74,7 +115,7 @@ const ResetPasswordScreen = () => {
     };
 
     setupSessionFromUrl();
-  }, [navigation]);
+  }, [navigation, route.params]);
 
   const handleResetPassword = async () => {
     if (!newPassword.trim()) {

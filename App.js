@@ -17,9 +17,8 @@ export default function App() {
       console.log('🔗 Deep link received:', url);
 
       if (url && url.includes('reset-password')) {
-        // Store the URL for the ResetPasswordScreen to process
-        // We'll handle this in the AuthContext or navigation
-        console.log('🔑 Password reset deep link detected');
+        console.log('🔑 Password reset deep link detected, navigating to reset screen');
+        // The navigation will handle this automatically due to the linking config
       }
     };
 
