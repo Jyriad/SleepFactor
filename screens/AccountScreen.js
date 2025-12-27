@@ -88,15 +88,13 @@ const AccountScreen = () => {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-        redirectTo: 'sleepfactor://reset-password',
-      });
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email);
 
       if (error) throw error;
 
       Alert.alert(
         'Password Reset Sent',
-        'Check your email for password reset instructions. The link will redirect you back to the app.'
+        'Check your email for password reset instructions. Click the link to reset your password on the web, then manually reopen the app.'
       );
     } catch (error) {
       console.error('Password reset error:', error);
