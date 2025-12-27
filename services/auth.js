@@ -216,22 +216,32 @@ export const signInWithGoogle = async () => {
       console.warn('⚠️ [OAuth] User dismissed the flow');
       console.log('🔍 [OAuth] Dismiss result details:', result);
 
-      // In development builds, check if OAuth actually succeeded via deep link
-      if (__DEV__) {
-        console.log('🔧 [OAuth] Checking for successful OAuth completion despite dismiss...');
+    // In development builds, check if OAuth actually succeeded via deep link
+    if (__DEV__) {
+      console.log('🔧 [OAuth] Checking for successful OAuth completion despite dismiss...');
 
-        // Give a moment for deep link processing
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Give a moment for deep link processing
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Check if user is now authenticated
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          console.log('✅ [OAuth] OAuth succeeded despite dismiss result!');
-          return { data: session, error: null };
-        }
-
-        console.log('❌ [OAuth] OAuth did not succeed - user actually dismissed');
+      // Check if user is now authenticated (deep link may have been processed)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        console.log('✅ [OAuth] OAuth succeeded despite dismiss result!');
+        return { data: session, error: null };
       }
+
+      console.log('❌ [OAuth] No session found after dismiss - checking for pending OAuth code...');
+
+      // As a fallback, try to manually complete OAuth if there's a pending code
+      // This handles cases where the deep link was received but not processed
+      try {
+        // Check if there's a recent deep link URL stored (we'd need to implement this)
+        // For now, just indicate that manual completion might be needed
+        console.log('💡 [OAuth] If you completed sign-in in the browser, try the Google sign-in again');
+      } catch (manualError) {
+        console.log('❌ [OAuth] Manual OAuth completion failed:', manualError.message);
+      }
+    }
 
       const errorMessage = __DEV__
         ? 'OAuth flow was dismissed. If you completed sign-in in the browser, try again.'
