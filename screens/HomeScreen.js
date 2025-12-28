@@ -71,7 +71,7 @@ const HomeScreen = () => {
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
   const [sleepDataLoading, setSleepDataLoading] = useState(false);
-  const [initialSyncAttempted, setInitialSyncAttempted] = useState(false);
+  const [autoSyncLoading, setAutoSyncLoading] = useState(false);
 
   // Personal sleep averages state
   const [personalAverages, setPersonalAverages] = useState(null);
@@ -111,8 +111,6 @@ const HomeScreen = () => {
     checkHabitsLogged();
     fetchHabitCount();
     fetchSleepData();
-    // Reset initial sync attempted when date changes
-    setInitialSyncAttempted(false);
   }, [selectedDate, user]);
 
   // Date-independent operations (run once on mount)
@@ -138,19 +136,19 @@ const HomeScreen = () => {
 
   // Automatic sync when permissions are available and date changes to today
   useEffect(() => {
-    // Only run auto-sync for today's date and if not already attempted
-    if (!isToday(selectedDate) || initialSyncAttempted) return;
+    // Only run auto-sync for today's date
+    if (!isToday(selectedDate)) return;
 
     let isCancelled = false;
     let isRunning = false;
 
     const autoSyncSleepData = async () => {
-      if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions || healthSyncLoading) return;
+      if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions) return;
 
-      // Check if we already have cached data (don't sync unnecessarily)
-      const cachedData = getCachedSleepData(selectedDate);
-      if (cachedData !== undefined) {
-        setInitialSyncAttempted(true);
+      // Check if we already have sleep data for today (from database, not just cache)
+      const currentSleepData = sleepData; // This is fetched from database
+      if (currentSleepData) {
+        // We already have sleep data, no need to sync
         return;
       }
 
@@ -160,6 +158,7 @@ const HomeScreen = () => {
 
       if (!lastSyncTime || new Date(lastSyncTime) < oneHourAgo) {
         isRunning = true;
+        setAutoSyncLoading(true);
 
         try {
           clearError();
@@ -179,13 +178,11 @@ const HomeScreen = () => {
         } finally {
           isRunning = false;
           if (!isCancelled) {
-            setInitialSyncAttempted(true);
+            setAutoSyncLoading(false);
           }
         }
-      } else {
-        // Already synced recently, mark as attempted
-        setInitialSyncAttempted(true);
       }
+      // If we synced recently and still don't have data, don't keep trying
     };
 
     // Small delay to prevent rapid-fire syncing
@@ -195,7 +192,7 @@ const HomeScreen = () => {
       isCancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [selectedDate, user, healthSyncInitialized, hasPermissions, initialSyncAttempted]);
+  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading, sleepData]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -794,8 +791,8 @@ const HomeScreen = () => {
               onPermissionsGranted={handlePermissionsGranted}
               onDismiss={handleDismissPermissions}
             />
-          ) : healthSyncLoading ? (
-            // For today's date with permissions and no data yet, show skeleton immediately
+          ) : autoSyncLoading ? (
+            // For today's date with permissions and actively syncing, show skeleton
             <View style={[styles.sleepCard, styles.skeletonCard]}>
               <View style={styles.sleepCardHeader}>
                 <View style={styles.sleepCardTitleRow}>
@@ -890,7 +887,7 @@ const HomeScreen = () => {
                 </View>
               </View>
             </View>
-          ) : healthSyncLoading ? (
+          ) : autoSyncLoading ? (
             <View style={[styles.sleepCard, styles.skeletonCard]}>
               <View style={styles.sleepCardHeader}>
                 <View style={styles.sleepCardTitleRow}>
@@ -987,19 +984,19 @@ const HomeScreen = () => {
                   {healthSyncInitialized && (
                     <TouchableOpacity
                       onPress={handleSyncNow}
-                      disabled={healthSyncLoading}
+                      disabled={autoSyncLoading}
                       style={styles.cardSyncButton}
                     >
                       <Ionicons
-                        name={healthSyncLoading ? "sync" : "refresh-outline"}
+                        name={autoSyncLoading ? "sync" : "refresh-outline"}
                         size={20}
                         color={healthSyncLoading ? colors.textSecondary : colors.primary}
                       />
                       <Text style={[
                         styles.cardSyncButtonText,
-                        { color: healthSyncLoading ? colors.textSecondary : colors.primary }
+                        { color: autoSyncLoading ? colors.textSecondary : colors.primary }
                       ]}>
-                        {healthSyncLoading ? 'Syncing...' : 'Sync'}
+                        {autoSyncLoading ? 'Syncing...' : 'Sync'}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1094,19 +1091,19 @@ const HomeScreen = () => {
                   {healthSyncInitialized && (
                     <TouchableOpacity
                       onPress={handleSyncNow}
-                      disabled={healthSyncLoading}
+                      disabled={autoSyncLoading}
                       style={styles.cardSyncButton}
                     >
                       <Ionicons
-                        name={healthSyncLoading ? "sync" : "refresh-outline"}
+                        name={autoSyncLoading ? "sync" : "refresh-outline"}
                         size={20}
                         color={healthSyncLoading ? colors.textSecondary : colors.primary}
                       />
                       <Text style={[
                         styles.cardSyncButtonText,
-                        { color: healthSyncLoading ? colors.textSecondary : colors.primary }
+                        { color: autoSyncLoading ? colors.textSecondary : colors.primary }
                       ]}>
-                        {healthSyncLoading ? 'Syncing...' : 'Sync'}
+                        {autoSyncLoading ? 'Syncing...' : 'Sync'}
                       </Text>
                     </TouchableOpacity>
                   )}
