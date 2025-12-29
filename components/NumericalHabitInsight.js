@@ -1,19 +1,49 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import ScatterPlot from './ScatterChart';
+import { generateNumericalHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
+import { transformToEfficiencyData, calculateCorrelation } from '../utils/statistics';
 
 const NumericalHabitInsight = ({
   insight,
   sleepMetric,
   width = 350
 }) => {
+  const [showEfficiency, setShowEfficiency] = useState(false);
+
   if (!insight) {
     return null;
   }
 
   const { habit, type, totalDataPoints, dataPoints, correlation, correlationStrength, trendDirection } = insight;
+
+  // Check if this is a time-based metric that supports efficiency toggle
+  const isTimeBasedMetric = ['total_sleep_minutes', 'deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes', 'awake_minutes'].includes(sleepMetric.key);
+
+  // Transform data for efficiency view if enabled
+  const displayDataPoints = showEfficiency && isTimeBasedMetric
+    ? transformToEfficiencyData(dataPoints, sleepMetric.key)
+    : dataPoints;
+
+  // Recalculate correlation for efficiency data if needed
+  let displayCorrelation = correlation;
+  let displayCorrelationStrength = correlationStrength;
+  let displayTrendDirection = trendDirection;
+
+  if (showEfficiency && isTimeBasedMetric && displayDataPoints.length > 0) {
+    const habitValues = displayDataPoints.map(dp => dp.x);
+    const sleepValues = displayDataPoints.map(dp => dp.y);
+    displayCorrelation = calculateCorrelation(habitValues, sleepValues);
+    displayCorrelationStrength = Math.abs(displayCorrelation) > 0.7 ? 'strong' :
+                                  Math.abs(displayCorrelation) > 0.3 ? 'moderate' : 'weak';
+    displayTrendDirection = displayCorrelation > 0 ? 'positive' : displayCorrelation < 0 ? 'negative' : 'none';
+  }
+
+  // Generate conclusion headline and advice (using original data for consistency)
+  const headline = generateNumericalHeadline(habit, correlation, correlationStrength, trendDirection, sleepMetric, dataPoints);
+  const advice = generateActionableAdvice('numerical', habit, correlation, correlationStrength, trendDirection, null, null, sleepMetric);
 
   // Check if we have sufficient data
   if (totalDataPoints < 10) {
@@ -83,39 +113,86 @@ const NumericalHabitInsight = ({
         </View>
       </View>
 
-      <Text style={styles.metricLabel}>
-        Relationship with {sleepMetric.label.toLowerCase()}
-      </Text>
+      {/* Conclusion Headline */}
+      <View style={styles.headlineContainer}>
+        <Ionicons name="bulb-outline" size={20} color={colors.primary} />
+        <Text style={styles.headlineText}>{headline}</Text>
+      </View>
 
-      <Text style={styles.description}>
-        How your {habit.name.toLowerCase()}{habitUnit} values correlate with sleep quality
-      </Text>
+      {/* Correlation Strength Meter */}
+      {displayCorrelationStrength !== 'weak' && (
+        <View style={styles.correlationMeterContainer}>
+          <Text style={styles.meterLabel}>Correlation Strength</Text>
+          <View style={styles.meterBackground}>
+            <View
+              style={[
+                styles.meterFill,
+                {
+                  width: `${Math.abs(displayCorrelation || 0) * 100}%`,
+                  backgroundColor: displayTrendDirection === 'positive' ? colors.success :
+                                   displayTrendDirection === 'negative' ? colors.error : colors.primary
+                }
+              ]}
+            />
+          </View>
+          <Text style={styles.meterValue}>
+            {displayCorrelation !== null && displayCorrelation !== undefined ? Math.abs(displayCorrelation).toFixed(2) : '0.00'}
+          </Text>
+        </View>
+      )}
 
+      {/* Axes Toggle for time-based metrics */}
+      {isTimeBasedMetric && (
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity
+            style={[styles.toggleButton, !showEfficiency && styles.toggleButtonActive]}
+            onPress={() => setShowEfficiency(false)}
+          >
+            <Text style={[styles.toggleText, !showEfficiency && styles.toggleTextActive]}>
+              Actual Time
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleButton, showEfficiency && styles.toggleButtonActive]}
+            onPress={() => setShowEfficiency(true)}
+          >
+            <Text style={[styles.toggleText, showEfficiency && styles.toggleTextActive]}>
+              Sleep Efficiency
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Scatter Plot */}
       <ScatterPlot
-        data={dataPoints}
+        data={displayDataPoints}
         width={width - 40}
         height={220}
         xLabel={`${habit.name}${habitUnit}`}
-        yLabel={sleepMetric.label}
+        yLabel={showEfficiency && isTimeBasedMetric ? 'Sleep Efficiency (%)' : sleepMetric.label}
         title=""
         showTrendLine={true}
         color={colors.primary}
         pointColor={colors.primary}
-        trendLineColor={colors.secondary}
-        correlation={correlation}
-        correlationStrength={correlationStrength}
-        trendDirection={trendDirection}
+        trendLineColor={displayTrendDirection === 'positive' ? colors.success :
+                       displayTrendDirection === 'negative' ? colors.error : colors.secondary}
+        correlation={displayCorrelation}
+        correlationStrength={displayCorrelationStrength}
+        trendDirection={displayTrendDirection}
       />
 
-      <View style={styles.correlationContainer}>
-        <View style={styles.correlationHeader}>
-          <Text style={styles.correlationTitle}>Correlation Analysis</Text>
-          <View style={[styles.correlationBadge, { backgroundColor: getCorrelationColor(correlationStrength) + '20' }]}>
-            <Text style={[styles.correlationBadgeText, { color: getCorrelationColor(correlationStrength) }]}>
-              {correlationStrength || 'none'}
-            </Text>
-          </View>
+      {/* Actionable Advice */}
+      <View style={styles.adviceContainer}>
+        <View style={styles.adviceHeader}>
+          <Ionicons name="help-circle-outline" size={16} color={colors.primary} />
+          <Text style={styles.adviceTitle}>Try This</Text>
         </View>
+        <Text style={styles.adviceText}>{advice}</Text>
+      </View>
+
+      {/* Technical Details (collapsed by default in conclusion-first design) */}
+      <View style={styles.detailsContainer}>
+        <Text style={styles.detailsTitle}>Technical Details</Text>
 
         <View style={styles.correlationStats}>
           <View style={styles.statItem}>
@@ -140,50 +217,6 @@ const NumericalHabitInsight = ({
             </View>
           </View>
         </View>
-      </View>
-
-      <View style={styles.insightsContainer}>
-        <Text style={styles.insightsTitle}>Key Insights</Text>
-
-        {correlationStrength === 'strong' && (
-          <Text style={styles.insightText}>
-            • Strong relationship found between {habit.name.toLowerCase()} and {sleepMetric.label.toLowerCase()}
-          </Text>
-        )}
-
-        {correlationStrength === 'moderate' && (
-          <Text style={styles.insightText}>
-            • Moderate relationship found - {habit.name.toLowerCase()} may influence {sleepMetric.label.toLowerCase()}
-          </Text>
-        )}
-
-        {correlationStrength === 'weak' && (
-          <Text style={styles.insightText}>
-            • Weak or no relationship found between {habit.name.toLowerCase()} and {sleepMetric.label.toLowerCase()}
-          </Text>
-        )}
-
-        {trendDirection === 'positive' && correlationStrength !== 'weak' && (
-          <Text style={styles.insightText}>
-            • Higher {habit.name.toLowerCase()} values tend to correlate with better {sleepMetric.label.toLowerCase()}
-          </Text>
-        )}
-
-        {trendDirection === 'negative' && correlationStrength !== 'weak' && (
-          <Text style={styles.insightText}>
-            • Higher {habit.name.toLowerCase()} values tend to correlate with worse {sleepMetric.label.toLowerCase()}
-          </Text>
-        )}
-
-        {correlationStrength === 'weak' && (
-          <Text style={styles.insightText}>
-            • Continue logging to see if patterns emerge over time
-          </Text>
-        )}
-
-        <Text style={styles.insightText}>
-          • Based on {totalDataPoints} days of data
-        </Text>
       </View>
     </View>
   );
@@ -342,6 +375,113 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.xs,
     lineHeight: 18,
+  },
+  headlineContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.primary + '10',
+    borderRadius: 8,
+    padding: spacing.regular,
+    marginBottom: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.primary + '20',
+  },
+  headlineText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginLeft: spacing.sm,
+    lineHeight: 22,
+    flex: 1,
+  },
+  correlationMeterContainer: {
+    marginBottom: spacing.regular,
+  },
+  meterLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  meterBackground: {
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: 4,
+    marginBottom: spacing.xs,
+  },
+  meterFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  meterValue: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontFamily: 'monospace',
+    textAlign: 'center',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.cardBackground,
+    borderRadius: 8,
+    padding: 2,
+    marginBottom: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  toggleText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  toggleTextActive: {
+    color: colors.cardBackground,
+  },
+  adviceContainer: {
+    backgroundColor: colors.success + '10',
+    borderRadius: 8,
+    padding: spacing.regular,
+    marginVertical: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.success + '20',
+  },
+  adviceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  adviceTitle: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.success,
+    marginLeft: spacing.xs,
+  },
+  adviceText: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    lineHeight: 18,
+  },
+  detailsContainer: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 8,
+    padding: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  detailsTitle: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
 });
 

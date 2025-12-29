@@ -121,7 +121,7 @@ export default function App() {
       // Only navigate to ResetPassword if it's actually a password reset link
       if (pendingDeepLink.includes('reset-password')) {
         console.log('🔄 [App.js] Navigating to ResetPassword screen');
-        navigationRef.current.navigate('ResetPassword', { url: pendingDeepLink });
+      navigationRef.current.navigate('ResetPassword', { url: pendingDeepLink });
       } else {
         console.warn('⚠️ [App.js] Pending deep link is not a password reset link - NOT navigating:', pendingDeepLink);
       }

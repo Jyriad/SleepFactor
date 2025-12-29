@@ -143,7 +143,7 @@ export const signInWithGoogle = async () => {
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
 
     console.log('🔍 [OAuth] WebBrowser result:', result);
-
+    
     if (result.type === 'success') {
       const url = result.url;
       if (url) {
@@ -296,7 +296,7 @@ export const signInWithFacebook = async () => {
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
 
     console.log('🔍 [OAuth] WebBrowser result:', result);
-
+    
     if (result.type === 'success') {
       const url = result.url;
       if (url) {

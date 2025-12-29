@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
+import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
 
 const BinaryHabitInsight = ({
   insight,
@@ -93,6 +94,10 @@ const BinaryHabitInsight = ({
     );
   }
 
+  // Generate conclusion headline and advice
+  const headline = generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints);
+  const advice = generateActionableAdvice('binary', habit, null, null, null, yesStats, noStats, sleepMetric);
+
   // Full comparison available
   return (
     <View style={[styles.container, { width }]}>
@@ -102,6 +107,12 @@ const BinaryHabitInsight = ({
           <Ionicons name="checkmark-circle" size={14} color={colors.success} />
           <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
         </View>
+      </View>
+
+      {/* Conclusion Headline */}
+      <View style={styles.headlineContainer}>
+        <Ionicons name="bulb-outline" size={20} color={colors.primary} />
+        <Text style={styles.headlineText}>{headline}</Text>
       </View>
 
       <Text style={styles.metricLabel}>
@@ -123,8 +134,30 @@ const BinaryHabitInsight = ({
         color2={colors.secondary}
       />
 
-      <View style={styles.insightsContainer}>
-        <Text style={styles.insightsTitle}>Key Insights</Text>
+      {/* Actionable Advice */}
+      <View style={styles.adviceContainer}>
+        <View style={styles.adviceHeader}>
+          <Ionicons name="help-circle-outline" size={16} color={colors.primary} />
+          <Text style={styles.adviceTitle}>Try This</Text>
+        </View>
+        <Text style={styles.adviceText}>{advice}</Text>
+      </View>
+
+      {/* Technical Details */}
+      <View style={styles.detailsContainer}>
+        <Text style={styles.detailsTitle}>Technical Details</Text>
+
+        {yesStats && noStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
+          <Text style={styles.insightText}>
+            • "Did habit": median {yesStats.median.toFixed(1)} {sleepMetric.unit || 'units'}
+          </Text>
+        )}
+
+        {yesStats && noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
+          <Text style={styles.insightText}>
+            • "Didn't do habit": median {noStats.median.toFixed(1)} {sleepMetric.unit || 'units'}
+          </Text>
+        )}
 
         {(() => {
           const yesMedian = yesStats?.median || 0;
@@ -132,38 +165,20 @@ const BinaryHabitInsight = ({
           const difference = yesMedian - noMedian;
           const percentChange = noMedian !== 0 ? ((difference / noMedian) * 100) : 0;
 
-          if (Math.abs(difference) < 1) {
+          if (Math.abs(difference) >= 1) {
+            const direction = difference > 0 ? 'higher' : 'lower';
+            const percentChangeValue = (percentChange !== null && percentChange !== undefined && !isNaN(percentChange))
+              ? percentChange.toFixed(1)
+              : '0';
+
             return (
               <Text style={styles.insightText}>
-                • No significant difference in {sleepMetric.label.toLowerCase()} between doing and not doing this habit
+                • Difference: {direction} by {Math.abs(percentChangeValue)}%
               </Text>
             );
           }
-
-          const direction = difference > 0 ? 'higher' : 'lower';
-          const impact = Math.abs(percentChange) > 20 ? 'significant' : 'moderate';
-          const percentChangeValue = (percentChange !== null && percentChange !== undefined && !isNaN(percentChange)) 
-            ? percentChange.toFixed(1) 
-            : '0';
-
-          return (
-            <Text style={styles.insightText}>
-              • When you do "{habit.name}", your {sleepMetric.label.toLowerCase()} is {impact}ly {direction} ({percentChange > 0 ? '+' : ''}{percentChangeValue}%)
-            </Text>
-          );
+          return null;
         })()}
-
-        {yesStats && noStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
-          <Text style={styles.insightText}>
-            • "Did habit": median {yesStats.median.toFixed(1)} {sleepMetric.unit}
-          </Text>
-        )}
-
-        {yesStats && noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
-          <Text style={styles.insightText}>
-            • "Didn't do habit": median {noStats.median.toFixed(1)} {sleepMetric.unit}
-          </Text>
-        )}
       </View>
     </View>
   );
@@ -312,6 +327,61 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.xs,
     lineHeight: 18,
+  },
+  headlineContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.primary + '10',
+    borderRadius: 8,
+    padding: spacing.regular,
+    marginBottom: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.primary + '20',
+  },
+  headlineText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginLeft: spacing.sm,
+    lineHeight: 22,
+    flex: 1,
+  },
+  adviceContainer: {
+    backgroundColor: colors.success + '10',
+    borderRadius: 8,
+    padding: spacing.regular,
+    marginVertical: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.success + '20',
+  },
+  adviceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  adviceTitle: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.success,
+    marginLeft: spacing.xs,
+  },
+  adviceText: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    lineHeight: 18,
+  },
+  detailsContainer: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 8,
+    padding: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  detailsTitle: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
 });
 

@@ -304,25 +304,25 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
             const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
             const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
 
-            const { error: deleteError } = await supabase
-              .from('habit_consumption_events')
-              .delete()
+              const { error: deleteError } = await supabase
+                .from('habit_consumption_events')
+                .delete()
               .eq('user_id', userId)
               .eq('habit_id', habit?.id)
               .gte('consumed_at', startOfDay.toISOString())
               .lte('consumed_at', endOfDay.toISOString());
 
-            if (deleteError) throw deleteError;
+              if (deleteError) throw deleteError;
 
-            // Update bedtime drug level
-            try {
-              await updateBedtimeDrugLevel(habit?.id, selectedDate);
-            } catch (levelError) {
-              console.error('Failed to auto-update bedtime drug level:', levelError);
-            }
+              // Update bedtime drug level
+              try {
+                await updateBedtimeDrugLevel(habit?.id, selectedDate);
+              } catch (levelError) {
+                console.error('Failed to auto-update bedtime drug level:', levelError);
+              }
 
             // Update local state by clearing all events
-            onChange([]);
+              onChange([]);
 
             // Refresh the consumption events to update the UI
             if (onConsumptionAdded) {
@@ -338,61 +338,61 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       } else {
         // Selecting "None" - create a special none event
         const selectNone = async () => {
-          try {
+        try {
             // Delete all existing consumption events for this habit and date
-            const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-            const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
-            const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
+          const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+          const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
+          const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
 
             const { error: deleteError } = await supabase
-              .from('habit_consumption_events')
-              .delete()
-              .eq('user_id', userId)
-              .eq('habit_id', habit?.id)
-              .gte('consumed_at', startOfDay.toISOString())
-              .lte('consumed_at', endOfDay.toISOString());
+            .from('habit_consumption_events')
+            .delete()
+            .eq('user_id', userId)
+            .eq('habit_id', habit?.id)
+            .gte('consumed_at', startOfDay.toISOString())
+            .lte('consumed_at', endOfDay.toISOString());
 
             if (deleteError) throw deleteError;
 
             // Insert a special "none" consumption event with proper UUID
-            const noneEventTime = new Date(dateObj);
-            noneEventTime.setHours(12, 0, 0, 0); // Noon as default time for "none"
+          const noneEventTime = new Date(dateObj);
+          noneEventTime.setHours(12, 0, 0, 0); // Noon as default time for "none"
 
             const { data: noneEvent, error: insertError } = await supabase
-              .from('habit_consumption_events')
-              .insert({
-                user_id: userId,
-                habit_id: habit?.id,
-                consumed_at: noneEventTime.toISOString(),
-                amount: 0, // Special amount for "none"
-                drink_type: 'none', // Special drink_type for "none"
+            .from('habit_consumption_events')
+            .insert({
+              user_id: userId,
+              habit_id: habit?.id,
+              consumed_at: noneEventTime.toISOString(),
+              amount: 0, // Special amount for "none"
+              drink_type: 'none', // Special drink_type for "none"
               })
               .select()
               .single();
 
-            if (insertError) throw insertError;
+          if (insertError) throw insertError;
 
             // Update bedtime drug level to 0 (no consumption)
-            try {
-              console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate} (None selected)`);
-              await updateBedtimeDrugLevel(habit?.id, selectedDate);
-              console.log('✅ Auto-saved bedtime drug level for None selection');
-            } catch (levelError) {
-              console.error('Failed to auto-save bedtime drug level:', levelError);
-            }
+          try {
+            console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate} (None selected)`);
+            await updateBedtimeDrugLevel(habit?.id, selectedDate);
+            console.log('✅ Auto-saved bedtime drug level for None selection');
+          } catch (levelError) {
+            console.error('Failed to auto-save bedtime drug level:', levelError);
+          }
 
             // Update local state with the none event (now has proper UUID)
-            onChange([noneEvent]);
+          onChange([noneEvent]);
 
             // Refresh the consumption events to update the UI
             if (onConsumptionAdded) {
               onConsumptionAdded();
             }
-          } catch (error) {
-            console.error('Error saving None selection:', error);
-            Alert.alert('Error', 'Failed to save None selection');
-          }
-        };
+        } catch (error) {
+          console.error('Error saving None selection:', error);
+          Alert.alert('Error', 'Failed to save None selection');
+        }
+      };
 
         selectNone();
       }
@@ -758,6 +758,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     // type can be UUID (new) or string (legacy)
     if (!type) return null;
 
+    // Check if consumptionOptions is loaded
+    if (!consumptionOptions || consumptionOptions.length === 0) {
+      return null;
+    }
+
     // First try to find by UUID
     let option = consumptionOptions.find(opt => opt.id === type);
     if (option) return option;
@@ -812,7 +817,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       <View style={styles.quickButtonsContainer}>
         {loadingOptions ? (
           <Text style={styles.loadingText}>Loading options...</Text>
-        ) : (
+        ) : consumptionOptions && consumptionOptions.length > 0 ? (
           <>
             {consumptionOptions.slice(0, 6).map((option) => {
               const isNoneOption = option.drug_amount === 0;
@@ -847,81 +852,92 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               <Text style={styles.moreButtonText}>+</Text>
             </TouchableOpacity>
           </>
+        ) : (
+          <Text style={styles.loadingText}>No options available</Text>
         )}
       </View>
 
-      {/* Logged Consumption Items or None Message */}
-      {hasNoneEvent ? (
+      {/* Loading state for consumption options */}
+      {loadingOptions ? (
         <View style={styles.loggedItemsContainer}>
-          <Text style={styles.loggedItemsTitle}>
-            No consumption logged today
-          </Text>
+          <Text style={styles.loadingText}>Loading consumption options...</Text>
         </View>
-      ) : consumptionEvents.length > 0 ? (
-        <View style={styles.loggedItemsContainer}>
-          <Text style={styles.loggedItemsTitle}>
-            Logged Today ({consumptionEvents.length})
-          </Text>
-          {consumptionEvents.map((event) => {
-            const resolvedOption = resolveConsumptionType(event.drink_type);
-            // Display volume if available, otherwise fall back to amount
-            let volumeDisplay;
-            if (event.volume && resolvedOption?.serving_unit) {
-              volumeDisplay = `${event.volume}${resolvedOption.serving_unit}`;
-            } else if (event.volume) {
-              volumeDisplay = `${event.volume}ml`; // Fallback if no serving_unit
-            } else {
-              volumeDisplay = `${event.amount} ${habit?.unit}`;
-            }
+      ) : (
+        <>
+          {/* Logged Consumption Items or None Message */}
+          {hasNoneEvent ? (
+            <View style={styles.loggedItemsContainer}>
+              <Text style={styles.loggedItemsTitle}>
+                No consumption logged today
+              </Text>
+            </View>
+          ) : consumptionEvents.length > 0 ? (
+            <View style={styles.loggedItemsContainer}>
+              <Text style={styles.loggedItemsTitle}>
+                Logged Today ({consumptionEvents.length})
+              </Text>
+              {consumptionEvents.map((event) => {
+            try {
+              const resolvedOption = resolveConsumptionType(event.drink_type);
+              // Display volume if available, otherwise fall back to amount
+              let volumeDisplay;
+              if (event.volume && resolvedOption?.serving_unit) {
+                volumeDisplay = `${event.volume}${resolvedOption.serving_unit}`;
+              } else if (event.volume) {
+                volumeDisplay = `${event.volume}ml`; // Fallback if no serving_unit
+              } else {
+                volumeDisplay = `${event.amount} ${habit?.unit || 'units'}`;
+              }
 
-            // Debug logging
-            console.log('Volume display debug:', {
-              eventId: event.id,
-              volume: event.volume,
-              amount: event.amount,
-              drinkType: event.drink_type,
-              resolvedOption: resolvedOption?.name,
-              servingUnit: resolvedOption?.serving_unit,
-              volumeDisplay
-            });
-
-            return (
-              <View key={event.id} style={styles.loggedItemRow}>
-                <Text style={styles.loggedItemText}>
-                  {formatTime(event.consumed_at)} {getConsumptionTypeName(event.drink_type)} {volumeDisplay}
-                </Text>
-                <View style={styles.loggedItemActions}>
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => editConsumptionEvent(event)}
-                  >
-                    <Ionicons name="pencil" size={14} color={colors.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => {
-                      Alert.alert(
-                        'Delete Consumption',
-                        'Are you sure you want to delete this consumption entry?',
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          {
-                            text: 'Delete',
-                            style: 'destructive',
-                            onPress: () => deleteConsumptionEvent(event.id)
-                          }
-                        ]
-                      );
-                    }}
-                  >
-                    <Ionicons name="trash" size={14} color={colors.error} />
-                  </TouchableOpacity>
+              return (
+                <View key={event.id} style={styles.loggedItemRow}>
+                  <Text style={styles.loggedItemText}>
+                    {formatTime(event.consumed_at)} {getConsumptionTypeName(event.drink_type) || 'Unknown'} {volumeDisplay}
+                  </Text>
+                  <View style={styles.loggedItemActions}>
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => editConsumptionEvent(event)}
+                    >
+                      <Ionicons name="pencil" size={14} color={colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => {
+                        Alert.alert(
+                          'Delete Consumption',
+                          'Are you sure you want to delete this consumption entry?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => deleteConsumptionEvent(event.id)
+                            }
+                          ]
+                        );
+                      }}
+                    >
+                      <Ionicons name="trash" size={14} color={colors.error} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            );
+              );
+            } catch (error) {
+              console.error('Error rendering consumption event:', error, event);
+              return (
+                <View key={event.id || Math.random()} style={styles.loggedItemRow}>
+                  <Text style={styles.loggedItemText}>
+                    Error loading consumption entry
+                  </Text>
+                </View>
+              );
+            }
           })}
         </View>
       ) : null}
+        </>
+      )}
 
       {/* Time Selection Modal */}
       <Modal

@@ -1,3 +1,24 @@
----
+Version Management is Now Fully Automatic:
+
+🔄 **How Version Updates Work Now:**
+- Versions automatically increment (+0.0.1) when code is merged to main branch
+- GitHub Actions handles version bumping and creates releases
+- No manual version editing required
+- Version displays automatically in the app from app configuration
+
+📱 **For Development Testing:**
+- Version stays the same during development work
+- Test your changes with instant updates via "SleepFactor Dev" app
+- Version only changes when features are released to production
+
+🚀 **For Production Releases:**
+- Create a pull request to merge your tested changes to main
+- GitHub Actions automatically increments version and builds production APK
+- Download the new version from GitHub Releases
+- Version number appears in Profile screen and release notes
+
+💡 **No More Manual Version Management:**
+- Old way: Manually edit 3 files and verify version display
+- New way: Versions update automatically when you merge to main---
 alwaysApply: true
 ---

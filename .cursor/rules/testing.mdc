@@ -1,88 +1,176 @@
 # Testing Rules for SleepFactor App
 
 ## Overview
-SleepFactor maintains two separate apps on Android devices for testing:
-1. **SleepFactor** (Production) - Stable app built from main branch for daily habit logging
-2. **SleepFactor Dev** (Development) - Development shell app for testing new features
+SleepFactor uses professional automated workflows for safe and efficient development:
 
-## Production Testing Workflow
+1. **SleepFactor** (Production) - Automatically built from main branch via GitHub Actions
+2. **SleepFactor Dev** (Development) - Development app with instant live reloading via tunnel connection
 
-### Purpose
-- Test stable, production-ready code
-- Log daily habits without interruption from development changes
-- Ensure core functionality works reliably
+## 🚀 Complete Development to Production Workflow
 
-### When to Use
-- Before merging feature branches to main
-- When testing bug fixes that affect core functionality
-- For daily habit logging and data collection
+### **Phase 1: Development Testing (Fast Iteration)**
+1. Create a feature branch for your changes
+2. Start development server with `npx expo start --dev-client --tunnel`
+3. Your "SleepFactor Dev" app connects and shows changes instantly
+4. Iterate quickly with live reloading - no rebuilding needed
 
-### Steps
-1. **Switch to main branch**:
-  
-   git checkout main
-   git pull origin main
-   2. **Build production APK**:
-  
-   npx eas build --platform android --profile production
-   3. **Install and test**:
-   - Download APK from Expo build link
-   - Install over existing "SleepFactor" app (same package ID)
-   - Test core functionality: habit logging, sleep tracking, insights
+### **Phase 2: Code Review & Merge**
+1. When feature is complete, create a pull request
+2. Team reviews code changes
+3. GitHub Actions runs automated checks
+4. Merge to main branch when approved
 
-4. **Version update process** (when ready for release):
-   - Update version in app.json (+0.0.1)
-   - Update APP_VERSION in ProfileScreen.js
-   - Commit with message: "Release vX.X.X"
-   - Push to main branch
+### **Phase 3: Automated Production Release**
+1. GitHub Actions automatically builds production APK
+2. Version number increments automatically (+0.0.1)
+3. Release is created on GitHub with download link
+4. Install new version on your main "SleepFactor" app
+
+## Production Release Workflow
+
+### **What This Workflow Does**
+Takes thoroughly tested development changes and safely releases them to production users through automated systems.
+
+### **When to Use This Workflow**
+- When your feature is fully tested and ready for users
+- After completing development testing with tunnel mode
+- When you want to share stable improvements with all users
+
+### **Simple 4-Step Production Process**
+
+#### **Step 1: Prepare Your Changes**
+- Ensure all changes are tested with tunnel mode development server
+- Make sure your feature branch is working perfectly
+- Document what you've changed (for the pull request)
+
+#### **Step 2: Create Pull Request**
+```bash
+# Push your feature branch to GitHub
+git push origin feature/your-feature-name
+```
+Then go to GitHub and create a "Pull Request" to merge your branch into main.
+
+#### **Step 3: Code Review & Merge**
+- Team reviews your code changes
+- Automated tests run to ensure quality
+- When approved, merge your changes to main branch
+- This triggers automatic production build
+
+#### **Step 4: Install Production Release**
+- GitHub Actions automatically builds new production APK
+- Version number increases automatically (+0.0.1)
+- Download from: https://github.com/YOUR_USERNAME/SleepFactor/releases
+- Install on your main "SleepFactor" app
+
+### **What Happens Automatically**
+✅ **Version Bumping**: App version increases by 0.0.1
+✅ **Clean Build**: Production APK built from fresh code
+✅ **GitHub Release**: Download link created automatically
+✅ **No Manual Work**: Entire process is automated after merge
 
 ## Development Testing Workflow
 
-### Purpose
-- Test new features and changes before production deployment
-- Rapid iteration on development branches
-- Full native feature testing on physical device
+### **What This Workflow Does**
+Test new features and improvements quickly without waiting for full app rebuilds. Your "SleepFactor Dev" app updates instantly over-the-air!
 
-### When to Use
-- When developing new features or UI improvements
-- When testing changes to core functionality
-- When debugging issues that require device testing
+### **When to Use This Workflow**
+- Building new features or improving the app
+- Testing bug fixes
+- Making UI/UX improvements
+- Debugging app behavior
 
-### Prerequisites
-- Node.js version 20+ (required for Expo SDK 54)
-- "SleepFactor Dev" development APK installed on test device
-- Development server running locally
+### **Simple 4-Step Development Process**
 
-### Development APK Management
-- **Rebuild frequency**: Rebuild development APK when:
-  - Adding new native dependencies
-  - Changing app configuration (permissions, plugins)
-  - After major version updates
-  - When existing dev APK becomes incompatible
+#### **Step 1: Start Working on Changes**
+```bash
+# Create a branch for your work
+git checkout -b feature/your-feature-name
+```
+*This keeps your changes separate from the main production code*
 
-- **Build command**:
- 
-  npx eas build --platform android --profile development
-  ### Testing Process
-1. **Prepare development environment**:
+#### **Step 2: Make Your Code Changes**
+- Edit any files in your SleepFactor project
+- Add new features, fix bugs, improve design
+- Save your changes as you work
+
+#### **Step 3: Start Development Server**
+```bash
+# Start the development server with tunnel mode
+npx expo start --dev-client --tunnel
+```
+**What happens:** Creates a secure tunnel so your phone can connect from anywhere!
+
+#### **Step 4: Test on Your Phone**
+- Open "SleepFactor Dev" app on your Android phone
+- The app will connect to your development server automatically
+- **See changes instantly** as you edit code - no rebuilding needed!
+- Test your new features immediately
+- Make more changes and see them appear instantly
+- Repeat until everything works perfectly
+
+### **When to Rebuild Development APK**
+Only rebuild the full APK when:
+- Adding new app permissions
+- Installing new native libraries
+- Major app configuration changes
+
+```bash
+# Full APK rebuild (takes 10+ minutes)
+npx eas build --platform android --profile development
+```
+
+### Connection Troubleshooting
+
+#### If QR Code Scanning Fails:
+1. **Check network connectivity**:
+   - Ensure both devices on same Wi-Fi
+   - Try accessing `http://[computer-ip]:8081` in mobile browser
+   - Verify firewall allows port 8081
+
+2. **Try manual connection**:
+   - Find your computer's LAN IP (usually 192.168.x.x or 10.0.x.x)
+   - In "SleepFactor Dev" app, enter: `exp://[your-ip]:8081`
+   - Example: `exp://192.168.1.100:8081`
+
+3. **Alternative connection methods**:
   
-   # Switch to development branch
-   git checkout Development  # or feature branch
+   # Force LAN mode explicitly
+   npx expo start --dev-client --lan --host lan
    
-   # Ensure Node.js 20+
-   node --version  # Should show v20.x.x
-   2. **Launch development app on device**:
-   - Open "SleepFactor Dev" app on Android device
-   - Ensure it's the latest development APK
+   # Use tunnel mode (requires internet)
+   npx expo start --dev-client --tunnel
+   
+   # Clear all caches
+   npx expo start --dev-client --clear
+   #### Common Network Issues:
+- **"Network request failed"**: Check if both devices are on same network
+- **Connection timeout**: Firewall blocking port 8081
+- **LAN not working**: Try tunnel mode or manual IP entry
+- **VPN active**: Disable VPN and try again
+- **Corporate network**: May need to use tunnel mode or different network
 
-3. **Start development server**:
-  
-   npx expo start --dev-client
-   4. **Connect and test**:
-   - Scan QR code with "SleepFactor Dev" app
-   - Test new features/functionality
-   - Monitor console logs for errors
-   - Test on real device for accurate UX feedback
+#### Finding Your Computer's IP Address:
+# macOS
+ipconfig getifaddr en0  # or en1
+
+# Linux
+hostname -I
+
+# Windows
+ipconfig### **✅ Infrastructure Now Active**
+
+**Before (Manual & Risky):**
+- Manual version editing in 3 different files
+- Local production builds (could include accidental changes)
+- 10+ minute waits for every development test
+- Direct pushes to main branch (dangerous)
+
+**After (Automated & Safe):**
+- ✅ Versions update automatically on production builds
+- ✅ Clean production builds via GitHub Actions only
+- ✅ Instant development testing with tunnel mode live reloading
+- ✅ Pull request reviews required for all production changes
+- ✅ Branch protection prevents direct main branch pushes
 
 ### Testing Checklist
 - [ ] App launches without crashes
@@ -93,27 +181,133 @@ SleepFactor maintains two separate apps on Android devices for testing:
 - [ ] Performance is acceptable on device
 - [ ] UI renders correctly on Android device
 - [ ] Core user flows complete successfully
+- [ ] Tunnel mode connects reliably and shows live changes (development)
+- [ ] Production APK downloads correctly from GitHub Releases
 
 ### Troubleshooting Common Issues
+
+#### Development Testing Issues
 - **"toReversed is not a function"**: Update Node.js to version 20+
-- **Build fails**: Check for syntax errors, run `npx expo install --fix`
-- **App won't connect**: Restart development server, check network connection
+- **Build fails**: Check for syntax errors, run `npm install`
+- **Tunnel connection fails**: Check network, try `--lan` mode, verify firewall allows connections
+- **App won't connect in dev mode**:
+  - Verify same Wi-Fi network
+  - Try manual IP entry: `exp://[computer-ip]:8081`
+  - Use `--lan` flag: `npx expo start --dev-client --lan`
+  - Check firewall settings for port 8081
+
+#### Production Build Issues
+- **GitHub Actions fail**: Check EXPO_TOKEN secret is set in repository
+- **Version not updating**: Check package.json version format
+- **APK not in releases**: Check GitHub Actions workflow run logs
+
+#### General Issues
 - **Native features broken**: Rebuild development APK after dependency changes
+- **Slow performance**: Clear Expo cache with `--clear` flag
+- **Authentication errors**: Run `eas login` and check EXPO_TOKEN
 
-## Testing Priorities
-1. **Android first**: Test on Android device before iOS
-2. **Core functionality**: Habit logging, sleep tracking, data persistence
-3. **User experience**: Ensure intuitive navigation and clear feedback
-4. **Error scenarios**: Test edge cases and error conditions
-5. **Performance**: Verify app runs smoothly on target device
+## Setup Instructions
 
-## Version Control Integration
-- Development branches: Test thoroughly before merging to main
-- Main branch: Only stable, tested code
-- Tag releases: Use semantic versioning (v1.2.3 format)
-- Commit messages: Include testing notes for significant changes
+### One-Time Setup
+1. **Run setup scripts**:
+   ```bash
+   ./setup-eas-update.sh    # Configure EAS build channels (optional)
+   ./setup-github-repo.sh   # Instructions for GitHub configuration
+   ```
+
+2. **GitHub Configuration** (Manual):
+   - Set up branch protection rules for main branch
+   - Add EXPO_TOKEN secret to repository
+   - Enable pull request reviews
+
+3. **Test the workflow**:
+   - Create a feature branch
+   - Make a small change
+   - Run `eas update --branch development`
+   - Verify instant update on device
+
+## Testing Priorities & Summary
+
+### **Daily Development Workflow**
+1. **Create feature branch** for new work
+2. **Start development server** with `npx expo start --dev-client --tunnel`
+3. **Use "SleepFactor Dev" app** for immediate testing on your phone
+4. **Iterate quickly** with live reloading - changes appear instantly!
+
+### **Before Production Release**
+1. **Test thoroughly** with tunnel mode development server
+2. **Create pull request** for code review
+3. **Get approval** and merge to main
+4. **Install automated production build**
+
+### **Key Benefits of New Workflow**
+⚡ **Instant Development**: Live reloading with tunnel mode - see changes immediately
+🛡️ **Safer Releases**: Code review required, automated production builds
+🤖 **No Manual Work**: Versions and releases happen automatically
+📱 **Always Testable**: Separate dev and production apps with reliable connection
+
+### **Quick Command Reference**
+```bash
+# Start new feature work
+git checkout -b feature/your-feature-name
+
+# Start development testing (tunnel mode)
+npx expo start --dev-client --tunnel
+
+# Share work for review
+git push origin feature/your-feature-name
+# Then create pull request on GitHub
+
+# Install production updates
+# Download from: https://github.com/YOUR_USERNAME/SleepFactor/releases
+
+# Full APK rebuild (when needed)
+npx eas build --platform android --profile development
+```
+
+## How Code Moves from Development to Production
+
+### **Branch Organization**
+- **main branch**: Your stable, production-ready code (protected - can't push directly)
+- **feature branches**: Where you build new features (e.g., `feature/add-sleep-insights`)
+
+### **Safe Code Movement Process**
+
+#### **Creating Work Branches**
+```bash
+# Always start new work on a separate branch
+git checkout -b feature/your-feature-name
+```
+*This protects your main production code while you experiment*
+
+#### **Sharing Your Work**
+```bash
+# Save your changes
+git add .
+git commit -m "Add your feature description"
+
+# Share with team
+git push origin feature/your-feature-name
+```
+
+#### **Pull Request Review Process**
+1. **Create Pull Request**: Click button on GitHub to propose merging your branch
+2. **Team Review**: Others check your code quality and test your changes
+3. **Automated Checks**: Computer runs tests to ensure nothing is broken
+4. **Approval & Merge**: When everything looks good, merge to main branch
+
+#### **What Happens After Merge**
+🎉 **Automatic Production Release:**
+- Clean APK build starts automatically
+- Version number increases (+0.0.1)
+- Release created with download link
+- Your feature is now live for all users!
+
+### **Why This Process Keeps Things Safe**
+✅ **No Accidental Changes**: Can't accidentally break production
+✅ **Quality Checks**: Code reviewed before going live
+✅ **Automated Testing**: Computer checks for problems
+✅ **Clean Releases**: Every release is built fresh from tested code
 ---
-alwaysApply: true
-------
 alwaysApply: true
 ---

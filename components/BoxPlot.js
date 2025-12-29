@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-// import { CartesianChart, Bar } from '../node_modules/victory-native-xl-monorepo/lib/dist/index.js';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import Svg, { Rect, Line, Circle, G } from 'react-native-svg';
+import { scaleLinear } from 'd3-scale';
 import { colors, typography, spacing } from '../constants';
 
 const BoxPlot = ({
@@ -37,12 +38,32 @@ const BoxPlot = ({
     );
   }
 
-  // Prepare data for victory-native
-  const boxPlotData = [{
-    x: 'Data',
-    y: [min, q1, median, q3, max],
-    outliers: outliers || []
-  }];
+  // Calculate dimensions for the box plot
+  const plotHeight = safeHeight - (showStats ? 60 : 40) - 40; // Leave space for title and stats
+  const plotWidth = safeWidth - 40; // Padding on sides
+
+  // Create scales for mapping data values to pixel coordinates
+  const yScale = scaleLinear()
+    .domain([min, max])
+    .range([plotHeight - 20, 20]); // Inverted because SVG y=0 is at top
+
+  // Calculate box plot coordinates
+  const boxWidth = 40;
+  const centerX = plotWidth / 2;
+  const medianY = yScale(median);
+  const q1Y = yScale(q1);
+  const q3Y = yScale(q3);
+  const minY = yScale(min);
+  const maxY = yScale(max);
+
+  // Handle press for showing details
+  const handlePress = () => {
+    Alert.alert(
+      'Box Plot Statistics',
+      `Median: ${median.toFixed(1)}\nIQR: ${(q3 - q1).toFixed(1)}\nRange: ${min.toFixed(1)} - ${max.toFixed(1)}\nCount: ${count}`,
+      [{ text: 'OK' }]
+    );
+  };
 
   return (
     <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
@@ -50,20 +71,80 @@ const BoxPlot = ({
         <Text style={styles.title}>{title}</Text>
       )}
 
-      <View style={{ width: safeWidth, height: safeHeight - (showStats ? 60 : 40), backgroundColor: colors.cardBackground, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }}>
-        <Text style={{ color: colors.textSecondary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
-          Box Plot
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
-          Statistical visualization
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-          {boxPlotData.length} data points
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8, fontStyle: 'italic' }}>
-          Victory Native XL - Integration in progress
-        </Text>
-      </View>
+      <TouchableOpacity onPress={handlePress} activeOpacity={0.7}>
+        <Svg width={plotWidth} height={plotHeight} style={styles.chartContainer}>
+          {/* Vertical line (whiskers) */}
+          <Line
+            x1={centerX}
+            y1={minY}
+            x2={centerX}
+            y2={maxY}
+            stroke={color}
+            strokeWidth="2"
+          />
+
+          {/* Min whisker */}
+          <Line
+            x1={centerX - 10}
+            y1={minY}
+            x2={centerX + 10}
+            y2={minY}
+            stroke={color}
+            strokeWidth="2"
+          />
+
+          {/* Max whisker */}
+          <Line
+            x1={centerX - 10}
+            y1={maxY}
+            x2={centerX + 10}
+            y2={maxY}
+            stroke={color}
+            strokeWidth="2"
+          />
+
+          {/* Box (IQR) */}
+          <Rect
+            x={centerX - boxWidth / 2}
+            y={q3Y}
+            width={boxWidth}
+            height={q1Y - q3Y}
+            fill={color}
+            fillOpacity={0.7}
+            stroke={color}
+            strokeWidth="2"
+          />
+
+          {/* Median line */}
+          <Line
+            x1={centerX - boxWidth / 2}
+            y1={medianY}
+            x2={centerX + boxWidth / 2}
+            y2={medianY}
+            stroke={colors.cardBackground}
+            strokeWidth="3"
+          />
+
+          {/* Outliers */}
+          {outliers && outliers.map((outlier, index) => {
+            const isValidOutlier = isValidValue(outlier);
+            if (!isValidOutlier) return null;
+
+            const outlierY = yScale(outlier);
+            return (
+              <Circle
+                key={index}
+                cx={centerX}
+                cy={outlierY}
+                r="4"
+                fill={colors.error}
+                stroke={colors.cardBackground}
+                strokeWidth="2"
+              />
+            );
+          })}
+        </Svg>
+      </TouchableOpacity>
 
       {showStats && (
         <View style={styles.statsContainer}>
@@ -90,28 +171,7 @@ export const BoxPlotComparison = ({
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
 
-  // Prepare data for victory-native
-  const boxPlotData = [];
-
-  if (data1) {
-    boxPlotData.push({
-      x: label1 || 'Group 1',
-      y: [data1.min, data1.q1, data1.median, data1.q3, data1.max],
-      outliers: data1.outliers || [],
-      color: color1
-    });
-  }
-
-  if (data2) {
-    boxPlotData.push({
-      x: label2 || 'Group 2',
-      y: [data2.min, data2.q1, data2.median, data2.q3, data2.max],
-      outliers: data2.outliers || [],
-      color: color2
-    });
-  }
-
-  if (boxPlotData.length === 0) {
+  if (!data1 && !data2) {
     return (
       <View style={[styles.container, { width: safeWidth, height: safeHeight, justifyContent: 'center', alignItems: 'center' }]}>
         <Text style={[styles.noDataText, { textAlign: 'center' }]}>No comparison data</Text>
@@ -119,39 +179,196 @@ export const BoxPlotComparison = ({
     );
   }
 
-  // Transform box plot data for Victory Native XL
-  const transformedData = boxPlotData.flatMap((box, index) => {
-    const [min, q1, median, q3, max] = box.y;
-    return [
-      { x: `${box.x}-min`, y: min, type: 'min', color: box.color },
-      { x: `${box.x}-q1`, y: q1, type: 'q1', color: box.color },
-      { x: `${box.x}-median`, y: median, type: 'median', color: box.color },
-      { x: `${box.x}-q3`, y: q3, type: 'q3', color: box.color },
-      { x: `${box.x}-max`, y: max, type: 'max', color: box.color },
-    ];
-  });
+  // Calculate dimensions for the comparison
+  const plotHeight = safeHeight - 60 - 40; // Leave space for labels and stats
+  const plotWidth = safeWidth - 40;
+
+  // Determine which dataset is "healthier" (higher median for sleep metrics)
+  let healthierData, otherData, healthierColor, otherColor, healthierLabel, otherLabel;
+
+  if (data1 && data2) {
+    // Both datasets available - compare medians
+    const median1 = data1.median || 0;
+    const median2 = data2.median || 0;
+
+    if (median1 >= median2) {
+      healthierData = data1;
+      otherData = data2;
+      healthierColor = colors.success; // Green for healthier
+      otherColor = colors.textSecondary; // Grey for comparison
+      healthierLabel = label1;
+      otherLabel = label2;
+    } else {
+      healthierData = data2;
+      otherData = data1;
+      healthierColor = colors.success;
+      otherColor = colors.textSecondary;
+      healthierLabel = label2;
+      otherLabel = label1;
+    }
+  } else if (data1) {
+    healthierData = data1;
+    healthierColor = colors.success;
+    healthierLabel = label1;
+  } else {
+    healthierData = data2;
+    healthierColor = colors.success;
+    healthierLabel = label2;
+  }
+
+  // Calculate combined range for consistent scaling
+  const allValues = [];
+  if (data1) {
+    allValues.push(data1.min, data1.q1, data1.median, data1.q3, data1.max);
+  }
+  if (data2) {
+    allValues.push(data2.min, data2.q1, data2.median, data2.q3, data2.max);
+  }
+
+  const globalMin = Math.min(...allValues);
+  const globalMax = Math.max(...allValues);
+
+  // Create scale
+  const yScale = scaleLinear()
+    .domain([globalMin, globalMax])
+    .range([plotHeight - 20, 20]);
+
+  // Box plot dimensions
+  const boxWidth = 30;
+  const spacing = data1 && data2 ? plotWidth / 3 : plotWidth / 2;
+
+  // Calculate positions
+  const positions = [];
+  if (data1 && data2) {
+    positions.push({ x: spacing, data: data1, color: color1, label: label1 });
+    positions.push({ x: spacing * 2, data: data2, color: color2, label: label2 });
+  } else {
+    positions.push({ x: spacing, data: healthierData, color: healthierColor, label: healthierLabel });
+  }
+
+  // Handle press for showing details
+  const handlePress = (data, label) => {
+    if (!data) return;
+    Alert.alert(
+      `${label} Statistics`,
+      `Median: ${data.median?.toFixed(1) || 'N/A'}\nIQR: ${(data.q3 - data.q1)?.toFixed(1) || 'N/A'}\nRange: ${data.min?.toFixed(1) || 'N/A'} - ${data.max?.toFixed(1) || 'N/A'}\nCount: ${data.count || 0}`,
+      [{ text: 'OK' }]
+    );
+  };
 
   return (
     <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
-      <View style={{ width: safeWidth, height: safeHeight - 60, backgroundColor: colors.cardBackground, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }}>
-        <Text style={{ color: colors.textSecondary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
-          Box Plot Comparison
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
-          {data1 ? 'Group 1' : 'No data'} vs {data2 ? 'Group 2' : 'No data'}
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-          {transformedData.length} data points
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8, fontStyle: 'italic' }}>
-          Victory Native XL - Import issue (working on fix)
-        </Text>
+      {/* Labels */}
+      <View style={styles.labelsContainer}>
+        {positions.map((pos, index) => (
+          <Text key={index} style={[styles.label, { color: pos.color, flex: 1, textAlign: 'center' }]}>
+            {pos.label}
+          </Text>
+        ))}
       </View>
 
-      {showStats && (
+      <TouchableOpacity onPress={() => handlePress(healthierData, healthierLabel)} activeOpacity={0.7}>
+        <Svg width={plotWidth} height={plotHeight} style={styles.chartContainer}>
+          {positions.map((pos, index) => {
+            const { data, color, x } = pos;
+            if (!data) return null;
+
+            const { min, q1, median, q3, max, outliers } = data;
+            const isValidValue = (val) => val !== null && val !== undefined && !isNaN(val) && isFinite(val);
+
+            if (!isValidValue(min) || !isValidValue(q1) || !isValidValue(median) ||
+                !isValidValue(q3) || !isValidValue(max)) {
+              return null;
+            }
+
+            const medianY = yScale(median);
+            const q1Y = yScale(q1);
+            const q3Y = yScale(q3);
+            const minY = yScale(min);
+            const maxY = yScale(max);
+
+            return (
+              <G key={index}>
+                {/* Vertical line (whiskers) */}
+                <Line
+                  x1={x}
+                  y1={minY}
+                  x2={x}
+                  y2={maxY}
+                  stroke={color}
+                  strokeWidth="2"
+                />
+
+                {/* Min whisker */}
+                <Line
+                  x1={x - 8}
+                  y1={minY}
+                  x2={x + 8}
+                  y2={minY}
+                  stroke={color}
+                  strokeWidth="2"
+                />
+
+                {/* Max whisker */}
+                <Line
+                  x1={x - 8}
+                  y1={maxY}
+                  x2={x + 8}
+                  y2={maxY}
+                  stroke={color}
+                  strokeWidth="2"
+                />
+
+                {/* Box (IQR) */}
+                <Rect
+                  x={x - boxWidth / 2}
+                  y={q3Y}
+                  width={boxWidth}
+                  height={q1Y - q3Y}
+                  fill={color}
+                  fillOpacity={0.7}
+                  stroke={color}
+                  strokeWidth="2"
+                />
+
+                {/* Median line */}
+                <Line
+                  x1={x - boxWidth / 2}
+                  y1={medianY}
+                  x2={x + boxWidth / 2}
+                  y2={medianY}
+                  stroke={colors.cardBackground}
+                  strokeWidth="3"
+                />
+
+                {/* Outliers */}
+                {outliers && outliers.map((outlier, outlierIndex) => {
+                  const isValidOutlier = isValidValue(outlier);
+                  if (!isValidOutlier) return null;
+
+                  const outlierY = yScale(outlier);
+                  return (
+                    <Circle
+                      key={outlierIndex}
+                      cx={x}
+                      cy={outlierY}
+                      r="3"
+                      fill={colors.error}
+                      stroke={colors.cardBackground}
+                      strokeWidth="2"
+                    />
+                  );
+                })}
+              </G>
+            );
+          })}
+        </Svg>
+      </TouchableOpacity>
+
+      {showStats && positions.length > 0 && (
         <View style={styles.statsContainer}>
           <Text style={styles.statsText}>
-            Comparison of {boxPlotData.length} groups
+            Comparison of {positions.length} group{positions.length > 1 ? 's' : ''}
           </Text>
         </View>
       )}
@@ -171,35 +388,21 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     textAlign: 'center',
   },
-  boxPlotContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.md,
-  },
-  boxPlotVisual: {
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  boxPlotText: {
-    fontSize: 12,
-    color: colors.primary,
-    fontFamily: 'monospace',
-    lineHeight: 16,
-  },
-  statsSummary: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  statItem: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontFamily: 'monospace',
+  chartContainer: {
     backgroundColor: colors.cardBackground,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: 8,
+    padding: spacing.sm,
+  },
+  labelsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginBottom: spacing.sm,
+  },
+  label: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    textAlign: 'center',
   },
   statsContainer: {
     marginTop: spacing.xs,
@@ -214,19 +417,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontStyle: 'italic',
-  },
-  comparisonContainer: {
-    width: '100%',
-  },
-  comparisonItem: {
-    marginBottom: spacing.md,
-  },
-  comparisonLabel: {
-    fontSize: typography.sizes.small,
-    color: colors.textPrimary,
-    fontWeight: typography.weights.medium,
-    textAlign: 'center',
-    marginBottom: spacing.xs,
   },
 });
 

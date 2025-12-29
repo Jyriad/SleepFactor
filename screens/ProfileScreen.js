@@ -11,8 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Hardcoded version constant - UPDATE THIS MANUALLY alongside app.json for immediate UI updates
-const APP_VERSION = '1.2.10';
+// Dynamic version from app config - automatically synced with build version
+const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
