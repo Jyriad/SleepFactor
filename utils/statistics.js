@@ -334,3 +334,59 @@ export function calculateDescriptiveStats(array) {
     kurtosis
   };
 }
+
+/**
+ * Calculate sleep efficiency from sleep data
+ * Sleep efficiency = (total sleep time / time in bed) * 100
+ * @param {Object} sleepData - Sleep data object with relevant metrics
+ * @returns {number} Sleep efficiency percentage (0-100)
+ */
+export function calculateSleepEfficiency(sleepData) {
+  if (!sleepData) return 0;
+
+  // Time in bed is typically total_sleep_minutes + awake_minutes
+  // If awake_minutes is not available, we might need to estimate or use a different approach
+  const totalSleepMinutes = sleepData.total_sleep_minutes || 0;
+  const awakeMinutes = sleepData.awake_minutes || 0;
+
+  // Time in bed = total sleep + awake time (if available)
+  const timeInBedMinutes = totalSleepMinutes + awakeMinutes;
+
+  if (timeInBedMinutes <= 0) return 0;
+
+  // Calculate efficiency as percentage
+  const efficiency = (totalSleepMinutes / timeInBedMinutes) * 100;
+
+  // Ensure result is between 0 and 100
+  return Math.max(0, Math.min(100, efficiency));
+}
+
+/**
+ * Transform sleep data points to efficiency values for visualization
+ * @param {Array} dataPoints - Array of data points with sleep data
+ * @param {string} sleepMetricKey - The sleep metric key to transform
+ * @returns {Array} Transformed data points with efficiency values
+ */
+export function transformToEfficiencyData(dataPoints, sleepMetricKey) {
+  if (!dataPoints || !Array.isArray(dataPoints)) return [];
+
+  return dataPoints.map(point => {
+    const efficiency = calculateSleepEfficiency(point.sleepData);
+
+    return {
+      ...point,
+      y: efficiency,
+      originalY: point.y, // Keep original value for reference
+      efficiency: efficiency
+    };
+  }).filter(point => point.efficiency > 0); // Filter out invalid efficiency values
+}
+
+/**
+ * Check if a sleep metric supports efficiency transformation
+ * @param {string} metricKey - Sleep metric key
+ * @returns {boolean} Whether efficiency transformation is supported
+ */
+export function supportsEfficiencyTransformation(metricKey) {
+  return ['total_sleep_minutes', 'deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes', 'awake_minutes'].includes(metricKey);
+}

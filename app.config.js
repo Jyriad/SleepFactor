@@ -1,10 +1,17 @@
-const isDev = process.env.EAS_BUILD_PROFILE === "development";
+// Dynamic configuration based on build environment
+const IS_DEV = process.env.APP_VARIANT === 'development' || process.env.EAS_BUILD_PROFILE === "development";
+const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
+
+// Version management - can be overridden by CI/CD for automated releases
+const BASE_VERSION = "1.3.20";
+const VERSION = process.env.APP_VERSION || BASE_VERSION;
 
 export default {
-  name: isDev ? "SleepFactor Dev" : "SleepFactor",
+  // App name changes based on build variant
+  name: IS_DEV ? "SleepFactor Dev" : "SleepFactor",
   slug: "SleepFactor",
   scheme: "sleepfactor",
-  version: "1.1.83",
+  version: VERSION,
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
@@ -16,7 +23,7 @@ export default {
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: isDev ? "com.sleepfactor.app.dev" : "com.sleepfactor.app"
+    bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app"
   },
   android: {
     adaptiveIcon: {
@@ -24,7 +31,7 @@ export default {
       backgroundColor: "#ffffff"
     },
     edgeToEdgeEnabled: true,
-    package: isDev ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
+    package: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
     permissions: [
       "android.permission.health.READ_SLEEP",
       "android.permission.health.READ_STEPS",

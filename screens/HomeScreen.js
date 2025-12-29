@@ -103,6 +103,7 @@ const HomeScreen = () => {
       checkHabitsLogged();
       checkTodaysHabitsLogged();
       fetchHabitCount();
+      fetchTotalHabitCount(); // Refresh total habit count when returning to screen
     }, [selectedDate, user])
   );
 
