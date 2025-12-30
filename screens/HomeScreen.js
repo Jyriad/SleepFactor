@@ -837,7 +837,6 @@ const HomeScreen = () => {
             (() => {
               console.log('⏳ DEBUG: Showing auto-sync skeleton (actively syncing today\'s data)');
               return (
-            // For today's date with permissions and actively syncing, show skeleton
             <View style={[styles.sleepCard, styles.skeletonCard]}>
               <View style={styles.sleepCardHeader}>
                 <View style={styles.sleepCardTitleRow}>
