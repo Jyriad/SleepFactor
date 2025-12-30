@@ -96,7 +96,8 @@ git checkout -b feature/your-feature-name
 #### **Step 3: Start Development Server**
 ```bash
 # Start the development server with tunnel mode
-npx expo start --dev-client --tunnel
+
+
 ```
 **What happens:** Creates a secure tunnel so your phone can connect from anywhere!
 
@@ -282,13 +283,17 @@ git checkout -b feature/your-feature-name
 
 #### **Sharing Your Work**
 ```bash
-# Save your changes
+# Stage your changes (tells git which files to save)
 git add .
+
+# Save your changes with a description
 git commit -m "Add your feature description"
 
-# Share with team
+# Share with team on GitHub
 git push origin feature/your-feature-name
 ```
+
+*⚠️ **Important**: Always run `git add .` before `git commit`. Git requires you to explicitly stage changes before committing them. If you see "changes not staged for commit", just run `git add .` first.*
 
 #### **Pull Request Review Process**
 1. **Create Pull Request**: Click button on GitHub to propose merging your branch

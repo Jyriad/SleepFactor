@@ -422,27 +422,51 @@ const HomeScreen = () => {
   };
 
   const fetchSleepData = async () => {
-    if (!user) return;
+    console.log('🔍 DEBUG: fetchSleepData called for date:', selectedDate);
+
+    if (!user) {
+      console.log('❌ DEBUG: No user object available - cannot fetch sleep data');
+      return;
+    }
+
+    console.log('✅ DEBUG: User authenticated with ID:', user.id);
 
     // Check cache first
     const cachedData = getCachedSleepData(selectedDate);
     if (cachedData !== undefined) {
+      console.log('📋 DEBUG: Using cached sleep data:', cachedData ? 'Data found' : 'No cached data');
       setSleepData(cachedData);
       return; // No loading state needed for cached data
     }
 
+    console.log('🔄 DEBUG: No cached data found, fetching from database...');
+
     // Fetch from database if not cached
     setSleepDataLoading(true);
     try {
+      console.log('📡 DEBUG: Calling sleepDataService.getSleepDataForDate...');
       const data = await sleepDataService.getSleepDataForDate(selectedDate);
+      console.log('✅ DEBUG: Database query successful, result:', data ? 'Sleep data found' : 'No sleep data for this date');
+      if (data) {
+        console.log('📊 DEBUG: Sleep data details:', {
+          date: data.date,
+          totalSleep: data.total_sleep_minutes,
+          source: data.source,
+          hasStages: !!data.sleep_stages
+        });
+      }
       setSleepData(data);
       updateSleepDataCache(selectedDate, data);
     } catch (error) {
-      console.error('Error fetching sleep data:', error);
+      console.error('❌ DEBUG: Database query FAILED:', error);
+      console.error('❌ DEBUG: Error details:', JSON.stringify(error, null, 2));
+      console.error('❌ DEBUG: Error message:', error.message);
+      console.error('❌ DEBUG: Error stack:', error.stack);
       setSleepData(null);
       updateSleepDataCache(selectedDate, null);
     } finally {
       setSleepDataLoading(false);
+      console.log('🏁 DEBUG: fetchSleepData completed');
     }
   };
 
