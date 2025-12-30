@@ -3,8 +3,8 @@ const IS_DEV = process.env.APP_VARIANT === 'development' || process.env.EAS_BUIL
 const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
 
 // Import version from package.json
-const packageJson = require('./package.json');
-const VERSION = process.env.APP_VERSION || packageJson.version;
+import packageInfo from './package.json';
+const VERSION = process.env.APP_VERSION || packageInfo.version;
 
 export default {
   // App name changes based on build variant
