@@ -20,6 +20,285 @@ import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
+// Sleep Data Rendering Components
+const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
+  <HealthConnectPrompt
+    onPermissionsGranted={onPermissionsGranted}
+    onDismiss={onDismiss}
+  />
+);
+
+const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay }) => (
+  <View style={styles.sleepCard}>
+    <View style={styles.sleepCardHeader}>
+      <View style={styles.sleepCardTitleRow}>
+        <Ionicons name="moon-outline" size={24} color={colors.primary} />
+        <Text style={styles.sleepCardTitle}>
+          {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+        </Text>
+        {healthSyncInitialized && (
+          <TouchableOpacity
+            onPress={handleSyncNow}
+            disabled={autoSyncLoading}
+            style={styles.cardSyncButton}
+          >
+            <Ionicons
+              name={autoSyncLoading ? "sync" : "refresh-outline"}
+              size={20}
+              color={healthSyncLoading ? colors.textSecondary : colors.primary}
+            />
+            <Text style={[
+              styles.cardSyncButtonText,
+              { color: autoSyncLoading ? colors.textSecondary : colors.primary }
+            ]}>
+              {autoSyncLoading ? 'Syncing...' : 'Sync'}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <Text style={styles.dataSourceInfo}>
+        Synced by: {getDataSourceDisplay(hasPermissions)}
+      </Text>
+    </View>
+
+    <View style={styles.noDataContent}>
+      <Ionicons name="moon-outline" size={48} color={colors.textSecondary} />
+      <Text style={styles.placeholderText}>
+        {hasPermissions ? 'No sleep data available for this date' : 'Connect your health app to view sleep data'}
+      </Text>
+      <Text style={styles.placeholderSubtext}>
+        {hasPermissions
+          ? 'Data may not be available yet or tracking failed'
+          : 'Grant permissions to sync sleep data from your device'
+        }
+      </Text>
+      {!hasPermissions && (
+        <TouchableOpacity
+          style={styles.connectButton}
+          onPress={() => setShowPermissionPrompt(true)}
+        >
+          <Text style={styles.connectButtonText}>Connect Health App</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  </View>
+);
+
+const SleepDataCard = ({
+  selectedDate,
+  isToday,
+  formatDateTitle,
+  sleepData,
+  hasPermissions,
+  healthSyncInitialized,
+  handleSyncNow,
+  autoSyncLoading,
+  healthSyncLoading,
+  getDataSourceDisplay,
+  lastSyncResult,
+  calculateSleepMetrics,
+  formatSleepDuration,
+  renderSleepMetricRow,
+  syncError
+}) => (
+  <View style={styles.sleepCard}>
+    <View style={styles.sleepCardHeader}>
+      <View style={styles.sleepCardTitleRow}>
+        <Ionicons name="moon-outline" size={24} color={colors.primary} />
+        <Text style={styles.sleepCardTitle}>
+          {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+        </Text>
+        {healthSyncInitialized && (
+          <TouchableOpacity
+            onPress={handleSyncNow}
+            disabled={autoSyncLoading}
+            style={styles.cardSyncButton}
+          >
+            <Ionicons
+              name={autoSyncLoading ? "sync" : "refresh-outline"}
+              size={20}
+              color={healthSyncLoading ? colors.textSecondary : colors.primary}
+            />
+            <Text style={[
+              styles.cardSyncButtonText,
+              { color: autoSyncLoading ? colors.textSecondary : colors.primary }
+            ]}>
+              {autoSyncLoading ? 'Syncing...' : 'Sync'}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <Text style={styles.dataSourceInfo}>
+        Synced by: {getDataSourceDisplay(sleepData.source)}
+      </Text>
+    </View>
+
+    {/* Sleep Timeline Visualization */}
+    <SleepTimeline sleepData={sleepData} />
+
+    <View style={styles.sleepMetrics}>
+      {(() => {
+        const metrics = calculateSleepMetrics(sleepData);
+        return (
+          <>
+            {renderSleepMetricRow('Total Sleep', formatSleepDuration(sleepData.total_sleep_minutes), null, null, null, null, 'total-sleep', false)}
+
+            {Object.entries(SLEEP_METRIC_CONFIG).map(([key, config], index) => {
+              const metric = metrics[key];
+              return metric && metric.percentage > 0 ? (
+                renderSleepMetricRow(config.label, metric.minutes, metric.percentage, metric.comparison, config.color, null, key, index % 2 === 0)
+              ) : null;
+            })}
+
+            {sleepData.awakenings_count > 0 && metrics.awakenings && (
+              <View key="awakenings" style={styles.metricRow}>
+                <View style={styles.metricLabelContainer}>
+                  <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
+                  <Text style={styles.metricLabel}>Awakenings</Text>
+                </View>
+                <View style={styles.metricValueContainer}>
+                  <Text style={styles.metricValue}>
+                    {metrics.awakenings.count}
+                  </Text>
+                  <Text style={[
+                    styles.metricComparison,
+                    metrics.awakenings.comparisonText.includes('more than average') ? styles.metricComparisonNegative :
+                    metrics.awakenings.comparisonText.includes('fewer than average') ? styles.metricComparisonPositive :
+                    styles.metricComparison
+                  ]}>
+                    {metrics.awakenings.comparisonText}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {sleepData.sleep_score && (
+              renderSleepMetricRow('Sleep Score', `${sleepData.sleep_score}/100`, null, null, null, null, 'sleep-score')
+            )}
+          </>
+        );
+      })()}
+    </View>
+
+    {/* Sync Status */}
+    {lastSyncResult && (
+      <View style={styles.syncStatus}>
+        <Ionicons
+          name={lastSyncResult.success ? "checkmark-circle" : "close-circle"}
+          size={16}
+          color={lastSyncResult.success ? colors.success : colors.error}
+        />
+        <Text style={[
+          styles.syncStatusText,
+          { color: lastSyncResult.success ? colors.success : colors.error }
+        ]}>
+          {lastSyncResult.success
+            ? 'Data synced'
+            : 'Sync failed'
+          }
+        </Text>
+      </View>
+    )}
+
+    {syncError && (
+      <View style={styles.errorStatus}>
+        <Ionicons name="warning" size={16} color={colors.error} />
+        <Text style={styles.errorStatusText}>{syncError}</Text>
+      </View>
+    )}
+  </View>
+);
+
+const SleepDataSimpleLoading = () => (
+  <View style={styles.sleepCard}>
+    <View style={styles.sleepCardHeader}>
+      <View style={styles.sleepCardTitleRow}>
+        <Ionicons name="moon-outline" size={24} color={colors.primary} />
+        <Text style={styles.sleepCardTitle}>Loading sleep data...</Text>
+      </View>
+    </View>
+  </View>
+);
+
+const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle }) => (
+  <View style={[styles.sleepCard, styles.skeletonCard]}>
+    <View style={styles.sleepCardHeader}>
+      <View style={styles.sleepCardTitleRow}>
+        <Ionicons name="moon-outline" size={24} color={colors.primary} />
+        <Text style={styles.sleepCardTitle}>
+          {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+        </Text>
+        <View style={styles.cardSyncButton}>
+          <Ionicons name="sync" size={20} color={colors.textSecondary} />
+          <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]}>
+            Syncing...
+          </Text>
+        </View>
+      </View>
+      <Text style={[styles.dataSourceInfo, styles.skeletonText]}>
+        Syncing...
+      </Text>
+    </View>
+
+    {/* Skeleton Timeline */}
+    <View style={styles.timelineContainer}>
+      <View style={[styles.timelineBar, styles.skeletonBar]} />
+      <View style={styles.timeLabels}>
+        <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
+        <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
+      </View>
+    </View>
+
+    {/* Skeleton Metrics */}
+    <View style={styles.sleepMetrics}>
+      <View key="skeleton-total" style={[styles.metricRow, styles.metricRowAlternate]}>
+        <Text style={[styles.metricLabel, styles.skeletonText]}>Total Sleep</Text>
+        <View style={styles.metricValueContainer}>
+          <Text style={[styles.metricValue, styles.skeletonText]}>--h --m</Text>
+        </View>
+      </View>
+      <View key="skeleton-deep" style={styles.metricRow}>
+        <View style={styles.metricLabelContainer}>
+          <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.deep }]} />
+          <Text style={[styles.metricLabel, styles.skeletonText]}>Deep Sleep</Text>
+        </View>
+        <View style={styles.metricValueContainer}>
+          <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
+          <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
+        </View>
+      </View>
+      <View key="skeleton-light" style={[styles.metricRow, styles.metricRowAlternate]}>
+        <View style={styles.metricLabelContainer}>
+          <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.light }]} />
+          <Text style={[styles.metricLabel, styles.skeletonText]}>Light Sleep</Text>
+        </View>
+        <View style={styles.metricValueContainer}>
+          <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
+          <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
+        </View>
+      </View>
+      <View key="skeleton-awakenings" style={styles.metricRow}>
+        <View style={styles.metricLabelContainer}>
+          <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
+          <Text style={[styles.metricLabel, styles.skeletonText]}>Awakenings</Text>
+        </View>
+        <View style={styles.metricValueContainer}>
+          <Text style={[styles.metricValue, styles.skeletonText]}>--</Text>
+          <Text style={[styles.metricComparison, styles.skeletonText]}>-- times -- than average</Text>
+        </View>
+      </View>
+    </View>
+
+    {/* Sync Status during loading */}
+    <View style={styles.syncStatus}>
+      <Ionicons name="sync" size={16} color={colors.primary} />
+      <Text style={[styles.syncStatusText, { color: colors.primary }]}>
+        Syncing...
+      </Text>
+    </View>
+  </View>
+);
+
 // Sleep stage display names and their corresponding colors
 const SLEEP_METRIC_CONFIG = {
   deep_sleep_minutes: { label: 'Deep Sleep', color: colors.sleepStages.deep },
@@ -811,390 +1090,54 @@ const HomeScreen = () => {
 
         {/* Sleep Data Card */}
         <View style={styles.section}>
-          {(() => {
-            console.log('🎨 DEBUG: Sleep data UI render state:', {
-              showPermissionPrompt,
-              autoSyncLoading,
-              sleepDataLoading,
-              hasSleepData: !!sleepData,
-              sleepDataKeys: sleepData ? Object.keys(sleepData) : 'no data',
-              selectedDate: selectedDate?.toISOString?.() || selectedDate
-            });
-            return null; // This IIFE just logs, returns null to not affect rendering
-          })()}
-
           {showPermissionPrompt ? (
-            (() => {
-              console.log('📱 DEBUG: Showing permission prompt');
-              return (
-                <HealthConnectPrompt
-                  onPermissionsGranted={handlePermissionsGranted}
-                  onDismiss={handleDismissPermissions}
-                />
-              );
-            })()
+            <SleepPermissionPrompt
+              onPermissionsGranted={handlePermissionsGranted}
+              onDismiss={handleDismissPermissions}
+            />
           ) : autoSyncLoading ? (
-            (() => {
-              console.log('⏳ DEBUG: Showing auto-sync skeleton (actively syncing today\'s data)');
-              return (
-            // For today's date with permissions and actively syncing, show skeleton
-            <View style={[styles.sleepCard, styles.skeletonCard]}>
-              <View style={styles.sleepCardHeader}>
-                <View style={styles.sleepCardTitleRow}>
-                  <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                  <Text style={styles.sleepCardTitle}>
-                    {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-                  </Text>
-                  <View style={styles.cardSyncButton}>
-                    <Ionicons name="sync" size={20} color={colors.textSecondary} />
-                    <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]}>
-                      Syncing...
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.dataSourceInfo, styles.skeletonText]}>
-                  Syncing...
-                </Text>
-              </View>
-
-              {/* Skeleton Timeline */}
-              <View style={styles.timelineContainer}>
-                <View style={[styles.timelineBar, styles.skeletonBar]} />
-                <View style={styles.timeLabels}>
-                  <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
-                  <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
-                </View>
-              </View>
-
-              {/* Skeleton Metrics */}
-              <View style={styles.sleepMetrics}>
-                <View key="skeleton-total" style={[styles.metricRow, styles.metricRowAlternate]}>
-                  <Text style={[styles.metricLabel, styles.skeletonText]}>Total Sleep</Text>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--h --m</Text>
-                  </View>
-                </View>
-                <View key="skeleton-deep" style={styles.metricRow}>
-                  <View style={styles.metricLabelContainer}>
-                    <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.deep }]} />
-                    <Text style={[styles.metricLabel, styles.skeletonText]}>Deep Sleep</Text>
-                  </View>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
-                    <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
-                  </View>
-                </View>
-                <View key="skeleton-light" style={[styles.metricRow, styles.metricRowAlternate]}>
-                  <View style={styles.metricLabelContainer}>
-                    <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.light }]} />
-                    <Text style={[styles.metricLabel, styles.skeletonText]}>Light Sleep</Text>
-                  </View>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
-                    <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
-                  </View>
-                </View>
-                <View key="skeleton-awakenings" style={styles.metricRow}>
-                  <View style={styles.metricLabelContainer}>
-                    <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
-                    <Text style={[styles.metricLabel, styles.skeletonText]}>Awakenings</Text>
-                  </View>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--</Text>
-                    <Text style={[styles.metricComparison, styles.skeletonText]}>-- times -- than average</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Sync Status during loading */}
-              {lastSyncResult && (
-                <View style={styles.syncStatus}>
-                  <Ionicons name="sync" size={16} color={colors.primary} />
-                  <Text style={[styles.syncStatusText, { color: colors.primary }]}>
-                    Syncing...
-                  </Text>
-                </View>
-              )}
-
-              {syncError && (
-                <View style={styles.errorStatus}>
-                  <Ionicons name="warning" size={16} color={colors.error} />
-                  <Text style={styles.errorStatusText}>{syncError}</Text>
-                </View>
-              )}
-            </View>
+            <SleepDataLoadingSkeleton
+              selectedDate={selectedDate}
+              isToday={isToday}
+              formatDateTitle={formatDateTitle}
+            />
           ) : sleepDataLoading ? (
-            (() => {
-              console.log('🔄 DEBUG: Showing loading skeleton (fetching from database)');
-              return (
-                <View style={styles.sleepCard}>
-                  <View style={styles.sleepCardHeader}>
-                    <View style={styles.sleepCardTitleRow}>
-                      <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                      <Text style={styles.sleepCardTitle}>Loading sleep data...</Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            })()
-          ) : autoSyncLoading ? (
-            <View style={[styles.sleepCard, styles.skeletonCard]}>
-              <View style={styles.sleepCardHeader}>
-                <View style={styles.sleepCardTitleRow}>
-                  <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                  <Text style={styles.sleepCardTitle}>
-                    {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-                  </Text>
-                  <View style={styles.cardSyncButton}>
-                    <Ionicons name="sync" size={20} color={colors.textSecondary} />
-                    <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]}>
-                      Syncing...
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.dataSourceInfo, styles.skeletonText]}>
-                  Syncing...
-                </Text>
-              </View>
-
-              {/* Skeleton Timeline */}
-              <View style={styles.timelineContainer}>
-                <View style={[styles.timelineBar, styles.skeletonBar]} />
-                <View style={styles.timeLabels}>
-                  <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
-                  <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
-                </View>
-              </View>
-
-              {/* Skeleton Metrics */}
-              <View style={styles.sleepMetrics}>
-                <View key="skeleton-total" style={[styles.metricRow, styles.metricRowAlternate]}>
-                  <Text style={[styles.metricLabel, styles.skeletonText]}>Total Sleep</Text>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--h --m</Text>
-                  </View>
-                </View>
-                <View key="skeleton-deep" style={styles.metricRow}>
-                  <View style={styles.metricLabelContainer}>
-                    <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.deep }]} />
-                    <Text style={[styles.metricLabel, styles.skeletonText]}>Deep Sleep</Text>
-                  </View>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
-                    <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
-                  </View>
-                </View>
-                <View key="skeleton-light" style={[styles.metricRow, styles.metricRowAlternate]}>
-                  <View style={styles.metricLabelContainer}>
-                    <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.light }]} />
-                    <Text style={[styles.metricLabel, styles.skeletonText]}>Light Sleep</Text>
-                  </View>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
-                    <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
-                  </View>
-                </View>
-                <View key="skeleton-awakenings" style={styles.metricRow}>
-                  <View style={styles.metricLabelContainer}>
-                    <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
-                    <Text style={[styles.metricLabel, styles.skeletonText]}>Awakenings</Text>
-                  </View>
-                  <View style={styles.metricValueContainer}>
-                    <Text style={[styles.metricValue, styles.skeletonText]}>--</Text>
-                    <Text style={[styles.metricComparison, styles.skeletonText]}>-- times -- than average</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Sync Status during loading */}
-              {lastSyncResult && (
-                <View style={styles.syncStatus}>
-                  <Ionicons name="sync" size={16} color={colors.primary} />
-                  <Text style={[styles.syncStatusText, { color: colors.primary }]}>
-                    Syncing...
-                  </Text>
-                </View>
-              )}
-
-              {syncError && (
-                <View style={styles.errorStatus}>
-                  <Ionicons name="warning" size={16} color={colors.error} />
-                  <Text style={styles.errorStatusText}>{syncError}</Text>
-                </View>
-              )}
-            </View>
-          ) : sleepData ? (
-            (() => {
-              console.log('📊 DEBUG: Showing actual sleep data (data available)');
-              return (
-                <View style={styles.sleepCard}>
-              <View style={styles.sleepCardHeader}>
-                <View style={styles.sleepCardTitleRow}>
-                  <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                  <Text style={styles.sleepCardTitle}>
-                    {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-                  </Text>
-                  {healthSyncInitialized && (
-                    <TouchableOpacity
-                      onPress={handleSyncNow}
-                      disabled={autoSyncLoading}
-                      style={styles.cardSyncButton}
-                    >
-                      <Ionicons
-                        name={autoSyncLoading ? "sync" : "refresh-outline"}
-                        size={20}
-                        color={healthSyncLoading ? colors.textSecondary : colors.primary}
-                      />
-                      <Text style={[
-                        styles.cardSyncButtonText,
-                        { color: autoSyncLoading ? colors.textSecondary : colors.primary }
-                      ]}>
-                        {autoSyncLoading ? 'Syncing...' : 'Sync'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <Text style={styles.dataSourceInfo}>
-                  Synced by: {getDataSourceDisplay(sleepData.source)}
-                </Text>
-              </View>
-
-              {/* Sleep Timeline Visualization */}
-              <SleepTimeline sleepData={sleepData} />
-
-              <View style={styles.sleepMetrics}>
-                {(() => {
-                  const metrics = calculateSleepMetrics(sleepData);
-                  return (
-                    <>
-                      {renderSleepMetricRow('Total Sleep', formatSleepDuration(sleepData.total_sleep_minutes), null, null, null, null, 'total-sleep', false)}
-
-                      {Object.entries(SLEEP_METRIC_CONFIG).map(([key, config], index) => {
-                        const metric = metrics[key];
-                        return metric && metric.percentage > 0 ? (
-                          renderSleepMetricRow(config.label, metric.minutes, metric.percentage, metric.comparison, config.color, null, key, index % 2 === 0)
-                        ) : null;
-                      })}
-
-                      {sleepData.awakenings_count > 0 && metrics.awakenings && (
-                        <View key="awakenings" style={styles.metricRow}>
-                          <View style={styles.metricLabelContainer}>
-                            <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
-                            <Text style={styles.metricLabel}>Awakenings</Text>
-                          </View>
-                          <View style={styles.metricValueContainer}>
-                            <Text style={styles.metricValue}>
-                              {metrics.awakenings.count}
-                            </Text>
-                            <Text style={[
-                              styles.metricComparison,
-                              metrics.awakenings.comparisonText.includes('more than average') ? styles.metricComparisonNegative :
-                              metrics.awakenings.comparisonText.includes('fewer than average') ? styles.metricComparisonPositive :
-                              styles.metricComparison
-                            ]}>
-                              {metrics.awakenings.comparisonText}
-                            </Text>
-                          </View>
-                        </View>
-                      )}
-
-                      {sleepData.sleep_score && (
-                        renderSleepMetricRow('Sleep Score', `${sleepData.sleep_score}/100`, null, null, null, null, 'sleep-score')
-                      )}
-                    </>
-                  );
-                })()}
-              </View>
-
-              {/* Sync Status */}
-              {lastSyncResult && (
-                <View style={styles.syncStatus}>
-                  <Ionicons
-                    name={lastSyncResult.success ? "checkmark-circle" : "close-circle"}
-                    size={16}
-                    color={lastSyncResult.success ? colors.success : colors.error}
-                  />
-                  <Text style={[
-                    styles.syncStatusText,
-                    { color: lastSyncResult.success ? colors.success : colors.error }
-                  ]}>
-                    {lastSyncResult.success
-                      ? 'Data synced'
-                      : 'Sync failed'
-                    }
-                  </Text>
-                </View>
-              )}
-
-              {syncError && (
-                <View style={styles.errorStatus}>
-                  <Ionicons name="warning" size={16} color={colors.error} />
-                  <Text style={styles.errorStatusText}>{syncError}</Text>
-                </View>
-              )}
-                </View>
-              );
-            })()
+            <SleepDataSimpleLoading />
+          ) : !sleepData ? (
+            <SleepNoDataSkeleton
+              selectedDate={selectedDate}
+              isToday={isToday}
+              formatDateTitle={formatDateTitle}
+              hasPermissions={hasPermissions}
+              healthSyncInitialized={healthSyncInitialized}
+              handleSyncNow={handleSyncNow}
+              autoSyncLoading={autoSyncLoading}
+              healthSyncLoading={healthSyncLoading}
+              setShowPermissionPrompt={setShowPermissionPrompt}
+              getDataSourceDisplay={getDataSourceDisplay}
+            />
           ) : (
-            (() => {
-              console.log('❓ DEBUG: Showing no-data skeleton (no sleep data available)');
-              return (
-                <View style={styles.sleepCard}>
-              <View style={styles.sleepCardHeader}>
-                <View style={styles.sleepCardTitleRow}>
-                  <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                  <Text style={styles.sleepCardTitle}>
-                    {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-                  </Text>
-                  {healthSyncInitialized && (
-                    <TouchableOpacity
-                      onPress={handleSyncNow}
-                      disabled={autoSyncLoading}
-                      style={styles.cardSyncButton}
-                    >
-                      <Ionicons
-                        name={autoSyncLoading ? "sync" : "refresh-outline"}
-                        size={20}
-                        color={healthSyncLoading ? colors.textSecondary : colors.primary}
-                      />
-                      <Text style={[
-                        styles.cardSyncButtonText,
-                        { color: autoSyncLoading ? colors.textSecondary : colors.primary }
-                      ]}>
-                        {autoSyncLoading ? 'Syncing...' : 'Sync'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <Text style={styles.dataSourceInfo}>
-                  Synced by: {getDataSourceDisplay(hasPermissions)}
-                </Text>
-              </View>
-
-              <View style={styles.noDataContent}>
-                <Ionicons name="moon-outline" size={48} color={colors.textSecondary} />
-                <Text style={styles.placeholderText}>
-                  {hasPermissions ? 'No sleep data available for this date' : 'Connect your health app to view sleep data'}
-                </Text>
-                <Text style={styles.placeholderSubtext}>
-                  {hasPermissions
-                    ? 'Data may not be available yet or tracking failed'
-                    : 'Grant permissions to sync sleep data from your device'
-                  }
-                </Text>
-                {!hasPermissions && (
-                  <TouchableOpacity
-                    style={styles.connectButton}
-                    onPress={() => setShowPermissionPrompt(true)}
-                  >
-                    <Text style={styles.connectButtonText}>Connect Health App</Text>
-                  </TouchableOpacity>
-                )}
-                </View>
-              );
-            })()
+            <SleepDataCard
+              selectedDate={selectedDate}
+              isToday={isToday}
+              formatDateTitle={formatDateTitle}
+              sleepData={sleepData}
+              hasPermissions={hasPermissions}
+              healthSyncInitialized={healthSyncInitialized}
+              handleSyncNow={handleSyncNow}
+              autoSyncLoading={autoSyncLoading}
+              healthSyncLoading={healthSyncLoading}
+              getDataSourceDisplay={getDataSourceDisplay}
+              lastSyncResult={lastSyncResult}
+              calculateSleepMetrics={calculateSleepMetrics}
+              formatSleepDuration={formatSleepDuration}
+              renderSleepMetricRow={renderSleepMetricRow}
+              syncError={syncError}
+            />
           )}
         </View>
+
+        {/* Navigation Cards */}
 
         {/* Navigation Cards */}
         <View style={styles.section}>
