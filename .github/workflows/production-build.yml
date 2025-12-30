@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write  # Required to create releases and push commits
+
 jobs:
   build-production:
     name: Build Production APK
@@ -64,15 +67,15 @@ jobs:
           echo "- Commit: ${{ github.sha }}" >> release_notes.md
 
       - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ env.NEW_VERSION }}
-          release_name: SleepFactor v${{ env.NEW_VERSION }}
+          name: SleepFactor v${{ env.NEW_VERSION }}
           body_path: release_notes.md
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Commit version bump
         run: |
