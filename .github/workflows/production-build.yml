@@ -54,6 +54,8 @@ jobs:
 
       - name: Build production APK
         run: eas build --platform android --profile production --non-interactive
+        env:
+          EAS_SKIP_AUTO_FINGERPRINT: 1
 
       - name: Create release notes
         run: |
