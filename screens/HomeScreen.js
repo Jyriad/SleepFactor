@@ -811,12 +811,32 @@ const HomeScreen = () => {
 
         {/* Sleep Data Card */}
         <View style={styles.section}>
+          {(() => {
+            console.log('🎨 DEBUG: Sleep data UI render state:', {
+              showPermissionPrompt,
+              autoSyncLoading,
+              sleepDataLoading,
+              hasSleepData: !!sleepData,
+              sleepDataKeys: sleepData ? Object.keys(sleepData) : 'no data',
+              selectedDate: selectedDate?.toISOString?.() || selectedDate
+            });
+            return null; // This IIFE just logs, returns null to not affect rendering
+          })()}
+
           {showPermissionPrompt ? (
-            <HealthConnectPrompt
-              onPermissionsGranted={handlePermissionsGranted}
-              onDismiss={handleDismissPermissions}
-            />
+            (() => {
+              console.log('📱 DEBUG: Showing permission prompt');
+              return (
+                <HealthConnectPrompt
+                  onPermissionsGranted={handlePermissionsGranted}
+                  onDismiss={handleDismissPermissions}
+                />
+              );
+            })()
           ) : autoSyncLoading ? (
+            (() => {
+              console.log('⏳ DEBUG: Showing auto-sync skeleton (actively syncing today\'s data)');
+              return (
             // For today's date with permissions and actively syncing, show skeleton
             <View style={[styles.sleepCard, styles.skeletonCard]}>
               <View style={styles.sleepCardHeader}>
@@ -904,14 +924,19 @@ const HomeScreen = () => {
               )}
             </View>
           ) : sleepDataLoading ? (
-            <View style={styles.sleepCard}>
-              <View style={styles.sleepCardHeader}>
-                <View style={styles.sleepCardTitleRow}>
-                  <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                  <Text style={styles.sleepCardTitle}>Loading sleep data...</Text>
+            (() => {
+              console.log('🔄 DEBUG: Showing loading skeleton (fetching from database)');
+              return (
+                <View style={styles.sleepCard}>
+                  <View style={styles.sleepCardHeader}>
+                    <View style={styles.sleepCardTitleRow}>
+                      <Ionicons name="moon-outline" size={24} color={colors.primary} />
+                      <Text style={styles.sleepCardTitle}>Loading sleep data...</Text>
+                    </View>
+                  </View>
                 </View>
-              </View>
-            </View>
+              );
+            })()
           ) : autoSyncLoading ? (
             <View style={[styles.sleepCard, styles.skeletonCard]}>
               <View style={styles.sleepCardHeader}>
@@ -999,7 +1024,10 @@ const HomeScreen = () => {
               )}
             </View>
           ) : sleepData ? (
-            <View style={styles.sleepCard}>
+            (() => {
+              console.log('📊 DEBUG: Showing actual sleep data (data available)');
+              return (
+                <View style={styles.sleepCard}>
               <View style={styles.sleepCardHeader}>
                 <View style={styles.sleepCardTitleRow}>
                   <Ionicons name="moon-outline" size={24} color={colors.primary} />
@@ -1104,9 +1132,14 @@ const HomeScreen = () => {
                   <Text style={styles.errorStatusText}>{syncError}</Text>
                 </View>
               )}
-            </View>
+                </View>
+              );
+            })()
           ) : (
-            <View style={styles.sleepCard}>
+            (() => {
+              console.log('❓ DEBUG: Showing no-data skeleton (no sleep data available)');
+              return (
+                <View style={styles.sleepCard}>
               <View style={styles.sleepCardHeader}>
                 <View style={styles.sleepCardTitleRow}>
                   <Ionicons name="moon-outline" size={24} color={colors.primary} />
@@ -1157,8 +1190,9 @@ const HomeScreen = () => {
                     <Text style={styles.connectButtonText}>Connect Health App</Text>
                   </TouchableOpacity>
                 )}
-              </View>
-            </View>
+                </View>
+              );
+            })()
           )}
         </View>
 
