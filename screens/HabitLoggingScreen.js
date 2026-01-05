@@ -61,12 +61,19 @@ const HabitLoggingScreen = () => {
     if (!user) return;
 
     try {
+      // Convert Date object to YYYY-MM-DD string format
+      const dateString = selectedDate instanceof Date 
+        ? selectedDate.toISOString().split('T')[0]
+        : typeof selectedDate === 'string' 
+          ? selectedDate 
+          : new Date(selectedDate).toISOString().split('T')[0];
+      
       const habitLogEntries = Object.entries(habitLogs)
         .filter(([habitId, value]) => value !== '' && value !== null && value !== undefined)
         .map(([habitId, value]) => ({
           user_id: user.id,
           habit_id: habitId,
-          date: selectedDate,
+          date: dateString,
           value: String(value),
         }));
 
@@ -119,11 +126,18 @@ const HabitLoggingScreen = () => {
       setHabits(normalizedHabits);
 
       // Load existing logs for selected date
+      // Convert Date object to YYYY-MM-DD string format
+      const dateString = selectedDate instanceof Date 
+        ? selectedDate.toISOString().split('T')[0]
+        : typeof selectedDate === 'string' 
+          ? selectedDate 
+          : new Date(selectedDate).toISOString().split('T')[0];
+      
       const { data: logsData, error: logsError } = await supabase
         .from('habit_logs')
         .select('*')
         .eq('user_id', user.id)
-        .eq('date', selectedDate);
+        .eq('date', dateString);
 
       if (logsError) throw logsError;
 
