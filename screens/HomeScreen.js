@@ -440,9 +440,20 @@ const HomeScreen = () => {
         isRunning = true;
         setAutoSyncLoading(true);
 
+        // Set a timeout to prevent hanging (30 seconds max)
+        const syncTimeoutId = setTimeout(() => {
+          if (!isCancelled) {
+            console.warn('⚠️ Auto-sync timeout - forcing completion');
+            isRunning = false;
+            setAutoSyncLoading(false);
+          }
+        }, 30000);
+
         try {
           clearError();
           const result = await performSync({ force: false, userId: user.id });
+          clearTimeout(syncTimeoutId);
+          
           if (!isCancelled && result.success && result.syncedRecords > 0) {
             // Clear cache for today's date since we just synced fresh data
             updateSleepDataCache(selectedDate, undefined);
@@ -450,13 +461,19 @@ const HomeScreen = () => {
             // Refresh sleep data for current date
             await fetchSleepData();
           } else if (!isCancelled && result.success) {
+            // Sync completed but no new records
           }
         } catch (error) {
+          clearTimeout(syncTimeoutId);
           if (!isCancelled) {
             console.error('Auto-sync failed:', error);
+            setAutoSyncLoading(false);
           }
         } finally {
           isRunning = false;
+          if (!isCancelled && syncTimeoutId) {
+            clearTimeout(syncTimeoutId);
+          }
           if (!isCancelled) {
             setAutoSyncLoading(false);
           }
@@ -485,11 +502,18 @@ const HomeScreen = () => {
     if (!user) return;
 
     try {
+      // Convert Date object to YYYY-MM-DD string format
+      const dateString = selectedDate instanceof Date 
+        ? selectedDate.toISOString().split('T')[0]
+        : typeof selectedDate === 'string' 
+          ? selectedDate 
+          : new Date(selectedDate).toISOString().split('T')[0];
+      
       const { data, error } = await supabase
         .from('habit_logs')
         .select('id')
         .eq('user_id', user.id)
-        .eq('date', selectedDate)
+        .eq('date', dateString)
         .limit(1);
 
       if (error) throw error;
@@ -723,8 +747,15 @@ const HomeScreen = () => {
     // Fetch from database if not cached
     setSleepDataLoading(true);
     try {
-      console.log('📡 DEBUG: Calling sleepDataService.getSleepDataForDate...');
-      const data = await sleepDataService.getSleepDataForDate(selectedDate);
+      // Convert Date object to YYYY-MM-DD string format (required for Supabase DATE column)
+      const dateString = selectedDate instanceof Date 
+        ? selectedDate.toISOString().split('T')[0]
+        : typeof selectedDate === 'string' 
+          ? selectedDate 
+          : new Date(selectedDate).toISOString().split('T')[0];
+      
+      console.log('📡 DEBUG: Calling sleepDataService.getSleepDataForDate with dateString:', dateString);
+      const data = await sleepDataService.getSleepDataForDate(dateString);
       console.log('✅ DEBUG: Database query successful, result:', data ? 'Sleep data found' : 'No sleep data for this date');
       if (data) {
         console.log('📊 DEBUG: Sleep data details:', {

@@ -2,9 +2,9 @@
 const IS_DEV = process.env.APP_VARIANT === 'development' || process.env.EAS_BUILD_PROFILE === "development";
 const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
 
-// Version management - can be overridden by CI/CD for automated releases
-const BASE_VERSION = "1.3.20";
-const VERSION = process.env.APP_VERSION || BASE_VERSION;
+// Import version from package.json
+import packageInfo from './package.json';
+const VERSION = process.env.APP_VERSION || packageInfo.version;
 
 export default {
   // App name changes based on build variant
