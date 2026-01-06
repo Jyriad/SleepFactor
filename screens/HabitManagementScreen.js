@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -42,14 +42,9 @@ const HabitManagementScreen = () => {
   const [untrackedHabits, setUntrackedHabits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [addModalVisible, setAddModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
-  const [newHabitName, setNewHabitName] = useState('');
-  const [newHabitType, setNewHabitType] = useState('binary');
-  const [newHabitUnit, setNewHabitUnit] = useState('');
-  const [newHabitHalfLife, setNewHabitHalfLife] = useState('5');
-  const [newHabitThreshold, setNewHabitThreshold] = useState('5');
 
   useEffect(() => {
     loadHabits();
@@ -663,29 +658,26 @@ const HabitManagementScreen = () => {
 
   const openEditModal = (habit) => {
     setEditingHabit(habit);
-    setNewHabitName(habit.name);
-    setNewHabitType(habit.type);
-    setNewHabitUnit(habit.unit || '');
-    setNewHabitHalfLife(habit.half_life_hours ? habit.half_life_hours.toString() : '5');
-    setNewHabitThreshold(habit.drug_threshold_percent ? habit.drug_threshold_percent.toString() : '5');
     setEditModalVisible(true);
   };
 
-  const handleEditCustomHabit = async () => {
+  const handleEditCustomHabit = useCallback(async (habitData) => {
     if (!editingHabit || !user) return;
 
-    if (!newHabitName.trim()) {
+    const { name, type, unit, half_life_hours, drug_threshold_percent } = habitData;
+
+    if (!name.trim()) {
       Alert.alert('Error', 'Please enter a habit name');
       return;
     }
 
-    if ((newHabitType === 'numeric' || newHabitType === 'drug') && !newHabitUnit.trim()) {
+    if ((type === 'numeric' || type === 'drug') && !unit?.trim()) {
       Alert.alert('Error', 'Please enter a unit for this habit type');
       return;
     }
 
-    if (newHabitType === 'drug') {
-      const halfLife = parseFloat(newHabitHalfLife);
+    if (type === 'drug') {
+      const halfLife = half_life_hours;
       if (isNaN(halfLife) || halfLife <= 0) {
         Alert.alert('Error', 'Please enter a valid half-life (greater than 0)');
         return;
@@ -696,11 +688,11 @@ const HabitManagementScreen = () => {
       const { error } = await supabase
         .from('habits')
         .update({
-          name: newHabitName.trim(),
-          type: newHabitType,
-          unit: (newHabitType === 'numeric' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
-          half_life_hours: newHabitType === 'drug' ? parseFloat(newHabitHalfLife) : null,
-          drug_threshold_percent: newHabitType === 'drug' ? parseFloat(newHabitThreshold) : null,
+          name: name.trim(),
+          type: type,
+          unit: (type === 'numeric' || type === 'drug') ? unit.trim() : null,
+          half_life_hours: type === 'drug' ? half_life_hours : null,
+          drug_threshold_percent: type === 'drug' ? drug_threshold_percent : null,
         })
         .eq('id', editingHabit.id);
 
@@ -712,18 +704,13 @@ const HabitManagementScreen = () => {
       // Reset form
       setEditModalVisible(false);
       setEditingHabit(null);
-      setNewHabitName('');
-      setNewHabitType('binary');
-      setNewHabitUnit('');
-      setNewHabitHalfLife('5');
-      setNewHabitThreshold('5');
 
       Alert.alert('Success', 'Habit updated successfully');
     } catch (error) {
       console.error('Error updating habit:', error);
       Alert.alert('Error', 'Failed to update habit');
     }
-  };
+  }, [editingHabit, user]);
 
   const deleteCustomHabit = (habitId) => {
     Alert.alert(
@@ -753,19 +740,21 @@ const HabitManagementScreen = () => {
     );
   };
 
-  const handleAddCustomHabit = async () => {
-    if (!newHabitName.trim()) {
+  const handleAddCustomHabit = useCallback(async (habitData) => {
+    const { name, type, unit, half_life_hours, drug_threshold_percent } = habitData;
+
+    if (!name.trim()) {
       Alert.alert('Error', 'Please enter a habit name');
       return;
     }
 
-    if ((newHabitType === 'numeric' || newHabitType === 'drug') && !newHabitUnit.trim()) {
+    if ((type === 'numeric' || type === 'drug') && !unit?.trim()) {
       Alert.alert('Error', 'Please enter a unit for this habit type');
       return;
     }
 
-    if (newHabitType === 'drug') {
-      const halfLife = parseFloat(newHabitHalfLife);
+    if (type === 'drug') {
+      const halfLife = half_life_hours;
       if (isNaN(halfLife) || halfLife <= 0) {
         Alert.alert('Error', 'Please enter a valid half-life (greater than 0)');
         return;
@@ -784,11 +773,11 @@ const HabitManagementScreen = () => {
         .from('habits')
         .insert({
           user_id: user.id,
-          name: newHabitName.trim(),
-          type: newHabitType,
-          unit: (newHabitType === 'numeric' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
-          half_life_hours: newHabitType === 'drug' ? parseFloat(newHabitHalfLife) : null,
-          drug_threshold_percent: newHabitType === 'drug' ? parseFloat(newHabitThreshold) : null,
+          name: name.trim(),
+          type: type,
+          unit: (type === 'numeric' || type === 'drug') ? unit.trim() : null,
+          half_life_hours: type === 'drug' ? half_life_hours : null,
+          drug_threshold_percent: type === 'drug' ? drug_threshold_percent : null,
           is_custom: true,
           is_pinned: true, // New habits start pinned by default
           priority: maxPriority,
@@ -803,18 +792,12 @@ const HabitManagementScreen = () => {
         return;
       }
 
-      setModalVisible(false);
-      setNewHabitName('');
-      setNewHabitType('binary');
-      setNewHabitUnit('');
-      setNewHabitHalfLife('5');
-      setNewHabitThreshold('5');
       loadHabits(true); // Force refresh
     } catch (error) {
       console.error('Error adding habit:', error);
       Alert.alert('Error', 'Failed to add habit');
     }
-  };
+  }, [user, manualHabits, automaticHabits]);
 
   const getHabitTypeDescription = (habit) => {
     const typeDescriptions = {
@@ -917,22 +900,21 @@ const HabitManagementScreen = () => {
   };
 
   return (
-    <>
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.header}>
-            <Text style={styles.title}>Manage Your Habits</Text>
-            <Text style={styles.subtitle}>
-              Long press and drag habits to reorder • Toggle switches to control tracking frequency
-            </Text>
-          </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Manage Your Habits</Text>
+          <Text style={styles.subtitle}>
+            Long press and drag habits to reorder • Toggle switches to control tracking frequency
+          </Text>
+        </View>
 
-          {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
-          <View style={styles.manualHabitsSection}>
+        {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+        <View style={styles.manualHabitsSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Habits</Text>
             <Text style={styles.sectionSubtitle}>
@@ -1062,231 +1044,323 @@ const HabitManagementScreen = () => {
           </View>
         )}
 
-          {/* Add Custom Habit Section */}
-          <View style={styles.addSection}>
-            <Button
-              title="Add Custom Habit"
-              onPress={() => setModalVisible(true)}
-              variant="primary"
-            />
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+        {/* Add Custom Habit Section */}
+        <View style={styles.addSection}>
+          <Button
+            title="Add Custom Habit"
+            onPress={() => setAddModalVisible(true)}
+            variant="primary"
+          />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
 
-      {/* Add Custom Habit Modal */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Custom Habit</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
+    {/* Modals rendered at root level */}
+    <AddHabitModal
+      visible={addModalVisible}
+      onClose={() => setAddModalVisible(false)}
+      onSave={handleAddCustomHabit}
+    />
+
+    <EditHabitModal
+      visible={editModalVisible}
+      onClose={() => setEditModalVisible(false)}
+      onSave={handleEditCustomHabit}
+      habit={editingHabit}
+    />
+  );
+};
+
+// Separate modal components that render at the root level
+const AddHabitModal = ({ visible, onClose, onSave }) => {
+  const [habitName, setHabitName] = useState('');
+  const [habitType, setHabitType] = useState('binary');
+  const [habitUnit, setHabitUnit] = useState('');
+  const [halfLife, setHalfLife] = useState('5');
+  const [threshold, setThreshold] = useState('5');
+
+  const handleSave = () => {
+    onSave({
+      name: habitName,
+      type: habitType,
+      unit: habitUnit,
+      half_life_hours: habitType === 'drug' ? parseFloat(halfLife) : null,
+      drug_threshold_percent: habitType === 'drug' ? parseFloat(threshold) : null,
+    });
+
+    // Reset form
+    setHabitName('');
+    setHabitType('binary');
+    setHabitUnit('');
+    setHalfLife('5');
+    setThreshold('5');
+    onClose();
+  };
+
+  const handleClose = () => {
+    // Reset form
+    setHabitName('');
+    setHabitType('binary');
+    setHabitUnit('');
+    setHalfLife('5');
+    setThreshold('5');
+    onClose();
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={handleClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add Custom Habit</Text>
+            <TouchableOpacity onPress={handleClose}>
+              <Ionicons name="close" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Habit Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter habit name"
+                value={habitName}
+                onChangeText={setHabitName}
+              />
             </View>
 
-            <View style={styles.modalForm}>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Type</Text>
+              <View style={styles.typeSelector}>
+                {['binary', 'numeric', 'time', 'drug'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.typeButton,
+                      habitType === type && styles.typeButtonActive,
+                    ]}
+                    onPress={() => setHabitType(type)}
+                  >
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        habitType === type && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {(habitType === 'numeric' || habitType === 'drug') && (
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Habit Name</Text>
+                <Text style={styles.label}>Unit</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter habit name"
-                  value={newHabitName}
-                  onChangeText={setNewHabitName}
+                  placeholder="e.g., cups, °C, hours"
+                  value={habitUnit}
+                  onChangeText={setHabitUnit}
                 />
               </View>
+            )}
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Type</Text>
-                <View style={styles.typeSelector}>
-                  {['binary', 'numeric', 'time', 'drug'].map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.typeButton,
-                        newHabitType === type && styles.typeButtonActive,
-                      ]}
-                      onPress={() => setNewHabitType(type)}
-                    >
-                      <Text
-                        style={[
-                          styles.typeButtonText,
-                          newHabitType === type && styles.typeButtonTextActive,
-                        ]}
-                      >
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {(newHabitType === 'numeric' || newHabitType === 'drug') && (
+            {habitType === 'drug' && (
+              <>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.label}>Unit</Text>
+                  <Text style={styles.label}>Half-life (hours)</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g., cups, °C, hours"
-                    value={newHabitUnit}
-                    onChangeText={setNewHabitUnit}
+                    placeholder="5"
+                    value={halfLife}
+                    onChangeText={setHalfLife}
+                    keyboardType="numeric"
                   />
                 </View>
-              )}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Threshold (% of initial dose)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="5"
+                    value={threshold}
+                    onChangeText={setThreshold}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </>
+            )}
 
-              {newHabitType === 'drug' && (
-                <>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Half-life (hours)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={newHabitHalfLife}
-                      onChangeText={setNewHabitHalfLife}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Threshold (% of initial dose)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={newHabitThreshold}
-                      onChangeText={setNewHabitThreshold}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </>
-              )}
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                onPress={handleClose}
+                variant="secondary"
+                style={styles.modalButton}
+              />
+              <Button
+                title="Save"
+                onPress={handleSave}
+                style={styles.modalButton}
+              />
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
-              <View style={styles.modalButtons}>
-                <Button
-                  title="Cancel"
-                  onPress={() => setModalVisible(false)}
-                  variant="secondary"
-                  style={styles.modalButton}
-                />
-                <Button
-                  title="Save"
-                  onPress={handleAddCustomHabit}
-                  style={styles.modalButton}
-                />
+const EditHabitModal = ({ visible, onClose, onSave, habit }) => {
+  const [habitName, setHabitName] = useState(habit?.name || '');
+  const [habitType, setHabitType] = useState(habit?.type || 'binary');
+  const [habitUnit, setHabitUnit] = useState(habit?.unit || '');
+  const [halfLife, setHalfLife] = useState(habit?.half_life_hours?.toString() || '5');
+  const [threshold, setThreshold] = useState(habit?.drug_threshold_percent?.toString() || '5');
+
+  // Update form when habit changes
+  useEffect(() => {
+    if (habit) {
+      setHabitName(habit.name || '');
+      setHabitType(habit.type || 'binary');
+      setHabitUnit(habit.unit || '');
+      setHalfLife(habit.half_life_hours?.toString() || '5');
+      setThreshold(habit.drug_threshold_percent?.toString() || '5');
+    }
+  }, [habit]);
+
+  const handleSave = () => {
+    onSave({
+      ...habit,
+      name: habitName,
+      type: habitType,
+      unit: habitUnit,
+      half_life_hours: habitType === 'drug' ? parseFloat(halfLife) : null,
+      drug_threshold_percent: habitType === 'drug' ? parseFloat(threshold) : null,
+    });
+
+    onClose();
+  };
+
+  const handleClose = () => {
+    onClose();
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={handleClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Edit Habit</Text>
+            <TouchableOpacity onPress={handleClose}>
+              <Ionicons name="close" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Habit Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter habit name"
+                value={habitName}
+                onChangeText={setHabitName}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Type</Text>
+              <View style={styles.typeSelector}>
+                {['binary', 'numeric', 'time', 'drug'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.typeButton,
+                      habitType === type && styles.typeButtonActive,
+                    ]}
+                    onPress={() => setHabitType(type)}
+                  >
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        habitType === type && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </View>
-          </View>
-        </View>
-      </Modal>
 
-      {/* Edit Custom Habit Modal */}
-      <Modal
-        visible={editModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Habit</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalForm}>
+            {(habitType === 'numeric' || habitType === 'drug') && (
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Habit Name</Text>
+                <Text style={styles.label}>Unit</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter habit name"
-                  value={editingHabit?.name || ''}
-                  onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, name: text } : null)}
+                  placeholder="e.g., cups, °C, hours"
+                  value={habitUnit}
+                  onChangeText={setHabitUnit}
                 />
               </View>
+            )}
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Type</Text>
-                <View style={styles.typeSelector}>
-                  {['binary', 'numeric', 'time', 'drug'].map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.typeButton,
-                        (editingHabit?.type || 'binary') === type && styles.typeButtonActive,
-                      ]}
-                      onPress={() => setEditingHabit(prev => prev ? { ...prev, type } : null)}
-                    >
-                      <Text
-                        style={[
-                          styles.typeButtonText,
-                          (editingHabit?.type || 'binary') === type && styles.typeButtonTextActive,
-                        ]}
-                      >
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {((editingHabit?.type || 'binary') === 'numeric' || (editingHabit?.type || 'binary') === 'drug') && (
+            {habitType === 'drug' && (
+              <>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.label}>Unit</Text>
+                  <Text style={styles.label}>Half-life (hours)</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g., cups, °C, hours"
-                    value={editingHabit?.unit || ''}
-                    onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, unit: text } : null)}
+                    placeholder="5"
+                    value={halfLife}
+                    onChangeText={setHalfLife}
+                    keyboardType="numeric"
                   />
                 </View>
-              )}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Threshold (% of initial dose)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="5"
+                    value={threshold}
+                    onChangeText={setThreshold}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </>
+            )}
 
-              {(editingHabit?.type || 'binary') === 'drug' && (
-                <>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Half-life (hours)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={editingHabit?.half_life_hours?.toString() || '5'}
-                      onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, half_life_hours: parseFloat(text) || 5 } : null)}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Threshold (% of initial dose)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={editingHabit?.drug_threshold_percent?.toString() || '5'}
-                      onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, drug_threshold_percent: parseFloat(text) || 5 } : null)}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </>
-              )}
-
-              <View style={styles.modalButtons}>
-                <Button
-                  title="Cancel"
-                  onPress={() => setEditModalVisible(false)}
-                  variant="secondary"
-                  style={styles.modalButton}
-                />
-                <Button
-                  title="Save"
-                  onPress={handleEditCustomHabit}
-                  style={styles.modalButton}
-                />
-              </View>
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                onPress={handleClose}
+                variant="secondary"
+                style={styles.modalButton}
+              />
+              <Button
+                title="Update Habit"
+                onPress={handleSave}
+                style={styles.modalButton}
+              />
             </View>
-          </View>
+          </ScrollView>
         </View>
-      </Modal>
-    </>
+      </View>
+    </Modal>
   );
 };
 
