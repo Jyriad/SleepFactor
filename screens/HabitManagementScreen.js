@@ -902,7 +902,13 @@ const HabitManagementScreen = () => {
   return (
     <>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.containerContent}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.header}>
             <Text style={styles.title}>Manage Your Habits</Text>
             <Text style={styles.subtitle}>
@@ -1049,7 +1055,7 @@ const HabitManagementScreen = () => {
               variant="primary"
             />
           </View>
-        </View>
+        </ScrollView>
 
         {/* Modals rendered at component level inside SafeAreaView */}
         <AddHabitModal
@@ -1367,8 +1373,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  containerContent: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     paddingBottom: 100, // Extra space for the modals and navigation
   },
   listContainer: {
