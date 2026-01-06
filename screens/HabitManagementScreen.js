@@ -902,11 +902,7 @@ const HabitManagementScreen = () => {
   return (
     <>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.containerContent}>
           <View style={styles.header}>
             <Text style={styles.title}>Manage Your Habits</Text>
             <Text style={styles.subtitle}>
@@ -1053,22 +1049,22 @@ const HabitManagementScreen = () => {
               variant="primary"
             />
           </View>
-        </ScrollView>
+        </View>
+
+        {/* Modals rendered at component level inside SafeAreaView */}
+        <AddHabitModal
+          visible={addModalVisible}
+          onClose={() => setAddModalVisible(false)}
+          onSave={handleAddCustomHabit}
+        />
+
+        <EditHabitModal
+          visible={editModalVisible}
+          onClose={() => setEditModalVisible(false)}
+          onSave={handleEditCustomHabit}
+          habit={editingHabit}
+        />
       </SafeAreaView>
-
-      {/* Modals rendered at component level but outside SafeAreaView */}
-      <AddHabitModal
-        visible={addModalVisible}
-        onClose={() => setAddModalVisible(false)}
-        onSave={handleAddCustomHabit}
-      />
-
-      <EditHabitModal
-        visible={editModalVisible}
-        onClose={() => setEditModalVisible(false)}
-        onSave={handleEditCustomHabit}
-        habit={editingHabit}
-      />
     </>
   );
 };
@@ -1371,10 +1367,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  scrollView: {
+  containerContent: {
     flex: 1,
-  },
-  scrollContent: {
     paddingBottom: 100, // Extra space for the modals and navigation
   },
   listContainer: {
