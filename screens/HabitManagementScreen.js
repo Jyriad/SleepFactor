@@ -919,15 +919,20 @@ const HabitManagementScreen = () => {
   return (
     <>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Manage Your Habits</Text>
-          <Text style={styles.subtitle}>
-            Long press and drag habits to reorder • Toggle switches to control tracking frequency
-          </Text>
-        </View>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>Manage Your Habits</Text>
+            <Text style={styles.subtitle}>
+              Long press and drag habits to reorder • Toggle switches to control tracking frequency
+            </Text>
+          </View>
 
-        {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
-        <View style={styles.manualHabitsSection}>
+          {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+          <View style={styles.manualHabitsSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Habits</Text>
             <Text style={styles.sectionSubtitle}>
@@ -1057,14 +1062,15 @@ const HabitManagementScreen = () => {
           </View>
         )}
 
-        {/* Add Custom Habit Section */}
-        <View style={styles.addSection}>
-          <Button
-            title="Add Custom Habit"
-            onPress={() => setModalVisible(true)}
-            variant="primary"
-          />
-        </View>
+          {/* Add Custom Habit Section */}
+          <View style={styles.addSection}>
+            <Button
+              title="Add Custom Habit"
+              onPress={() => setModalVisible(true)}
+              variant="primary"
+            />
+          </View>
+        </ScrollView>
       </SafeAreaView>
 
       {/* Add Custom Habit Modal */}
@@ -1288,6 +1294,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100, // Extra space for the modals and navigation
   },
   listContainer: {
     flex: 1,
