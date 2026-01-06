@@ -917,161 +917,155 @@ const HabitManagementScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Manage Your Habits</Text>
-        <Text style={styles.subtitle}>
-          Long press and drag habits to reorder • Toggle switches to control tracking frequency
-        </Text>
-      </View>
-
-      {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
-      <View style={styles.manualHabitsSection}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Your Habits</Text>
-          <Text style={styles.sectionSubtitle}>
-            Habits you track manually (exercise, reading, etc.)
+    <>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Manage Your Habits</Text>
+          <Text style={styles.subtitle}>
+            Long press and drag habits to reorder • Toggle switches to control tracking frequency
           </Text>
         </View>
 
-        {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
-        {!loading && manualHabits.length === 0 && (
-          <Text style={styles.emptyText}>No manual habits yet</Text>
-        )}
-
-        {!loading && manualHabits.length > 0 && (
-          <View style={styles.instructionContainer}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
-            <Text style={styles.instructionText}>
-              Long press and drag to reorder • Toggle switches to control tracking
+        {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+        <View style={styles.manualHabitsSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Habits</Text>
+            <Text style={styles.sectionSubtitle}>
+              Habits you track manually (exercise, reading, etc.)
             </Text>
+          </View>
+
+          {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
+          {!loading && manualHabits.length === 0 && (
+            <Text style={styles.emptyText}>
+              No custom habits yet. Add your first habit below.
+            </Text>
+          )}
+          {!loading && manualHabits.length > 0 && (
+            <DraggableFlatList
+              data={loading ? [] : manualHabits}
+              keyExtractor={(item) => item.id || item.name}
+              renderItem={renderHabitItem}
+              onDragEnd={onDragEnd}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.draggableListContent}
+              activationDistance={20}
+              dragItemOverflow={false}
+              removeClippedSubviews={true}
+              maxToRenderPerBatch={10}
+            />
+          )}
+        </View>
+
+        {/* Automatic Habits Section */}
+        {automaticHabits.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Health Metrics</Text>
+              <Text style={styles.sectionSubtitle}>
+                Data automatically synced from your health apps
+              </Text>
+            </View>
+
+            {!loading && (
+              <View style={styles.instructionContainer}>
+                <Ionicons name="fitness-outline" size={20} color={colors.primary} />
+                <Text style={styles.instructionText}>
+                  Toggle metrics on/off to control what health data is tracked for insights
+                </Text>
+              </View>
+            )}
+
+            {!loading && healthMetricsService.getAvailableMetrics().map((metric) => {
+              // Check if this metric is currently enabled (exists as a habit)
+              const existingHabit = automaticHabits.find(h => h.name === metric.name);
+              const isEnabled = existingHabit && existingHabit.is_active !== false;
+
+              return (
+                <View key={metric.key} style={styles.automaticHabitItem}>
+                  <View style={styles.automaticHabitInfo}>
+                    <Ionicons name="fitness-outline" size={24} color={colors.primary} />
+                    <View style={styles.automaticHabitText}>
+                      <Text style={styles.automaticHabitName}>{metric.name}</Text>
+                      <Text style={styles.automaticHabitDescription}>
+                        {metric.description}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isEnabled}
+                    onValueChange={(value) => {
+                      console.log(`🔄 Switch toggled for ${metric.name}: ${value}`);
+                      toggleHealthMetric(metric, value);
+                    }}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                  />
+                </View>
+              );
+            })}
           </View>
         )}
 
-        <DraggableFlatList
-          data={loading ? [] : manualHabits}
-          keyExtractor={(item) => item.id || item.name}
-          renderItem={renderHabitItem}
-          onDragEnd={onDragEnd}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.draggableListContent}
-          activationDistance={20}
-          dragItemOverflow={false}
-          removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          updateCellsBatchingPeriod={50}
-          ListFooterComponent={
-            <View style={styles.footerSection}>
-              {/* Automatic Health Metrics Section */}
-              <View style={styles.sectionContainer}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Automatic Health Tracking</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Data automatically synced from your health apps
+        {/* Untracked Habits Section */}
+        {untrackedHabits.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Untracked Habits</Text>
+              <Text style={styles.sectionSubtitle}>
+                Habits you've temporarily paused tracking
+              </Text>
+            </View>
+
+            {untrackedHabits.map((habit) => (
+              <View key={habit.id || habit.name} style={styles.untrackedHabitItem}>
+                <View style={styles.habitInfo}>
+                  <Text style={styles.habitName}>{habit.name}</Text>
+                  <Text style={styles.habitType}>
+                    {getHabitTypeDescription(habit)}
                   </Text>
                 </View>
-
-                {!loading && (
-                  <View style={styles.instructionContainer}>
-                    <Ionicons name="fitness-outline" size={20} color={colors.primary} />
-                    <Text style={styles.instructionText}>
-                      Toggle metrics on/off to control what health data is tracked for insights
-                    </Text>
+                <View style={styles.toggleSection}>
+                  <Text style={styles.toggleLabel}>
+                    {habit.is_active !== false ? 'Tracking' : 'Untracked'}
+                  </Text>
+                  <Switch
+                    value={habit.is_active !== false}
+                    onValueChange={() => toggleHabitTracking(habit)}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
+                  />
+                </View>
+                {habit.is_custom && (
+                  <View style={styles.actionSection}>
+                    <TouchableOpacity
+                      style={styles.editButton}
+                      onPress={() => openEditModal(habit)}
+                    >
+                      <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => deleteCustomHabit(habit.id)}
+                    >
+                      <Ionicons name="trash-outline" size={20} color={colors.error} />
+                    </TouchableOpacity>
                   </View>
                 )}
-
-                {!loading && healthMetricsService.getAvailableMetrics().map((metric) => {
-                  // Check if this metric is currently enabled (exists as a habit)
-                  const existingHabit = automaticHabits.find(h => h.name === metric.name);
-                  const isEnabled = existingHabit && existingHabit.is_active !== false;
-
-                  return (
-                    <View key={metric.key} style={styles.automaticHabitItem}>
-                      <View style={styles.automaticHabitInfo}>
-                        <Ionicons name="fitness-outline" size={24} color={colors.primary} />
-                        <View style={styles.automaticHabitText}>
-                          <Text style={styles.automaticHabitName}>{metric.name}</Text>
-                          <Text style={styles.automaticHabitDescription}>
-                            {metric.description}
-                          </Text>
-                        </View>
-                      </View>
-                      <Switch
-                        value={isEnabled}
-                        onValueChange={(value) => {
-                          console.log(`🔄 Switch toggled for ${metric.name}: ${value}`);
-                          toggleHealthMetric(metric, value);
-                        }}
-                        trackColor={{ false: colors.border, true: colors.primary }}
-                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                      />
-                    </View>
-                  );
-                })}
               </View>
+            ))}
+          </View>
+        )}
 
-              {/* Untracked Habits Section */}
-              {untrackedHabits.length > 0 && (
-                <View style={styles.sectionContainer}>
-                  <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Untracked Habits</Text>
-                    <Text style={styles.sectionSubtitle}>
-                      Habits you've temporarily paused tracking
-                    </Text>
-                  </View>
-
-                  {untrackedHabits.map((habit) => (
-                    <View key={habit.id || habit.name} style={styles.untrackedHabitItem}>
-                      <View style={styles.habitInfo}>
-                        <Text style={styles.habitName}>{habit.name}</Text>
-                        <Text style={styles.habitType}>
-                          {getHabitTypeDescription(habit)}
-                        </Text>
-                      </View>
-                      <View style={styles.toggleSection}>
-                        <Text style={styles.toggleLabel}>
-                          {habit.is_active !== false ? 'Tracking' : 'Untracked'}
-                        </Text>
-                        <Switch
-                          value={habit.is_active !== false}
-                          onValueChange={() => toggleHabitTracking(habit)}
-                          trackColor={{ false: colors.border, true: colors.primary }}
-                          thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
-                        />
-                      </View>
-                      {habit.is_custom && (
-                        <View style={styles.actionSection}>
-                          <TouchableOpacity
-                            style={styles.editButton}
-                            onPress={() => openEditModal(habit)}
-                          >
-                            <Ionicons name="pencil" size={18} color={colors.textSecondary} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.deleteButton}
-                            onPress={() => deleteCustomHabit(habit.id)}
-                          >
-                            <Ionicons name="trash-outline" size={20} color={colors.error} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Add Custom Habit Section */}
-              <View style={styles.addSection}>
-                <Button
-                  title="Add Custom Habit"
-                  onPress={() => setModalVisible(true)}
-                  variant="primary"
-                />
-              </View>
-            </View>
-          }
-        />
-      </View>
+        {/* Add Custom Habit Section */}
+        <View style={styles.addSection}>
+          <Button
+            title="Add Custom Habit"
+            onPress={() => setModalVisible(true)}
+            variant="primary"
+          />
+        </View>
+      </SafeAreaView>
 
       {/* Add Custom Habit Modal */}
       <Modal
@@ -1202,8 +1196,8 @@ const HabitManagementScreen = () => {
                 <TextInput
                   style={styles.input}
                   placeholder="Enter habit name"
-                  value={newHabitName}
-                  onChangeText={setNewHabitName}
+                  value={editingHabit?.name || ''}
+                  onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, name: text } : null)}
                 />
               </View>
 
@@ -1215,14 +1209,14 @@ const HabitManagementScreen = () => {
                       key={type}
                       style={[
                         styles.typeButton,
-                        newHabitType === type && styles.typeButtonActive,
+                        (editingHabit?.type || 'binary') === type && styles.typeButtonActive,
                       ]}
-                      onPress={() => setNewHabitType(type)}
+                      onPress={() => setEditingHabit(prev => prev ? { ...prev, type } : null)}
                     >
                       <Text
                         style={[
                           styles.typeButtonText,
-                          newHabitType === type && styles.typeButtonTextActive,
+                          (editingHabit?.type || 'binary') === type && styles.typeButtonTextActive,
                         ]}
                       >
                         {type.charAt(0).toUpperCase() + type.slice(1)}
@@ -1232,27 +1226,27 @@ const HabitManagementScreen = () => {
                 </View>
               </View>
 
-              {(newHabitType === 'numeric' || newHabitType === 'drug') && (
+              {((editingHabit?.type || 'binary') === 'numeric' || (editingHabit?.type || 'binary') === 'drug') && (
                 <View style={styles.inputContainer}>
                   <Text style={styles.label}>Unit</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g., cups, minutes, kg"
-                    value={newHabitUnit}
-                    onChangeText={setNewHabitUnit}
+                    placeholder="e.g., cups, °C, hours"
+                    value={editingHabit?.unit || ''}
+                    onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, unit: text } : null)}
                   />
                 </View>
               )}
 
-              {newHabitType === 'drug' && (
+              {(editingHabit?.type || 'binary') === 'drug' && (
                 <>
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>Half-life (hours)</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="5"
-                      value={newHabitHalfLife}
-                      onChangeText={setNewHabitHalfLife}
+                      value={editingHabit?.half_life_hours?.toString() || '5'}
+                      onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, half_life_hours: parseFloat(text) || 5 } : null)}
                       keyboardType="numeric"
                     />
                   </View>
@@ -1261,32 +1255,32 @@ const HabitManagementScreen = () => {
                     <TextInput
                       style={styles.input}
                       placeholder="5"
-                      value={newHabitThreshold}
-                      onChangeText={setNewHabitThreshold}
+                      value={editingHabit?.drug_threshold_percent?.toString() || '5'}
+                      onChangeText={(text) => setEditingHabit(prev => prev ? { ...prev, drug_threshold_percent: parseFloat(text) || 5 } : null)}
                       keyboardType="numeric"
                     />
                   </View>
                 </>
               )}
-            </View>
 
-            <View style={styles.modalButtons}>
-              <Button
-                title="Cancel"
-                onPress={() => setEditModalVisible(false)}
-                variant="secondary"
-                style={styles.modalButton}
-              />
-              <Button
-                title="Update Habit"
-                onPress={handleEditCustomHabit}
-                style={styles.modalButton}
-              />
+              <View style={styles.modalButtons}>
+                <Button
+                  title="Cancel"
+                  onPress={() => setEditModalVisible(false)}
+                  variant="secondary"
+                  style={styles.modalButton}
+                />
+                <Button
+                  title="Save"
+                  onPress={handleEditCustomHabit}
+                  style={styles.modalButton}
+                />
+              </View>
             </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </>
   );
 };
 
