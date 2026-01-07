@@ -12,7 +12,14 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Dynamic version from app config - automatically synced with build version
-const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
+const BASE_VERSION = Constants.expoConfig?.version || '1.0.0';
+// Check if app name indicates dev build (more reliable than build-time detection)
+// This works for both EAS builds and local dev client builds
+const IS_DEV_BUILD = Constants.expoConfig?.name === "SleepFactor Dev";
+// Append " Dev" if it's a dev build but version doesn't already have it
+const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 
+  ? `${BASE_VERSION} Dev` 
+  : BASE_VERSION;
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
