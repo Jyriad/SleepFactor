@@ -13,9 +13,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Dynamic version from app config - automatically synced with build version
 const BASE_VERSION = Constants.expoConfig?.version || '1.0.0';
-// Check if app name indicates dev build (more reliable than build-time detection)
-// This works for both EAS builds and local dev client builds
-const IS_DEV_BUILD = Constants.expoConfig?.name === "SleepFactor Dev";
+// Check if this is a dev build using multiple methods for reliability:
+// 1. Check app name (works for EAS builds)
+// 2. Check bundle identifier (works for both EAS and local dev client builds)
+// 3. Check __DEV__ flag (React Native global, true in development)
+const appName = Constants.expoConfig?.name;
+const bundleId = Constants.expoConfig?.ios?.bundleIdentifier || Constants.expoConfig?.android?.package;
+const IS_DEV_BUILD = 
+  appName === "SleepFactor Dev" || 
+  bundleId?.includes('.dev') || 
+  (typeof __DEV__ !== 'undefined' && __DEV__);
 // Append " Dev" if it's a dev build but version doesn't already have it
 const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 
   ? `${BASE_VERSION} Dev` 
