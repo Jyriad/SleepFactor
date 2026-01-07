@@ -4,7 +4,9 @@ const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
 
 // Import version from package.json
 import packageInfo from './package.json';
-const VERSION = process.env.APP_VERSION || packageInfo.version;
+const BASE_VERSION = process.env.APP_VERSION || packageInfo.version;
+// Append " Dev" suffix in development builds to distinguish from production
+const VERSION = IS_DEV ? `${BASE_VERSION} Dev` : BASE_VERSION;
 
 export default {
   // App name changes based on build variant

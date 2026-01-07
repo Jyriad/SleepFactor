@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TextInput,
   Modal,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Alert,
   Switch,
   ScrollView,
@@ -42,14 +43,10 @@ const HabitManagementScreen = () => {
   const [untrackedHabits, setUntrackedHabits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [addHabitModalVisible, setAddHabitModalVisible] = useState(false);
+  const [editHabitModalVisible, setEditHabitModalVisible] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
-  const [newHabitName, setNewHabitName] = useState('');
-  const [newHabitType, setNewHabitType] = useState('binary');
-  const [newHabitUnit, setNewHabitUnit] = useState('');
-  const [newHabitHalfLife, setNewHabitHalfLife] = useState('5');
-  const [newHabitThreshold, setNewHabitThreshold] = useState('5');
+
 
   useEffect(() => {
     loadHabits();
@@ -180,6 +177,130 @@ const HabitManagementScreen = () => {
       setAutomaticHabits([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const deleteCustomHabit = (habit) => {
+    Alert.alert(
+      'Delete Habit',
+      `Are you sure you want to delete "${habit.name}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('habits')
+                .delete()
+                .eq('id', habit.id);
+
+              if (error) throw error;
+
+              // Refresh habits list
+              await loadHabits(true);
+              Alert.alert('Success', 'Habit deleted successfully');
+            } catch (error) {
+              console.error('Error deleting habit:', error);
+              Alert.alert('Error', 'Failed to delete habit. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const openEditModal = (habit) => {
+    setEditingHabit(habit);
+    setEditHabitModalVisible(true);
+  };
+
+  const handleEditHabitName = async (newName) => {
+    if (!editingHabit || !user) return;
+
+    if (!newName.trim()) {
+      Alert.alert('Error', 'Please enter a habit name');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('habits')
+        .update({ name: newName.trim() })
+        .eq('id', editingHabit.id);
+
+      if (error) {
+        if (error.code === '23505') {
+          Alert.alert('Error', 'A habit with this name already exists');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      // Refresh habits list
+      await loadHabits(true);
+      setEditHabitModalVisible(false);
+      setEditingHabit(null);
+      Alert.alert('Success', 'Habit name updated successfully');
+    } catch (error) {
+      console.error('Error updating habit name:', error);
+      Alert.alert('Error', 'Failed to update habit name. Please try again.');
+    }
+  };
+
+  const handleAddCustomHabit = async (habitData) => {
+    if (!user) return;
+
+    const { name, type, unit } = habitData;
+
+    if (!name.trim()) {
+      Alert.alert('Error', 'Please enter a habit name');
+      return;
+    }
+
+    if ((type === 'numeric' || type === 'time') && !unit?.trim()) {
+      Alert.alert('Error', 'Please enter a unit for this habit type');
+      return;
+    }
+
+    try {
+      // Get max priority for pinned habits (combine manual and automatic habits)
+      const allHabits = [...manualHabits, ...automaticHabits];
+      const pinnedHabits = allHabits.filter(h => h.is_pinned);
+      const maxPriority = pinnedHabits.length > 0
+        ? Math.max(...pinnedHabits.map(h => h.priority || 0)) + 1
+        : 0;
+
+      const { error } = await supabase
+        .from('habits')
+        .insert({
+          user_id: user.id,
+          name: name.trim(),
+          type: type,
+          unit: (type === 'numeric' || type === 'time') ? unit.trim() : null,
+          is_custom: true,
+          is_pinned: true, // New habits start pinned by default
+          priority: maxPriority,
+        });
+
+      if (error) {
+        if (error.code === '23505') {
+          Alert.alert('Error', 'A habit with this name already exists');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      // Refresh habits list
+      await loadHabits(true);
+      setAddHabitModalVisible(false);
+      Alert.alert('Success', 'Habit added successfully');
+    } catch (error) {
+      console.error('Error adding habit:', error);
+      Alert.alert('Error', 'Failed to add habit. Please try again.');
     }
   };
 
@@ -661,160 +782,7 @@ const HabitManagementScreen = () => {
     }
   };
 
-  const openEditModal = (habit) => {
-    setEditingHabit(habit);
-    setNewHabitName(habit.name);
-    setNewHabitType(habit.type);
-    setNewHabitUnit(habit.unit || '');
-    setNewHabitHalfLife(habit.half_life_hours ? habit.half_life_hours.toString() : '5');
-    setNewHabitThreshold(habit.drug_threshold_percent ? habit.drug_threshold_percent.toString() : '5');
-    setEditModalVisible(true);
-  };
 
-  const handleEditCustomHabit = async () => {
-    if (!editingHabit || !user) return;
-
-    if (!newHabitName.trim()) {
-      Alert.alert('Error', 'Please enter a habit name');
-      return;
-    }
-
-    if ((newHabitType === 'numeric' || newHabitType === 'drug') && !newHabitUnit.trim()) {
-      Alert.alert('Error', 'Please enter a unit for this habit type');
-      return;
-    }
-
-    if (newHabitType === 'drug') {
-      const halfLife = parseFloat(newHabitHalfLife);
-      if (isNaN(halfLife) || halfLife <= 0) {
-        Alert.alert('Error', 'Please enter a valid half-life (greater than 0)');
-        return;
-      }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('habits')
-        .update({
-          name: newHabitName.trim(),
-          type: newHabitType,
-          unit: (newHabitType === 'numeric' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
-          half_life_hours: newHabitType === 'drug' ? parseFloat(newHabitHalfLife) : null,
-          drug_threshold_percent: newHabitType === 'drug' ? parseFloat(newHabitThreshold) : null,
-        })
-        .eq('id', editingHabit.id);
-
-      if (error) throw error;
-
-      // Refresh habits list
-      await loadHabits(true);
-
-      // Reset form
-      setEditModalVisible(false);
-      setEditingHabit(null);
-      setNewHabitName('');
-      setNewHabitType('binary');
-      setNewHabitUnit('');
-      setNewHabitHalfLife('5');
-      setNewHabitThreshold('5');
-
-      Alert.alert('Success', 'Habit updated successfully');
-    } catch (error) {
-      console.error('Error updating habit:', error);
-      Alert.alert('Error', 'Failed to update habit');
-    }
-  };
-
-  const deleteCustomHabit = (habitId) => {
-    Alert.alert(
-      'Delete Habit',
-      'Are you sure you want to delete this habit?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const { error } = await supabase
-                .from('habits')
-                .delete()
-                .eq('id', habitId);
-
-              if (error) throw error;
-              loadHabits(true); // Force refresh
-            } catch (error) {
-              console.error('Error deleting habit:', error);
-              Alert.alert('Error', 'Failed to delete habit');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleAddCustomHabit = async () => {
-    if (!newHabitName.trim()) {
-      Alert.alert('Error', 'Please enter a habit name');
-      return;
-    }
-
-    if ((newHabitType === 'numeric' || newHabitType === 'drug') && !newHabitUnit.trim()) {
-      Alert.alert('Error', 'Please enter a unit for this habit type');
-      return;
-    }
-
-    if (newHabitType === 'drug') {
-      const halfLife = parseFloat(newHabitHalfLife);
-      if (isNaN(halfLife) || halfLife <= 0) {
-        Alert.alert('Error', 'Please enter a valid half-life (greater than 0)');
-        return;
-      }
-    }
-
-    try {
-      // Get max priority for pinned habits (combine manual and automatic habits)
-      const allHabits = [...manualHabits, ...automaticHabits];
-      const pinnedHabits = allHabits.filter(h => h.is_pinned);
-      const maxPriority = pinnedHabits.length > 0
-        ? Math.max(...pinnedHabits.map(h => h.priority || 0)) + 1
-        : 0;
-
-      const { error } = await supabase
-        .from('habits')
-        .insert({
-          user_id: user.id,
-          name: newHabitName.trim(),
-          type: newHabitType,
-          unit: (newHabitType === 'numeric' || newHabitType === 'drug') ? newHabitUnit.trim() : null,
-          half_life_hours: newHabitType === 'drug' ? parseFloat(newHabitHalfLife) : null,
-          drug_threshold_percent: newHabitType === 'drug' ? parseFloat(newHabitThreshold) : null,
-          is_custom: true,
-          is_pinned: true, // New habits start pinned by default
-          priority: maxPriority,
-        });
-
-      if (error) {
-        if (error.code === '23505') {
-          Alert.alert('Error', 'A habit with this name already exists');
-        } else {
-          throw error;
-        }
-        return;
-      }
-
-      setModalVisible(false);
-      setNewHabitName('');
-      setNewHabitType('binary');
-      setNewHabitUnit('');
-      setNewHabitHalfLife('5');
-      setNewHabitThreshold('5');
-      loadHabits(true); // Force refresh
-    } catch (error) {
-      console.error('Error adding habit:', error);
-      Alert.alert('Error', 'Failed to add habit');
-    }
-  };
 
   const getHabitTypeDescription = (habit) => {
     const typeDescriptions = {
@@ -892,24 +860,23 @@ const HabitManagementScreen = () => {
               />
             </View>
 
-            <View style={styles.actionSection}>
-              {habit.is_custom && (
-                <>
-                  <TouchableOpacity
-                    style={styles.editButton}
-                    onPress={() => openEditModal(habit)}
-                  >
-                    <Ionicons name="pencil" size={18} color={colors.textSecondary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => deleteCustomHabit(habit.id)}
-                  >
-                    <Ionicons name="trash-outline" size={20} color={colors.error} />
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
+            {habit.is_custom && (
+              <View style={styles.actionSection}>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => openEditModal(habit)}
+                >
+                  <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => deleteCustomHabit(habit)}
+                >
+                  <Ionicons name="trash-outline" size={20} color={colors.error} />
+                </TouchableOpacity>
+              </View>
+            )}
+
           </>
         )}
       </View>
@@ -917,383 +884,409 @@ const HabitManagementScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Manage Your Habits</Text>
-        <Text style={styles.subtitle}>
-          Long press and drag habits to reorder • Toggle switches to control tracking frequency
-        </Text>
-      </View>
-
-      {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
-      <View style={styles.manualHabitsSection}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Your Habits</Text>
-          <Text style={styles.sectionSubtitle}>
-            Habits you track manually (exercise, reading, etc.)
-          </Text>
-        </View>
-
-        {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
-        {!loading && manualHabits.length === 0 && (
-          <Text style={styles.emptyText}>No manual habits yet</Text>
-        )}
-
-        {!loading && manualHabits.length > 0 && (
-          <View style={styles.instructionContainer}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
-            <Text style={styles.instructionText}>
-              Long press and drag to reorder • Toggle switches to control tracking
+    <>
+      <View style={styles.rootContainer}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>Manage Your Habits</Text>
+            <Text style={styles.subtitle}>
+              Long press and drag habits to reorder • Toggle switches to control tracking frequency
             </Text>
           </View>
-        )}
 
-        <DraggableFlatList
-          data={loading ? [] : manualHabits}
-          keyExtractor={(item) => item.id || item.name}
-          renderItem={renderHabitItem}
-          onDragEnd={onDragEnd}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.draggableListContent}
-          activationDistance={20}
-          dragItemOverflow={false}
-          removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          updateCellsBatchingPeriod={50}
-          ListFooterComponent={
-            <View style={styles.footerSection}>
-              {/* Automatic Health Metrics Section */}
-              <View style={styles.sectionContainer}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Automatic Health Tracking</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Data automatically synced from your health apps
+          {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+          <View style={styles.manualHabitsSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Your Habits</Text>
+              <Text style={styles.sectionSubtitle}>
+                Habits you track manually (exercise, reading, etc.)
+              </Text>
+            </View>
+
+            {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
+            {!loading && manualHabits.length === 0 && (
+              <Text style={styles.emptyText}>
+                No custom habits yet. Add your first habit below.
+              </Text>
+            )}
+            {!loading && manualHabits.length > 0 && (
+              <DraggableFlatList
+                data={loading ? [] : manualHabits}
+                keyExtractor={(item) => item.id || item.name}
+                renderItem={renderHabitItem}
+                onDragEnd={onDragEnd}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.draggableListContent}
+                activationDistance={20}
+                dragItemOverflow={false}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                scrollEnabled={false}
+              />
+            )}
+          </View>
+
+          {/* Automatic Habits Section */}
+          {automaticHabits.length > 0 && (
+            <View style={styles.sectionContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Health Metrics</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Data automatically synced from your health apps
+                </Text>
+              </View>
+
+              {!loading && (
+                <View style={styles.instructionContainer}>
+                  <Ionicons name="fitness-outline" size={20} color={colors.primary} />
+                  <Text style={styles.instructionText}>
+                    Toggle metrics on/off to control what health data is tracked for insights
                   </Text>
                 </View>
+              )}
 
-                {!loading && (
-                  <View style={styles.instructionContainer}>
-                    <Ionicons name="fitness-outline" size={20} color={colors.primary} />
-                    <Text style={styles.instructionText}>
-                      Toggle metrics on/off to control what health data is tracked for insights
+              {!loading && healthMetricsService.getAvailableMetrics().map((metric) => {
+                // Check if this metric is currently enabled (exists as a habit)
+                const existingHabit = automaticHabits.find(h => h.name === metric.name);
+                const isEnabled = existingHabit && existingHabit.is_active !== false;
+
+                return (
+                  <View key={metric.key} style={styles.automaticHabitItem}>
+                    <View style={styles.automaticHabitInfo}>
+                      <Ionicons name="fitness-outline" size={24} color={colors.primary} />
+                      <View style={styles.automaticHabitText}>
+                        <Text style={styles.automaticHabitName}>{metric.name}</Text>
+                        <Text style={styles.automaticHabitDescription}>
+                          {metric.description}
+                        </Text>
+                      </View>
+                    </View>
+                    <Switch
+                      value={isEnabled}
+                      onValueChange={(value) => {
+                        console.log(`🔄 Switch toggled for ${metric.name}: ${value}`);
+                        toggleHealthMetric(metric, value);
+                      }}
+                      trackColor={{ false: colors.border, true: colors.primary }}
+                      thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Untracked Habits Section */}
+          {untrackedHabits.length > 0 && (
+            <View style={styles.sectionContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Untracked Habits</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Habits you've temporarily paused tracking
+                </Text>
+              </View>
+
+              {untrackedHabits.map((habit) => (
+                <View key={habit.id || habit.name} style={styles.untrackedHabitItem}>
+                  <View style={styles.habitInfo}>
+                    <Text style={styles.habitName}>{habit.name}</Text>
+                    <Text style={styles.habitType}>
+                      {getHabitTypeDescription(habit)}
                     </Text>
+                  </View>
+                  <View style={styles.toggleSection}>
+                    <Text style={styles.toggleLabel}>
+                      {habit.is_active !== false ? 'Tracking' : 'Untracked'}
+                    </Text>
+                    <Switch
+                      value={habit.is_active !== false}
+                      onValueChange={() => toggleHabitTracking(habit)}
+                      trackColor={{ false: colors.border, true: colors.primary }}
+                      thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
+                    />
+                  </View>
+                  {habit.is_custom && (
+                    <View style={styles.actionSection}>
+                      <TouchableOpacity
+                        style={styles.editButton}
+                        onPress={() => openEditModal(habit)}
+                      >
+                        <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => deleteCustomHabit(habit.id)}
+                      >
+                        <Ionicons name="trash-outline" size={20} color={colors.error} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Add Custom Habit Section */}
+          <View style={styles.addSection}>
+            <Button
+              title="Add Custom Habit"
+              onPress={() => setAddHabitModalVisible(true)}
+              variant="primary"
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+
+    {/* Modals - rendered outside root container for proper overlay positioning */}
+    <AddHabitModal
+      visible={addHabitModalVisible}
+      onClose={() => setAddHabitModalVisible(false)}
+      onSave={handleAddCustomHabit}
+    />
+
+    <EditHabitModal
+      visible={editHabitModalVisible}
+      onClose={() => setEditHabitModalVisible(false)}
+      onSave={handleEditHabitName}
+      habit={editingHabit}
+    />
+    </>
+  );
+};
+
+// Modal Components
+const EditHabitModal = ({ visible, onClose, onSave, habit }) => {
+  const [habitName, setHabitName] = useState(habit?.name || '');
+
+  // Update form when habit changes
+  useEffect(() => {
+    if (habit) {
+      setHabitName(habit.name || '');
+    }
+  }, [habit]);
+
+  const handleSave = () => {
+    onSave(habitName);
+  };
+
+  const handleClose = () => {
+    setHabitName(habit?.name || '');
+    onClose();
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
+      <TouchableOpacity
+        style={styles.overlay}
+        activeOpacity={1}
+        onPress={handleClose}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.content}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Edit Habit Name</Text>
+                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                  <Ionicons name="close" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalBody}>
+                <Text style={styles.label}>Habit Name</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter habit name"
+                  placeholderTextColor={colors.textLight}
+                  value={habitName}
+                  onChangeText={setHabitName}
+                  maxLength={50}
+                />
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.cancelButton]}
+                  onPress={handleClose}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.saveButton]}
+                  onPress={handleSave}
+                >
+                  <Text style={styles.saveButtonText}>Update</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
+const AddHabitModal = ({ visible, onClose, onSave }) => {
+  const [habitName, setHabitName] = useState('');
+  const [habitType, setHabitType] = useState('binary');
+  const [habitUnit, setHabitUnit] = useState('');
+
+  const handleSave = () => {
+    onSave({
+      name: habitName,
+      type: habitType,
+      unit: habitUnit,
+    });
+    // Reset form
+    setHabitName('');
+    setHabitType('binary');
+    setHabitUnit('');
+  };
+
+  const handleClose = () => {
+    // Reset form
+    setHabitName('');
+    setHabitType('binary');
+    setHabitUnit('');
+    onClose();
+  };
+
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
+      <TouchableOpacity
+        style={styles.overlay}
+        activeOpacity={1}
+        onPress={handleClose}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.content}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Custom Habit</Text>
+                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                  <Ionicons name="close" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={styles.modalBody}
+                showsVerticalScrollIndicator={false}
+                bounces={true}
+              >
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Habit Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter habit name"
+                    placeholderTextColor={colors.textLight}
+                    value={habitName}
+                    onChangeText={setHabitName}
+                    maxLength={50}
+                  />
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Type</Text>
+                  <View style={styles.typeSelector}>
+                    {[
+                      { key: 'binary', label: 'Yes/No' },
+                      { key: 'numeric', label: 'Numeric' },
+                      { key: 'time', label: 'Time' },
+                      { key: 'text', label: 'Text' }
+                    ].map(({ key, label }) => (
+                      <TouchableOpacity
+                        key={key}
+                        style={[
+                          styles.typeButton,
+                          habitType === key && styles.typeButtonActive,
+                        ]}
+                        onPress={() => setHabitType(key)}
+                      >
+                        <Text
+                          style={[
+                            styles.typeButtonText,
+                            habitType === key && styles.typeButtonTextActive,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {(habitType === 'numeric' || habitType === 'time') && (
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.label}>Unit</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder={`e.g., ${habitType === 'numeric' ? 'cups, °C, hours' : 'minutes, hours'}`}
+                      placeholderTextColor={colors.textLight}
+                      value={habitUnit}
+                      onChangeText={setHabitUnit}
+                      maxLength={20}
+                    />
                   </View>
                 )}
+              </ScrollView>
 
-                {!loading && healthMetricsService.getAvailableMetrics().map((metric) => {
-                  // Check if this metric is currently enabled (exists as a habit)
-                  const existingHabit = automaticHabits.find(h => h.name === metric.name);
-                  const isEnabled = existingHabit && existingHabit.is_active !== false;
-
-                  return (
-                    <View key={metric.key} style={styles.automaticHabitItem}>
-                      <View style={styles.automaticHabitInfo}>
-                        <Ionicons name="fitness-outline" size={24} color={colors.primary} />
-                        <View style={styles.automaticHabitText}>
-                          <Text style={styles.automaticHabitName}>{metric.name}</Text>
-                          <Text style={styles.automaticHabitDescription}>
-                            {metric.description}
-                          </Text>
-                        </View>
-                      </View>
-                      <Switch
-                        value={isEnabled}
-                        onValueChange={(value) => {
-                          console.log(`🔄 Switch toggled for ${metric.name}: ${value}`);
-                          toggleHealthMetric(metric, value);
-                        }}
-                        trackColor={{ false: colors.border, true: colors.primary }}
-                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-
-              {/* Untracked Habits Section */}
-              {untrackedHabits.length > 0 && (
-                <View style={styles.sectionContainer}>
-                  <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Untracked Habits</Text>
-                    <Text style={styles.sectionSubtitle}>
-                      Habits you've temporarily paused tracking
-                    </Text>
-                  </View>
-
-                  {untrackedHabits.map((habit) => (
-                    <View key={habit.id || habit.name} style={styles.untrackedHabitItem}>
-                      <View style={styles.habitInfo}>
-                        <Text style={styles.habitName}>{habit.name}</Text>
-                        <Text style={styles.habitType}>
-                          {getHabitTypeDescription(habit)}
-                        </Text>
-                      </View>
-                      <View style={styles.toggleSection}>
-                        <Text style={styles.toggleLabel}>
-                          {habit.is_active !== false ? 'Tracking' : 'Untracked'}
-                        </Text>
-                        <Switch
-                          value={habit.is_active !== false}
-                          onValueChange={() => toggleHabitTracking(habit)}
-                          trackColor={{ false: colors.border, true: colors.primary }}
-                          thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
-                        />
-                      </View>
-                      {habit.is_custom && (
-                        <View style={styles.actionSection}>
-                          <TouchableOpacity
-                            style={styles.editButton}
-                            onPress={() => openEditModal(habit)}
-                          >
-                            <Ionicons name="pencil" size={18} color={colors.textSecondary} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.deleteButton}
-                            onPress={() => deleteCustomHabit(habit.id)}
-                          >
-                            <Ionicons name="trash-outline" size={20} color={colors.error} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Add Custom Habit Section */}
-              <View style={styles.addSection}>
-                <Button
-                  title="Add Custom Habit"
-                  onPress={() => setModalVisible(true)}
-                  variant="primary"
-                />
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.cancelButton]}
+                  onPress={handleClose}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.saveButton]}
+                  onPress={handleSave}
+                >
+                  <Text style={styles.saveButtonText}>Add Habit</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          }
-        />
-      </View>
-
-      {/* Add Custom Habit Modal */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Custom Habit</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalForm}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Habit Name</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter habit name"
-                  value={newHabitName}
-                  onChangeText={setNewHabitName}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Type</Text>
-                <View style={styles.typeSelector}>
-                  {['binary', 'numeric', 'time', 'drug'].map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.typeButton,
-                        newHabitType === type && styles.typeButtonActive,
-                      ]}
-                      onPress={() => setNewHabitType(type)}
-                    >
-                      <Text
-                        style={[
-                          styles.typeButtonText,
-                          newHabitType === type && styles.typeButtonTextActive,
-                        ]}
-                      >
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {(newHabitType === 'numeric' || newHabitType === 'drug') && (
-                <View style={styles.inputContainer}>
-                  <Text style={styles.label}>Unit</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g., cups, °C, hours"
-                    value={newHabitUnit}
-                    onChangeText={setNewHabitUnit}
-                  />
-                </View>
-              )}
-
-              {newHabitType === 'drug' && (
-                <>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Half-life (hours)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={newHabitHalfLife}
-                      onChangeText={setNewHabitHalfLife}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Threshold (% of initial dose)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={newHabitThreshold}
-                      onChangeText={setNewHabitThreshold}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </>
-              )}
-
-              <View style={styles.modalButtons}>
-                <Button
-                  title="Cancel"
-                  onPress={() => setModalVisible(false)}
-                  variant="secondary"
-                  style={styles.modalButton}
-                />
-                <Button
-                  title="Save"
-                  onPress={handleAddCustomHabit}
-                  style={styles.modalButton}
-                />
-              </View>
-            </View>
-          </View>
+          </TouchableOpacity>
         </View>
-      </Modal>
-
-      {/* Edit Custom Habit Modal */}
-      <Modal
-        visible={editModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Habit</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalForm}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Habit Name</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter habit name"
-                  value={newHabitName}
-                  onChangeText={setNewHabitName}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Type</Text>
-                <View style={styles.typeSelector}>
-                  {['binary', 'numeric', 'time', 'drug'].map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.typeButton,
-                        newHabitType === type && styles.typeButtonActive,
-                      ]}
-                      onPress={() => setNewHabitType(type)}
-                    >
-                      <Text
-                        style={[
-                          styles.typeButtonText,
-                          newHabitType === type && styles.typeButtonTextActive,
-                        ]}
-                      >
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {(newHabitType === 'numeric' || newHabitType === 'drug') && (
-                <View style={styles.inputContainer}>
-                  <Text style={styles.label}>Unit</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g., cups, minutes, kg"
-                    value={newHabitUnit}
-                    onChangeText={setNewHabitUnit}
-                  />
-                </View>
-              )}
-
-              {newHabitType === 'drug' && (
-                <>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Half-life (hours)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={newHabitHalfLife}
-                      onChangeText={setNewHabitHalfLife}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Threshold (% of initial dose)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      value={newHabitThreshold}
-                      onChangeText={setNewHabitThreshold}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </>
-              )}
-            </View>
-
-            <View style={styles.modalButtons}>
-              <Button
-                title="Cancel"
-                onPress={() => setEditModalVisible(false)}
-                variant="secondary"
-                style={styles.modalButton}
-              />
-              <Button
-                title="Update Habit"
-                onPress={handleEditCustomHabit}
-                style={styles.modalButton}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+      </TouchableOpacity>
+    </Modal>
   );
 };
 
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100, // Extra space for the modals and navigation
   },
   listContainer: {
     flex: 1,
@@ -1365,9 +1358,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary + '20',
     borderRadius: 8,
   },
-  editButton: {
-    padding: spacing.xs,
-  },
   habitInfo: {
     flex: 1,
     paddingRight: spacing.sm,
@@ -1375,12 +1365,6 @@ const styles = StyleSheet.create({
   toggleSection: {
     width: 100,
     alignItems: 'center',
-  },
-  actionSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minWidth: 60, // Ensure consistent width even when no actions
   },
   habitName: {
     fontSize: typography.sizes.body,
@@ -1400,9 +1384,6 @@ const styles = StyleSheet.create({
     width: '100%',
     fontWeight: '500', // Slightly bolder for better readability
   },
-  deleteButton: {
-    padding: 4, // Reduced from spacing.sm (8px) to 4px
-  },
   emptyText: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
@@ -1415,87 +1396,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingVertical: spacing.xl,
-  },
-  addSection: {
-    paddingHorizontal: spacing.regular,
-    marginTop: spacing.lg,
-    marginBottom: 100, // Extra bottom margin to ensure button clears navigation bar
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: spacing.xl,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  modalTitle: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-  },
-  modalForm: {
-    gap: spacing.regular,
-  },
-  inputContainer: {
-    marginBottom: spacing.regular,
-  },
-  label: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.regular,
-    fontSize: typography.sizes.body,
-    color: colors.textPrimary,
-  },
-  typeSelector: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-  },
-  typeButton: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.regular,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  typeButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  typeButtonText: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-  },
-  typeButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: spacing.regular,
-    marginTop: spacing.regular,
-  },
-  modalButton: {
-    flex: 1,
   },
   manualHabitsSection: {
     flex: 1,
@@ -1568,6 +1468,128 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     marginBottom: spacing.sm,
     opacity: 0.7, // Slightly faded to indicate untracked status
+  },
+  // Modal styles - matching DatePickerModal exactly
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '90%',
+    maxWidth: 400,
+  },
+  content: {
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 280, // Fixed height to prevent layout shifts
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.regular,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+  },
+  closeButton: {
+    padding: spacing.xs,
+  },
+  modalBody: {
+    padding: spacing.regular,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.regular,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: spacing.regular,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelButtonText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+  },
+  saveButton: {
+    backgroundColor: colors.primary,
+  },
+  saveButtonText: {
+    color: colors.white || '#FFFFFF',
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+  },
+  inputContainer: {
+    marginBottom: spacing.regular,
+  },
+  label: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: spacing.regular,
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    marginTop: spacing.sm,
+  },
+  typeButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  typeButtonActive: {
+    backgroundColor: colors.primary + '10',
+    borderColor: colors.primary,
+  },
+  typeButtonText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  typeButtonTextActive: {
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
+  },
+  addSection: {
+    paddingHorizontal: spacing.regular,
+    marginTop: spacing.lg,
+    marginBottom: 100, // Extra bottom margin to ensure button clears navigation bar
   },
 });
 

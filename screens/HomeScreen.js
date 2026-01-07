@@ -416,76 +416,106 @@ const HomeScreen = () => {
 
   // Automatic sync when permissions are available and date changes to today
   useEffect(() => {
+    console.log('🔄 [Auto-Sync] useEffect triggered - selectedDate:', selectedDate, 'isToday:', isToday(selectedDate));
+
     // Only run auto-sync for today's date
-    if (!isToday(selectedDate)) return;
+    if (!isToday(selectedDate)) {
+      console.log('🔄 [Auto-Sync] Skipping - not today\'s date');
+      return;
+    }
 
     let isCancelled = false;
     let isRunning = false;
 
     const autoSyncSleepData = async () => {
-      if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions) return;
+      console.log('🔄 [Auto-Sync] autoSyncSleepData called');
+
+      // Check prerequisites
+      console.log('🔄 [Auto-Sync] Prerequisites check:', {
+        isCancelled,
+        isRunning,
+        user: !!user,
+        healthSyncInitialized,
+        hasPermissions,
+        sleepData: !!sleepData
+      });
+
+      if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions) {
+        console.log('🔄 [Auto-Sync] Prerequisites not met - skipping');
+        return;
+      }
 
       // Check if we already have sleep data for today (from database, not just cache)
       const currentSleepData = sleepData; // This is fetched from database
       if (currentSleepData) {
-        // We already have sleep data, no need to sync
+        console.log('🔄 [Auto-Sync] Sleep data already exists - no need to sync');
         return;
       }
 
-      // Check if we haven't synced in the last hour to avoid excessive syncing
+      console.log('🔄 [Auto-Sync] No sleep data found, proceeding with sync...');
+
+      // Check last sync time (removed 1-hour limit to match dev behavior)
       const lastSyncTime = getLastSyncTimestamp();
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      console.log('🔄 [Auto-Sync] Last sync time:', lastSyncTime);
 
-      if (!lastSyncTime || new Date(lastSyncTime) < oneHourAgo) {
-        isRunning = true;
-        setAutoSyncLoading(true);
+      // Always attempt sync for today's data until we have it (dev behavior)
+      isRunning = true;
+      setAutoSyncLoading(true);
+      console.log('🔄 [Auto-Sync] Starting sync process...');
 
-        // Set a timeout to prevent hanging (30 seconds max)
-        const syncTimeoutId = setTimeout(() => {
-          if (!isCancelled) {
-            console.warn('⚠️ Auto-sync timeout - forcing completion');
-            isRunning = false;
-            setAutoSyncLoading(false);
-          }
-        }, 30000);
-
-        try {
-          clearError();
-          const result = await performSync({ force: false, userId: user.id });
-          clearTimeout(syncTimeoutId);
-          
-          if (!isCancelled && result.success && result.syncedRecords > 0) {
-            // Clear cache for today's date since we just synced fresh data
-            updateSleepDataCache(selectedDate, undefined);
-            updateHabitCountCache(selectedDate, undefined);
-            // Refresh sleep data for current date
-            await fetchSleepData();
-          } else if (!isCancelled && result.success) {
-            // Sync completed but no new records
-          }
-        } catch (error) {
-          clearTimeout(syncTimeoutId);
-          if (!isCancelled) {
-            console.error('Auto-sync failed:', error);
-            setAutoSyncLoading(false);
-          }
-        } finally {
+      // Set a timeout to prevent hanging (30 seconds max)
+      const syncTimeoutId = setTimeout(() => {
+        if (!isCancelled) {
+          console.warn('⚠️ [Auto-Sync] Timeout reached - forcing completion');
           isRunning = false;
-          if (!isCancelled && syncTimeoutId) {
-            clearTimeout(syncTimeoutId);
-          }
-          if (!isCancelled) {
-            setAutoSyncLoading(false);
-          }
+          setAutoSyncLoading(false);
         }
+      }, 30000);
+
+      try {
+        clearError();
+        console.log('🔄 [Auto-Sync] Calling performSync...');
+        const result = await performSync({ force: false, userId: user.id });
+        clearTimeout(syncTimeoutId);
+        console.log('🔄 [Auto-Sync] Sync result:', result);
+
+        if (!isCancelled && result.success && result.syncedRecords > 0) {
+          console.log('✅ [Auto-Sync] Sync successful with', result.syncedRecords, 'records');
+          // Clear cache for today's date since we just synced fresh data
+          updateSleepDataCache(selectedDate, undefined);
+          updateHabitCountCache(selectedDate, undefined);
+          // Refresh sleep data for current date
+          await fetchSleepData();
+        } else if (!isCancelled && result.success) {
+          console.log('🔄 [Auto-Sync] Sync completed but no new records');
+        } else if (!isCancelled) {
+          console.log('❌ [Auto-Sync] Sync failed or was cancelled');
+        }
+      } catch (error) {
+        clearTimeout(syncTimeoutId);
+        console.error('❌ [Auto-Sync] Exception during sync:', error);
+        if (!isCancelled) {
+          console.error('Auto-sync failed:', error);
+          setAutoSyncLoading(false);
+        }
+      } finally {
+        isRunning = false;
+        if (!isCancelled && syncTimeoutId) {
+          clearTimeout(syncTimeoutId);
+        }
+        if (!isCancelled) {
+          setAutoSyncLoading(false);
+        }
+        console.log('🏁 [Auto-Sync] Auto-sync process completed');
       }
-      // If we synced recently and still don't have data, don't keep trying
     };
 
     // Small delay to prevent rapid-fire syncing
+    console.log('🔄 [Auto-Sync] Scheduling auto-sync in 500ms...');
     const timeoutId = setTimeout(autoSyncSleepData, 500);
 
     return () => {
+      console.log('🔄 [Auto-Sync] Cleanup - cancelling auto-sync');
       isCancelled = true;
       clearTimeout(timeoutId);
     };
