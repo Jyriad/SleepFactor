@@ -101,6 +101,7 @@ class SleepSyncService {
 
       // Check which dates already have sleep data to avoid unnecessary syncing
       const existingDates = await this.getExistingSleepDates(startDateString, endDateString);
+      console.log('📊 [Sync] Existing sleep dates in range:', Array.from(existingDates));
 
       // Fetch sleep data from health platform
       const rawSleepData = await healthService.syncSleepData({
@@ -108,7 +109,10 @@ class SleepSyncService {
         endDate: endDateString
       });
 
+      console.log('📊 [Sync] Raw sleep data from health platform:', rawSleepData?.length || 0, 'records');
+
       if (!rawSleepData || rawSleepData.length === 0) {
+        console.log('⚠️ [Sync] No sleep data found in health platform');
         return {
           success: true,
           data: [],
@@ -124,16 +128,20 @@ class SleepSyncService {
         recordsToProcess = rawSleepData.filter(record => !existingDates.has(record.date));
         const filteredCount = originalCount - recordsToProcess.length;
         if (filteredCount > 0) {
+          console.log(`📊 [Sync] Filtered out ${filteredCount} existing records (force=${force})`);
         }
       }
 
       if (recordsToProcess.length === 0) {
+        console.log('⚠️ [Sync] All records filtered out - no new data to sync');
         return {
           success: true,
           data: [],
           message: 'All sleep data already synced'
         };
       }
+
+      console.log(`📊 [Sync] Processing ${recordsToProcess.length} records to sync`);
 
 
       // Data is already transformed by healthService.syncSleepData()
