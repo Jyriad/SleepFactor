@@ -115,12 +115,15 @@ class SleepDataService {
    */
   async getSleepDataForDate(date) {
     try {
+      console.log('📡 [DB] getSleepDataForDate called for date:', date);
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
+        console.error('❌ [DB] User not authenticated');
         throw new Error('User not authenticated');
       }
 
+      console.log('📡 [DB] Querying database for user:', user.id, 'date:', date);
       const { data, error } = await supabase
         .from(this.tableName)
         .select('*')
@@ -130,13 +133,16 @@ class SleepDataService {
         .limit(1); // Take only the most recent record
 
       if (error) {
+        console.error('❌ [DB] Database query error:', error);
         throw error;
       }
 
+      const result = data && data.length > 0 ? data[0] : null;
+      console.log('📡 [DB] Query result:', result ? `FOUND (id: ${result.id}, date: ${result.date}, total: ${result.total_sleep_minutes}min)` : 'NOT FOUND');
       // Return the first (most recent) record, or null if no records
-      return data && data.length > 0 ? data[0] : null;
+      return result;
     } catch (error) {
-      console.error('Failed to get sleep data for date:', error);
+      console.error('❌ [DB] Failed to get sleep data for date:', error);
       throw error;
     }
   }

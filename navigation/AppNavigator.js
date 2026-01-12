@@ -8,6 +8,9 @@ import TabNavigator from './TabNavigator';
 import HabitLoggingScreen from '../screens/HabitLoggingScreen';
 import AccountScreen from '../screens/AccountScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import AddHabitScreen from '../screens/AddHabitScreen';
+import EditHabitScreen from '../screens/EditHabitScreen';
+import DeleteHabitScreen from '../screens/DeleteHabitScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -94,6 +97,21 @@ const AppNavigator = ({ navigationRef }) => {
             <Stack.Screen
               name="HabitLogging"
               component={HabitLoggingScreen}
+              options={{ presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="AddHabit"
+              component={AddHabitScreen}
+              options={{ presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="EditHabit"
+              component={EditHabitScreen}
+              options={{ presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="DeleteHabit"
+              component={DeleteHabitScreen}
               options={{ presentation: 'modal' }}
             />
             <Stack.Screen name="Account" component={AccountScreen} />
