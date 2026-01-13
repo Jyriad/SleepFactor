@@ -467,11 +467,16 @@ const HomeScreen = () => {
         return;
       }
       
+      // Check if the existing data is actually for today's date
+      const todayDateString = getToday();
       const currentSleepData = sleepData; // This is fetched from database
-      console.log('🔍 [Auto-Sync] Checking for existing sleep data:', currentSleepData ? `FOUND (date: ${currentSleepData.date})` : 'NOT FOUND');
-      if (currentSleepData) {
-        console.log('🔄 [Auto-Sync] Sleep data already exists - no need to sync');
+      console.log('🔍 [Auto-Sync] Checking for existing sleep data:', currentSleepData ? `FOUND (date: ${currentSleepData.date})` : 'NOT FOUND', 'today:', todayDateString);
+      if (currentSleepData && currentSleepData.date === todayDateString) {
+        console.log('🔄 [Auto-Sync] Fresh sleep data already exists for today - no need to sync');
         return;
+      } else if (currentSleepData) {
+        console.log('🔄 [Auto-Sync] Sleep data exists but for different date - syncing today');
+        // Continue with sync to get today's data
       }
 
       console.log('🔄 [Auto-Sync] No sleep data found, proceeding with sync...');
