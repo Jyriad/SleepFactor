@@ -42,7 +42,6 @@ const DeleteHabitScreen = () => {
       }
       navigation.goBack();
     } catch (error) {
-      console.error('Error deleting habit:', error);
       Alert.alert('Error', error.message || 'Failed to delete habit');
     } finally {
       setDeleting(false);

@@ -132,7 +132,6 @@ const CreateConsumptionOptionModal = ({
         }
       }
     } catch (error) {
-      console.error('Error creating option:', error);
       Alert.alert('Error', 'Failed to create option. Please try again.');
     } finally {
       setSaving(false);

@@ -131,7 +131,6 @@ const EditConsumptionOptionModal = ({
         }
       }
     } catch (error) {
-      console.error('Error updating option:', error);
       Alert.alert('Error', 'Failed to update option. Please try again.');
     } finally {
       setSaving(false);
@@ -158,7 +157,6 @@ const EditConsumptionOptionModal = ({
                 Alert.alert('Error', result.error || 'Failed to delete option');
               }
             } catch (error) {
-              console.error('Error deleting option:', error);
               Alert.alert('Error', 'Failed to delete option. Please try again.');
             }
           }

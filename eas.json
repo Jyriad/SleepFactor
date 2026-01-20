@@ -10,12 +10,23 @@
       "channel": "development",
       "android": {
         "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Debug",
+        "resourceClass": "m-medium"
       }
     },
     "production": {
       "channel": "production",
       "android": {
         "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "resourceClass": "m-medium",
+        "enterpriseProvisioning": "adhoc"
       }
     }
   },

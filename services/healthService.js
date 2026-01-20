@@ -9,13 +9,11 @@ if (Platform.OS === 'android') {
   try {
     healthConnectService = require('./healthConnectService').default;
   } catch (error) {
-    console.warn('Health Connect service not available:', error.message);
   }
 } else if (Platform.OS === 'ios') {
   try {
     healthKitService = require('./healthKitService').default;
   } catch (error) {
-    console.warn('HealthKit service not available:', error.message);
   }
 }
 
@@ -39,12 +37,10 @@ class HealthService {
       } else if (this.platform === 'ios' && healthKitService) {
         this.isInitialized = await healthKitService.initialize();
       } else {
-        console.warn('No health service available for platform:', this.platform);
         this.isInitialized = false;
       }
       return this.isInitialized;
     } catch (error) {
-      console.error('Health service initialization failed:', error);
       this.isInitialized = false;
       return false;
     }
@@ -63,7 +59,6 @@ class HealthService {
       }
       return false;
     } catch (error) {
-      console.error('Health availability check failed:', error);
       return false;
     }
   }
@@ -85,7 +80,6 @@ class HealthService {
       }
       return false;
     } catch (error) {
-      console.error('Permission request failed:', error);
       return false;
     }
   }
@@ -103,7 +97,6 @@ class HealthService {
       }
       return false;
     } catch (error) {
-      console.error('Permission check failed:', error);
       return false;
     }
   }
@@ -121,7 +114,6 @@ class HealthService {
       }
       return false;
     } catch (error) {
-      console.error('Permission revocation failed:', error);
       return false;
     }
   }
@@ -145,10 +137,8 @@ class HealthService {
         return await healthKitService.syncSleepData({ startDate, endDate });
       }
 
-      console.warn('No sleep sync available for platform:', this.platform);
       return [];
     } catch (error) {
-      console.error('Sleep data sync failed:', error);
       throw error;
     }
   }
@@ -174,10 +164,8 @@ class HealthService {
         return healthKitService.transformSleepData(rawData);
       }
 
-      console.warn('No data transformation available for platform:', this.platform);
       return null;
     } catch (error) {
-      console.error('Data transformation failed:', error);
       return null;
     }
   }
@@ -202,10 +190,8 @@ class HealthService {
         return await healthKitService.syncHealthMetrics({ startDate, endDate, metrics });
       }
 
-      console.warn('No health metrics sync available for platform:', this.platform);
       return {};
     } catch (error) {
-      console.error('Health metrics sync failed:', error);
       throw error;
     }
   }
@@ -225,7 +211,6 @@ class HealthService {
       }
       return false;
     } catch (error) {
-      console.error('Permission check failed:', error);
       return false;
     }
   }

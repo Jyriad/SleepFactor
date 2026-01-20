@@ -28,7 +28,6 @@ const saveSessionToStorage = async (session) => {
       await AsyncStorage.removeItem(STORAGE_KEYS.SESSION);
     }
   } catch (error) {
-    console.error('Error saving session to storage:', error);
   }
 };
 
@@ -37,13 +36,11 @@ const loadSessionFromStorage = async () => {
     const sessionData = await AsyncStorage.getItem(STORAGE_KEYS.SESSION);
     return sessionData ? JSON.parse(sessionData) : null;
   } catch (error) {
-    console.error('Error loading session from storage:', error);
     return null;
   }
 };
 
 export const AuthProvider = ({ children }) => {
-  console.log('🔑 AuthProvider initializing...');
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,7 +93,6 @@ export const AuthProvider = ({ children }) => {
           setLoading(false);
         }
       } catch (error) {
-        console.error('Error initializing auth:', error);
         if (isMounted) {
           initializedRef.current = true;
           setLoading(false);

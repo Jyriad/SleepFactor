@@ -28,38 +28,41 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   />
 );
 
-const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay }) => (
-  <View style={styles.sleepCard}>
-    <View style={styles.sleepCardHeader}>
-      <View style={styles.sleepCardTitleRow}>
-        <Ionicons name="moon-outline" size={24} color={colors.primary} />
-        <Text style={styles.sleepCardTitle}>
-          {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay }) => {
+  const viewingToday = isToday(selectedDate);
+
+  return (
+    <View style={styles.sleepCard}>
+      <View style={styles.sleepCardHeader}>
+        <View style={styles.sleepCardTitleRow}>
+          <Ionicons name="moon-outline" size={24} color={colors.primary} />
+          <Text style={styles.sleepCardTitle}>
+            {viewingToday ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+          </Text>
+          {healthSyncInitialized && viewingToday && (
+            <TouchableOpacity
+              onPress={handleSyncNow}
+              disabled={autoSyncLoading}
+              style={styles.cardSyncButton}
+            >
+              <Ionicons
+                name={autoSyncLoading ? "sync" : "refresh-outline"}
+                size={20}
+                color={healthSyncLoading ? colors.textSecondary : colors.primary}
+              />
+              <Text style={[
+                styles.cardSyncButtonText,
+                { color: autoSyncLoading ? colors.textSecondary : colors.primary }
+              ]}>
+                {autoSyncLoading ? 'Syncing...' : 'Sync'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.dataSourceInfo}>
+          Synced by: {getDataSourceDisplay(hasPermissions)}
         </Text>
-        {healthSyncInitialized && (
-          <TouchableOpacity
-            onPress={handleSyncNow}
-            disabled={autoSyncLoading}
-            style={styles.cardSyncButton}
-          >
-            <Ionicons
-              name={autoSyncLoading ? "sync" : "refresh-outline"}
-              size={20}
-              color={healthSyncLoading ? colors.textSecondary : colors.primary}
-            />
-            <Text style={[
-              styles.cardSyncButtonText,
-              { color: autoSyncLoading ? colors.textSecondary : colors.primary }
-            ]}>
-              {autoSyncLoading ? 'Syncing...' : 'Sync'}
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
-      <Text style={styles.dataSourceInfo}>
-        Synced by: {getDataSourceDisplay(hasPermissions)}
-      </Text>
-    </View>
 
     <View style={styles.noDataContent}>
       <Ionicons name="moon-outline" size={48} color={colors.textSecondary} />
@@ -72,17 +75,18 @@ const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermis
           : 'Grant permissions to sync sleep data from your device'
         }
       </Text>
-      {!hasPermissions && (
-        <TouchableOpacity
-          style={styles.connectButton}
-          onPress={() => setShowPermissionPrompt(true)}
-        >
-          <Text style={styles.connectButtonText}>Connect Health App</Text>
-        </TouchableOpacity>
-      )}
+        {viewingToday && !hasPermissions && (
+          <TouchableOpacity
+            style={styles.connectButton}
+            onPress={() => setShowPermissionPrompt(true)}
+          >
+            <Text style={styles.connectButtonText}>Connect Health App</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 const SleepDataCard = ({
   selectedDate,
@@ -100,38 +104,46 @@ const SleepDataCard = ({
   formatSleepDuration,
   renderSleepMetricRow,
   syncError
-}) => (
-  <View style={styles.sleepCard}>
-    <View style={styles.sleepCardHeader}>
-      <View style={styles.sleepCardTitleRow}>
-        <Ionicons name="moon-outline" size={24} color={colors.primary} />
-        <Text style={styles.sleepCardTitle}>
-          {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-        </Text>
-        {healthSyncInitialized && (
-          <TouchableOpacity
-            onPress={handleSyncNow}
-            disabled={autoSyncLoading}
-            style={styles.cardSyncButton}
-          >
-            <Ionicons
-              name={autoSyncLoading ? "sync" : "refresh-outline"}
-              size={20}
-              color={healthSyncLoading ? colors.textSecondary : colors.primary}
-            />
-            <Text style={[
-              styles.cardSyncButtonText,
-              { color: autoSyncLoading ? colors.textSecondary : colors.primary }
-            ]}>
-              {autoSyncLoading ? 'Syncing...' : 'Sync'}
+}) => {
+  const viewingToday = isToday(selectedDate);
+
+  return (
+    <View style={styles.sleepCard}>
+      <View style={styles.sleepCardHeader}>
+        <View style={styles.sleepCardTitleRow}>
+          <Ionicons name="moon-outline" size={24} color={colors.primary} />
+          <Text style={styles.sleepCardTitle}>
+            {viewingToday ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+          </Text>
+          {healthSyncInitialized && viewingToday && (
+            <TouchableOpacity
+              onPress={handleSyncNow}
+              disabled={autoSyncLoading}
+              style={styles.cardSyncButton}
+            >
+              <Ionicons
+                name={autoSyncLoading ? "sync" : "refresh-outline"}
+                size={20}
+                color={healthSyncLoading ? colors.textSecondary : colors.primary}
+              />
+              <Text style={[
+                styles.cardSyncButtonText,
+                { color: autoSyncLoading ? colors.textSecondary : colors.primary }
+              ]}>
+                {autoSyncLoading ? 'Syncing...' : 'Sync'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.dataSourceInfo}>
+          Synced by: {getDataSourceDisplay(sleepData.source)}
+          {viewingToday && (
+            <Text style={styles.freshnessIndicator}>
+              {' • Last synced: recently'}
             </Text>
-          </TouchableOpacity>
-        )}
+          )}
+        </Text>
       </View>
-      <Text style={styles.dataSourceInfo}>
-        Synced by: {getDataSourceDisplay(sleepData.source)}
-      </Text>
-    </View>
 
     {/* Sleep Timeline Visualization */}
     <SleepTimeline sleepData={sleepData} />
@@ -180,34 +192,35 @@ const SleepDataCard = ({
       })()}
     </View>
 
-    {/* Sync Status */}
-    {lastSyncResult && (
-      <View style={styles.syncStatus}>
-        <Ionicons
-          name={lastSyncResult.success ? "checkmark-circle" : "close-circle"}
-          size={16}
-          color={lastSyncResult.success ? colors.success : colors.error}
-        />
-        <Text style={[
-          styles.syncStatusText,
-          { color: lastSyncResult.success ? colors.success : colors.error }
-        ]}>
-          {lastSyncResult.success
-            ? 'Data synced'
-            : 'Sync failed'
-          }
-        </Text>
-      </View>
-    )}
+      {/* Sync Status - Only show for today's date */}
+      {viewingToday && lastSyncResult && (
+        <View style={styles.syncStatus}>
+          <Ionicons
+            name={lastSyncResult.success ? "checkmark-circle" : "close-circle"}
+            size={16}
+            color={lastSyncResult.success ? colors.success : colors.error}
+          />
+          <Text style={[
+            styles.syncStatusText,
+            { color: lastSyncResult.success ? colors.success : colors.error }
+          ]}>
+            {lastSyncResult.success
+              ? 'Data synced'
+              : 'Sync failed'
+            }
+          </Text>
+        </View>
+      )}
 
-    {syncError && (
-      <View style={styles.errorStatus}>
-        <Ionicons name="warning" size={16} color={colors.error} />
-        <Text style={styles.errorStatusText}>{syncError}</Text>
-      </View>
-    )}
-  </View>
-);
+      {viewingToday && syncError && (
+        <View style={styles.errorStatus}>
+          <Ionicons name="warning" size={16} color={colors.error} />
+          <Text style={styles.errorStatusText}>{syncError}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
 
 const SleepDataSimpleLoading = () => (
   <View style={styles.sleepCard}>
@@ -387,22 +400,10 @@ const HomeScreen = () => {
   );
 
   // Track sleepData state changes for debugging
-  useEffect(() => {
-    console.log('📊 [State] sleepData changed:', sleepData ? `EXISTS (date: ${sleepData.date}, total: ${sleepData.total_sleep_minutes}min)` : 'NULL');
-  }, [sleepData]);
-
-  // Track autoSyncLoading state changes for debugging
-  useEffect(() => {
-    console.log('📊 [State] autoSyncLoading changed:', autoSyncLoading);
-  }, [autoSyncLoading]);
-
-  // Track sleepDataLoading state changes for debugging
-  useEffect(() => {
-    console.log('📊 [State] sleepDataLoading changed:', sleepDataLoading);
-  }, [sleepDataLoading]);
 
   // Date-dependent operations (run when date changes)
   useEffect(() => {
+    console.log('[SleepFactor:Effects] Date changed - selectedDate:', selectedDate, 'isToday:', isToday(selectedDate));
     checkHabitsLogged();
     fetchHabitCount();
     fetchSleepData();
@@ -431,11 +432,11 @@ const HomeScreen = () => {
 
   // Automatic sync when permissions are available and date changes to today
   useEffect(() => {
-    console.log('🔄 [Auto-Sync] useEffect triggered - selectedDate:', selectedDate, 'isToday:', isToday(selectedDate));
+    console.log('[SleepFactor:AutoSync] useEffect triggered - selectedDate:', selectedDate, 'isToday:', isToday(selectedDate));
 
     // Only run auto-sync for today's date
     if (!isToday(selectedDate)) {
-      console.log('🔄 [Auto-Sync] Skipping - not today\'s date');
+      console.log('[SleepFactor:AutoSync] Skipping auto-sync - not viewing today');
       return;
     }
 
@@ -443,59 +444,57 @@ const HomeScreen = () => {
     let isRunning = false;
 
     const autoSyncSleepData = async () => {
-      console.log('🔄 [Auto-Sync] autoSyncSleepData called');
+      console.log('[SleepFactor:AutoSync] autoSyncSleepData called');
 
       // Check prerequisites
-      console.log('🔄 [Auto-Sync] Prerequisites check:', {
+      const prerequisites = {
         isCancelled,
         isRunning,
         user: !!user,
         healthSyncInitialized,
-        hasPermissions,
-        sleepData: !!sleepData
-      });
+        hasPermissions
+      };
+      console.log('[SleepFactor:AutoSync] Prerequisites check:', prerequisites);
 
       if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions) {
-        console.log('🔄 [Auto-Sync] Prerequisites not met - skipping');
+        console.log('[SleepFactor:AutoSync] Prerequisites not met - skipping');
         return;
       }
 
       // Check if we already have sleep data for today (from database, not just cache)
-      // But don't skip sync if we're still loading - wait for fetchSleepData to complete first
       if (sleepDataLoading) {
-        console.log('🔄 [Auto-Sync] Sleep data still loading - waiting before sync check');
+        console.log('[SleepFactor:AutoSync] Skipping - sleep data already loading');
         return;
       }
-      
+
       // Check if the existing data is actually for today's date
       const todayDateString = getToday();
       const currentSleepData = sleepData; // This is fetched from database
-      console.log('🔍 [Auto-Sync] Checking for existing sleep data:', currentSleepData ? `FOUND (date: ${currentSleepData.date})` : 'NOT FOUND', 'today:', todayDateString);
-      if (currentSleepData && currentSleepData.date === todayDateString) {
-        console.log('🔄 [Auto-Sync] Fresh sleep data already exists for today - no need to sync');
-        return;
-      } else if (currentSleepData) {
-        console.log('🔄 [Auto-Sync] Sleep data exists but for different date - syncing today');
-        // Continue with sync to get today's data
-      }
+      console.log('[SleepFactor:AutoSync] Current sleep data check:', {
+        hasSleepData: !!currentSleepData,
+        sleepDataDate: currentSleepData?.date,
+        todayDateString,
+        dataMatchesToday: currentSleepData?.date === todayDateString
+      });
 
-      console.log('🔄 [Auto-Sync] No sleep data found, proceeding with sync...');
+      if (currentSleepData && currentSleepData.date === todayDateString) {
+        console.log('[SleepFactor:AutoSync] Fresh sleep data already exists - skipping sync');
+        return; // Fresh sleep data already exists
+      }
 
       // Check last sync time (removed 1-hour limit to match dev behavior)
       const lastSyncTime = getLastSyncTimestamp();
-      console.log('🔄 [Auto-Sync] Last sync time:', lastSyncTime);
+      console.log('[SleepFactor:AutoSync] Last sync time:', lastSyncTime);
 
       // Always attempt sync for today's data until we have it (dev behavior)
       // Use force: true to ensure we get the latest data for today, even if it already exists
       isRunning = true;
       setAutoSyncLoading(true);
-      console.log('🔄 [Auto-Sync] Starting sync process for today\'s data...');
-      console.log('🔄 [Auto-Sync] Using force mode to ensure fresh data for today');
+      console.log('[SleepFactor:AutoSync] Starting sync - set autoSyncLoading to true');
 
       // Set a timeout to prevent hanging (30 seconds max)
       const syncTimeoutId = setTimeout(() => {
         if (!isCancelled) {
-          console.warn('⚠️ [Auto-Sync] Timeout reached - forcing completion');
           isRunning = false;
           setAutoSyncLoading(false);
         }
@@ -503,65 +502,46 @@ const HomeScreen = () => {
 
       try {
         clearError();
-        console.log('🔄 [Auto-Sync] Calling performSync with force:true...');
+        console.log('[SleepFactor:AutoSync] Calling performSync with force: true');
         // Use force: true for today's date to ensure we always get the latest data
         // This prevents the sync from being filtered out if a record already exists
         const result = await performSync({ force: true, userId: user.id });
         clearTimeout(syncTimeoutId);
-        console.log('🔄 [Auto-Sync] Sync result:', result);
+        console.log('[SleepFactor:AutoSync] Sync result:', result);
 
         if (!isCancelled && result.success) {
-          if (result.syncedRecords > 0) {
-            console.log('✅ [Auto-Sync] Sync successful with', result.syncedRecords, 'records');
-          } else {
-            console.log('🔄 [Auto-Sync] Sync completed but no new records - refreshing data anyway');
-          }
-          // Always clear cache and refresh after successful sync, even if no new records
-          // This ensures we show any data that was synced, including cases where
-          // data exists but wasn't properly loaded yet
-          console.log('🔄 [Auto-Sync] Clearing cache before refresh...');
+          console.log('[SleepFactor:AutoSync] Sync successful - clearing cache and refreshing data');
+          // Always clear cache and refresh after successful sync
           updateSleepDataCache(selectedDate, undefined);
           updateHabitCountCache(selectedDate, undefined);
-          // Small delay to ensure database write is complete before fetching
-          console.log('🔄 [Auto-Sync] Waiting 200ms for database write to complete...');
           await new Promise(resolve => setTimeout(resolve, 200));
-          // Refresh sleep data for current date
-          console.log('🔄 [Auto-Sync] Calling fetchSleepData to refresh UI...');
           await fetchSleepData();
-          console.log('✅ [Auto-Sync] fetchSleepData completed, checking state...');
-          // Log current state after fetch
-          console.log('📊 [Auto-Sync] State after fetch - sleepData:', sleepData ? `EXISTS (date: ${sleepData.date})` : 'NULL', 'sleepDataLoading:', sleepDataLoading);
-        } else if (!isCancelled) {
-          console.log('❌ [Auto-Sync] Sync failed or was cancelled');
-          console.log('❌ [Auto-Sync] Error details:', result?.error || 'Unknown error');
+        } else {
+          console.log('[SleepFactor:AutoSync] Sync failed or cancelled:', { success: result.success, isCancelled });
         }
       } catch (error) {
+        console.log('[SleepFactor:AutoSync] Sync error:', error);
         clearTimeout(syncTimeoutId);
-        console.error('❌ [Auto-Sync] Exception during sync:', error);
         if (!isCancelled) {
-          console.error('Auto-sync failed:', error);
           setAutoSyncLoading(false);
         }
       } finally {
+        console.log('[SleepFactor:AutoSync] Cleanup - setting isRunning to false');
         isRunning = false;
         if (!isCancelled && syncTimeoutId) {
           clearTimeout(syncTimeoutId);
         }
         if (!isCancelled) {
-          console.log('🔄 [Auto-Sync] Setting autoSyncLoading to FALSE');
+          console.log('[SleepFactor:AutoSync] Setting autoSyncLoading to false');
           setAutoSyncLoading(false);
-          console.log('📊 [Auto-Sync] Final state - autoSyncLoading: false, sleepData:', sleepData ? `EXISTS` : 'NULL', 'sleepDataLoading:', sleepDataLoading);
         }
-        console.log('🏁 [Auto-Sync] Auto-sync process completed');
       }
     };
 
     // Small delay to prevent rapid-fire syncing
-    console.log('🔄 [Auto-Sync] Scheduling auto-sync in 500ms...');
     const timeoutId = setTimeout(autoSyncSleepData, 500);
 
     return () => {
-      console.log('🔄 [Auto-Sync] Cleanup - cancelling auto-sync');
       isCancelled = true;
       clearTimeout(timeoutId);
     };
@@ -596,7 +576,6 @@ const HomeScreen = () => {
 
       setHabitsLogged(data && data.length > 0);
     } catch (error) {
-      console.error('Error checking habits logged:', error);
       setHabitsLogged(false);
     } finally {
       setLoading(false);
@@ -619,7 +598,6 @@ const HomeScreen = () => {
 
       setTodaysHabitsLogged(data && data.length > 0);
     } catch (error) {
-      console.error('Error checking today\'s habits logged:', error);
       setTodaysHabitsLogged(false);
     }
   };
@@ -661,7 +639,6 @@ const HomeScreen = () => {
             }
           }
         } catch (error) {
-          console.error(`Error checking unsaved changes for ${dateItem.date}:`, error);
         }
         return null;
       });
@@ -672,7 +649,6 @@ const HomeScreen = () => {
       setDatesWithUnsavedChanges(filteredUnsavedDates);
 
     } catch (error) {
-      console.error('Error fetching logged dates:', error);
       setLoggedDates([]);
       setDatesWithUnsavedChanges([]);
     }
@@ -698,7 +674,6 @@ const HomeScreen = () => {
         .eq('date', dateString);
 
       if (habitLogsError) {
-        console.error('Error fetching habit logs:', habitLogsError);
       } else {
         // Add regular habits (excluding health metrics)
         habitLogs?.forEach(log => {
@@ -721,7 +696,6 @@ const HomeScreen = () => {
         .lt('consumed_at', `${dateString}T23:59:59.999Z`);
 
       if (consumptionError) {
-        console.error('Error fetching consumption events:', consumptionError);
       } else {
         // Add quick_consumption habits that have consumption events (including "none" events)
         consumptionEvents?.forEach(event => {
@@ -733,7 +707,6 @@ const HomeScreen = () => {
 
       return loggedHabits.size;
     } catch (error) {
-      console.error('Error fetching habit count for date:', error);
       return 0;
     }
   };
@@ -759,16 +732,8 @@ const HomeScreen = () => {
         !healthMetricsService.isHealthMetricHabit(habit) && habit.is_active !== false
       );
 
-      console.log('=== HABIT COUNT DEBUG ===');
-      console.log('Total habits in DB:', allHabits.length);
-      console.log('Health metric habits:', healthMetrics.length, healthMetrics.map(h => h.name));
-      console.log('Untracked habits:', untracked.length, untracked.map(h => h.name));
-      console.log('Active manual habits:', manualHabits.length, manualHabits.map(h => h.name));
-      console.log('========================');
-
       setTotalHabitCount(manualHabits.length);
     } catch (error) {
-      console.error('Error fetching total habit count:', error);
       setTotalHabitCount(0);
     }
   };
@@ -801,64 +766,54 @@ const HomeScreen = () => {
   };
 
   const fetchSleepData = async () => {
-    console.log('🔍 [UI] fetchSleepData called for date:', selectedDate);
+    console.log('[SleepFactor:DataFetch] fetchSleepData called for date:', selectedDate);
 
     if (!user) {
-      console.log('❌ [UI] No user object available - cannot fetch sleep data');
+      console.log('[SleepFactor:DataFetch] No user - returning early');
       return;
     }
 
-    console.log('✅ [UI] User authenticated with ID:', user.id);
-
     // Check cache first
     const cachedData = getCachedSleepData(selectedDate);
+    console.log('[SleepFactor:DataFetch] Cache check result:', cachedData !== undefined ? 'CACHE HIT' : 'CACHE MISS');
+
     if (cachedData !== undefined) {
-      console.log('📋 [UI] Using cached sleep data:', cachedData ? `Data found (date: ${cachedData.date})` : 'No cached data');
-      console.log('📋 [UI] Setting sleepData state to:', cachedData ? 'DATA' : 'NULL');
+      console.log('[SleepFactor:DataFetch] Using cached data:', cachedData);
       setSleepData(cachedData);
       return; // No loading state needed for cached data
     }
 
-    console.log('🔄 [UI] No cached data found, fetching from database...');
-
     // Fetch from database if not cached
-    console.log('🔄 [UI] Setting sleepDataLoading to TRUE');
+    console.log('[SleepFactor:DataFetch] Fetching from database - setting sleepDataLoading to true');
     setSleepDataLoading(true);
+
     try {
       // Convert Date object to YYYY-MM-DD string format (required for Supabase DATE column)
-      const dateString = selectedDate instanceof Date 
+      const dateString = selectedDate instanceof Date
         ? selectedDate.toISOString().split('T')[0]
-        : typeof selectedDate === 'string' 
-          ? selectedDate 
+        : typeof selectedDate === 'string'
+          ? selectedDate
           : new Date(selectedDate).toISOString().split('T')[0];
-      
-      console.log('📡 [UI] Calling sleepDataService.getSleepDataForDate with dateString:', dateString);
+
+      console.log('[SleepFactor:DataFetch] Calling sleepDataService.getSleepDataForDate with dateString:', dateString);
       const data = await sleepDataService.getSleepDataForDate(dateString);
-      console.log('✅ [UI] Database query successful, result:', data ? `Sleep data found (date: ${data.date}, total: ${data.total_sleep_minutes}min)` : 'No sleep data for this date');
-      if (data) {
-        console.log('📊 [UI] Sleep data details:', {
-          date: data.date,
-          totalSleep: data.total_sleep_minutes,
-          source: data.source,
-          hasStages: !!data.sleep_stages
-        });
-      }
-      console.log('📊 [UI] Setting sleepData state to:', data ? 'DATA' : 'NULL');
+      const freshness = getDataFreshness(data);
+      console.log('[SleepFactor:DataFetch] Database query result:', data ? 'DATA FOUND' : 'NO DATA', {
+        dataDate: data?.date,
+        freshness,
+        totalSleep: data?.total_sleep_minutes
+      });
+
       setSleepData(data);
       updateSleepDataCache(selectedDate, data);
-      console.log('📊 [UI] State updated - sleepData set, cache updated');
+      console.log('[SleepFactor:DataFetch] State updated and cache refreshed');
     } catch (error) {
-      console.error('❌ [UI] Database query FAILED:', error);
-      console.error('❌ [UI] Error details:', JSON.stringify(error, null, 2));
-      console.error('❌ [UI] Error message:', error.message);
-      console.error('❌ [UI] Error stack:', error.stack);
-      console.log('❌ [UI] Setting sleepData state to NULL due to error');
+      console.log('[SleepFactor:DataFetch] Database query error:', error);
       setSleepData(null);
       updateSleepDataCache(selectedDate, null);
     } finally {
-      console.log('🔄 [UI] Setting sleepDataLoading to FALSE');
+      console.log('[SleepFactor:DataFetch] Setting sleepDataLoading to false');
       setSleepDataLoading(false);
-      console.log('🏁 [UI] fetchSleepData completed');
     }
   };
 
@@ -881,22 +836,16 @@ const HomeScreen = () => {
   };
 
   const handleSyncNow = async () => {
-    console.log('🔄 [Manual-Sync] handleSyncNow called');
     try {
       clearError();
-      console.log('🔄 [Manual-Sync] Calling performSync with force:true...');
       const result = await performSync({ force: true, userId: user.id });
-      console.log('🔄 [Manual-Sync] Sync result:', result.success ? 'SUCCESS' : 'FAILED', result.syncedRecords || 0, 'records');
       if (result.success) {
         // Clear cache and refresh sleep data for current date
-        console.log('🔄 [Manual-Sync] Clearing cache and refreshing data...');
         updateSleepDataCache(selectedDate, undefined);
         await new Promise(resolve => setTimeout(resolve, 200));
         await fetchSleepData();
-        console.log('✅ [Manual-Sync] Data refresh completed');
       }
     } catch (error) {
-      console.error('❌ [Manual-Sync] Sync failed:', error);
       Alert.alert('Sync Failed', error.message || 'Unable to sync sleep data');
     }
   };
@@ -940,9 +889,16 @@ const HomeScreen = () => {
   };
 
   const preloadRecentData = async () => {
-    if (!user || cacheLoading) return;
+    console.log('[SleepFactor:Preload] Starting preload of recent data');
+
+    if (!user || cacheLoading) {
+      console.log('[SleepFactor:Preload] Skipping preload - no user or already loading');
+      return;
+    }
 
     setCacheLoading(true);
+    console.log('[SleepFactor:Preload] Set cacheLoading to true');
+
     try {
       // Preload data for today + last 5 days (6 days total)
       const datesToPreload = [];
@@ -953,16 +909,23 @@ const HomeScreen = () => {
         datesToPreload.push(dateString);
       }
 
+      console.log('[SleepFactor:Preload] Preloading dates:', datesToPreload);
+
       // Load sleep data for all dates in parallel
       const sleepDataPromises = datesToPreload.map(async (dateString) => {
         const cached = getCachedSleepData(dateString);
-        if (cached !== undefined) return; // Already cached
+        if (cached !== undefined) {
+          console.log(`[SleepFactor:Preload] Sleep data for ${dateString} already cached`);
+          return; // Already cached
+        }
 
         try {
+          console.log(`[SleepFactor:Preload] Fetching sleep data for ${dateString}`);
           const data = await sleepDataService.getSleepDataForDate(dateString);
           updateSleepDataCache(dateString, data || null); // Cache null for no data
+          console.log(`[SleepFactor:Preload] Cached sleep data for ${dateString}:`, data ? 'FOUND' : 'NOT FOUND');
         } catch (error) {
-          console.error('Error preloading sleep data:', error);
+          console.log(`[SleepFactor:Preload] Error fetching sleep data for ${dateString}:`, error);
           // Don't cache errors - allow retry on next navigation
         }
       });
@@ -970,22 +933,29 @@ const HomeScreen = () => {
       // Load habit counts for all dates in parallel
       const habitCountPromises = datesToPreload.map(async (dateString) => {
         const cached = getCachedHabitCount(dateString);
-        if (cached !== undefined) return; // Already cached
+        if (cached !== undefined) {
+          console.log(`[SleepFactor:Preload] Habit count for ${dateString} already cached`);
+          return; // Already cached
+        }
 
         try {
+          console.log(`[SleepFactor:Preload] Fetching habit count for ${dateString}`);
           const count = await fetchHabitCountForDate(dateString);
           updateHabitCountCache(dateString, count);
+          console.log(`[SleepFactor:Preload] Cached habit count for ${dateString}:`, count);
         } catch (error) {
-          console.error('Error preloading habit count:', error);
+          console.log(`[SleepFactor:Preload] Error fetching habit count for ${dateString}:`, error);
           // Don't cache errors - allow retry on next navigation
         }
       });
 
       await Promise.all([...sleepDataPromises, ...habitCountPromises]);
+      console.log('[SleepFactor:Preload] All preload promises completed');
     } catch (error) {
-      console.error('Error during data preloading:', error);
+      console.log('[SleepFactor:Preload] Preload error:', error);
     } finally {
       setCacheLoading(false);
+      console.log('[SleepFactor:Preload] Set cacheLoading to false');
     }
   };
 
@@ -994,6 +964,23 @@ const HomeScreen = () => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
+  };
+
+  const getDataFreshness = (sleepData) => {
+    if (!sleepData) return null;
+
+    // For production logging - when data was last synced
+    const now = new Date();
+    const dataDate = new Date(sleepData.date + 'T12:00:00'); // Assume noon for date-only data
+    const hoursSinceData = Math.floor((now - dataDate) / (1000 * 60 * 60));
+
+    if (hoursSinceData < 24) {
+      return 'fresh'; // Today's data
+    } else if (hoursSinceData < 48) {
+      return 'yesterday'; // Yesterday's data
+    } else {
+      return 'old'; // Older data
+    }
   };
 
   const renderSleepMetricRow = (label, minutes, percentage, avgComparison, color = null, specialIndicator = null, key = null, isAlternate = false) => (
@@ -1142,7 +1129,6 @@ const HomeScreen = () => {
 
       setPersonalAverages(personalAverages);
     } catch (error) {
-      console.error('Error calculating personal averages:', error);
       // Fallback to population averages on error
       setPersonalAverages(AVERAGE_SLEEP_PERCENTAGES);
     } finally {
@@ -1213,19 +1199,23 @@ const HomeScreen = () => {
         <View style={styles.section}>
           {(() => {
             // Log render decision for debugging
+            const viewingToday = isToday(selectedDate);
             const renderDecision = showPermissionPrompt ? 'PERMISSION_PROMPT' :
               autoSyncLoading ? 'SKELETON_LOADER' :
               sleepDataLoading ? 'SIMPLE_LOADING' :
               !sleepData ? 'NO_DATA_SKELETON' :
               'SLEEP_DATA_CARD';
-            console.log('🎨 [UI] Render decision:', renderDecision, {
+
+            console.log('[SleepFactor:Render] Decision:', renderDecision, {
               showPermissionPrompt,
               autoSyncLoading,
               sleepDataLoading,
               hasSleepData: !!sleepData,
-              sleepDataDate: sleepData?.date
+              viewingToday,
+              sleepDataDate: sleepData?.date,
+              selectedDate: selectedDate instanceof Date ? selectedDate.toISOString().split('T')[0] : selectedDate
             });
-            
+
             if (showPermissionPrompt) {
               return (
                 <SleepPermissionPrompt
@@ -1321,7 +1311,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 80, // Navigation footer height + margin
+    paddingBottom: 72, // Navigation footer height + margin
   },
   header: {
     flexDirection: 'row',
@@ -1467,6 +1457,11 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
     marginTop: -spacing.sm, // Reduce gap since it's within the header
+  },
+  freshnessIndicator: {
+    fontSize: typography.sizes.sm,
+    color: colors.primary,
+    fontWeight: typography.weights.medium,
   },
   sleepMetrics: {
     gap: 2, // Reduced from spacing.xs (4px) to 2px

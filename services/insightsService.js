@@ -6,7 +6,8 @@ import {
   calculateBoxPlotStats,
   calculateCorrelation,
   calculateLinearRegression,
-  calculateRSquared
+  calculateRSquared,
+  calculatePercentile
 } from '../utils/statistics';
 
 /**
@@ -15,6 +16,170 @@ import {
 class InsightsService {
   constructor() {
     this.MIN_DATA_POINTS = 10; // Minimum data points needed for meaningful insights
+    this.MIN_BINARY_YES = 5; // Minimum "yes" responses for binary habits
+    this.MIN_BINARY_NO = 5; // Minimum "no" responses for binary habits
+  }
+
+  /**
+   * Calculate core sleep duration as the 95th percentile of historical total sleep times
+   * @param {string} userId - User ID
+   * @returns {Promise<number|null>} Core sleep duration in minutes, or null if insufficient data
+   */
+  async calculateCoreSleepDuration(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('sleep_data')
+        .select('total_sleep_minutes')
+        .eq('user_id', userId)
+        .not('total_sleep_minutes', 'is', null)
+        .gt('total_sleep_minutes', 0); // Only include positive sleep values
+
+      if (error) throw error;
+
+      if (!data || data.length < 20) {
+        // Insufficient data - use median as fallback
+        if (data && data.length > 0) {
+          const sleepDurations = data.map(d => d.total_sleep_minutes).sort((a, b) => a - b);
+          return calculateMedian(sleepDurations, true);
+        }
+        return null; // No data available
+      }
+
+      // Calculate 95th percentile of all historical sleep durations
+      const sleepDurations = data.map(d => d.total_sleep_minutes).sort((a, b) => a - b);
+      const coreSleepMinutes = calculatePercentile(sleepDurations, 95);
+
+      // Ensure reasonable bounds (4-10 hours)
+      const boundedCoreSleep = Math.max(240, Math.min(600, coreSleepMinutes)); // 4-10 hours in minutes
+
+      return Math.round(boundedCoreSleep);
+    } catch (error) {
+      console.error('Error calculating core sleep duration:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Transform sleep data for core sleep analysis by filtering to first X hours
+   * @param {Object} sleepData - Original sleep data object
+   * @param {number} coreDurationMinutes - Core sleep duration in minutes
+   * @returns {Object|null} Transformed sleep data or null if night is shorter than core duration
+   */
+  transformSleepDataForCoreSleep(sleepData, coreDurationMinutes) {
+    // Exclude nights shorter than core duration
+    if (!sleepData.total_sleep_minutes || sleepData.total_sleep_minutes < coreDurationMinutes) {
+      return null;
+    }
+
+    // If detailed sleep stages are available, filter them to core sleep period
+    if (sleepData.sleep_stages && Array.isArray(sleepData.sleep_stages) && sleepData.sleep_start_time) {
+      try {
+        const sleepStartTime = new Date(sleepData.sleep_start_time);
+        const coreEndTime = new Date(sleepStartTime.getTime() + (coreDurationMinutes * 60 * 1000));
+
+        // Filter stages that overlap with the core sleep period
+        const coreStages = [];
+        let accumulatedMinutes = 0;
+
+        for (const stage of sleepData.sleep_stages) {
+          const stageStart = new Date(stage.startTime);
+          const stageEnd = new Date(stage.endTime);
+
+          // Skip stages that end before core sleep starts
+          if (stageEnd <= sleepStartTime) continue;
+
+          // Skip stages that start after core sleep ends
+          if (stageStart >= coreEndTime) break;
+
+          // Calculate overlap with core sleep period
+          const overlapStart = stageStart > sleepStartTime ? stageStart : sleepStartTime;
+          const overlapEnd = stageEnd < coreEndTime ? stageEnd : coreEndTime;
+          const overlapMinutes = (overlapEnd - overlapStart) / (1000 * 60);
+
+          if (overlapMinutes > 0) {
+            coreStages.push({
+              ...stage,
+              startTime: overlapStart.toISOString(),
+              endTime: overlapEnd.toISOString(),
+              durationMinutes: overlapMinutes
+            });
+            accumulatedMinutes += overlapMinutes;
+          }
+
+          // Stop if we've reached the core sleep duration
+          if (accumulatedMinutes >= coreDurationMinutes) break;
+        }
+
+        // Recalculate totals from filtered stages
+        const stageTotals = {
+          deep_sleep_minutes: 0,
+          light_sleep_minutes: 0,
+          rem_sleep_minutes: 0,
+          awake_minutes: 0
+        };
+
+        coreStages.forEach(stage => {
+          const stageType = stage.stage.toLowerCase();
+          if (stageType === 'deep') stageTotals.deep_sleep_minutes += stage.durationMinutes;
+          else if (stageType === 'light') stageTotals.light_sleep_minutes += stage.durationMinutes;
+          else if (stageType === 'rem') stageTotals.rem_sleep_minutes += stage.durationMinutes;
+          else if (stageType === 'awake') stageTotals.awake_minutes += stage.durationMinutes;
+        });
+
+        // Return transformed sleep data
+        return {
+          ...sleepData,
+          total_sleep_minutes: Math.min(coreDurationMinutes, sleepData.total_sleep_minutes),
+          deep_sleep_minutes: stageTotals.deep_sleep_minutes,
+          light_sleep_minutes: stageTotals.light_sleep_minutes,
+          rem_sleep_minutes: stageTotals.rem_sleep_minutes,
+          awake_minutes: stageTotals.awake_minutes,
+          sleep_score: sleepData.sleep_score, // Keep original sleep score
+          is_core_sleep_filtered: true
+        };
+
+      } catch (error) {
+        console.warn('Error processing sleep stages for core sleep, falling back to proportional scaling:', error);
+      }
+    }
+
+    // Fallback: proportionally scale aggregated values if sleep_stages not available
+    const scaleFactor = coreDurationMinutes / sleepData.total_sleep_minutes;
+
+    return {
+      ...sleepData,
+      total_sleep_minutes: coreDurationMinutes,
+      deep_sleep_minutes: (sleepData.deep_sleep_minutes || 0) * scaleFactor,
+      light_sleep_minutes: (sleepData.light_sleep_minutes || 0) * scaleFactor,
+      rem_sleep_minutes: (sleepData.rem_sleep_minutes || 0) * scaleFactor,
+      awake_minutes: (sleepData.awake_minutes || 0) * scaleFactor,
+      sleep_score: sleepData.sleep_score, // Keep original sleep score
+      is_core_sleep_filtered: true,
+      is_estimated_values: true // Flag to indicate fallback method was used
+    };
+  }
+
+  /**
+   * Transform sleep data for efficiency analysis by converting metrics to percentages
+   * @param {Object} sleepData - Sleep data object
+   * @param {string} metricKey - The sleep metric key to transform
+   * @returns {number} Percentage value (0-100) or original value if invalid
+   */
+  transformSleepDataForEfficiency(sleepData, metricKey) {
+    if (!sleepData || !sleepData.total_sleep_minutes || sleepData.total_sleep_minutes <= 0) {
+      return sleepData?.[metricKey] || 0;
+    }
+
+    const metricValue = sleepData[metricKey];
+    if (metricValue === null || metricValue === undefined || isNaN(metricValue)) {
+      return 0;
+    }
+
+    // Convert to percentage of total sleep time
+    const percentage = (metricValue / sleepData.total_sleep_minutes) * 100;
+
+    // Ensure result is valid and reasonable
+    return Math.max(0, Math.min(100, percentage));
   }
 
   /**
@@ -23,15 +188,42 @@ class InsightsService {
    * @param {string} sleepMetric - Sleep metric to analyze (e.g., 'total_sleep_minutes')
    * @param {Date} startDate - Start date for analysis
    * @param {Date} endDate - End date for analysis
+   * @param {Object} options - Analysis options { useCoreSleep: boolean, useEfficiency: boolean }
    * @returns {Promise<Object>} Object with validInsights and placeholders arrays
    */
-  async getHabitsInsights(userId, sleepMetric, startDate, endDate) {
+  async getHabitsInsights(userId, sleepMetric, startDate, endDate, options) {
     try {
+      // Simple defensive options parsing
+      let useCoreSleep = false;
+      let useEfficiency = false;
+
+      try {
+        useCoreSleep = options && options.useCoreSleep ? true : false;
+        useEfficiency = options && options.useEfficiency ? true : false;
+      } catch (parseError) {
+        console.warn('Error parsing options:', parseError);
+      }
+
+      console.log('getHabitsInsights options parsed - useCoreSleep:', useCoreSleep, 'useEfficiency:', useEfficiency, 'options:', options);
+
       // Load habits and their logs
       const habits = await this.getActiveHabits(userId);
       const habitLogs = await this.getHabitLogs(userId, startDate, endDate);
       const drugLevels = await this.getDrugLevels(userId, startDate, endDate);
-      const sleepData = await this.getSleepData(userId, startDate, endDate);
+      let sleepData = await this.getSleepData(userId, startDate, endDate);
+
+      // Calculate core sleep duration if needed
+      let coreSleepDuration = null;
+      if (useCoreSleep) {
+        coreSleepDuration = await this.calculateCoreSleepDuration(userId);
+      }
+
+      // Apply core sleep transformation if enabled
+      if (useCoreSleep && coreSleepDuration) {
+        sleepData = sleepData
+          .map(sleep => this.transformSleepDataForCoreSleep(sleep, coreSleepDuration))
+          .filter(sleep => sleep !== null); // Remove excluded nights
+      }
 
       // Group logs by habit
       const logsByHabit = this.groupLogsByHabit(habitLogs);
@@ -39,7 +231,7 @@ class InsightsService {
       // Group drug levels by habit for quick_consumption habits
       const drugLevelsByHabit = this.groupDrugLevelsByHabit(drugLevels);
 
-      // Create sleep data lookup by date
+      // Create sleep data lookup by date (after transformation)
       const sleepByDate = {};
       sleepData.forEach(sleep => {
         sleepByDate[sleep.date] = sleep;
@@ -49,7 +241,13 @@ class InsightsService {
       const validInsights = [];
       const placeholders = [];
 
+      // Ensure sleepData is an array
+      if (!Array.isArray(sleepData)) {
+        sleepData = [];
+      }
+
       // Calculate insights for each habit
+      console.log(`Processing ${habits.length} habits, ${sleepData.length} sleep records`);
       for (const habit of habits) {
         // Use different data sources based on habit type
         let habitData;
@@ -61,7 +259,8 @@ class InsightsService {
           habitData = logsByHabit[habit.id] || [];
         }
 
-        const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric);
+        console.log(`Processing habit ${habit.name}, ${habitData.length} data points`);
+        const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency);
         if (insight) {
           validInsights.push(insight);
         } else {
@@ -72,12 +271,15 @@ class InsightsService {
       }
 
       return {
-        validInsights,
-        placeholders
+        validInsights: validInsights || [],
+        placeholders: placeholders || []
       };
     } catch (error) {
-      console.error('Error getting habits insights:', error);
-      throw error;
+      console.error('Error in getHabitsInsights:', error);
+      return {
+        validInsights: [],
+        placeholders: []
+      };
     }
   }
 
@@ -95,7 +297,10 @@ class InsightsService {
       .order('name');
 
     if (error) throw error;
-    return data || [];
+
+    const habits = data || [];
+
+    return habits;
   }
 
   /**
@@ -121,7 +326,10 @@ class InsightsService {
       .order('date', { ascending: true });
 
     if (error) throw error;
-    return data || [];
+
+    const logs = data || [];
+
+    return logs;
   }
 
   /**
@@ -206,14 +414,56 @@ class InsightsService {
   }
 
   /**
+   * Calculate core sleep duration (95th percentile of historical total sleep)
+   * @param {string} userId - User ID
+   * @returns {Promise<number|null>} Core sleep duration in minutes, or null if insufficient data
+   */
+  async calculateCoreSleepDuration(userId) {
+    try {
+      // Fetch all historical sleep data for the user (no date range limit)
+      const { data, error } = await supabase
+        .from('sleep_data')
+        .select('total_sleep_minutes')
+        .eq('user_id', userId)
+        .not('total_sleep_minutes', 'is', null)
+        .gt('total_sleep_minutes', 0) // Exclude invalid zero or negative values
+        .order('total_sleep_minutes');
+
+      if (error) throw error;
+
+      const sleepDurations = data?.map(record => record.total_sleep_minutes).filter(val => val > 0) || [];
+
+      if (sleepDurations.length < 20) {
+        // Insufficient data for 95th percentile, fall back to median
+        if (sleepDurations.length >= 5) {
+          return Math.round(calculateMedian(sleepDurations, false));
+        }
+        return null; // Not enough data
+      }
+
+      // Calculate 95th percentile
+      const coreSleepMinutes = calculatePercentile(sleepDurations, 95);
+
+      // Ensure reasonable bounds (4-10 hours)
+      const boundedDuration = Math.max(240, Math.min(600, coreSleepMinutes));
+
+      return Math.round(boundedDuration);
+    } catch (error) {
+      console.error('Error calculating core sleep duration:', error);
+      return null;
+    }
+  }
+
+  /**
    * Calculate insights for a single habit
    * @param {Object} habit - Habit object
    * @param {Array} habitData - Array of habit data (logs or drug levels) for this habit
    * @param {Array} sleepData - Array of sleep data
    * @param {string} sleepMetric - Sleep metric to analyze
+   * @param {boolean} useEfficiency - Whether to use efficiency normalization
    * @returns {Object|null} Insight object or null if insufficient data
    */
-  calculateHabitInsight(habit, habitData, sleepData, sleepMetric) {
+  calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency) {
     if (!habitData || habitData.length < this.MIN_DATA_POINTS) {
       return null; // Insufficient data
     }
@@ -239,6 +489,10 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
+      } else if (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime') {
+        // For bedtime habits, the date corresponds directly to sleep data date
+        // (bedtime affects the sleep data for the same night)
+        sleepDataDate = log.date;
       } else {
         // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
         const logDate = new Date(log.date);
@@ -250,8 +504,13 @@ class InsightsService {
       const sleep = sleepByDate[sleepDataDate];
       if (sleep && sleep[sleepMetric] !== null && sleep[sleepMetric] !== undefined) {
         const habitValue = this.getHabitValue(log, habit);
-        const sleepValue = sleep[sleepMetric];
-        
+
+        // Apply efficiency transformation if enabled
+        let sleepValue = sleep[sleepMetric];
+        if (useEfficiency) {
+          sleepValue = this.transformSleepDataForEfficiency(sleep, sleepMetric);
+        }
+
         // Only add if both values are valid numbers (not NaN, null, or undefined)
         if (habitValue !== null && habitValue !== undefined && !isNaN(habitValue) &&
             sleepValue !== null && sleepValue !== undefined && !isNaN(sleepValue)) {
@@ -284,14 +543,25 @@ class InsightsService {
       }
     });
 
+    // For binary habits, check for minimum yes/no responses
+    if (habit.type === 'binary') {
+      const yesCount = dataPoints.filter(dp => dp.habitValue === 1).length;
+      const noCount = dataPoints.filter(dp => dp.habitValue === 0).length;
+      
+      if (yesCount < this.MIN_BINARY_YES || noCount < this.MIN_BINARY_NO) {
+        return null; // Insufficient yes/no responses for binary comparison
+      }
+      
+      const insight = this.calculateBinaryInsight(habit, dataPoints);
+      return insight;
+    } 
+    
+    // For numerical habits, check for minimum total data points
     if (dataPoints.length < this.MIN_DATA_POINTS) {
       return null; // Insufficient paired data points
     }
-
-    if (habit.type === 'binary') {
-      const insight = this.calculateBinaryInsight(habit, dataPoints);
-      return insight;
-    } else if (habit.type === 'numeric') {
+    
+    if (habit.type === 'numeric' || habit.type === 'quick_consumption' || habit.type === 'time') {
       const insight = this.calculateNumericalInsight(habit, dataPoints);
       return insight;
     }
@@ -321,7 +591,6 @@ class InsightsService {
         if (!stringValue || stringValue.startsWith('N') || stringValue.startsWith('n') ||
             stringValue === 'null' || stringValue === 'undefined' ||
             stringValue.includes(' ') || isNaN(Number(stringValue))) {
-          console.warn('Skipping invalid numeric value:', stringValue, 'for habit:', habit.name);
           return 0; // Skip this log entry
         }
         value = parseFloat(stringValue);
@@ -329,7 +598,6 @@ class InsightsService {
 
       // Ensure value is a valid number
       if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
-        console.warn('Invalid parsed numeric value:', value, 'for habit:', habit.name);
         return 0;
       }
       return value;
@@ -342,6 +610,19 @@ class InsightsService {
         return 0;
       }
       return value;
+    } else if (habit.type === 'time') {
+      // For time habits, convert HH:MM format to minutes past midnight
+      const timeString = String(log.value || '').trim();
+      if (!timeString || !timeString.includes(':')) {
+        return 0;
+      }
+
+      const [hours, minutes] = timeString.split(':').map(Number);
+      if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        return 0;
+      }
+
+      return hours * 60 + minutes; // Convert to minutes past midnight
     }
     return 0;
   }
@@ -357,13 +638,16 @@ class InsightsService {
     const yesData = dataPoints.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
     const noData = dataPoints.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
 
+    const confidenceLevel = this.calculateConfidenceLevel(dataPoints.length, null);
+
     const insight = {
       habit,
       type: 'binary',
       totalDataPoints: dataPoints.length,
       yesDataPoints: yesData.length,
       noDataPoints: noData.length,
-      hasComparisonData: yesData.length > 0 && noData.length > 0
+      hasComparisonData: yesData.length > 0 && noData.length > 0,
+      confidenceLevel: confidenceLevel
     };
 
     if (yesData.length > 0) {
@@ -400,6 +684,35 @@ class InsightsService {
   }
 
   /**
+   * Calculate confidence level based on sample size and correlation strength
+   * @param {number} n - Number of data points
+   * @param {number} correlation - Correlation coefficient (for numerical) or null (for binary)
+   * @returns {string} Confidence level: 'high', 'medium', or 'low'
+   */
+  calculateConfidenceLevel(n, correlation = null) {
+    if (correlation !== null) {
+      // For numerical habits: based on n and |r|
+      const absCorrelation = Math.abs(correlation);
+      if (n > 30 && absCorrelation > 0.3) {
+        return 'high';
+      } else if (n > 20 && absCorrelation > 0.2) {
+        return 'medium';
+      } else {
+        return 'low';
+      }
+    } else {
+      // For binary habits: based on sample size
+      if (n >= 20) {
+        return 'high';
+      } else if (n >= 15) {
+        return 'medium';
+      } else {
+        return 'low';
+      }
+    }
+  }
+
+  /**
    * Calculate insights for numerical habits
    * @param {Object} habit - Habit object
    * @param {Array} dataPoints - Array of {habitValue, sleepValue, date} objects
@@ -416,6 +729,8 @@ class InsightsService {
       ? correlation 
       : 0;
 
+    const confidenceLevel = this.calculateConfidenceLevel(dataPoints.length, validCorrelation);
+
     return {
       habit,
       type: 'numerical',
@@ -428,7 +743,8 @@ class InsightsService {
       correlation: validCorrelation,
       correlationStrength: Math.abs(validCorrelation) > 0.7 ? 'strong' :
                           Math.abs(validCorrelation) > 0.3 ? 'moderate' : 'weak',
-      trendDirection: validCorrelation > 0 ? 'positive' : validCorrelation < 0 ? 'negative' : 'none'
+      trendDirection: validCorrelation > 0 ? 'positive' : validCorrelation < 0 ? 'negative' : 'none',
+      confidenceLevel: confidenceLevel
     };
   }
 
@@ -540,8 +856,12 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
+      } else if (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime') {
+        // For bedtime habits, the date corresponds directly to sleep data date
+        // (bedtime affects the sleep data for the same night)
+        sleepDataDate = log.date;
       } else {
-        // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
+        // For other habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
         const logDate = new Date(log.date);
         const nextDay = new Date(logDate);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -553,6 +873,7 @@ class InsightsService {
         daysWithPairedData++;
       }
     });
+
 
     return {
       habit,

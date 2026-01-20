@@ -67,7 +67,6 @@ const AddHabitScreen = () => {
       }
       navigation.goBack();
     } catch (error) {
-      console.error('Error adding custom habit:', error);
       Alert.alert('Error', error.message || 'Failed to add habit');
     } finally {
       setSaving(false);

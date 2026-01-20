@@ -29,7 +29,6 @@ export const UserPreferencesProvider = ({ children }) => {
         setPreferences({ ...DEFAULT_PREFERENCES, ...parsedPreferences });
       }
     } catch (error) {
-      console.error('Error loading user preferences:', error);
     } finally {
       setLoading(false);
     }
@@ -41,7 +40,6 @@ export const UserPreferencesProvider = ({ children }) => {
       await AsyncStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(updatedPreferences));
       setPreferences(updatedPreferences);
     } catch (error) {
-      console.error('Error saving user preferences:', error);
       throw error;
     }
   };
@@ -55,7 +53,6 @@ export const UserPreferencesProvider = ({ children }) => {
       await AsyncStorage.removeItem(PREFERENCES_STORAGE_KEY);
       setPreferences(DEFAULT_PREFERENCES);
     } catch (error) {
-      console.error('Error resetting user preferences:', error);
       throw error;
     }
   };

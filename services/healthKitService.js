@@ -70,7 +70,6 @@ class HealthKitService {
       this.isInitialized = available;
       return available;
     } catch (error) {
-      console.error('HealthKit initialization failed:', error);
       this.isInitialized = false;
       return false;
     }
@@ -84,7 +83,6 @@ class HealthKitService {
     try {
       return await isHealthDataAvailable();
     } catch (error) {
-      console.error('HealthKit availability check failed:', error);
       return false;
     }
   }
@@ -106,7 +104,6 @@ class HealthKitService {
       // If we reach here without throwing, permissions were granted
       return true;
     } catch (error) {
-      console.error('HealthKit permission request failed:', error);
       return false;
     }
   }
@@ -133,7 +130,6 @@ class HealthKitService {
       // If we can query without error, we have permissions
       return true;
     } catch (error) {
-      console.error('HealthKit permission check failed:', error);
       return false;
     }
   }
@@ -186,7 +182,6 @@ class HealthKitService {
 
       return transformedData;
     } catch (error) {
-      console.error('HealthKit sleep data sync failed:', error);
       throw error;
     }
   }
@@ -275,7 +270,6 @@ class HealthKitService {
         source: 'healthkit',
       };
     } catch (error) {
-      console.error('HealthKit data transformation failed for date', dateKey, ':', error);
       return null;
     }
   }
@@ -290,7 +284,6 @@ class HealthKitService {
       // The user needs to revoke permissions in iOS Settings > Privacy & Security > Health
       return true; // Return true since we can't determine if they actually revoked
     } catch (error) {
-      console.error('Failed to revoke HealthKit permissions:', error);
       return false;
     }
   }
@@ -322,14 +315,12 @@ class HealthKitService {
           const data = await this.fetchHealthMetric(metric, startTime, endTime);
           results[metric] = data;
         } catch (error) {
-          console.error(`Error fetching ${metric}:`, error);
           results[metric] = [];
         }
       }
 
       return results;
     } catch (error) {
-      console.error('HealthKit health metrics sync failed:', error);
       throw error;
     }
   }
@@ -353,7 +344,6 @@ class HealthKitService {
 
     const quantityType = metricMappings[metric];
     if (!quantityType) {
-      console.warn(`Unknown metric: ${metric}`);
       return [];
     }
 
@@ -431,7 +421,6 @@ class HealthKitService {
 
       return aggregatedData;
     } catch (error) {
-      console.error(`Error fetching ${metric}:`, error);
       return [];
     }
   }

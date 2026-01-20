@@ -62,7 +62,6 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
       const loggedDateSet = new Set(data?.map(log => log.date) || []);
       setLoggedDates(Array.from(loggedDateSet));
     } catch (error) {
-      console.error('Error fetching logged dates for month:', error);
       setLoggedDates([]);
     } finally {
       setLoading(false);

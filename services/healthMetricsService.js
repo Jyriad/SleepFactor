@@ -67,7 +67,6 @@ class HealthMetricsService {
       if (!healthService.isInitialized) {
         const healthServiceInitialized = await healthService.initialize();
         if (!healthServiceInitialized) {
-          console.log('⚠️ Health service initialization failed in healthMetricsService.initialize()');
           return false;
         }
       }
@@ -77,15 +76,12 @@ class HealthMetricsService {
       // Just check permissions now
       const hasPermissions = await healthService.hasPermissions();
       if (!hasPermissions) {
-        console.log('⚠️ Health permissions not granted in healthMetricsService.initialize()');
         return false;
       }
 
       this.isInitialized = true;
-      console.log('✅ Health metrics service initialized successfully');
       return true;
     } catch (error) {
-      console.error('Health metrics service initialization failed:', error);
       return false;
     }
   }
@@ -110,7 +106,6 @@ class HealthMetricsService {
           .limit(1);
 
         if (checkError) {
-          console.error(`Error checking for existing habit ${metric.name}:`, checkError);
           continue;
         }
 
@@ -131,7 +126,6 @@ class HealthMetricsService {
             .eq('id', habitId);
 
           if (updateError) {
-            console.error(`Error updating habit ${metric.name}:`, updateError);
             continue;
           }
         } else {
@@ -150,7 +144,6 @@ class HealthMetricsService {
             .single();
 
           if (createError) {
-            console.error(`Error creating habit ${metric.name}:`, createError);
             continue;
           }
 
@@ -165,7 +158,6 @@ class HealthMetricsService {
 
       return habits;
     } catch (error) {
-      console.error('Error ensuring health metric habits:', error);
       return [];
     }
   }
@@ -229,7 +221,6 @@ class HealthMetricsService {
           });
 
         } catch (error) {
-          console.warn(`Error syncing ${habit.key}:`, error.message);
           syncResults.push({
             metric: habit.key,
             error: error.message,
@@ -245,7 +236,6 @@ class HealthMetricsService {
         message: `Synced ${totalSynced} health metric data points`
       };
     } catch (error) {
-      console.error('Health metrics sync failed:', error);
       return {
         success: false,
         message: error.message || 'Failed to sync health metrics'
@@ -266,20 +256,17 @@ class HealthMetricsService {
     try {
       // Initialize health metrics service (this will also initialize healthService if needed)
       if (!this.isInitialized) {
-        console.log('🔄 Initializing health metrics service...');
         const initialized = await this.initialize();
         if (!initialized) {
           // Check why initialization failed
           const hasPermissions = await healthService.hasPermissions();
           if (!hasPermissions) {
-            console.log('⚠️ Health permissions not granted');
             return { 
               success: false, 
               message: 'Health permissions are required. Please grant permissions in your device settings or when prompted.', 
               synced: 0 
             };
           }
-          console.log('⚠️ Health metrics service initialization failed');
           return { 
             success: false, 
             message: 'Unable to connect to Health Connect. Please make sure Health Connect is installed and try again.', 
@@ -293,7 +280,6 @@ class HealthMetricsService {
       if (recordType) {
         const hasPermission = await healthService.hasPermissionForRecordType(recordType);
         if (!hasPermission) {
-          console.log(`⚠️ Permission not granted for ${metricKey} (${recordType})`);
           return { 
             success: false, 
             message: `Permission not granted for ${metricKey}. Please grant access in your device settings.`, 
@@ -303,13 +289,10 @@ class HealthMetricsService {
       }
 
       // Fetch health data for this metric
-      console.log(`📥 Fetching health data for ${metricKey}...`);
       const metricData = await this.fetchHealthMetricData(metricKey, startDate, endDate);
-      console.log(`📊 Fetched ${metricData.length} data points for ${metricKey}`);
       
       // Store the data
       const syncedCount = await this.storeHealthMetricData(userId, habitId, metricData);
-      console.log(`✅ Stored ${syncedCount} records for ${metricKey}`);
 
       return {
         success: true,
@@ -318,7 +301,6 @@ class HealthMetricsService {
         message: `Synced ${syncedCount} data points for ${metricKey}`
       };
     } catch (error) {
-      console.error(`❌ Error syncing single health metric ${metricKey}:`, error);
       return {
         success: false,
         synced: 0,
@@ -358,7 +340,6 @@ class HealthMetricsService {
 
       return metricData;
     } catch (error) {
-      console.error(`Error fetching health metric ${metricKey}:`, error);
       return [];
     }
   }
@@ -389,7 +370,6 @@ class HealthMetricsService {
           .limit(1);
 
         if (checkError) {
-          console.error('Error checking existing log:', checkError);
           continue;
         }
 
@@ -405,7 +385,6 @@ class HealthMetricsService {
             .eq('id', existingLogs[0].id);
 
           if (updateError) {
-            console.error('Error updating health metric log:', updateError);
             continue;
           }
         } else {
@@ -421,14 +400,12 @@ class HealthMetricsService {
             });
 
           if (insertError) {
-            console.error('Error inserting health metric log:', insertError);
             continue;
           }
         }
 
         storedCount++;
       } catch (error) {
-        console.error('Error storing health metric data point:', error);
       }
     }
 
@@ -525,7 +502,6 @@ class HealthMetricsService {
         .eq('is_custom', false);
 
       if (habitsError) {
-        console.error('Error fetching health habits for cleanup:', habitsError);
         return 0;
       }
 
@@ -544,7 +520,6 @@ class HealthMetricsService {
         .lt('date', cutoffDate);
 
       if (deleteError) {
-        console.error('Error cleaning up old health metric data:', deleteError);
         return 0;
       }
 
@@ -552,7 +527,6 @@ class HealthMetricsService {
 
       return deletedCount;
     } catch (error) {
-      console.error('Health metrics cleanup failed:', error);
       return 0;
     }
   }
