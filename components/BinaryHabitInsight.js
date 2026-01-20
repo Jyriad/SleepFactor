@@ -1,20 +1,23 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
-import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
 
 const BinaryHabitInsight = ({
   insight,
   sleepMetric,
-  width = 350
+  width = 350,
+  isPercentageMode = false,
+  isCoreSleepEnabled = false
 }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   if (!insight) {
     return null;
   }
 
-  const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats } = insight;
+  const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats, confidenceLevel } = insight;
 
   // Check if we have sufficient data
   if (totalDataPoints < 10) {
@@ -49,18 +52,56 @@ const BinaryHabitInsight = ({
     const dataPoints = yesDataPoints > 0 ? yesDataPoints : noDataPoints;
     const stats = yesDataPoints > 0 ? yesStats : noStats;
 
+    // Collapsed view - thin summary
+    if (!isExpanded) {
+      return (
+        <TouchableOpacity 
+          style={[styles.container, styles.collapsedContainer, { width }]}
+          onPress={() => setIsExpanded(true)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.collapsedHeader}>
+            <View style={styles.collapsedHabitInfo}>
+              <Text style={styles.collapsedHabitName}>{habit.name}</Text>
+              <View style={styles.collapsedStatsRow}>
+                <View style={styles.collapsedStat}>
+                  <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
+                  <Text style={styles.collapsedStatText}>{totalDataPoints}</Text>
+                </View>
+                <View style={styles.collapsedStat}>
+                  <Ionicons name="alert-circle-outline" size={12} color={colors.warning} />
+                  <Text style={styles.collapsedStatLabel}>Only "{availableOption}" logged</Text>
+                </View>
+              </View>
+            </View>
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+    // Expanded view - full details
     return (
       <View style={[styles.container, { width }]}>
-        <View style={styles.header}>
-          <Text style={styles.habitName}>{habit.name}</Text>
-          <View style={styles.warningBadge}>
-            <Ionicons name="alert-circle-outline" size={14} color={colors.warning} />
-            <Text style={styles.warningText}>Limited Data</Text>
+        <TouchableOpacity 
+          style={styles.expandedHeader}
+          onPress={() => setIsExpanded(false)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.header}>
+            <Text style={styles.habitName}>{habit.name}</Text>
+            <View style={styles.headerRight}>
+              <View style={styles.warningBadge}>
+                <Ionicons name="alert-circle-outline" size={14} color={colors.warning} />
+                <Text style={styles.warningText}>Limited Data</Text>
+              </View>
+              <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
+            </View>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <Text style={styles.metricLabel}>
-          Impact on {sleepMetric.label.toLowerCase()}
+          Impact on {sleepMetric.label.toLowerCase()}{isPercentageMode ? ' (%)' : ''}
         </Text>
 
         <View style={styles.warningContent}>
@@ -94,34 +135,97 @@ const BinaryHabitInsight = ({
     );
   }
 
-  // Generate conclusion headline and advice
-  const headline = generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints);
-  const advice = generateActionableAdvice('binary', habit, null, null, null, yesStats, noStats, sleepMetric);
+  // Calculate comparison summary
+  const yesMedian = yesStats?.median || 0;
+  const noMedian = noStats?.median || 0;
+  const difference = yesMedian - noMedian;
+  const percentChange = noMedian !== 0 ? ((difference / noMedian) * 100) : 0;
+  const isBetter = difference > 0 ? 'yes' : difference < 0 ? 'no' : 'neutral';
+  const getComparisonIcon = () => {
+    if (isBetter === 'yes') return 'trending-up';
+    if (isBetter === 'no') return 'trending-down';
+    return 'remove-outline';
+  };
+  const getComparisonColor = () => {
+    if (isBetter === 'yes') return colors.success;
+    if (isBetter === 'no') return colors.error;
+    return colors.textSecondary;
+  };
 
-  // Full comparison available
+  // Collapsed view - thin summary
+  if (!isExpanded) {
+    return (
+      <TouchableOpacity 
+        style={[styles.container, styles.collapsedContainer, { width }]}
+        onPress={() => setIsExpanded(true)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.collapsedHeader}>
+          <View style={styles.collapsedHabitInfo}>
+            <Text style={styles.collapsedHabitName}>{habit.name}</Text>
+            <View style={styles.collapsedStatsRow}>
+              <View style={styles.collapsedStat}>
+                <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
+                <Text style={styles.collapsedStatText}>{totalDataPoints}</Text>
+              </View>
+              {Math.abs(difference) >= 1 && (
+                <View style={styles.collapsedStat}>
+                  <Text style={styles.collapsedStatLabel}>
+                    {isBetter === 'yes' ? 'Better when done' : isBetter === 'no' ? 'Better when not done' : 'No difference'}
+                  </Text>
+                  {Math.abs(percentChange) >= 1 && (
+                    <Text style={[styles.collapsedPercentChange, { color: getComparisonColor() }]}>
+                      {Math.abs(percentChange).toFixed(0)}%
+                    </Text>
+                  )}
+                </View>
+              )}
+              <View style={[
+                styles.confidenceBadge,
+                { 
+                  backgroundColor: confidenceLevel === 'high' ? colors.success + '20' : 
+                                  confidenceLevel === 'medium' ? colors.warning + '20' : 
+                                  colors.textSecondary + '20'
+                }
+              ]}>
+                <Text style={[
+                  styles.confidenceBadgeText,
+                  { 
+                    color: confidenceLevel === 'high' ? colors.success : 
+                           confidenceLevel === 'medium' ? colors.warning : 
+                           colors.textSecondary
+                  }
+                ]}>
+                  {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  // Expanded view - full details
   return (
     <View style={[styles.container, { width }]}>
-      <View style={styles.header}>
-        <Text style={styles.habitName}>{habit.name}</Text>
-        <View style={styles.dataBadge}>
-          <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-          <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
+      <TouchableOpacity 
+        style={styles.expandedHeader}
+        onPress={() => setIsExpanded(false)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.header}>
+          <Text style={styles.habitName}>{habit.name}</Text>
+          <View style={styles.headerRight}>
+            <View style={styles.dataBadge}>
+              <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
+              <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
+            </View>
+            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
+          </View>
         </View>
-      </View>
-
-      {/* Conclusion Headline */}
-      <View style={styles.headlineContainer}>
-        <Ionicons name="bulb-outline" size={20} color={colors.primary} />
-        <Text style={styles.headlineText}>{headline}</Text>
-      </View>
-
-      <Text style={styles.metricLabel}>
-        Impact on {sleepMetric.label.toLowerCase()}
-      </Text>
-
-      <Text style={styles.description}>
-        Compare sleep quality when you did vs. didn't do this habit
-      </Text>
+      </TouchableOpacity>
 
       <BoxPlotComparison
         data1={yesStats}
@@ -134,51 +238,46 @@ const BinaryHabitInsight = ({
         color2={colors.secondary}
       />
 
-      {/* Actionable Advice */}
-      <View style={styles.adviceContainer}>
-        <View style={styles.adviceHeader}>
-          <Ionicons name="help-circle-outline" size={16} color={colors.primary} />
-          <Text style={styles.adviceTitle}>Try This</Text>
+      {/* Simple Stats */}
+      <View style={styles.statsContainer}>
+        <View style={styles.statRow}>
+          <Text style={styles.statLabel}>n = </Text>
+          <Text style={styles.statValue}>{totalDataPoints} data points</Text>
         </View>
-        <Text style={styles.adviceText}>{advice}</Text>
-      </View>
-
-      {/* Technical Details */}
-      <View style={styles.detailsContainer}>
-        <Text style={styles.detailsTitle}>Technical Details</Text>
-
-        {yesStats && noStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
-          <Text style={styles.insightText}>
-            • "Did habit": median {yesStats.median.toFixed(1)} {sleepMetric.unit || 'units'}
-          </Text>
+        {yesStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>When done: </Text>
+            <Text style={styles.statValue}>
+              median = {yesStats.median.toFixed(1)} {sleepMetric.unit || 'units'} (n = {yesDataPoints})
+            </Text>
+          </View>
         )}
-
-        {yesStats && noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
-          <Text style={styles.insightText}>
-            • "Didn't do habit": median {noStats.median.toFixed(1)} {sleepMetric.unit || 'units'}
-          </Text>
+        {noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>When not done: </Text>
+            <Text style={styles.statValue}>
+              median = {noStats.median.toFixed(1)} {sleepMetric.unit || 'units'} (n = {noDataPoints})
+            </Text>
+          </View>
         )}
-
-        {(() => {
-          const yesMedian = yesStats?.median || 0;
-          const noMedian = noStats?.median || 0;
-          const difference = yesMedian - noMedian;
-          const percentChange = noMedian !== 0 ? ((difference / noMedian) * 100) : 0;
-
-          if (Math.abs(difference) >= 1) {
-            const direction = difference > 0 ? 'higher' : 'lower';
-            const percentChangeValue = (percentChange !== null && percentChange !== undefined && !isNaN(percentChange))
-              ? percentChange.toFixed(1)
-              : '0';
-
-            return (
-              <Text style={styles.insightText}>
-                • Difference: {direction} by {Math.abs(percentChangeValue)}%
-              </Text>
-            );
-          }
-          return null;
-        })()}
+        {Math.abs(difference) >= 1 && (
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Difference: </Text>
+            <Text style={styles.statValue}>
+              {difference > 0 ? '+' : ''}{difference.toFixed(1)} {sleepMetric.unit || 'units'} ({percentChange > 0 ? '+' : ''}{percentChange.toFixed(1)}%)
+            </Text>
+          </View>
+        )}
+        <View style={styles.statRow}>
+          <Text style={styles.statLabel}>Confidence: </Text>
+          <Text style={[
+            styles.confidenceValue,
+            { color: confidenceLevel === 'high' ? colors.success : 
+                     confidenceLevel === 'medium' ? colors.warning : colors.textSecondary }
+          ]}>
+            {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -188,16 +287,79 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.regular,
     marginVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  collapsedContainer: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+  },
+  collapsedHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  collapsedHabitInfo: {
+    flex: 1,
+  },
+  collapsedHabitName: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  collapsedStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flexWrap: 'wrap',
+  },
+  collapsedStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  collapsedStatText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  collapsedStatLabel: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+  },
+  collapsedPercentChange: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    marginLeft: spacing.xs,
+  },
+  confidenceBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 12,
+  },
+  confidenceBadgeText: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
+    paddingHorizontal: spacing.regular,
+  },
+  expandedHeader: {
+    marginBottom: spacing.sm,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  collapseIcon: {
+    marginLeft: spacing.xs,
   },
   habitName: {
     fontSize: typography.sizes.large,
@@ -236,7 +398,7 @@ const styles = StyleSheet.create({
   dataBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.success + '20',
+    backgroundColor: colors.primary + '20',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: 12,
@@ -244,7 +406,7 @@ const styles = StyleSheet.create({
   },
   dataBadgeText: {
     fontSize: typography.sizes.small,
-    color: colors.success,
+    color: colors.primary,
     fontWeight: typography.weights.medium,
   },
   metricLabel: {
@@ -261,6 +423,7 @@ const styles = StyleSheet.create({
   insufficientDataContent: {
     alignItems: 'center',
     paddingVertical: spacing.regular,
+    paddingHorizontal: spacing.regular,
   },
   insufficientDataTitle: {
     fontSize: typography.sizes.body,
@@ -302,13 +465,34 @@ const styles = StyleSheet.create({
     marginVertical: spacing.regular,
   },
   statsContainer: {
-    alignItems: 'center',
-    marginTop: spacing.sm,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 8,
+    marginTop: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
   },
-  statsText: {
-    fontSize: typography.sizes.small,
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.regular,
+    paddingVertical: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  statLabel: {
+    fontSize: typography.sizes.body,
     color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  statValue: {
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    fontWeight: typography.weights.medium,
     fontFamily: 'monospace',
+  },
+  confidenceValue: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
   },
   insightsContainer: {
     backgroundColor: colors.background,

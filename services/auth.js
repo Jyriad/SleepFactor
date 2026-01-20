@@ -122,7 +122,6 @@ export const signInWithGoogle = async () => {
     });
 
     if (error) {
-      console.error('❌ [OAuth] Supabase error:', error);
       // Check for common OAuth configuration errors
       if (error.message.includes('not enabled') || error.message.includes('disabled')) {
         throw new Error('Google sign-in is not enabled. Please enable it in your Supabase dashboard under Authentication → Providers.');
@@ -142,7 +141,6 @@ export const signInWithGoogle = async () => {
     // Remove the options object - it might be causing issues
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
 
-    console.log('🔍 [OAuth] WebBrowser result:', result);
     
     if (result.type === 'success') {
       const url = result.url;
@@ -204,20 +202,13 @@ export const signInWithGoogle = async () => {
           return { data: sessionData, error: null };
         }
         
-        console.error('❌ [OAuth] No tokens or code found in redirect URL');
-        console.error('❌ [OAuth] URL that was redirected:', url);
       } else {
-        console.error('❌ [OAuth] result.type is "success" but result.url is empty');
       }
     } else if (result.type === 'cancel') {
-      console.warn('⚠️ [OAuth] User cancelled the flow');
       return { data: null, error: 'OAuth flow was cancelled' };
     } else if (result.type === 'dismiss') {
-      console.warn('⚠️ [OAuth] User dismissed the flow');
-      console.log('🔍 [OAuth] Dismiss result details:', result);
 
     // Check if OAuth actually succeeded via deep link (works in both dev and prod)
-    console.log('🔧 [OAuth] Checking for successful OAuth completion despite dismiss...');
 
     // Give a moment for deep link processing
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -225,33 +216,25 @@ export const signInWithGoogle = async () => {
     // Check if user is now authenticated (deep link may have been processed)
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-      console.log('✅ [OAuth] OAuth succeeded despite dismiss result!');
       return { data: session, error: null };
     }
 
-    console.log('❌ [OAuth] No session found after dismiss - checking for pending OAuth code...');
 
     // As a fallback, try to manually complete OAuth if there's a pending code
     // This handles cases where the deep link was received but not processed
     try {
       // Check if there's a recent deep link URL stored (we'd need to implement this)
       // For now, just indicate that manual completion might be needed
-      console.log('💡 [OAuth] If you completed sign-in in the browser, try the Google sign-in again');
     } catch (manualError) {
-      console.log('❌ [OAuth] Manual OAuth completion failed:', manualError.message);
     }
 
     const errorMessage = 'OAuth flow was dismissed. If you completed sign-in in the browser, try again.';
       return { data: null, error: errorMessage };
     } else {
-      console.error('❌ [OAuth] Unexpected result type:', result.type);
     }
     
     return { data: null, error: 'OAuth flow was cancelled or failed' };
   } catch (error) {
-    console.error('❌ [OAuth] Exception caught:', error);
-    console.error('❌ [OAuth] Error message:', error.message);
-    console.error('❌ [OAuth] Error stack:', error.stack);
     return { data: null, error: error.message || 'Failed to sign in with Google' };
   }
 };
@@ -291,7 +274,6 @@ export const signInWithFacebook = async () => {
     // Remove the options object - it might be causing issues
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
 
-    console.log('🔍 [OAuth] WebBrowser result:', result);
     
     if (result.type === 'success') {
       const url = result.url;

@@ -30,8 +30,12 @@ const InsightsScreen = () => {
   // State for selectors
   const [selectedMetric, setSelectedMetric] = useState('total_sleep_minutes');
   const [selectedTimeRange, setSelectedTimeRange] = useState('all');
+  const [selectedAnalysisType, setSelectedAnalysisType] = useState('absolute'); // 'absolute' or 'percentage'
+  const [useCoreSleep, setUseCoreSleep] = useState(false);
   const [showMetricPicker, setShowMetricPicker] = useState(false);
   const [showTimeRangePicker, setShowTimeRangePicker] = useState(false);
+  const [showAnalysisTypePicker, setShowAnalysisTypePicker] = useState(false);
+  const [showCoreSleepPicker, setShowCoreSleepPicker] = useState(false);
 
   // Get available options from insights service
   const availableMetrics = insightsService.getAvailableSleepMetrics();
@@ -39,13 +43,13 @@ const InsightsScreen = () => {
 
   useEffect(() => {
     loadInsights();
-  }, [user, selectedMetric, selectedTimeRange]);
+  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep]);
 
   // Refresh insights data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadInsights();
-    }, [user, selectedMetric, selectedTimeRange])
+    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep])
   );
 
   const loadInsights = async () => {
@@ -58,13 +62,16 @@ const InsightsScreen = () => {
         user.id,
         selectedMetric,
         dateRange.startDate,
-        dateRange.endDate
+        dateRange.endDate,
+        {
+          useCoreSleep,
+          useEfficiency: selectedAnalysisType === 'percentage'
+        }
       );
 
       setInsights(insightsData);
     } catch (error) {
-      console.error('Error loading insights:', error);
-      setInsights([]);
+      setInsights({ validInsights: [], placeholders: [] });
     } finally {
       setLoading(false);
     }
@@ -90,6 +97,8 @@ const InsightsScreen = () => {
           insight={insight}
           sleepMetric={metricInfo}
           width={cardWidth}
+          isPercentageMode={selectedAnalysisType === 'percentage'}
+          isCoreSleepEnabled={useCoreSleep}
         />
       );
     } else if (insight.type === 'numerical') {
@@ -99,6 +108,8 @@ const InsightsScreen = () => {
           insight={insight}
           sleepMetric={metricInfo}
           width={cardWidth}
+          isPercentageMode={selectedAnalysisType === 'percentage'}
+          isCoreSleepEnabled={useCoreSleep}
         />
       );
     } else if (insight.type === 'placeholder') {
@@ -157,15 +168,27 @@ const InsightsScreen = () => {
           style={styles.selector}
           onPress={() => setShowMetricPicker(!showMetricPicker)}
         >
-          <Text style={styles.selectorLabel}>Sleep Metric</Text>
-          <View style={styles.selectorContent}>
-            <Text style={styles.selectorValue}>{metricInfo.label}</Text>
-            <Ionicons
-              name={showMetricPicker ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={colors.textSecondary}
-            />
-          </View>
+          <Text style={styles.selectorValue}>{metricInfo.label}</Text>
+          <Ionicons
+            name={showMetricPicker ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.textSecondary}
+          />
+        </TouchableOpacity>
+
+        {/* Analysis Type Selector */}
+        <TouchableOpacity
+          style={styles.selector}
+          onPress={() => setShowAnalysisTypePicker(!showAnalysisTypePicker)}
+        >
+          <Text style={styles.selectorValue}>
+            {selectedAnalysisType === 'absolute' ? 'Absolute Amount' : 'Percentage of Sleep'}
+          </Text>
+          <Ionicons
+            name={showAnalysisTypePicker ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.textSecondary}
+          />
         </TouchableOpacity>
 
         {/* Time Range Selector */}
@@ -173,15 +196,27 @@ const InsightsScreen = () => {
           style={styles.selector}
           onPress={() => setShowTimeRangePicker(!showTimeRangePicker)}
         >
-          <Text style={styles.selectorLabel}>Time Range</Text>
-          <View style={styles.selectorContent}>
-            <Text style={styles.selectorValue}>{timeRangeInfo.label}</Text>
-            <Ionicons
-              name={showTimeRangePicker ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={colors.textSecondary}
-            />
-          </View>
+          <Text style={styles.selectorValue}>{timeRangeInfo.label}</Text>
+          <Ionicons
+            name={showTimeRangePicker ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.textSecondary}
+          />
+        </TouchableOpacity>
+
+        {/* Core Sleep Selector */}
+        <TouchableOpacity
+          style={styles.selector}
+          onPress={() => setShowCoreSleepPicker(!showCoreSleepPicker)}
+        >
+          <Text style={styles.selectorValue}>
+            Core Sleep: {useCoreSleep ? 'On' : 'Off'}
+          </Text>
+          <Ionicons
+            name={showCoreSleepPicker ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.textSecondary}
+          />
         </TouchableOpacity>
       </View>
 
@@ -237,21 +272,103 @@ const InsightsScreen = () => {
         </View>
       )}
 
+      {/* Analysis Type Picker Options */}
+      {showAnalysisTypePicker && (
+        <View style={styles.pickerContainer}>
+          <TouchableOpacity
+            style={[
+              styles.pickerOption,
+              selectedAnalysisType === 'absolute' && styles.pickerOptionSelected
+            ]}
+            onPress={() => {
+              setSelectedAnalysisType('absolute');
+              setShowAnalysisTypePicker(false);
+            }}
+          >
+            <Text style={[
+              styles.pickerOptionText,
+              selectedAnalysisType === 'absolute' && styles.pickerOptionTextSelected
+            ]}>
+              Absolute Amount
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.pickerOption,
+              selectedAnalysisType === 'percentage' && styles.pickerOptionSelected
+            ]}
+            onPress={() => {
+              setSelectedAnalysisType('percentage');
+              setShowAnalysisTypePicker(false);
+            }}
+          >
+            <Text style={[
+              styles.pickerOptionText,
+              selectedAnalysisType === 'percentage' && styles.pickerOptionTextSelected
+            ]}>
+              Percentage of Sleep
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Core Sleep Picker Options */}
+      {showCoreSleepPicker && (
+        <View style={styles.pickerContainer}>
+          <TouchableOpacity
+            style={[
+              styles.pickerOption,
+              !useCoreSleep && styles.pickerOptionSelected
+            ]}
+            onPress={() => {
+              setUseCoreSleep(false);
+              setShowCoreSleepPicker(false);
+            }}
+          >
+            <Text style={[
+              styles.pickerOptionText,
+              !useCoreSleep && styles.pickerOptionTextSelected
+            ]}>
+              Off - Use Full Night
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.pickerOption,
+              useCoreSleep && styles.pickerOptionSelected
+            ]}
+            onPress={() => {
+              setUseCoreSleep(true);
+              setShowCoreSleepPicker(false);
+            }}
+          >
+            <Text style={[
+              styles.pickerOptionText,
+              useCoreSleep && styles.pickerOptionTextSelected
+            ]}>
+              On - Core Sleep Analysis
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
           <Text style={styles.subtitle}>
             Discover how your habits impact {metricInfo.label.toLowerCase()}
+            {selectedAnalysisType === 'percentage' && ' (as % of total sleep)'}
+            {useCoreSleep && ' during your core sleep period'}
           </Text>
 
           {/* Valid Insights Section */}
-          {insights.validInsights.length > 0 && (
+          {insights?.validInsights?.length > 0 && (
             <View style={styles.insightsSection}>
               {insights.validInsights.map(renderInsightCard)}
             </View>
           )}
 
           {/* Placeholder Habits Section */}
-          {insights.placeholders.length > 0 && (
+          {insights?.placeholders?.length > 0 && (
             <View style={styles.placeholdersSection}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
@@ -281,7 +398,7 @@ const InsightsScreen = () => {
           )}
 
           {/* Empty State - only show if no insights or placeholders */}
-          {insights.validInsights.length === 0 && insights.placeholders.length === 0 && (
+          {(!insights?.validInsights?.length && !insights?.placeholders?.length) && (
             renderEmptyState()
           )}
         </View>
@@ -315,16 +432,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.regular,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  selectorLabel: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-  selectorContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -365,7 +476,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: 120, // Increased from spacing.xl to account for navigation footer bar
+    paddingBottom: 112, // Increased from spacing.xl to account for navigation footer bar
   },
   insightsSection: {
     marginBottom: spacing.xl,

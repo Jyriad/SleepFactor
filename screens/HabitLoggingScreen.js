@@ -39,6 +39,14 @@ const HabitLoggingScreen = () => {
   const [habitLogCounts, setHabitLogCounts] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
 
+  // Helper function to check if a habit is an automated bedtime habit
+  const isAutomatedBedtimeHabit = (habit) => {
+    const result = habit && (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime');
+    if (result) {
+    }
+    return result;
+  };
+
   useEffect(() => {
     loadHabitsAndLogs();
   }, [selectedDate, user]);
@@ -87,7 +95,6 @@ const HabitLoggingScreen = () => {
         if (logsError) throw logsError;
       }
     } catch (error) {
-      console.error('Error auto-saving regular habits:', error);
     }
   };
 
@@ -112,10 +119,12 @@ const HabitLoggingScreen = () => {
       // Clean up wrong habits and ensure correct ones exist
       finalHabits = await cleanupAndEnsureHabits(finalHabits);
 
-      // Normalize habits and filter out deprecated ones and automatic health metrics
+
+      // Normalize habits and filter out deprecated ones, automatic health metrics, and automated bedtime habits
       const normalizedHabits = finalHabits
         .filter(habit => habit.name !== 'Coffee') // Filter out old Coffee habit
         .filter(habit => !healthMetricsService.isHealthMetricHabit(habit)) // Filter out automatic health metrics
+        .filter(habit => !isAutomatedBedtimeHabit(habit)) // Filter out automated bedtime habits
         .map(habit => ({
           ...habit,
           is_custom: habit.is_custom === true || habit.is_custom === 'true',
@@ -211,7 +220,6 @@ const HabitLoggingScreen = () => {
       }
 
     } catch (error) {
-      console.error('Error loading habits and logs:', error);
       Alert.alert('Error', 'Failed to load habits. Please try again.');
     } finally {
       setLoading(false);
@@ -236,7 +244,6 @@ const HabitLoggingScreen = () => {
           await supabase.from('habits').delete().eq('id', wrongHabit.id);
           cleanedHabits = cleanedHabits.filter(h => h.id !== wrongHabit.id);
         } catch (error) {
-          console.error(`Error deleting wrong habit ${wrongName}:`, error);
         }
       }
     }
@@ -250,7 +257,7 @@ const HabitLoggingScreen = () => {
         try {
           const { data: newHabit, error } = await supabase
             .from('habits')
-            .insert({
+            .upsert({
               user_id: user.id,
               name: requiredHabit.name,
               type: requiredHabit.type,
@@ -261,6 +268,8 @@ const HabitLoggingScreen = () => {
               priority: 0,
               half_life_hours: requiredHabit.name === 'Caffeine' ? 5 : null,
               drug_threshold_percent: 5,
+            }, {
+              onConflict: 'user_id,name'
             })
             .select()
             .single();
@@ -270,7 +279,6 @@ const HabitLoggingScreen = () => {
             habit = newHabit;
           }
         } catch (error) {
-          console.error(`Error creating habit ${requiredHabit.name}:`, error);
         }
       } else {
         // Update if exists but properties are wrong
@@ -301,7 +309,6 @@ const HabitLoggingScreen = () => {
               }
             }
           } catch (error) {
-            console.error(`Error updating habit ${requiredHabit.name}:`, error);
           }
         }
       }
@@ -316,7 +323,6 @@ const HabitLoggingScreen = () => {
       const storageKey = `habitLogs_${user.id}_${selectedDate}`;
       await AsyncStorage.setItem(storageKey, JSON.stringify(habitLogs));
     } catch (error) {
-      console.error('Error saving habit logs to storage:', error);
     }
   };
 
@@ -345,7 +351,6 @@ const HabitLoggingScreen = () => {
           .order('consumed_at', { ascending: true });
 
         if (eventsError) {
-          console.error('Error loading consumption events:', eventsError);
         } else {
           // Group events by habit_id
           if (eventsData) {
@@ -361,7 +366,6 @@ const HabitLoggingScreen = () => {
 
       setConsumptionEvents(consumptionEventsMap);
     } catch (error) {
-      console.error('Error refreshing consumption events:', error);
     }
   };
 
@@ -411,7 +415,6 @@ const HabitLoggingScreen = () => {
         .single();
 
       if (userError || !userData?.notification_time) {
-        console.log('No notification time found for user, using default 10 PM');
         // Default to 10 PM if no notification time is set
       }
 
@@ -446,7 +449,6 @@ const HabitLoggingScreen = () => {
         .order('consumed_at', { ascending: true });
 
       if (eventsError) {
-        console.error('Error fetching consumption events for bedtime calculation:', eventsError);
         return null;
       }
 
@@ -457,11 +459,9 @@ const HabitLoggingScreen = () => {
       // Calculate the drug level at bedtime
       const bedtimeLevel = getBedtimeDrugLevel(eventsData, bedtimeDate, habit.half_life_hours || 5);
 
-      console.log(`🧮 Calculated bedtime ${habit.name} level: ${bedtimeLevel.toFixed(2)} ${habit.unit} at ${bedtimeDate.toISOString()}`);
       return bedtimeLevel;
 
     } catch (error) {
-      console.error('Error calculating bedtime drug level:', error);
       return null;
     }
   };

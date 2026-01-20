@@ -37,6 +37,7 @@ import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
+import bedtimeHabitsService from '../services/bedtimeHabitsService';
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
@@ -59,7 +60,6 @@ const ProfileScreen = () => {
         await AsyncStorage.multiRemove(habitLogKeys);
       }
     } catch (error) {
-      console.error('Error clearing caches:', error);
     }
   };
   const {
@@ -136,16 +136,24 @@ const ProfileScreen = () => {
 
       if (result.success) {
         const syncedRecords = result.syncedRecords || 0;
+        
+        // After successful sleep data sync, backfill bedtime habits
+        try {
+          await bedtimeHabitsService.backfillBedtimeHabits(user.id, 30);
+        } catch (bedtimeError) {
+          // Don't fail the entire sync if bedtime habits backfill fails
+          console.log('Bedtime habits backfill error:', bedtimeError);
+        }
+        
         Alert.alert(
           'Sync Complete',
-          `Successfully synced 30 days of sleep data and health metrics.\n\nSynced ${syncedRecords} records.`
+          `Successfully synced 30 days of sleep data and health metrics.\n\nSynced ${syncedRecords} records.\n\nBedtime habits have been updated.`
         );
       } else {
         Alert.alert('Sync Failed', result.error || 'Failed to sync data');
       }
     } catch (error) {
       Alert.alert('Sync Error', 'An unexpected error occurred during sync');
-      console.error('Sync error:', error);
     }
   };
 
@@ -385,7 +393,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollViewContent: {
-    paddingBottom: 80, // Account for bottom navigation bar height (60px) + positioning (8px) + extra buffer
+    paddingBottom: 72, // Account for bottom navigation bar height (60px) + positioning (0px) + extra buffer
   },
   content: {
     paddingHorizontal: spacing.regular,

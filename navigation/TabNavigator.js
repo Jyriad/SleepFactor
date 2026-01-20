@@ -36,7 +36,7 @@ const TabNavigator = () => {
           paddingBottom: 5,
           paddingTop: 2,
           position: 'absolute',
-          bottom: 8,
+          bottom: 0,
           height: 60,
           borderTopWidth: 0,
           borderBottomWidth: 0,

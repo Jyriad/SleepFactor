@@ -56,7 +56,6 @@ const EditHabitScreen = () => {
       }
       navigation.goBack();
     } catch (error) {
-      console.error('Error editing habit:', error);
       Alert.alert('Error', error.message || 'Failed to update habit name');
     } finally {
       setSaving(false);

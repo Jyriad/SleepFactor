@@ -1,5 +1,7 @@
 import healthService from './healthService';
 import sleepDataService from './sleepDataService';
+import bedtimeHabitsService from './bedtimeHabitsService';
+import { supabase } from './supabase';
 
 /**
  * Sleep sync service that orchestrates data synchronization between health platforms and Supabase
@@ -20,7 +22,6 @@ class SleepSyncService {
       this.isInitialized = healthServiceInitialized;
       return healthServiceInitialized;
     } catch (error) {
-      console.error('Sleep sync service initialization failed:', error);
       this.isInitialized = false;
       return false;
     }
@@ -38,7 +39,6 @@ class SleepSyncService {
 
       // Ensure data is an array before mapping
       if (!Array.isArray(data)) {
-        console.warn('Expected array from getSleepDataForRange, got:', typeof data, 'value:', data);
         return new Set();
       }
 
@@ -46,7 +46,6 @@ class SleepSyncService {
       return new Set(data.map(record => record.date));
     } catch (error) {
       // This can happen when user is not authenticated or during app startup
-      console.warn('Failed to get existing sleep dates (likely auth issue):', error.message);
       return new Set();
     }
   }
@@ -62,10 +61,8 @@ class SleepSyncService {
     try {
       // Initialize health service first - if this succeeds, Health Connect is available
       if (!healthService.isInitialized) {
-        console.log('🔄 Initializing health service for sleep sync...');
         const initialized = await healthService.initialize();
         if (!initialized) {
-          console.log('⚠️ Health service initialization failed for sleep sync');
           return {
             success: false,
             error: 'Unable to connect to Health Connect. Please make sure Health Connect is installed and try again.',
@@ -101,7 +98,6 @@ class SleepSyncService {
 
       // Check which dates already have sleep data to avoid unnecessary syncing
       const existingDates = await this.getExistingSleepDates(startDateString, endDateString);
-      console.log('📊 [Sync] Existing sleep dates in range:', Array.from(existingDates));
 
       // Fetch sleep data from health platform
       const rawSleepData = await healthService.syncSleepData({
@@ -109,10 +105,8 @@ class SleepSyncService {
         endDate: endDateString
       });
 
-      console.log('📊 [Sync] Raw sleep data from health platform:', rawSleepData?.length || 0, 'records');
 
       if (!rawSleepData || rawSleepData.length === 0) {
-        console.log('⚠️ [Sync] No sleep data found in health platform');
         return {
           success: true,
           data: [],
@@ -128,12 +122,10 @@ class SleepSyncService {
         recordsToProcess = rawSleepData.filter(record => !existingDates.has(record.date));
         const filteredCount = originalCount - recordsToProcess.length;
         if (filteredCount > 0) {
-          console.log(`📊 [Sync] Filtered out ${filteredCount} existing records (force=${force})`);
         }
       }
 
       if (recordsToProcess.length === 0) {
-        console.log('⚠️ [Sync] All records filtered out - no new data to sync');
         return {
           success: true,
           data: [],
@@ -141,7 +133,6 @@ class SleepSyncService {
         };
       }
 
-      console.log(`📊 [Sync] Processing ${recordsToProcess.length} records to sync`);
 
 
       // Data is already transformed by healthService.syncSleepData()
@@ -162,17 +153,36 @@ class SleepSyncService {
             const savedRecord = await sleepDataService.upsertSleepData(transformedData);
             savedRecords.push(savedRecord);
           } else {
-            console.warn('⚠️ Skipping null/undefined transformed data');
           }
         } catch (error) {
-          console.error('❌ Error processing sleep record:', error);
-          console.error('❌ Error message:', error.message);
-          console.error('❌ Error code:', error.code);
-          console.error('❌ Error details:', error.details);
-          console.error('❌ Error hint:', error.hint);
-          console.error('❌ Record data:', JSON.stringify(transformedData, null, 2));
           errors.push({ record: transformedData, error: error.message });
         }
+      }
+
+      // Update bedtime habits - always try to sync recent data when user initiates sync
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          if (savedRecords.length > 0) {
+            // Process newly synced sleep data
+            await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, savedRecords);
+          }
+
+          // Always try to ensure bedtime habits are up to date for recent data
+          // This handles cases where sync is clicked but no new data exists
+          const today = new Date().toISOString().split('T')[0];
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          const weekAgoString = weekAgo.toISOString().split('T')[0];
+
+          // Get recent sleep data and ensure bedtime habits are populated
+          const recentSleepData = await sleepDataService.getSleepDataForRange(weekAgoString, today, user.id);
+          if (recentSleepData && recentSleepData.length > 0) {
+            await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, recentSleepData);
+          }
+        }
+      } catch (error) {
+        // Don't fail the sync if bedtime habits update fails
       }
 
       // Update last sync timestamp
@@ -190,7 +200,6 @@ class SleepSyncService {
       return result;
 
     } catch (error) {
-      console.error('Sleep data sync failed:', error);
       return {
         success: false,
         error: healthService.getErrorMessage(error),
@@ -232,7 +241,6 @@ class SleepSyncService {
     try {
       return await healthService.requestPermissions();
     } catch (error) {
-      console.error('Permission request failed:', error);
       return false;
     }
   }
@@ -254,11 +262,9 @@ class SleepSyncService {
 
         return { success: true };
       } else {
-        console.warn('⚠️ Permission revocation may not have completed fully');
         return { success: false, error: 'Permission revocation incomplete' };
       }
     } catch (error) {
-      console.error('Failed to disconnect:', error);
       return { success: false, error: error.message || 'Failed to disconnect' };
     }
   }
@@ -271,7 +277,6 @@ class SleepSyncService {
     try {
       return await healthService.hasPermissions();
     } catch (error) {
-      console.error('Permission check failed:', error);
       return false;
     }
   }

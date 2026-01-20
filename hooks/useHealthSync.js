@@ -33,7 +33,6 @@ export const useHealthSync = ({
           setHasPermissions(permissionsGranted);
         }
       } catch (err) {
-        console.error('Failed to initialize health sync:', err);
         setError(err.message);
       }
     };
@@ -109,7 +108,6 @@ export const useHealthSync = ({
           combinedResult.healthMetricsSynced = healthMetricsResult.totalSynced || 0;
           combinedResult.healthMetricsResults = healthMetricsResult.results || [];
         } catch (healthError) {
-          console.warn('Health metrics sync failed, but sleep sync succeeded:', healthError);
           // Don't fail the entire sync if health metrics fail
           combinedResult.healthMetricsError = healthError.message;
         }
@@ -149,7 +147,6 @@ export const useHealthSync = ({
     try {
       return await healthMetricsService.syncHealthMetrics(userId, startDate, endDate);
     } catch (error) {
-      console.error('Health metrics sync failed:', error);
       throw error;
     }
   }, []);

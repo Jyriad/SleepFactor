@@ -26,62 +26,45 @@ const ResetPasswordScreen = () => {
   const [sessionSet, setSessionSet] = useState(false);
 
   useEffect(() => {
-    console.log('🔑 [ResetPasswordScreen] Component mounted/updated');
-    console.log('🔑 [ResetPasswordScreen] Mount stack trace:', new Error().stack);
 
     // Extract tokens from URL parameters and set session
     const setupSessionFromUrl = async () => {
       try {
-        console.log('🔑 [ResetPasswordScreen] Setting up session from URL');
-        console.log('🔑 [ResetPasswordScreen] Route name:', route.name);
-        console.log('🔑 [ResetPasswordScreen] Route params:', route.params);
-        console.log('🔑 [ResetPasswordScreen] Route params keys:', route.params ? Object.keys(route.params) : 'NO_PARAMS');
-        console.log('🔑 [ResetPasswordScreen] Full route object:', JSON.stringify(route, null, 2));
 
         // Get URL from route params (passed by React Navigation deep linking)
         const url = route.params?.url;
-        console.log('🔑 [ResetPasswordScreen] URL from params:', url);
 
         // Also check if there's a code parameter directly
         const directCode = route.params?.code;
-        console.log('🔑 [ResetPasswordScreen] Direct code param:', directCode);
 
         if (!url) {
-          console.error('❌ No URL provided to ResetPasswordScreen');
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
           // Don't try to navigate - let the auth state change handler manage navigation
           // This prevents conflicts with the main navigation reset logic
-          console.log('ℹ️ [ResetPasswordScreen] Not navigating - letting auth state handler manage navigation');
           return;
         }
 
         // Extract code from the URL
         const codeMatch = url.match(/[?&]code=([^&]+)/);
         if (!codeMatch) {
-          console.error('❌ No code found in URL:', url);
           Alert.alert('Error', 'Invalid reset link. Please request a new password reset.');
           // Don't navigate - let user manually go back
           return;
         }
 
         const code = decodeURIComponent(codeMatch[1]);
-        console.log('🔑 ResetPasswordScreen: Extracted code:', code);
 
-        console.log('🔑 ResetPasswordScreen: Exchanging code for session...');
 
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
         if (error) {
-          console.error('Error exchanging code for session:', error);
           Alert.alert('Error', 'Invalid or expired reset link. Please request a new password reset.');
           // Don't navigate - let user manually go back
           return;
         }
 
-        console.log('🔑 ResetPasswordScreen: Session established successfully');
         setSessionSet(true);
       } catch (error) {
-        console.error('Error processing reset link:', error);
         Alert.alert('Error', 'Failed to process reset link. Please try again.');
         // Don't navigate - let user manually go back
       }
@@ -91,7 +74,6 @@ const ResetPasswordScreen = () => {
 
     // Cleanup effect to track unmounting
     return () => {
-      console.log('🔑 [ResetPasswordScreen] Component unmounting');
     };
   }, [navigation, route.params]);
 
@@ -130,7 +112,6 @@ const ResetPasswordScreen = () => {
         ]
       );
     } catch (error) {
-      console.error('Password reset error:', error);
       Alert.alert('Error', 'Failed to reset password. Please try again.');
     } finally {
       setLoading(false);

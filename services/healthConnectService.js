@@ -48,9 +48,6 @@ class HealthConnectService {
       return initResult;
 
     } catch (error) {
-      console.error('❌ Health Connect initialization failed:', error);
-      console.error('❌ Error details:', error.message);
-      console.error('❌ Error stack:', error.stack);
       this.isInitialized = false;
       return false;
     }
@@ -94,9 +91,6 @@ class HealthConnectService {
 
       return isAvailable;
     } catch (error) {
-      console.error('❌ Health Connect availability check failed:', error);
-      console.error('❌ Error details:', error.message);
-      console.error('❌ Error stack:', error.stack);
       return false;
     }
   }
@@ -130,9 +124,6 @@ class HealthConnectService {
 
       return hasSleepPermission;
     } catch (error) {
-      console.error('❌ Health Connect permission request failed:', error);
-      console.error('❌ Error message:', error.message);
-      console.error('❌ Error stack:', error.stack);
       return false;
     }
   }
@@ -163,7 +154,6 @@ class HealthConnectService {
 
       return hasSleepPermission;
     } catch (error) {
-      console.error('Health Connect permission check failed:', error);
       return false;
     }
   }
@@ -189,7 +179,6 @@ class HealthConnectService {
 
       return false;
     } catch (error) {
-      console.error(`❌ Permission check failed for ${recordType}:`, error);
       return false;
     }
   }
@@ -231,7 +220,6 @@ class HealthConnectService {
       
       return validData;
     } catch (error) {
-      console.error('Health Connect sleep data sync failed:', error);
       throw error;
     }
   }
@@ -259,14 +247,10 @@ class HealthConnectService {
       // }
 
       if (!rawData) {
-        console.warn('❌ Invalid sleep session data: rawData is null/undefined');
         return null;
       }
 
       if (!rawData.startTime || !rawData.endTime) {
-        console.warn('❌ Invalid sleep session data: missing startTime or endTime');
-        console.warn('❌ Raw data keys:', Object.keys(rawData));
-        console.warn('❌ Raw data:', JSON.stringify(rawData, null, 2));
         return null;
       }
 
@@ -363,7 +347,6 @@ class HealthConnectService {
         sleep_end_time: rawData.endTime, // Include actual sleep session end time
       };
     } catch (error) {
-      console.error('Health Connect data transformation failed:', error);
       return null;
     }
   }
@@ -379,7 +362,6 @@ class HealthConnectService {
       // We can guide them to do this, but we can't do it programmatically
       return true; // Return true since we can't determine if they actually revoked
     } catch (error) {
-      console.error('Failed to revoke Health Connect permissions:', error);
       return false;
     }
   }
@@ -411,14 +393,12 @@ class HealthConnectService {
           const data = await this.fetchHealthMetric(metric, startTime, endTimeString);
           results[metric] = data;
         } catch (error) {
-          console.error(`Error fetching ${metric}:`, error);
           results[metric] = [];
         }
       }
 
       return results;
     } catch (error) {
-      console.error('Health Connect health metrics sync failed:', error);
       throw error;
     }
   }
@@ -442,7 +422,6 @@ class HealthConnectService {
 
     const recordType = metricMappings[metric];
     if (!recordType) {
-      console.warn(`Unknown metric: ${metric}`);
       return [];
     }
 
@@ -540,7 +519,6 @@ class HealthConnectService {
 
       return aggregatedData;
     } catch (error) {
-      console.error(`Error fetching ${metric}:`, error);
       return [];
     }
   }

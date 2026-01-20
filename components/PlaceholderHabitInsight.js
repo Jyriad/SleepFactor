@@ -50,10 +50,11 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.regular,
     marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
   },
   header: {
     flexDirection: 'row',

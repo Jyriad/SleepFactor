@@ -23,7 +23,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data: data || [] };
     } catch (error) {
-      console.error('Error fetching consumption options:', error);
       return { success: false, error: error.message };
     }
   }
@@ -44,7 +43,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data: data || [] };
     } catch (error) {
-      console.error('Error fetching user consumption options:', error);
       return { success: false, error: error.message };
     }
   }
@@ -63,7 +61,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data };
     } catch (error) {
-      console.error('Error fetching consumption option:', error);
       return { success: false, error: error.message };
     }
   }
@@ -127,7 +124,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data };
     } catch (error) {
-      console.error('Error creating consumption option:', error);
       return { success: false, error: error.message };
     }
   }
@@ -172,7 +168,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data };
     } catch (error) {
-      console.error('Error updating consumption option:', error);
       return { success: false, error: error.message };
     }
   }
@@ -200,7 +195,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data };
     } catch (error) {
-      console.error('Error deleting consumption option:', error);
       return { success: false, error: error.message };
     }
   }
@@ -223,7 +217,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true };
     } catch (error) {
-      console.error('Error hard deleting consumption option:', error);
       return { success: false, error: error.message };
     }
   }
@@ -280,7 +273,6 @@ class ConsumptionOptionsService {
       // If no mapping found, return null
       return { success: false, error: `No matching option found for legacy drink type: ${drinkTypeString}` };
     } catch (error) {
-      console.error('Error migrating legacy drink type:', error);
       return { success: false, error: error.message };
     }
   }
@@ -301,7 +293,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data: data || [] };
     } catch (error) {
-      console.error('Error fetching system consumption options:', error);
       return { success: false, error: error.message };
     }
   }
@@ -327,7 +318,6 @@ class ConsumptionOptionsService {
       if (error) throw error;
       return { success: true, data: data || [] };
     } catch (error) {
-      console.error('Error fetching custom consumption options:', error);
       return { success: false, error: error.message };
     }
   }
@@ -357,7 +347,6 @@ class ConsumptionOptionsService {
 
       return { success: true, available: data.length === 0 };
     } catch (error) {
-      console.error('Error checking option name availability:', error);
       return { success: false, error: error.message, available: false };
     }
   }

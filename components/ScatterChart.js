@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Alert } from 'react-native';
-import Svg, { Circle, Line, Text as SvgText, G } from 'react-native-svg';
+import Svg, { Circle, Line, Text as SvgText, G, Rect } from 'react-native-svg';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
 
 /**
  * Scatter chart component for visualizing relationships between two variables
- * Uses react-native-gifted-charts for reliable rendering with interactivity
  */
 const ScatterPlot = ({
   data,
@@ -21,7 +20,8 @@ const ScatterPlot = ({
   trendLineColor = colors.error,
   correlation = null,
   correlationStrength = 'weak',
-  trendDirection = 'none'
+  trendDirection = 'none',
+  onPointPress = null // Callback for data point presses
 }) => {
   const [selectedPoint, setSelectedPoint] = useState(null);
 
@@ -53,7 +53,7 @@ const ScatterPlot = ({
   const xValues = validData.map(point => point.x);
   const yValues = validData.map(point => point.y);
 
-  // Calculate ranges with some padding
+  // Calculate original ranges
   const xMin = Math.min(...xValues);
   const xMax = Math.max(...xValues);
   const yMin = Math.min(...yValues);
@@ -62,17 +62,22 @@ const ScatterPlot = ({
   const xRange = xMax - xMin || 1;
   const yRange = yMax - yMin || 1;
 
-  const xPadding = xRange * 0.1;
-  const yPadding = yRange * 0.1;
+  // Use original ranges for axis markers - don't recalculate during zoom
+  const displayXMin = xMin;
+  const displayXMax = xMax;
+  const displayYMin = yMin;
+  const displayYMax = yMax;
+  const displayXRange = xRange;
+  const displayYRange = yRange;
 
-  // Calculate trend line if requested
+  // Calculate trend line if requested (using original data)
   let trendLineData = null;
   if (showTrendLine && validData.length >= 2) {
     const regression = calculateLinearRegression(xValues, yValues);
     if (regression && !isNaN(regression.slope) && !isNaN(regression.intercept)) {
-      // Create trend line points across the x-range
-      const trendXMin = xMin - xPadding;
-      const trendXMax = xMax + xPadding;
+      // Create trend line points across the display x-range
+      const trendXMin = displayXMin;
+      const trendXMax = displayXMax;
       const trendYMin = regression.slope * trendXMin + regression.intercept;
       const trendYMax = regression.slope * trendXMax + regression.intercept;
 
@@ -103,116 +108,251 @@ const ScatterPlot = ({
     correlationText = 'Correlation data unavailable';
   }
 
-  // Validate dimensions
+  // Chart dimensions with proper margins for axes
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
-  const chartWidth = safeWidth - 40;
-  const chartHeight = safeHeight - 100;
+  const margin = { top: 40, right: 20, bottom: 60, left: 60 };
+  const chartWidth = safeWidth - margin.left - margin.right;
+  const chartHeight = safeHeight - margin.top - margin.bottom;
 
-  // Handle point press
+  // Helper function to calculate nice tick marks
+  const calculateNiceTicks = (min, max, numTicks = 5) => {
+    const range = max - min;
+    if (range === 0) return { start: min, end: max, step: 1 };
+
+    const roughStep = range / numTicks;
+
+    // Find magnitude and normalize
+    const magnitude = Math.floor(Math.log10(Math.abs(roughStep)));
+    const magnitudePow = Math.pow(10, magnitude);
+    const normalizedStep = roughStep / magnitudePow;
+
+    // Find nice step size (1, 2, 5, 10)
+    let niceStep;
+    if (normalizedStep <= 1) niceStep = 1;
+    else if (normalizedStep <= 2) niceStep = 2;
+    else if (normalizedStep <= 5) niceStep = 5;
+    else niceStep = 10;
+
+    niceStep *= magnitudePow;
+
+    // Calculate nice start and end points
+    const niceStart = Math.floor(min / niceStep) * niceStep;
+    const niceEnd = Math.ceil(max / niceStep) * niceStep;
+
+    return { start: niceStart, end: niceEnd, step: niceStep };
+  };
+
+  // Handle point press with navigation placeholder
   const handlePointPress = (point) => {
     setSelectedPoint(point);
-    Alert.alert(
-      'Data Point Details',
-      `Date: ${point.date}\n${xLabel}: ${point.x}\n${yLabel}: ${point.y}`,
-      [{ text: 'OK' }]
-    );
+
+    if (onPointPress) {
+      // Custom callback provided - let parent handle navigation
+      onPointPress(point);
+    } else {
+      // Default behavior - show alert with placeholder navigation
+      Alert.alert(
+        'Data Point Details',
+        `Date: ${point.date}\n${xLabel}: ${point.x}\n${yLabel}: ${point.y}`,
+        [
+          { text: 'View Details', onPress: () => {
+            // Placeholder for navigation - replace with actual navigation logic
+            Alert.alert('Navigation Placeholder', 'This would navigate to a detailed view of this data point');
+          }},
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    }
   };
 
   // Create scales for positioning
-  const xScale = (value) => ((value - (xMin - xPadding)) / (xRange + 2 * xPadding)) * chartWidth;
-  const yScale = (value) => chartHeight - ((value - (yMin - yPadding)) / (yRange + 2 * yPadding)) * chartHeight;
+  const xScale = (value) => ((value - displayXMin) / displayXRange) * chartWidth + margin.left;
+  const yScale = (value) => chartHeight - ((value - displayYMin) / displayYRange) * chartHeight + margin.top;
+
+  // Generate axis markers with nice number rounding
+  const generateAxisMarkers = () => {
+    const xMarkers = [];
+    const yMarkers = [];
+
+    // X-axis markers (bottom) - use nice rounding
+    const xNice = calculateNiceTicks(displayXMin, displayXMax, 5);
+    for (let i = 0; i <= 5; i++) {
+      const value = xNice.start + (xNice.step * i);
+      // Only include markers within the actual data range
+      if (value >= displayXMin && value <= displayXMax) {
+        const ratio = (value - displayXMin) / displayXRange;
+        const x = margin.left + (ratio * chartWidth);
+        xMarkers.push({
+          value: value.toFixed(value % 1 === 0 ? 0 : 1), // No decimals for whole numbers
+          x: x,
+          y: safeHeight - margin.bottom + 15
+        });
+      }
+    }
+
+    // Y-axis markers (left) - use nice rounding
+    const yNice = calculateNiceTicks(displayYMin, displayYMax, 5);
+    for (let i = 0; i <= 5; i++) {
+      const value = yNice.start + (yNice.step * i);
+      // Only include markers within the actual data range
+      if (value >= displayYMin && value <= displayYMax) {
+        const ratio = (value - displayYMin) / displayYRange;
+        const y = margin.top + chartHeight - (ratio * chartHeight);
+        yMarkers.push({
+          value: value.toFixed(value % 1 === 0 ? 0 : 1), // No decimals for whole numbers
+          x: margin.left - 10,
+          y: y + 4
+        });
+      }
+    }
+
+    return { xMarkers, yMarkers };
+  };
+
+  const { xMarkers, yMarkers } = generateAxisMarkers();
 
   return (
     <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
-      {title && (
-        <Text style={styles.title}>{title}</Text>
-      )}
-
       <View style={styles.chartContainer}>
-        <Svg width={chartWidth} height={chartHeight}>
-              {/* Grid lines */}
-              {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => (
-                <G key={`grid-${index}`}>
-                  <Line
-                    x1={ratio * chartWidth}
-                    y1={0}
-                    x2={ratio * chartWidth}
-                    y2={chartHeight}
-                    stroke={colors.border}
-                    strokeWidth={1}
-                    opacity={0.3}
-                  />
-                  <Line
-                    x1={0}
-                    y1={ratio * chartHeight}
-                    x2={chartWidth}
-                    y2={ratio * chartHeight}
-                    stroke={colors.border}
-                    strokeWidth={1}
-                    opacity={0.3}
-                  />
-                </G>
-              ))}
+        <Svg width={safeWidth} height={safeHeight}>
+          <Rect
+            x={0}
+            y={0}
+            width={safeWidth}
+            height={safeHeight}
+            fill={colors.cardBackground}
+          />
 
-              {/* Trend line */}
-              {trendLineData && trendLineData.length >= 2 && (
-                <Line
-                  x1={xScale(trendLineData[0].x)}
-                  y1={yScale(trendLineData[0].y)}
-                  x2={xScale(trendLineData[1].x)}
-                  y2={yScale(trendLineData[1].y)}
-                  stroke={trendLineColor}
-                  strokeWidth={2}
-                />
-              )}
+          {/* Grid lines */}
+          {xMarkers.map((marker, index) => (
+            <Line
+              key={`x-grid-${index}`}
+              x1={marker.x}
+              y1={margin.top}
+              x2={marker.x}
+              y2={margin.top + chartHeight}
+              stroke={colors.border}
+              strokeWidth={1}
+              opacity={0.3}
+            />
+          ))}
 
-              {/* Data points */}
-              {validData.map((point, index) => (
-                <Circle
-                  key={`point-${index}`}
-                  cx={xScale(point.x)}
-                  cy={yScale(point.y)}
-                  r={6}
-                  fill={pointColor}
-                  opacity={0.8}
-                  onPress={() => handlePointPress({
-                    x: point.x,
-                    y: point.y,
-                    date: point.date,
-                    index: index
-                  })}
-                />
-              ))}
+          {yMarkers.map((marker, index) => (
+            <Line
+              key={`y-grid-${index}`}
+              x1={margin.left}
+              y1={marker.y - 4}
+              x2={margin.left + chartWidth}
+              y2={marker.y - 4}
+              stroke={colors.border}
+              strokeWidth={1}
+              opacity={0.3}
+            />
+          ))}
 
-              {/* Axis labels */}
-              {xLabel && (
-                <SvgText
-                  x={chartWidth / 2}
-                  y={chartHeight + 25}
-                  textAnchor="middle"
-                  fontSize={12}
-                  fill={colors.textSecondary}
-                  fontFamily="monospace"
-                >
-                  {xLabel}
-                </SvgText>
-              )}
+          {/* Axis lines */}
+          <Line
+            x1={margin.left}
+            y1={margin.top + chartHeight}
+            x2={margin.left + chartWidth}
+            y2={margin.top + chartHeight}
+            stroke={colors.textSecondary}
+            strokeWidth={1}
+          />
+          <Line
+            x1={margin.left}
+            y1={margin.top}
+            x2={margin.left}
+            y2={margin.top + chartHeight}
+            stroke={colors.textSecondary}
+            strokeWidth={1}
+          />
 
-              {yLabel && (
-                <SvgText
-                  x={-35}
-                  y={chartHeight / 2}
-                  textAnchor="middle"
-                  fontSize={12}
-                  fill={colors.textSecondary}
-                  fontFamily="monospace"
-                  transform={`rotate(-90, -35, ${chartHeight / 2})`}
-                >
-                  {yLabel}
-                </SvgText>
-              )}
-            </Svg>
+          {/* Trend line */}
+          {trendLineData && trendLineData.length >= 2 && (
+            <Line
+              x1={xScale(trendLineData[0].x)}
+              y1={yScale(trendLineData[0].y)}
+              x2={xScale(trendLineData[1].x)}
+              y2={yScale(trendLineData[1].y)}
+              stroke={trendLineColor}
+              strokeWidth={2}
+            />
+          )}
+
+          {/* Axis labels */}
+          {xLabel && (
+            <SvgText
+              x={margin.left + chartWidth / 2}
+              y={safeHeight - 10}
+              textAnchor="middle"
+              fontSize={12}
+              fontWeight="bold"
+              fill={colors.textPrimary}
+              fontFamily="monospace"
+            >
+              {xLabel}
+            </SvgText>
+          )}
+
+          {yLabel && (
+            <SvgText
+              x={12}
+              y={margin.top + chartHeight / 2}
+              textAnchor="middle"
+              fontSize={12}
+              fontWeight="bold"
+              fill={colors.textPrimary}
+              fontFamily="monospace"
+              transform={`rotate(-90, 12, ${margin.top + chartHeight / 2})`}
+            >
+              {yLabel}
+            </SvgText>
+          )}
+
+          {/* X-axis markers and labels */}
+          {xMarkers.map((marker, index) => (
+            <SvgText
+              key={`x-marker-${index}`}
+              x={marker.x}
+              y={marker.y}
+              textAnchor="middle"
+              fontSize={10}
+              fill={colors.textSecondary}
+              fontFamily="monospace"
+            >
+              {marker.value}
+            </SvgText>
+          ))}
+
+          {/* Y-axis markers and labels */}
+          {yMarkers.map((marker, index) => (
+            <SvgText
+              key={`y-marker-${index}`}
+              x={marker.x}
+              y={marker.y}
+              textAnchor="end"
+              fontSize={10}
+              fill={colors.textSecondary}
+              fontFamily="monospace"
+            >
+              {marker.value}
+            </SvgText>
+          ))}
+          {/* Data points */}
+          {validData.map((point, index) => (
+            <Circle
+              key={`point-${index}`}
+              cx={xScale(point.x)}
+              cy={yScale(point.y)}
+              r={10}
+              fill={pointColor}
+              opacity={0.8}
+              onPress={() => handlePointPress(point)}
+            />
+          ))}
+        </Svg>
       </View>
 
       {/* Statistics */}
@@ -240,6 +380,7 @@ const styles = StyleSheet.create({
   chartContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden', // Prevent chart from spilling outside container
   },
   noDataText: {
     fontSize: typography.sizes.small,
@@ -248,30 +389,13 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     marginTop: spacing.xs,
+    paddingHorizontal: spacing.regular,
+    alignItems: 'center',
   },
   statsText: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontFamily: 'monospace',
-  },
-  tooltip: {
-    backgroundColor: colors.cardBackground,
-    padding: spacing.sm,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minWidth: 150,
-    elevation: 5,
-    shadowColor: colors.textPrimary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  tooltipText: {
-    fontSize: typography.sizes.small,
-    color: colors.textPrimary,
-    fontFamily: 'monospace',
-    marginBottom: 2,
   },
 });
 

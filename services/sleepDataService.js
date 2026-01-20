@@ -81,7 +81,6 @@ class SleepDataService {
         error.message?.includes('sleep_stages') ||
         error.code === '42703' // PostgreSQL undefined_column error code
       )) {
-        console.warn('⚠️ sleep_stages column not found, retrying without it');
         // Remove sleep_stages and retry
         const { sleep_stages, ...recordWithoutStages } = record;
         const retryResult = await supabase
@@ -103,7 +102,6 @@ class SleepDataService {
 
       return data;
     } catch (error) {
-      console.error('Failed to upsert sleep data:', error);
       throw error;
     }
   }
@@ -115,15 +113,12 @@ class SleepDataService {
    */
   async getSleepDataForDate(date) {
     try {
-      console.log('📡 [DB] getSleepDataForDate called for date:', date);
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
-        console.error('❌ [DB] User not authenticated');
         throw new Error('User not authenticated');
       }
 
-      console.log('📡 [DB] Querying database for user:', user.id, 'date:', date);
       const { data, error } = await supabase
         .from(this.tableName)
         .select('*')
@@ -133,16 +128,13 @@ class SleepDataService {
         .limit(1); // Take only the most recent record
 
       if (error) {
-        console.error('❌ [DB] Database query error:', error);
         throw error;
       }
 
       const result = data && data.length > 0 ? data[0] : null;
-      console.log('📡 [DB] Query result:', result ? `FOUND (id: ${result.id}, date: ${result.date}, total: ${result.total_sleep_minutes}min)` : 'NOT FOUND');
       // Return the first (most recent) record, or null if no records
       return result;
     } catch (error) {
-      console.error('❌ [DB] Failed to get sleep data for date:', error);
       throw error;
     }
   }
@@ -175,7 +167,6 @@ class SleepDataService {
 
       return data || [];
     } catch (error) {
-      console.error('Failed to get sleep data for range:', error);
       throw error;
     }
   }
@@ -206,7 +197,6 @@ class SleepDataService {
 
       return data;
     } catch (error) {
-      console.error('Failed to delete sleep data for date:', error);
       throw error;
     }
   }
@@ -236,7 +226,6 @@ class SleepDataService {
       const deletedCount = data?.length || 0;
       return deletedCount;
     } catch (error) {
-      console.error('Failed to delete all sleep data:', error);
       throw error;
     }
   }
@@ -277,7 +266,6 @@ class SleepDataService {
 
       return totalDeleted;
     } catch (error) {
-      console.error('Failed to delete all habit logs:', error);
       throw error;
     }
   }
@@ -308,7 +296,6 @@ class SleepDataService {
 
       return data || null;
     } catch (error) {
-      console.error('Failed to get latest sleep data:', error);
       throw error;
     }
   }
@@ -369,7 +356,6 @@ class SleepDataService {
         dateRange: { start: startDateString, end: new Date().toISOString().split('T')[0] }
       };
     } catch (error) {
-      console.error('Failed to get sleep data summary:', error);
       throw error;
     }
   }

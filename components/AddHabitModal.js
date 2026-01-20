@@ -14,16 +14,13 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
 const AddHabitModal = ({ visible, onClose, onSave }) => {
-  console.log('🔵 [AddHabitModal] Component rendering, visible:', visible);
   
   const [habitName, setHabitName] = useState('');
   const [habitType, setHabitType] = useState('binary');
   const [habitUnit, setHabitUnit] = useState('');
 
   useEffect(() => {
-    console.log('🔵 [AddHabitModal] useEffect - visible changed to:', visible);
     if (visible) {
-      console.log('🔵 [AddHabitModal] Modal is now visible, resetting form');
       setHabitName('');
       setHabitType('binary');
       setHabitUnit('');
@@ -31,11 +28,8 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
   }, [visible]);
 
   const handleSave = () => {
-    console.log('🔵 [AddHabitModal] handleSave called');
-    console.log('🔵 [AddHabitModal] Form data:', { name: habitName, type: habitType, unit: habitUnit });
     
     if (!habitName.trim()) {
-      console.log('🔵 [AddHabitModal] Validation failed: habit name is empty');
       return;
     }
 
@@ -45,14 +39,12 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
       unit: habitUnit,
     });
     
-    console.log('🔵 [AddHabitModal] Form reset after save');
     setHabitName('');
     setHabitType('binary');
     setHabitUnit('');
   };
 
   const handleClose = () => {
-    console.log('🔵 [AddHabitModal] handleClose called');
     setHabitName('');
     setHabitType('binary');
     setHabitUnit('');
@@ -91,7 +83,6 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                   placeholderTextColor={colors.textLight}
                   value={habitName}
                   onChangeText={(text) => {
-                    console.log('🔵 [AddHabitModal] Habit name changed:', text);
                     setHabitName(text);
                   }}
                   maxLength={50}
@@ -114,7 +105,6 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                         habitType === key && styles.typeButtonActive,
                       ]}
                       onPress={() => {
-                        console.log('🔵 [AddHabitModal] Habit type changed to:', key);
                         setHabitType(key);
                       }}
                     >
@@ -140,7 +130,6 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                     placeholderTextColor={colors.textLight}
                     value={habitUnit}
                     onChangeText={(text) => {
-                      console.log('🔵 [AddHabitModal] Habit unit changed:', text);
                       setHabitUnit(text);
                     }}
                     maxLength={20}

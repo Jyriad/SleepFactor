@@ -60,22 +60,43 @@ const AccountScreen = () => {
 
       if (sleepError) throw sleepError;
 
-      // Get insights count
-      const { data: insightsData, error: insightsError } = await supabase
-        .from('insights_cache')
-        .select('id', { count: 'exact' })
+      // Calculate insights count: count habits with 10+ log entries
+      console.log('🔍 Debug: Loading insights count for user:', user.id);
+      const { data: habitLogs, error: insightsError } = await supabase
+        .from('habit_logs')
+        .select('habit_id')
         .eq('user_id', user.id);
 
-      if (insightsError) throw insightsError;
+      if (insightsError) {
+        console.error('❌ Debug: Error fetching habit logs:', insightsError);
+        throw insightsError;
+      }
 
-      setStats({
+      console.log('🔍 Debug: Raw habitLogs data:', habitLogs);
+
+      // Count how many times each habit has been logged
+      const habitCounts = {};
+      habitLogs.forEach(log => {
+        habitCounts[log.habit_id] = (habitCounts[log.habit_id] || 0) + 1;
+      });
+
+      console.log('🔍 Debug: Habit counts:', habitCounts);
+
+      // Count habits with 10+ logs (minimum for insights)
+      const insightsCount = Object.values(habitCounts).filter(count => count >= 10).length;
+
+      console.log('🔍 Debug: Final insights count:', insightsCount);
+
+      const finalStats = {
         totalHabits: habitsData?.length || 0,
         loggedHabits: logsData?.length || 0,
         sleepRecords: sleepData?.length || 0,
-        insightsGenerated: insightsData?.length || 0,
-      });
+        insightsGenerated: insightsCount,
+      };
+
+      console.log('🔍 Debug: Final stats object:', finalStats);
+      setStats(finalStats);
     } catch (error) {
-      console.error('Error loading user stats:', error);
       Alert.alert('Error', 'Failed to load account statistics');
     }
   };
@@ -99,7 +120,6 @@ const AccountScreen = () => {
         'Check your email for password reset instructions. The link will open the app to complete your password reset. If you don\'t have the app installed, you can reset your password on the web.'
       );
     } catch (error) {
-      console.error('Password reset error:', error);
       Alert.alert('Error', 'Failed to send password reset email. Please try again.');
     } finally {
       setLoading(false);

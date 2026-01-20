@@ -58,11 +58,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         if (result.success) {
           setConsumptionOptions(result.data);
         } else {
-          console.error('Failed to load consumption options:', result.error);
           setConsumptionOptions([]);
         }
       } catch (error) {
-        console.error('Error loading consumption options:', error);
         setConsumptionOptions([]);
       } finally {
         setLoadingOptions(false);
@@ -88,12 +86,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       if (result.success) {
         setConsumptionOptions(result.data);
       } else {
-        console.error('Failed to refresh consumption options:', result.error);
         // Fallback: add to local state
         setConsumptionOptions(prev => [...prev, newOption]);
       }
     } catch (error) {
-      console.error('Error refreshing consumption options:', error);
       // Fallback: add to local state
       setConsumptionOptions(prev => [...prev, newOption]);
     }
@@ -128,18 +124,14 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         });
 
       if (result.error) {
-        console.error('Error adding quick consumption:', result.error);
         Alert.alert('Error', 'Failed to add consumption');
       } else {
         // Clear None selection since we're adding consumption
 
         // Immediately update the bedtime drug level in habit_logs
         try {
-          console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate}`);
           await updateBedtimeDrugLevel(habit?.id, selectedDate);
-          console.log('✅ Auto-saved bedtime drug level for quick consumption');
         } catch (levelError) {
-          console.error('Failed to auto-save bedtime drug level:', levelError);
           // Don't block the consumption logging if level calculation fails
         }
 
@@ -149,7 +141,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         }
       }
     } catch (error) {
-      console.error('Error in addQuickConsumption:', error);
       Alert.alert('Error', 'Failed to add consumption');
     }
   };
@@ -157,12 +148,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   // Calculate and update bedtime drug level after consumption events change
   const updateBedtimeDrugLevel = async (habitId, selectedDate) => {
     if (!userId) {
-      console.log('❌ No userId for bedtime level update');
       return;
     }
 
     try {
-      console.log(`🔍 Starting bedtime level calculation for habit ${habitId}`);
       // Only update for caffeine and alcohol habits
       const { data: habit, error: habitError } = await supabase
         .from('habits')
@@ -211,7 +200,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         .order('consumed_at', { ascending: true });
 
       if (eventsError) {
-        console.error('Error fetching consumption events:', eventsError);
         return;
       }
 
@@ -236,13 +224,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         });
 
       if (logError) {
-        console.error(`Error updating bedtime level for ${habit.name}:`, logError);
       } else {
-        console.log(`✅ Updated ${habit.name} bedtime level: ${bedtimeLevel.toFixed(2)} ${habit.unit} for date: ${selectedDate}`);
       }
 
     } catch (error) {
-      console.error('Error updating bedtime drug level:', error);
     }
   };
 
@@ -318,7 +303,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               try {
                 await updateBedtimeDrugLevel(habit?.id, selectedDate);
               } catch (levelError) {
-                console.error('Failed to auto-update bedtime drug level:', levelError);
               }
 
             // Update local state by clearing all events
@@ -329,7 +313,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               onConsumptionAdded();
             }
           } catch (error) {
-            console.error('Error deselecting None:', error);
             Alert.alert('Error', 'Failed to deselect None');
           }
         };
@@ -374,11 +357,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
             // Update bedtime drug level to 0 (no consumption)
           try {
-            console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate} (None selected)`);
             await updateBedtimeDrugLevel(habit?.id, selectedDate);
-            console.log('✅ Auto-saved bedtime drug level for None selection');
           } catch (levelError) {
-            console.error('Failed to auto-save bedtime drug level:', levelError);
           }
 
             // Update local state with the none event (now has proper UUID)
@@ -389,7 +369,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               onConsumptionAdded();
             }
         } catch (error) {
-          console.error('Error saving None selection:', error);
           Alert.alert('Error', 'Failed to save None selection');
         }
       };
@@ -411,10 +390,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       serving_options: option.serving_options || [0.5, 1, 1.5, 2]
     };
 
-    console.log('Selected option:', optionWithDefaults);
-    console.log('Default volume:', optionWithDefaults.default_volume);
-    console.log('Drug amount:', optionWithDefaults.drug_amount);
-    console.log('Serving options:', optionWithDefaults.serving_options);
 
     setSelectedOption(optionWithDefaults);
     setSelectedServing(1); // Reset to default serving
@@ -498,7 +473,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         drinkType = resolvedOption.id; // Always store as UUID
       } else {
         // Fallback for completely unknown types - use default amount
-        console.warn('Unknown consumption type:', consumptionType);
         baseAmount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1; // Default caffeine or alcohol amount
       }
 
@@ -510,13 +484,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         totalAmount = customDrugAmount;
         volumeConsumed = parseInt(customVolume) || selectedOption?.default_volume || 0;
         servingMultiplier = 'custom'; // Indicate custom serving
-        console.log('Custom serving:', { customVolume, volumeConsumed, customDrugAmount });
       } else {
         // Use multiplier calculation
         servingMultiplier = selectedServing || 1;
         totalAmount = baseAmount * servingMultiplier;
         volumeConsumed = selectedOption?.default_volume ? selectedOption.default_volume * servingMultiplier : 0;
-        console.log('Standard serving:', { selectedServing: servingMultiplier, volumeConsumed, totalAmount });
       }
 
       // First, delete any existing "none" events for this habit and date
@@ -548,7 +520,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         .single();
 
       if (result.error) {
-        console.error('Error adding consumption event:', result.error);
         Alert.alert('Error', 'Failed to add consumption');
         return;
       }
@@ -573,11 +544,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
       // Immediately update the bedtime drug level in habit_logs
       try {
-        console.log(`🔄 Auto-saving bedtime drug level for ${habit?.name} on ${selectedDate}`);
         await updateBedtimeDrugLevel(habit?.id, selectedDate);
-        console.log('✅ Auto-saved bedtime drug level for consumption event');
       } catch (levelError) {
-        console.error('Failed to auto-save bedtime drug level:', levelError);
         // Don't block the consumption logging if level calculation fails
       }
 
@@ -589,7 +557,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       setCustomVolume('');
       setCustomDrugAmount(0);
     } catch (error) {
-      console.error('Error in addConsumptionEvent:', error);
       Alert.alert('Error', 'Failed to add consumption');
     }
   };
@@ -607,18 +574,15 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         totalAmount = customDrugAmount;
         volumeConsumed = parseInt(customVolume) || resolvedOption?.default_volume || 0;
         servingMultiplier = 'custom';
-        console.log('Update custom serving:', { customVolume, volumeConsumed, customDrugAmount, totalAmount });
       } else {
         servingMultiplier = selectedServing || 1;
         totalAmount = baseAmount * servingMultiplier;
         volumeConsumed = resolvedOption?.default_volume ? resolvedOption.default_volume * servingMultiplier : 0;
-        console.log('Update standard serving:', { selectedServing: servingMultiplier, volumeConsumed, totalAmount });
       }
 
       // Find the event to update
       const eventToUpdate = consumptionEvents.find(event => event.id === eventId);
       if (!eventToUpdate) {
-        console.error('Event not found for update:', eventId);
         return;
       }
 
@@ -636,7 +600,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         .eq('id', eventId);
 
       if (updateError) {
-        console.error('Error updating consumption event:', updateError);
         Alert.alert('Error', 'Failed to update consumption');
         return;
       }
@@ -660,11 +623,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
       // Update bedtime drug level
       try {
-        console.log(`🔄 Auto-updating bedtime drug level for ${habit?.name} on ${selectedDate}`);
         await updateBedtimeDrugLevel(habit?.id, selectedDate);
-        console.log('✅ Auto-updated bedtime drug level for consumption event update');
       } catch (levelError) {
-        console.error('Failed to auto-update bedtime drug level:', levelError);
       }
 
       // Reset selection state
@@ -675,7 +635,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       setCustomVolume('');
       setCustomDrugAmount(0);
     } catch (error) {
-      console.error('Error in updateConsumptionEvent:', error);
       Alert.alert('Error', 'Failed to update consumption');
     }
   };
@@ -689,7 +648,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         .eq('id', eventId);
 
       if (deleteError) {
-        console.error('Error deleting consumption event:', deleteError);
         Alert.alert('Error', 'Failed to delete consumption');
         return;
       }
@@ -701,14 +659,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
       // Update bedtime drug level
       try {
-        console.log(`🔄 Auto-updating bedtime drug level for ${habit?.name} on ${selectedDate} after deletion`);
         await updateBedtimeDrugLevel(habit?.id, selectedDate);
-        console.log('✅ Auto-updated bedtime drug level after consumption event deletion');
       } catch (levelError) {
-        console.error('Failed to auto-update bedtime drug level:', levelError);
       }
     } catch (error) {
-      console.error('Error in deleteConsumptionEvent:', error);
       Alert.alert('Error', 'Failed to delete consumption');
     }
   };
@@ -924,7 +878,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 </View>
               );
             } catch (error) {
-              console.error('Error rendering consumption event:', error, event);
               return (
                 <View key={event.id || Math.random()} style={styles.loggedItemRow}>
                   <Text style={styles.loggedItemText}>
@@ -978,7 +931,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                             selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
                           ]}
                           onPress={() => {
-                            console.log('Standard serving button pressed for serving:', serving);
                             setSelectedServing(serving);
                             setShowCustomVolume(false);
                             setCustomVolume('');
@@ -1010,7 +962,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                         showCustomVolume && styles.modalServingButtonSelected
                       ]}
                       onPress={() => {
-                        console.log('Custom serving button pressed');
                         setSelectedServing('custom');
                         setShowCustomVolume(true);
                         // Pre-fill with base volume as default, or empty if not available
