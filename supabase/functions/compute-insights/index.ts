@@ -252,23 +252,39 @@ async function processUserInsights(supabase: any, userId: string) {
       }
     }
 
+    console.log(`\n🏁 Habit processing complete. About to start bedtime consistency...`)
+    console.log(`Current insights count before bedtime: ${insights.length}`)
+
     // Calculate bedtime consistency (user-level insight, no specific habit)
-    console.log(`\n🛏️  Calculating bedtime consistency...`)
+    console.log(`🛏️  Calculating bedtime consistency...`)
     let bedtimeInsights = null
     try {
+      console.log(`📞 Calling calculateBedtimeConsistency with userId: ${userId}, dates: ${startDateStr} to ${endDateStr}`)
       bedtimeInsights = await calculateBedtimeConsistency(supabase, userId, startDateStr, endDateStr)
-      console.log(`Bedtime consistency result:`, bedtimeInsights ? `Generated ${bedtimeInsights.length} insights` : 'No insights')
-      if (bedtimeInsights) {
+      console.log(`✅ calculateBedtimeConsistency returned`)
+      console.log(`Bedtime consistency result type:`, typeof bedtimeInsights)
+      console.log(`Bedtime consistency result:`, bedtimeInsights)
+
+      if (bedtimeInsights && Array.isArray(bedtimeInsights)) {
+        console.log(`📊 Bedtime insights is array with ${bedtimeInsights.length} items`)
+        console.log(`Pushing ${bedtimeInsights.length} bedtime insights to array (current total: ${insights.length})`)
         insights.push(...bedtimeInsights)
-        console.log(`Added bedtime consistency to insights array (total now: ${insights.length})`)
+        console.log(`✅ Added bedtime consistency to insights array (total now: ${insights.length})`)
+      } else {
+        console.log(`⚠️  Bedtime insights is not a valid array:`, bedtimeInsights)
       }
     } catch (bedtimeError) {
       console.error(`❌ CRITICAL: Error calculating bedtime consistency for user ${userId}:`, bedtimeError)
+      console.error('Bedtime error message:', bedtimeError.message)
       console.error('Bedtime error stack:', bedtimeError.stack)
       // Continue processing even if bedtime fails
+      console.log(`🚨 Continuing with ${insights.length} insights despite bedtime error`)
     }
 
-    console.log(`\n🎉 FINAL: Generated ${insights.length} total insights for user ${userId}`)
+    console.log(`\n🎉 FINAL SUMMARY: Generated ${insights.length} total insights for user ${userId}`)
+    console.log(`Insight breakdown:`, insights.map((i, idx) => `${idx + 1}. ${i.insight_type} (${i.habit_id || 'bedtime'})`).join(', '))
+
+    console.log(`\n💾 PREPARING STORAGE: About to call storeInsights with ${insights.length} insights`)
     if (insights.length === 0) {
       console.log('⚠️  No insights generated at all')
       return {
