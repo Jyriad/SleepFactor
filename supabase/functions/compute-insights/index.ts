@@ -453,13 +453,18 @@ async function calculateHabitInsights(habit: any, habitData: any[], sleepData: a
   // For binary habits, create binary insights
   if (habit.type === 'binary') {
     console.log(`Processing binary habit ${habit.name}`)
+    console.log(`Insights array before binary processing: ${insights.length} items`)
     const binaryInsight = calculateBinaryInsight(habit, dataPoints);
+    console.log(`calculateBinaryInsight returned:`, binaryInsight ? 'truthy object' : 'null/falsy')
     if (binaryInsight) {
       console.log(`Generated binary insight for ${habit.name}`)
+      const beforeLength = insights.length
       insights.push(binaryInsight);
+      console.log(`Pushed to insights array: ${beforeLength} -> ${insights.length}`)
     } else {
       console.log(`No binary insight generated for ${habit.name}`)
     }
+    console.log(`Insights array after binary processing: ${insights.length} items`)
   }
   // For numerical habits, create correlation insights
   else if (habit.type === 'numeric' || habit.type === 'quick_consumption' || habit.type === 'time') {
@@ -471,6 +476,8 @@ async function calculateHabitInsights(habit: any, habitData: any[], sleepData: a
     console.log(`Unknown habit type ${habit.type} for habit ${habit.name}`)
   }
 
+  console.log(`calculateHabitInsights FINAL RETURN: ${insights.length} insights for ${habit.name}`)
+  console.log(`Returning insights array with ${insights.length} items`)
   return insights
 }
 
