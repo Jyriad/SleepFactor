@@ -238,28 +238,62 @@ async function processUserInsights(supabase: any, userId: string) {
     }
 
     // Calculate bedtime consistency (user-level insight, no specific habit)
+    console.log(`\n🛏️  Calculating bedtime consistency...`)
+    let bedtimeInsights = null
     try {
-      const bedtimeConsistency = await calculateBedtimeConsistency(supabase, userId, startDateStr, endDateStr)
-      if (bedtimeConsistency) {
-        insights.push(bedtimeConsistency)
+      bedtimeInsights = await calculateBedtimeConsistency(supabase, userId, startDateStr, endDateStr)
+      console.log(`Bedtime consistency result:`, bedtimeInsights ? `Generated ${bedtimeInsights.length} insights` : 'No insights')
+      if (bedtimeInsights) {
+        insights.push(...bedtimeInsights)
+        console.log(`Added bedtime consistency to insights array (total now: ${insights.length})`)
       }
     } catch (bedtimeError) {
-      console.error(`Error calculating bedtime consistency for user ${userId}:`, bedtimeError)
+      console.error(`❌ CRITICAL: Error calculating bedtime consistency for user ${userId}:`, bedtimeError)
+      console.error('Bedtime error stack:', bedtimeError.stack)
+      // Continue processing even if bedtime fails
     }
 
-    console.log(`\n🎉 Generated ${insights.length} total insights for user ${userId}`)
+    console.log(`\n🎉 FINAL: Generated ${insights.length} total insights for user ${userId}`)
+    if (insights.length === 0) {
+      console.log('⚠️  No insights generated at all')
+      return {
+        userId,
+        processed: 0,
+        errors: 0
+      }
+    }
+
+    console.log(`📊 Insight breakdown:`, insights.map((i, idx) => ({
+      index: idx + 1,
+      type: i.insight_type,
+      habit: i.habit_id || 'bedtime_consistency',
+      metric: i.insight_data?.sleep_metric || 'N/A',
+      correlation: i.insight_data?.r || i.insight_data?.correlation || 'N/A'
+    })))
 
     // Store insights in database
-    console.log(`💾 Storing ${insights.length} insights in database...`)
-    const storedCount = await storeInsights(supabase, insights)
-    console.log(`✅ Successfully stored ${storedCount} insights`)
+    console.log(`\n💾 STARTING STORAGE: Attempting to store ${insights.length} insights...`)
+    try {
+      const storedCount = await storeInsights(supabase, insights)
+      console.log(`✅ STORAGE COMPLETE: Successfully stored ${storedCount} insights`)
 
-    // Debug: List what was stored
-    if (insights.length > 0) {
-      console.log('📋 Stored insights summary:')
-      insights.forEach((insight, index) => {
-        console.log(`  ${index + 1}. ${insight.habit_id ? 'Habit' : 'User'} insight: ${insight.insight_type} (${insight.insight_data?.sleep_metric || 'N/A'})`)
-      })
+      // Debug: List what was stored
+      if (insights.length > 0) {
+        console.log('📋 Final stored insights summary:')
+        insights.forEach((insight, index) => {
+          console.log(`  ${index + 1}. ${insight.habit_id ? 'Habit' : 'User'} insight: ${insight.insight_type} (${insight.insight_data?.sleep_metric || 'N/A'})`)
+        })
+      }
+
+      return {
+        userId,
+        processed: storedCount,
+        errors: 0
+      }
+    } catch (storageError) {
+      console.error(`❌ CRITICAL: Storage failed:`, storageError)
+      console.error('Storage error stack:', storageError.stack)
+      throw storageError
     }
 
     return {
