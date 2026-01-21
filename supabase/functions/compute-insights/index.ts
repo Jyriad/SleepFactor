@@ -606,9 +606,9 @@ function getHabitValue(log: any, habit: any) {
 
 // Calculate binary habit insights
 function calculateBinaryInsight(habit: any, dataPoints: any[]) {
-  try {
-    console.log(`  🔍 Starting binary insight calculation for ${habit.name} with ${dataPoints.length} data points`);
+  console.log(`  🔍 Starting binary insight calculation for ${habit.name} with ${dataPoints.length} data points`);
 
+  try {
     // Group by metric
     const insightsByMetric = {};
 
@@ -653,38 +653,38 @@ function calculateBinaryInsight(habit: any, dataPoints: any[]) {
     }
 
     console.log(`  ✅ Data validation passed, calculating stats...`);
+
+    // Calculate basic statistics
+    const yesStats = calculateBasicStats(yesData);
+    const noStats = calculateBasicStats(noData);
+
+    return {
+      user_id: habit.user_id,
+      habit_id: habit.id,
+      insight_type: 'correlation', // Keep as correlation for UI compatibility
+      date_range_start: metricData[0]?.date || new Date().toISOString().split('T')[0],
+      date_range_end: metricData[metricData.length - 1]?.date || new Date().toISOString().split('T')[0],
+      insight_data: {
+        sleep_metric: bestMetric,
+        type: 'binary',
+        totalDataPoints: metricData.length,
+        yesDataPoints: yesData.length,
+        noDataPoints: noData.length,
+        yesStats: yesStats,
+        noStats: noStats,
+        hasComparisonData: true,
+        r: Math.abs(yesStats.median - noStats.median) > 0 ? (yesStats.median > noStats.median ? 0.5 : -0.5) : 0, // Add .r property
+        p: 0.01, // Binary insights are always significant
+        significance: true,
+        data_points: metricData.length,
+        direction: yesStats.median > noStats.median ? 'positive' : 'negative'
+      }
+    };
   } catch (binaryError) {
     console.error(`❌ CRITICAL: Error in calculateBinaryInsight for ${habit.name}:`, binaryError);
     console.error('Stack:', binaryError.stack);
     return null;
   }
-
-  // Calculate basic statistics
-  const yesStats = calculateBasicStats(yesData);
-  const noStats = calculateBasicStats(noData);
-
-  return {
-    user_id: habit.user_id,
-    habit_id: habit.id,
-    insight_type: 'correlation', // Keep as correlation for UI compatibility
-    date_range_start: metricData[0]?.date || new Date().toISOString().split('T')[0],
-    date_range_end: metricData[metricData.length - 1]?.date || new Date().toISOString().split('T')[0],
-    insight_data: {
-      sleep_metric: bestMetric,
-      type: 'binary',
-      totalDataPoints: metricData.length,
-      yesDataPoints: yesData.length,
-      noDataPoints: noData.length,
-      yesStats: yesStats,
-      noStats: noStats,
-      hasComparisonData: true,
-      r: Math.abs(yesStats.median - noStats.median) > 0 ? (yesStats.median > noStats.median ? 0.5 : -0.5) : 0, // Add .r property
-      p: 0.01, // Binary insights are always significant
-      significance: true,
-      data_points: metricData.length,
-      direction: yesStats.median > noStats.median ? 'positive' : 'negative'
-    }
-  };
 }
 
 // Calculate numerical habit insights
