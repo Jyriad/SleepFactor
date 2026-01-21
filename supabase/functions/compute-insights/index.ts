@@ -732,20 +732,80 @@ function studentT(t: number, df: number): number {
 
 // Store insights in the database
 async function storeInsights(supabase: any, insights: any[]) {
-  if (insights.length === 0) return 0
-
-  const { data, error } = await supabase
-    .from('insights')
-    .upsert(insights, {
-      onConflict: 'user_id,habit_id,insight_type,date_range_start,date_range_end',
-      ignoreDuplicates: false
-    })
-
-  if (error) {
-    console.error('Error storing insights:', error)
-    throw error
+  if (insights.length === 0) {
+    console.log('No insights to store')
+    return 0
   }
 
-  console.log(`Stored ${insights.length} insights`)
-  return insights.length
+  console.log(`💾 Attempting to store ${insights.length} insights...`)
+
+  // Validate insights before storing
+  const validInsights = []
+  for (const insight of insights) {
+    try {
+      // Check required fields
+      if (!insight.user_id) {
+        console.error('❌ Insight missing user_id:', insight)
+        continue
+      }
+      if (!insight.insight_type) {
+        console.error('❌ Insight missing insight_type:', insight)
+        continue
+      }
+      if (!insight.date_range_start || !insight.date_range_end) {
+        console.error('❌ Insight missing date range:', insight)
+        continue
+      }
+      if (!insight.insight_data) {
+        console.error('❌ Insight missing insight_data:', insight)
+        continue
+      }
+
+      validInsights.push(insight)
+    } catch (validationError) {
+      console.error('❌ Error validating insight:', validationError, insight)
+    }
+  }
+
+  if (validInsights.length === 0) {
+    console.log('❌ No valid insights to store after validation')
+    return 0
+  }
+
+  console.log(`✅ ${validInsights.length} insights passed validation`)
+  console.log('📋 Insight summary:', validInsights.map(i => ({
+    type: i.insight_type,
+    habit: i.habit_id ? 'yes' : 'no',
+    metric: i.insight_data?.sleep_metric || 'N/A',
+    correlation: i.insight_data?.r || i.insight_data?.correlation || 'N/A'
+  })))
+
+  try {
+    const { data, error } = await supabase
+      .from('insights')
+      .upsert(validInsights, {
+        onConflict: 'user_id,habit_id,insight_type,date_range_start,date_range_end',
+        ignoreDuplicates: false
+      })
+
+    if (error) {
+      console.error('❌ Database error storing insights:', error)
+      console.error('Error code:', error.code)
+      console.error('Error message:', error.message)
+      console.error('Error details:', error.details)
+      console.error('Error hint:', error.hint)
+      throw error
+    }
+
+    console.log(`✅ Successfully stored ${validInsights.length} insights in database`)
+    if (data) {
+      console.log('Database response:', data.length || data)
+    }
+
+    return validInsights.length
+  } catch (storeError) {
+    console.error('❌ Exception in storeInsights:', storeError)
+    console.error('Stack trace:', storeError.stack)
+    throw storeError
+  }
 }
