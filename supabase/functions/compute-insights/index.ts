@@ -218,7 +218,17 @@ async function processUserInsights(supabase: any, userId: string) {
         console.log(`✅ Processing with ${habitData.length} data points`)
 
         // Calculate insights for this habit
-        const habitInsights = await calculateHabitInsights(habit, habitData, sleepData)
+        console.log(`🔄 Calling calculateHabitInsights for ${habit.name}...`)
+        let habitInsights
+        try {
+          habitInsights = await calculateHabitInsights(habit, habitData, sleepData)
+          console.log(`✅ calculateHabitInsights completed for ${habit.name}`)
+        } catch (calcError) {
+          console.error(`❌ CRITICAL: calculateHabitInsights failed for ${habit.name}:`, calcError)
+          console.error('Calc error stack:', calcError.stack)
+          continue // Skip this habit
+        }
+
         console.log(`📊 Generated ${habitInsights.length} insights for ${habit.name}`)
 
         if (habitInsights.length > 0) {
@@ -229,7 +239,12 @@ async function processUserInsights(supabase: any, userId: string) {
           })))
         }
 
-        insights.push(...habitInsights)
+        try {
+          insights.push(...habitInsights)
+          console.log(`➕ Added ${habitInsights.length} insights to array (total now: ${insights.length})`)
+        } catch (pushError) {
+          console.error(`❌ CRITICAL: Failed to push insights for ${habit.name}:`, pushError)
+        }
 
       } catch (habitError) {
         console.error(`❌ Error processing habit ${habit.name}:`, habitError.message)
@@ -383,43 +398,48 @@ async function calculateHabitInsights(habit: any, habitData: any[], sleepData: a
   const dataPoints = [];
 
   habitData.forEach(log => {
-    // Date logic depends on habit type
-    let sleepDataDate;
-    if (habit.type === 'quick_consumption') {
-      // For drug levels, the date corresponds directly to sleep data date
-      sleepDataDate = log.date;
-    } else if (habit.name === 'Bedtime Consistency') {
-      // For bedtime habits, the date corresponds directly to sleep data date
-      sleepDataDate = log.date;
-    } else {
-      // For habit logs, sleep data date should be the next day
-      const logDate = new Date(log.date);
-      const nextDay = new Date(logDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      sleepDataDate = nextDay.toISOString().split('T')[0];
-    }
+    try {
+      // Date logic depends on habit type
+      let sleepDataDate;
+      if (habit.type === 'quick_consumption') {
+        // For drug levels, the date corresponds directly to sleep data date
+        sleepDataDate = log.date;
+      } else if (habit.name === 'Bedtime Consistency') {
+        // For bedtime habits, the date corresponds directly to sleep data date
+        sleepDataDate = log.date;
+      } else {
+        // For habit logs, sleep data date should be the next day
+        const logDate = new Date(log.date);
+        const nextDay = new Date(logDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        sleepDataDate = nextDay.toISOString().split('T')[0];
+      }
 
-    const sleep = sleepByDate[sleepDataDate];
-    if (sleep) {
-      const habitValue = getHabitValue(log, habit);
+      const sleep = sleepByDate[sleepDataDate];
+      if (sleep) {
+        const habitValue = getHabitValue(log, habit);
 
-      // Test all sleep metrics
-      const sleepMetrics = ['total_sleep_minutes', 'deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes', 'awake_minutes', 'awakenings_count', 'sleep_score'];
+        // Test all sleep metrics
+        const sleepMetrics = ['total_sleep_minutes', 'deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes', 'awake_minutes', 'awakenings_count', 'sleep_score'];
 
-      for (const metric of sleepMetrics) {
-        const sleepValue = sleep[metric];
-        if (sleepValue !== null && sleepValue !== undefined && !isNaN(sleepValue)) {
-          dataPoints.push({
-            habitValue: habitValue,
-            sleepValue: sleepValue,
-            date: log.date,
-            sleepDate: sleep.date,
-            habitLog: log,
-            sleepData: sleep,
-            metric: metric
-          });
+        for (const metric of sleepMetrics) {
+          const sleepValue = sleep[metric];
+          if (sleepValue !== null && sleepValue !== undefined && !isNaN(sleepValue)) {
+            dataPoints.push({
+              habitValue: habitValue,
+              sleepValue: sleepValue,
+              date: log.date,
+              sleepDate: sleep.date,
+              habitLog: log,
+              sleepData: sleep,
+              metric: metric
+            });
+          }
         }
       }
+    } catch (dataPointError) {
+      console.error(`❌ Error processing data point for habit ${habit.name}:`, dataPointError);
+      console.error('Problematic log:', log);
     }
   });
 
@@ -586,36 +606,58 @@ function getHabitValue(log: any, habit: any) {
 
 // Calculate binary habit insights
 function calculateBinaryInsight(habit: any, dataPoints: any[]) {
-  // Group by metric
-  const insightsByMetric = {};
+  try {
+    console.log(`  🔍 Starting binary insight calculation for ${habit.name} with ${dataPoints.length} data points`);
 
-  dataPoints.forEach(dp => {
-    if (!insightsByMetric[dp.metric]) {
-      insightsByMetric[dp.metric] = [];
+    // Group by metric
+    const insightsByMetric = {};
+
+    dataPoints.forEach(dp => {
+      if (!insightsByMetric[dp.metric]) {
+        insightsByMetric[dp.metric] = [];
+      }
+      insightsByMetric[dp.metric].push(dp);
+    });
+
+    console.log(`  📊 Data grouped by ${Object.keys(insightsByMetric).length} metrics`);
+
+    // Find the metric with the most data points
+    let bestMetric = null;
+    let maxDataPoints = 0;
+
+    for (const [metric, points] of Object.entries(insightsByMetric)) {
+      if (points.length > maxDataPoints) {
+        maxDataPoints = points.length;
+        bestMetric = metric;
+      }
     }
-    insightsByMetric[dp.metric].push(dp);
-  });
 
-  // Find the metric with the most data points
-  let bestMetric = null;
-  let maxDataPoints = 0;
+    console.log(`  🏆 Best metric: ${bestMetric} with ${maxDataPoints} data points`);
 
-  for (const [metric, points] of Object.entries(insightsByMetric)) {
-    if (points.length > maxDataPoints) {
-      maxDataPoints = points.length;
-      bestMetric = metric;
+    if (!bestMetric || maxDataPoints < 10) {
+      console.log(`  ❌ Not enough data for ${habit.name}: ${maxDataPoints} < 10`);
+      return null;
     }
+
+    const metricData = insightsByMetric[bestMetric];
+
+    // Separate data points by habit value (0 = No, 1 = Yes)
+    const yesData = metricData.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue);
+    const noData = metricData.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue);
+
+    console.log(`  📈 Binary analysis for ${habit.name}: ${yesData.length} yes, ${noData.length} no (metric: ${bestMetric})`);
+
+    if (yesData.length < 5 || noData.length < 5) {
+      console.log(`  ❌ Insufficient data distribution for ${habit.name}: need ≥5 yes AND ≥5 no, got ${yesData.length} yes and ${noData.length} no`);
+      return null;
+    }
+
+    console.log(`  ✅ Data validation passed, calculating stats...`);
+  } catch (binaryError) {
+    console.error(`❌ CRITICAL: Error in calculateBinaryInsight for ${habit.name}:`, binaryError);
+    console.error('Stack:', binaryError.stack);
+    return null;
   }
-
-  if (!bestMetric || maxDataPoints < 10) return null;
-
-  const metricData = insightsByMetric[bestMetric];
-
-  // Separate data points by habit value (0 = No, 1 = Yes)
-  const yesData = metricData.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue);
-  const noData = metricData.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue);
-
-  if (yesData.length < 5 || noData.length < 5) return null;
 
   // Calculate basic statistics
   const yesStats = calculateBasicStats(yesData);
