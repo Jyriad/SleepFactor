@@ -1,0 +1,43 @@
+name: Compute Insights Daily
+
+on:
+  schedule:
+    # Run at 3 AM UTC every day (after most users have gone to bed)
+    - cron: '0 3 * * *'
+  
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  compute-insights:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Trigger compute-insights function
+        run: |
+          response=$(curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/compute-insights" \
+            -w "\n%{http_code}" \
+            -s)
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          
+          echo "Response: $body"
+          echo "HTTP Status: $http_code"
+          
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "✅ Insights computation completed successfully"
+            exit 0
+          else
+            echo "❌ Insights computation failed"
+            exit 1
+          fi
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Daily insights computation failed. Check Supabase logs for details."
