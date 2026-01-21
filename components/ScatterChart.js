@@ -21,7 +21,8 @@ const ScatterPlot = ({
   correlation = null,
   correlationStrength = 'weak',
   trendDirection = 'none',
-  onPointPress = null // Callback for data point presses
+  onPointPress = null, // Callback for data point presses
+  xValueFormatter = null // Optional function to format x-axis values
 }) => {
   const [selectedPoint, setSelectedPoint] = useState(null);
 
@@ -183,8 +184,12 @@ const ScatterPlot = ({
       if (value >= displayXMin && value <= displayXMax) {
         const ratio = (value - displayXMin) / displayXRange;
         const x = margin.left + (ratio * chartWidth);
+        // Use formatter if provided, otherwise default formatting
+        const formattedValue = xValueFormatter
+          ? xValueFormatter(value)
+          : value.toFixed(value % 1 === 0 ? 0 : 1); // No decimals for whole numbers
         xMarkers.push({
-          value: value.toFixed(value % 1 === 0 ? 0 : 1), // No decimals for whole numbers
+          value: formattedValue,
           x: x,
           y: safeHeight - margin.bottom + 15
         });

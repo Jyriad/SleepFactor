@@ -362,8 +362,8 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   habitName: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
     color: colors.textPrimary,
     flex: 1,
   },

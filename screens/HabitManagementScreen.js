@@ -34,7 +34,6 @@ const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
   { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
   { name: 'Bedtime Consistency', type: 'numeric', unit: 'minutes', is_automated: true },
-  { name: 'Actual Bedtime', type: 'time', unit: null, is_automated: true },
 ];
 
 
@@ -188,7 +187,7 @@ const HabitManagementScreen = () => {
 
       // Helper function to check if a habit is an automated bedtime habit
       const isAutomatedBedtimeHabit = (habit) => {
-        return habit && (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime');
+        return habit && habit.name === 'Bedtime Consistency';
       };
 
       // Separate habits into manual and automatic categories
@@ -1010,8 +1009,6 @@ const HabitManagementScreen = () => {
                             <Text style={styles.automaticHabitDescription}>
                               {habit.name === 'Bedtime Consistency'
                                 ? 'Tracks how consistent your bedtime is over the last 5 nights'
-                                : habit.name === 'Actual Bedtime'
-                                ? 'Records your actual bedtime from sleep tracking data'
                                 : 'Automatically tracked habit'
                               }
                             </Text>
@@ -1023,7 +1020,7 @@ const HabitManagementScreen = () => {
                             await toggleAutomaticHabit(habit);
 
                             // If enabling bedtime habits, backfill historical data
-                            if (value && (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime')) {
+                            if (value && habit.name === 'Bedtime Consistency') {
                               try {
                                 const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
                                 await bedtimeHabitsService.backfillBedtimeHabits(user.id);

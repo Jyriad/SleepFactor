@@ -41,10 +41,7 @@ const HabitLoggingScreen = () => {
 
   // Helper function to check if a habit is an automated bedtime habit
   const isAutomatedBedtimeHabit = (habit) => {
-    const result = habit && (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime');
-    if (result) {
-    }
-    return result;
+    return habit && habit.name === 'Bedtime Consistency';
   };
 
   useEffect(() => {

@@ -262,7 +262,12 @@ class InsightsService {
         console.log(`Processing habit ${habit.name}, ${habitData.length} data points`);
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency);
         if (insight) {
-          validInsights.push(insight);
+          if (insight.type === 'binary_placeholder') {
+            // Special case: binary habits that don't meet criteria go to placeholders
+            placeholders.push(insight);
+          } else {
+            validInsights.push(insight);
+          }
         } else {
           // Create placeholder insight with tracking statistics
           const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
@@ -489,7 +494,7 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
-      } else if (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime') {
+      } else if (habit.name === 'Bedtime Consistency') {
         // For bedtime habits, the date corresponds directly to sleep data date
         // (bedtime affects the sleep data for the same night)
         sleepDataDate = log.date;
@@ -547,11 +552,21 @@ class InsightsService {
     if (habit.type === 'binary') {
       const yesCount = dataPoints.filter(dp => dp.habitValue === 1).length;
       const noCount = dataPoints.filter(dp => dp.habitValue === 0).length;
-      
+
       if (yesCount < this.MIN_BINARY_YES || noCount < this.MIN_BINARY_NO) {
-        return null; // Insufficient yes/no responses for binary comparison
+        // Return a special binary placeholder insight with specific requirements
+        return {
+          habit,
+          type: 'binary_placeholder',
+          totalDataPoints: dataPoints.length,
+          yesCount,
+          noCount,
+          requiredYes: this.MIN_BINARY_YES,
+          requiredNo: this.MIN_BINARY_NO,
+          needsMoreData: true
+        };
       }
-      
+
       const insight = this.calculateBinaryInsight(habit, dataPoints);
       return insight;
     } 
@@ -856,7 +871,7 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
-      } else if (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime') {
+      } else if (habit.name === 'Bedtime Consistency') {
         // For bedtime habits, the date corresponds directly to sleep data date
         // (bedtime affects the sleep data for the same night)
         sleepDataDate = log.date;

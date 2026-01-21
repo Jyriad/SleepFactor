@@ -20,6 +20,16 @@ const NumericalHabitInsight = ({
 
   const { habit, type, totalDataPoints, dataPoints, correlation, correlationStrength, trendDirection, confidenceLevel } = insight;
 
+  // Time formatter for habits that store values as minutes past midnight
+  const formatTimeValue = (minutes) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  };
+
+  // Determine if this habit needs time formatting
+  const needsTimeFormatting = habit.type === 'time';
+
 
   // Use original data points (no efficiency transformation)
   const displayDataPoints = dataPoints;
@@ -175,6 +185,7 @@ const NumericalHabitInsight = ({
         correlation={displayCorrelation}
         correlationStrength={displayCorrelationStrength}
         trendDirection={displayTrendDirection}
+        xValueFormatter={needsTimeFormatting ? formatTimeValue : null}
         onPointPress={(point) => {
           // Placeholder for navigation - replace with actual navigation logic
           console.log('Data point pressed:', point);
@@ -183,23 +194,13 @@ const NumericalHabitInsight = ({
         }}
       />
 
-      {/* Simple Stats */}
+      {/* Simple Stats - Only show confidence since n and r are already shown in ScatterPlot */}
       <View style={styles.statsContainer}>
-        <View style={styles.statRow}>
-          <Text style={styles.statLabel}>n = </Text>
-          <Text style={styles.statValue}>{totalDataPoints} data points</Text>
-        </View>
-        <View style={styles.statRow}>
-          <Text style={styles.statLabel}>r = </Text>
-          <Text style={styles.statValue}>
-            {correlation !== null && correlation !== undefined ? correlation.toFixed(3) : '0.000'}
-          </Text>
-        </View>
         <View style={styles.statRow}>
           <Text style={styles.statLabel}>Confidence: </Text>
           <Text style={[
             styles.confidenceValue,
-            { color: confidenceLevel === 'high' ? colors.success : 
+            { color: confidenceLevel === 'high' ? colors.success :
                      confidenceLevel === 'medium' ? colors.warning : colors.textSecondary }
           ]}>
             {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}

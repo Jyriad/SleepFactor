@@ -10,6 +10,8 @@ class SleepSyncService {
   constructor() {
     this.isInitialized = false;
     this.lastSyncTimestamp = null;
+    this.isSyncing = false; // Track if a sync is currently in progress
+    this.syncQueue = Promise.resolve(); // Queue to serialize sync operations
   }
 
   /**
@@ -55,9 +57,37 @@ class SleepSyncService {
    * @param {Object} options - Sync options
    * @param {number} options.daysBack - Number of days back to sync (default: 7)
    * @param {boolean} options.force - Force sync even if recently synced
+   * @param {boolean} options.silent - If true, don't show UI indicators (for background sync)
    * @returns {Promise<Object>} Sync result with success status and data
    */
-  async syncSleepData({ daysBack = 7, force = false } = {}) {
+  async syncSleepData({ daysBack = 7, force = false, silent = false } = {}) {
+    // If a sync is already in progress, return early to prevent race conditions
+    if (this.isSyncing && !force) {
+      console.log('Sync already in progress, skipping...');
+      return {
+        success: true,
+        data: [],
+        message: 'Sync already in progress',
+        skipped: true
+      };
+    }
+
+    // Queue this sync operation to ensure serialization
+    return this.syncQueue = this.syncQueue.then(async () => {
+      this.isSyncing = true;
+      try {
+        return await this._performSync({ daysBack, force, silent });
+      } finally {
+        this.isSyncing = false;
+      }
+    });
+  }
+
+  /**
+   * Internal method that performs the actual sync
+   * @private
+   */
+  async _performSync({ daysBack = 7, force = false, silent = false } = {}) {
     try {
       // Initialize health service first - if this succeeds, Health Connect is available
       if (!healthService.isInitialized) {
@@ -214,6 +244,14 @@ class SleepSyncService {
    */
   getLastSyncTimestamp() {
     return this.lastSyncTimestamp;
+  }
+
+  /**
+   * Check if a sync is currently in progress
+   * @returns {boolean} True if syncing
+   */
+  getIsSyncing() {
+    return this.isSyncing;
   }
 
   /**

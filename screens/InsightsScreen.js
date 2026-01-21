@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -14,6 +15,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import insightsService from '../services/insightsService';
+import precomputedInsightsService from '../services/precomputedInsightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
@@ -26,6 +28,8 @@ const InsightsScreen = () => {
   // State for insights data
   const [loading, setLoading] = useState(true);
   const [insights, setInsights] = useState({ validInsights: [], placeholders: [] });
+  const [usePrecomputed, setUsePrecomputed] = useState(true); // Use server-side insights by default
+  const [lastComputationStatus, setLastComputationStatus] = useState(null);
 
   // State for selectors
   const [selectedMetric, setSelectedMetric] = useState('total_sleep_minutes');
@@ -38,8 +42,8 @@ const InsightsScreen = () => {
   const [showCoreSleepPicker, setShowCoreSleepPicker] = useState(false);
 
   // Get available options from insights service
-  const availableMetrics = insightsService.getAvailableSleepMetrics();
-  const availableTimeRanges = insightsService.getAvailableTimeRanges();
+  const availableMetrics = precomputedInsightsService.getAvailableSleepMetrics();
+  const availableTimeRanges = precomputedInsightsService.getAvailableTimeRanges();
 
   useEffect(() => {
     loadInsights();
@@ -57,20 +61,42 @@ const InsightsScreen = () => {
 
     setLoading(true);
     try {
-      const dateRange = insightsService.calculateDateRange(selectedTimeRange);
-      const insightsData = await insightsService.getHabitsInsights(
-        user.id,
-        selectedMetric,
-        dateRange.startDate,
-        dateRange.endDate,
-        {
-          useCoreSleep,
-          useEfficiency: selectedAnalysisType === 'percentage'
-        }
-      );
+      if (usePrecomputed) {
+        // Fetch pre-computed insights from the server
+        const serverInsights = await precomputedInsightsService.getUserInsights(user.id);
+        
+        // Get all active habits for placeholder creation
+        const habits = await insightsService.getActiveHabits(user.id);
+        
+        // Transform server insights to UI format
+        const insightsData = precomputedInsightsService.transformServerInsightsToUIFormat(
+          serverInsights,
+          habits
+        );
+        
+        setInsights(insightsData);
+        
+        // Load last computation status
+        const status = await precomputedInsightsService.getLastComputationStatus();
+        setLastComputationStatus(status);
+      } else {
+        // Fallback to on-device computation
+        const dateRange = insightsService.calculateDateRange(selectedTimeRange);
+        const insightsData = await insightsService.getHabitsInsights(
+          user.id,
+          selectedMetric,
+          dateRange.startDate,
+          dateRange.endDate,
+          {
+            useCoreSleep,
+            useEfficiency: selectedAnalysisType === 'percentage'
+          }
+        );
 
-      setInsights(insightsData);
+        setInsights(insightsData);
+      }
     } catch (error) {
+      console.error('Error loading insights:', error);
       setInsights({ validInsights: [], placeholders: [] });
     } finally {
       setLoading(false);
@@ -162,7 +188,8 @@ const InsightsScreen = () => {
       </View>
 
       {/* Selectors */}
-      <View style={styles.selectorsContainer}>
+      {/* First Row: Primary Filters */}
+      <View style={styles.selectorsRow}>
         {/* Metric Selector */}
         <TouchableOpacity
           style={styles.selector}
@@ -182,7 +209,7 @@ const InsightsScreen = () => {
           onPress={() => setShowAnalysisTypePicker(!showAnalysisTypePicker)}
         >
           <Text style={styles.selectorValue}>
-            {selectedAnalysisType === 'absolute' ? 'Absolute Amount' : 'Percentage of Sleep'}
+            {selectedAnalysisType === 'absolute' ? 'Absolute' : 'Percentage'}
           </Text>
           <Ionicons
             name={showAnalysisTypePicker ? "chevron-up" : "chevron-down"}
@@ -190,7 +217,10 @@ const InsightsScreen = () => {
             color={colors.textSecondary}
           />
         </TouchableOpacity>
+      </View>
 
+      {/* Second Row: Time & Advanced Filters */}
+      <View style={styles.selectorsRow}>
         {/* Time Range Selector */}
         <TouchableOpacity
           style={styles.selector}
@@ -356,8 +386,8 @@ const InsightsScreen = () => {
         <View style={styles.content}>
           <Text style={styles.subtitle}>
             Discover how your habits impact {metricInfo.label.toLowerCase()}
-            {selectedAnalysisType === 'percentage' && ' (as % of total sleep)'}
-            {useCoreSleep && ' during your core sleep period'}
+            {selectedAnalysisType === 'percentage' ? ' (as percentage of total sleep)' : ''}
+            {useCoreSleep ? ' during your core sleep period' : ''}
           </Text>
 
           {/* Valid Insights Section */}
@@ -422,7 +452,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
   },
-  selectorsContainer: {
+  selectorsRow: {
     flexDirection: 'row',
     paddingHorizontal: spacing.regular,
     marginBottom: spacing.sm,
