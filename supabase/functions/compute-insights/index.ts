@@ -196,33 +196,44 @@ async function processUserInsights(supabase: any, userId: string) {
     // Process each habit
     for (const habit of habits) {
       try {
+        console.log(`\n=== Processing habit: ${habit.name} (${habit.type}) ===`)
+
         // Use different data sources based on habit type
         let habitData
         if (habit.type === 'quick_consumption') {
           // For quick_consumption habits, use drug levels
           habitData = drugLevels.filter(dl => dl.habit_id === habit.id)
-          console.log(`Habit ${habit.name}: using ${habitData.length} drug level records`)
+          console.log(`Using ${habitData.length} drug level records`)
         } else {
           // For other habit types, use habit logs
           habitData = habitLogs.filter(hl => hl.habit_id === habit.id)
-          console.log(`Habit ${habit.name}: using ${habitData.length} habit log records`)
+          console.log(`Using ${habitData.length} habit log records`)
         }
 
         if (habitData.length < 10) {
-          console.log(`Skipping habit ${habit.name} - insufficient data (${habitData.length} points)`)
+          console.log(`❌ Skipping - insufficient data (${habitData.length} < 10)`)
           continue
         }
 
-        console.log(`Processing habit ${habit.name} (${habit.type}): ${habitData.length} data points`)
+        console.log(`✅ Processing with ${habitData.length} data points`)
 
         // Calculate insights for this habit
         const habitInsights = await calculateHabitInsights(habit, habitData, sleepData)
-        console.log(`Generated ${habitInsights.length} insights for habit ${habit.name}`)
+        console.log(`📊 Generated ${habitInsights.length} insights for ${habit.name}`)
+
+        if (habitInsights.length > 0) {
+          console.log(`🎯 Insight details:`, habitInsights.map(i => ({
+            type: i.insight_type,
+            metric: i.insight_data?.sleep_metric,
+            correlation: i.insight_data?.r
+          })))
+        }
+
         insights.push(...habitInsights)
 
       } catch (habitError) {
-        console.error(`Error processing habit ${habit.name} for user ${userId}:`, habitError)
-        console.error('Error stack:', habitError.stack)
+        console.error(`❌ Error processing habit ${habit.name}:`, habitError.message)
+        console.error('Stack:', habitError.stack)
       }
     }
 
@@ -236,12 +247,20 @@ async function processUserInsights(supabase: any, userId: string) {
       console.error(`Error calculating bedtime consistency for user ${userId}:`, bedtimeError)
     }
 
-    console.log(`Generated ${insights.length} total insights for user ${userId}`)
+    console.log(`\n🎉 Generated ${insights.length} total insights for user ${userId}`)
 
     // Store insights in database
-    console.log(`Storing ${insights.length} insights in database...`)
+    console.log(`💾 Storing ${insights.length} insights in database...`)
     const storedCount = await storeInsights(supabase, insights)
-    console.log(`Successfully stored ${storedCount} insights`)
+    console.log(`✅ Successfully stored ${storedCount} insights`)
+
+    // Debug: List what was stored
+    if (insights.length > 0) {
+      console.log('📋 Stored insights summary:')
+      insights.forEach((insight, index) => {
+        console.log(`  ${index + 1}. ${insight.habit_id ? 'Habit' : 'User'} insight: ${insight.insight_type} (${insight.insight_data?.sleep_metric || 'N/A'})`)
+      })
+    }
 
     return {
       userId,
