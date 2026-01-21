@@ -824,7 +824,7 @@ const HomeScreen = () => {
   };
 
   const handleLogTodaysHabits = () => {
-    const today = getToday();
+    const today = new Date();
     safeSetSelectedDate(today);
     navigation.navigate('HabitLogging', { date: today.toISOString() });
   };
