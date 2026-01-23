@@ -17,6 +17,7 @@ import { typography, spacing } from '../constants';
 import { getPresetById } from '../constants/drugPresets';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
+import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import Button from './Button';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
@@ -164,30 +165,44 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         return; // Not a drug habit we care about
       }
 
-      // Get user's notification time (bedtime)
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('notification_time')
-        .eq('id', userId)
-        .single();
+      // First, try to get actual sleep start time from sleep data
+      const dateString = selectedDate instanceof Date ? selectedDate.toISOString().split('T')[0] : selectedDate;
+      const sleepData = await sleepDataService.getSleepDataForDate(dateString);
 
-      const notificationTime = userData?.notification_time || '22:00:00'; // Default 10 PM
+      let targetBedtime;
 
-      // Create bedtime Date object for the selected date
-      const bedtimeDate = new Date(selectedDate);
-      const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
-      bedtimeDate.setHours(hours, minutes, seconds || 0, 0);
+      if (sleepData && sleepData.sleep_start_time) {
+        // Use actual sleep start time if available
+        targetBedtime = new Date(sleepData.sleep_start_time);
+        console.log('[QuickConsumption] Using actual sleep start time:', targetBedtime.toISOString());
+      } else {
+        // Fall back to user's notification time from profile
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('notification_time')
+          .eq('id', userId)
+          .single();
 
-      // If bedtime is in the past, it should be the next day
-      const now = new Date();
-      if (bedtimeDate <= now) {
-        bedtimeDate.setDate(bedtimeDate.getDate() + 1);
+        const notificationTime = userData?.notification_time || '22:00:00'; // Default 10 PM
+
+        // Create bedtime Date object for the selected date
+        targetBedtime = new Date(selectedDate);
+        const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
+        targetBedtime.setHours(hours, minutes, seconds || 0, 0);
+
+        // If bedtime is in the past, it should be the next day
+        const now = new Date();
+        if (targetBedtime <= now) {
+          targetBedtime.setDate(targetBedtime.getDate() + 1);
+        }
+
+        console.log('[QuickConsumption] Using notification time fallback:', targetBedtime.toISOString());
       }
 
       // Get all consumption events for this habit across the relevant time period
       const maxHalfLife = habit.half_life_hours || 5;
       const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
-      const historyStart = new Date(bedtimeDate);
+      const historyStart = new Date(targetBedtime);
       historyStart.setDate(historyStart.getDate() - historyDays);
 
       const { data: eventsData, error: eventsError } = await supabase
@@ -196,7 +211,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         .eq('user_id', userId)
         .eq('habit_id', habitId)
         .gte('consumed_at', historyStart.toISOString())
-        .lte('consumed_at', bedtimeDate.toISOString())
+        .lte('consumed_at', targetBedtime.toISOString())
         .order('consumed_at', { ascending: true });
 
       if (eventsError) {
@@ -204,7 +219,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       }
 
       const bedtimeLevel = eventsData && eventsData.length > 0
-        ? getBedtimeDrugLevel(eventsData, bedtimeDate, habit.half_life_hours || 5)
+        ? getBedtimeDrugLevel(eventsData, targetBedtime, habit.half_life_hours || 5)
         : 0;
 
       // Update the drug levels table with the calculated bedtime level

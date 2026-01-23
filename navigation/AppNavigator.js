@@ -11,6 +11,8 @@ import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import AddHabitScreen from '../screens/AddHabitScreen';
 import EditHabitScreen from '../screens/EditHabitScreen';
 import DeleteHabitScreen from '../screens/DeleteHabitScreen';
+import SleepDataReviewScreen from '../screens/SleepDataReviewScreen';
+import HabitDataReviewScreen from '../screens/HabitDataReviewScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -100,6 +102,8 @@ const AppNavigator = ({ navigationRef }) => {
               options={{ presentation: 'modal' }}
             />
             <Stack.Screen name="Account" component={AccountScreen} />
+            <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} />
+            <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} />
           </>
         ) : (
           <>

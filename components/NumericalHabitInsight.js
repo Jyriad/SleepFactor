@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import ScatterPlot from './ScatterChart';
+import DataPointDetailModal from './DataPointDetailModal';
 import { transformToEfficiencyData, calculateCorrelation } from '../utils/statistics';
 
 const NumericalHabitInsight = ({
@@ -10,15 +11,21 @@ const NumericalHabitInsight = ({
   sleepMetric,
   width = 350,
   isPercentageMode = false,
-  isCoreSleepEnabled = false
+  isCoreSleepEnabled = false,
+  onRefresh
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [selectedPoint, setSelectedPoint] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   if (!insight) {
     return null;
   }
 
-  const { habit, type, totalDataPoints, dataPoints, correlation, correlationStrength, trendDirection, confidenceLevel } = insight;
+  const { habit, type, totalDataPoints, dataPoints, correlation, correlationStrength, trendDirection, confidenceLevel, pValue, isSignificant } = insight;
+
+  // Non-significant insights show as compact, non-expandable cards
+  const isSignificantInsight = confidenceLevel !== 'none';
 
   // Time formatter for habits that store values as minutes past midnight
   const formatTimeValue = (minutes) => {
@@ -34,35 +41,58 @@ const NumericalHabitInsight = ({
   // Use original data points (no efficiency transformation)
   const displayDataPoints = dataPoints;
 
+  // Debug logging for data points
+  console.log('[NumericalHabitInsight] Data points for scatter plot:', displayDataPoints?.map(point => ({
+    date: point.date,
+    x: point.x,
+    y: point.y,
+    exclude_from_insights: point.exclude_from_insights,
+    auto_excluded: point.auto_excluded
+  })));
+
   // Use original correlation values
   const displayCorrelation = correlation;
   const displayCorrelationStrength = correlationStrength;
   const displayTrendDirection = trendDirection;
 
-  // Check if we have sufficient data
-  if (totalDataPoints < 10) {
+  // Non-significant insights show compact card
+  if (!isSignificantInsight) {
     return (
-      <View style={[styles.container, { width }]}>
-        <View style={styles.header}>
-          <Text style={styles.habitName}>{habit.name}</Text>
-          <View style={styles.insufficientDataBadge}>
-            <Ionicons name="warning-outline" size={14} color={colors.warning} />
-            <Text style={styles.insufficientDataText}>Insufficient Data</Text>
+      <>
+        <View style={[styles.container, styles.compactContainer, { width }]}>
+          <View style={styles.compactHeader}>
+            <Text style={styles.habitName}>{habit.name}</Text>
+            <View style={styles.logCountBadge}>
+              <Ionicons name="list-outline" size={14} color={colors.textSecondary} />
+              <Text style={styles.logCountText}>
+                Logged {totalDataPoints} time{totalDataPoints !== 1 ? 's' : ''}
+              </Text>
+            </View>
           </View>
+          <Text style={styles.noSignificanceText}>No statistical significance yet</Text>
         </View>
 
-        <View style={styles.insufficientDataContent}>
-          <Text style={styles.insufficientDataTitle}>
-            Need at least 10 logged days to show insights
-          </Text>
-          <Text style={styles.insufficientDataSubtitle}>
-            Keep logging this habit to see how "{habit.name}" values correlate with your sleep.
-          </Text>
-          <Text style={styles.dataCount}>
-            Currently logged: {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''}
-          </Text>
-        </View>
-      </View>
+        {/* Data Point Detail Modal - even for non-significant insights */}
+        <DataPointDetailModal
+          visible={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedPoint(null);
+          }}
+          point={selectedPoint}
+          habit={habit}
+          sleepMetric={sleepMetric}
+          onExclusionComplete={() => {
+            console.log('[NumericalHabitInsight] Exclusion completed, refreshing data');
+            setShowDetailModal(false);
+            setSelectedPoint(null);
+            // Refresh the insights data
+            if (onRefresh) {
+              onRefresh();
+            }
+          }}
+        />
+      </>
     );
   }
 
@@ -100,114 +130,185 @@ const NumericalHabitInsight = ({
   // Collapsed view - thin summary
   if (!isExpanded) {
     return (
-      <TouchableOpacity 
-        style={[styles.container, styles.collapsedContainer, { width }]}
-        onPress={() => setIsExpanded(true)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.collapsedHeader}>
-          <View style={styles.collapsedHabitInfo}>
-            <Text style={styles.collapsedHabitName}>{habit.name}</Text>
-            <View style={styles.collapsedStatsRow}>
-              <View style={styles.collapsedStat}>
-                <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
-                <Text style={styles.collapsedStatText}>{totalDataPoints}</Text>
-              </View>
-              <View style={styles.collapsedStat}>
-                <Text style={styles.collapsedStatLabel}>r = </Text>
-                <Text style={styles.collapsedRValue}>
-                  {correlation !== null && correlation !== undefined 
-                    ? correlation.toFixed(2) 
-                    : '0.00'}
-                </Text>
-              </View>
-              <View style={[
-                styles.confidenceBadge,
-                { 
-                  backgroundColor: confidenceLevel === 'high' ? colors.success + '20' : 
-                                  confidenceLevel === 'medium' ? colors.warning + '20' : 
-                                  colors.textSecondary + '20'
-                }
-              ]}>
-                <Text style={[
-                  styles.confidenceBadgeText,
-                  { 
-                    color: confidenceLevel === 'high' ? colors.success : 
-                           confidenceLevel === 'medium' ? colors.warning : 
-                           colors.textSecondary
+      <>
+        <TouchableOpacity
+          style={[styles.container, styles.collapsedContainer, { width }]}
+          onPress={() => setIsExpanded(true)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.collapsedHeader}>
+            <View style={styles.collapsedHabitInfo}>
+              <Text style={styles.collapsedHabitName}>{habit.name}</Text>
+              <View style={styles.collapsedStatsRow}>
+                <View style={styles.collapsedStat}>
+                  <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
+                  <Text style={styles.collapsedStatText}>{totalDataPoints}</Text>
+                </View>
+                <View style={styles.collapsedStat}>
+                  <Text style={styles.collapsedStatLabel}>r = </Text>
+                  <Text style={styles.collapsedRValue}>
+                    {correlation !== null && correlation !== undefined
+                      ? correlation.toFixed(2)
+                      : '0.00'}
+                  </Text>
+                </View>
+                <View style={[
+                  styles.confidenceBadge,
+                  {
+                    backgroundColor: confidenceLevel === 'high' ? colors.success + '20' :
+                                    confidenceLevel === 'medium' ? colors.warning + '20' :
+                                    confidenceLevel === 'low' ? colors.error + '20' :
+                                    colors.textSecondary + '20'
                   }
                 ]}>
-                  {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}
-                </Text>
+                  <Text style={[
+                    styles.confidenceBadgeText,
+                    {
+                      color: confidenceLevel === 'high' ? colors.success :
+                             confidenceLevel === 'medium' ? colors.warning :
+                             confidenceLevel === 'low' ? colors.error :
+                             colors.textSecondary
+                    }
+                  ]}>
+                    {confidenceLevel === 'none' ? 'No Statistical Significance' :
+                     confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` :
+                     'Low Confidence'}
+                  </Text>
+                </View>
               </View>
             </View>
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
-          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+
+        {/* Data Point Detail Modal */}
+        <DataPointDetailModal
+          visible={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedPoint(null);
+          }}
+          point={selectedPoint}
+          habit={habit}
+          sleepMetric={sleepMetric}
+          onExclusionComplete={() => {
+            console.log('[NumericalHabitInsight] Exclusion completed, refreshing data');
+            setShowDetailModal(false);
+            setSelectedPoint(null);
+            // Refresh the insights data
+            if (onRefresh) {
+              onRefresh();
+            }
+          }}
+        />
+      </>
     );
   }
 
   // Expanded view - full details
   return (
-    <View style={[styles.container, { width }]}>
-      <TouchableOpacity 
-        style={styles.expandedHeader}
-        onPress={() => setIsExpanded(false)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.header}>
-          <Text style={styles.habitName}>{habit.name}</Text>
-          <View style={styles.headerRight}>
-            <View style={styles.dataBadge}>
-              <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
-              <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
+    <>
+      <View style={[styles.container, { width }]}>
+        <TouchableOpacity
+          style={styles.expandedHeader}
+          onPress={() => setIsExpanded(false)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.header}>
+            <Text style={styles.habitName}>{habit.name}</Text>
+            <View style={styles.headerRight}>
+              <View style={styles.dataBadge}>
+                <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
+                <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
+              </View>
+              <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
             </View>
-            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
           </View>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
 
 
-      {/* Scatter Plot */}
-      <ScatterPlot
-        data={displayDataPoints}
-        width={width - 40}
-        height={240}
-        xLabel={`${habit.name}${habitUnit}`}
-        yLabel={`${sleepMetric.label}${isPercentageMode ? ' (%)' : ''}`}
-        title=""
-        showTrendLine={true}
-        color={colors.primary}
-        pointColor={colors.primary}
-        trendLineColor={displayTrendDirection === 'positive' ? colors.success :
-                       displayTrendDirection === 'negative' ? colors.error : colors.secondary}
-        correlation={displayCorrelation}
-        correlationStrength={displayCorrelationStrength}
-        trendDirection={displayTrendDirection}
-        xValueFormatter={needsTimeFormatting ? formatTimeValue : null}
+        {/* Scatter Plot */}
+        <ScatterPlot
+          data={displayDataPoints}
+          width={width - 40}
+          height={240}
+          xLabel={`${habit.name}${habitUnit}`}
+          yLabel={`${sleepMetric.label}${isPercentageMode ? ' (%)' : ''}`}
+          title=""
+          showTrendLine={true}
+          color={colors.primary}
+          pointColor={colors.primary}
+          trendLineColor={displayTrendDirection === 'positive' ? colors.success :
+                         displayTrendDirection === 'negative' ? colors.error : colors.secondary}
+          correlation={displayCorrelation}
+          correlationStrength={displayCorrelationStrength}
+          trendDirection={displayTrendDirection}
+          xValueFormatter={needsTimeFormatting ? formatTimeValue : null}
         onPointPress={(point) => {
-          // Placeholder for navigation - replace with actual navigation logic
-          console.log('Data point pressed:', point);
-          // TODO: Navigate to detailed view of this data point
-          // Example: navigation.navigate('DataPointDetail', { point, habit, sleepMetric });
+          console.log('[NumericalHabitInsight] Data point pressed:', {
+            date: point.date,
+            x: point.x,
+            y: point.y,
+            hasExclusionData: point.hasOwnProperty('exclude_from_insights'),
+            exclude_from_insights: point.exclude_from_insights,
+            auto_excluded: point.auto_excluded,
+            habitName: habit?.name
+          });
+          setSelectedPoint(point);
+          setShowDetailModal(true);
         }}
-      />
+        />
 
-      {/* Simple Stats - Only show confidence since n and r are already shown in ScatterPlot */}
-      <View style={styles.statsContainer}>
-        <View style={styles.statRow}>
-          <Text style={styles.statLabel}>Confidence: </Text>
-          <Text style={[
-            styles.confidenceValue,
-            { color: confidenceLevel === 'high' ? colors.success :
-                     confidenceLevel === 'medium' ? colors.warning : colors.textSecondary }
-          ]}>
-            {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}
-          </Text>
+        {/* Statistical Significance */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Statistical Significance: </Text>
+            <Text style={[
+              styles.confidenceValue,
+              {
+                color: confidenceLevel === 'high' ? colors.success :
+                       confidenceLevel === 'medium' ? colors.warning :
+                       confidenceLevel === 'low' ? colors.error :
+                       colors.textSecondary
+              }
+            ]}>
+              {confidenceLevel === 'none' ? 'No statistical significance yet' :
+               confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} confidence` :
+               'Low confidence'}
+            </Text>
+          </View>
+          {pValue !== null && pValue !== undefined && (
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>P-value: </Text>
+              <Text style={styles.pValue}>
+                {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
-    </View>
+
+      {/* Data Point Detail Modal */}
+      <DataPointDetailModal
+        visible={showDetailModal}
+        onClose={() => {
+          setShowDetailModal(false);
+          setSelectedPoint(null);
+        }}
+        point={selectedPoint}
+        habit={habit}
+        sleepMetric={sleepMetric}
+        onExclusionComplete={() => {
+          console.log('[NumericalHabitInsight] Exclusion completed, refreshing data');
+          setShowDetailModal(false);
+          setSelectedPoint(null);
+          // Refresh the insights data
+          if (onRefresh) {
+            onRefresh();
+          }
+        }}
+      />
+    </>
   );
 };
 
@@ -218,6 +319,30 @@ const styles = StyleSheet.create({
     marginVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  compactContainer: {
+    padding: spacing.regular,
+  },
+  compactHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  logCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  logCountText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  noSignificanceText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
   },
   collapsedContainer: {
     paddingVertical: spacing.sm,
@@ -520,6 +645,12 @@ const styles = StyleSheet.create({
   confidenceValue: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
+  },
+  pValue: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    fontFamily: 'monospace',
+    color: colors.textPrimary,
   },
 });
 

@@ -304,6 +304,97 @@ const ProfileScreen = () => {
             </View>
           </View>
 
+          {/* Data Quality */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Data Quality</Text>
+            <Text style={styles.sectionDescription}>
+              Control how your data is used for insights calculation
+            </Text>
+            <View style={styles.infoCard}>
+              <Text style={styles.label}>Outlier Detection Sensitivity</Text>
+              <Text style={styles.description}>
+                How aggressively to detect and exclude anomalous data points
+              </Text>
+              <View style={styles.sensitivityContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.sensitivityOption,
+                    preferences.outlierSensitivity === 'conservative' && styles.sensitivityOptionSelected,
+                  ]}
+                  onPress={() => updatePreference('outlierSensitivity', 'conservative')}
+                >
+                  <Text
+                    style={[
+                      styles.sensitivityText,
+                      preferences.outlierSensitivity === 'conservative' && styles.sensitivityTextSelected,
+                    ]}
+                  >
+                    Conservative
+                  </Text>
+                  <Text style={styles.sensitivityDescription}>Exclude less data</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sensitivityOption,
+                    preferences.outlierSensitivity === 'standard' && styles.sensitivityOptionSelected,
+                  ]}
+                  onPress={() => updatePreference('outlierSensitivity', 'standard')}
+                >
+                  <Text
+                    style={[
+                      styles.sensitivityText,
+                      preferences.outlierSensitivity === 'standard' && styles.sensitivityTextSelected,
+                    ]}
+                  >
+                    Standard
+                  </Text>
+                  <Text style={styles.sensitivityDescription}>Balanced approach</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sensitivityOption,
+                    preferences.outlierSensitivity === 'aggressive' && styles.sensitivityOptionSelected,
+                  ]}
+                  onPress={() => updatePreference('outlierSensitivity', 'aggressive')}
+                >
+                  <Text
+                    style={[
+                      styles.sensitivityText,
+                      preferences.outlierSensitivity === 'aggressive' && styles.sensitivityTextSelected,
+                    ]}
+                  >
+                    Aggressive
+                  </Text>
+                  <Text style={styles.sensitivityDescription}>Exclude more data</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={[styles.infoCard, styles.toggleCard]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Auto-Exclude Outliers</Text>
+                  <Text style={styles.description}>
+                    Automatically exclude detected outliers from insights
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    preferences.autoExcludeOutliers && styles.toggleSwitchOn,
+                  ]}
+                  onPress={() => updatePreference('autoExcludeOutliers', !preferences.autoExcludeOutliers)}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      preferences.autoExcludeOutliers && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
           {/* Settings */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
@@ -488,6 +579,81 @@ const styles = StyleSheet.create({
   timeFormatTextSelected: {
     color: '#FFFFFF',
     fontWeight: typography.weights.medium,
+  },
+  sensitivityContainer: {
+    marginTop: spacing.xs,
+  },
+  sensitivityOption: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.xs,
+    alignItems: 'center',
+  },
+  sensitivityOptionSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  sensitivityText: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  sensitivityTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: typography.weights.medium,
+  },
+  sensitivityDescription: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginTop: spacing.xs / 2,
+  },
+  toggleCard: {
+    marginTop: spacing.md,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  toggleLabelContainer: {
+    flex: 1,
+    marginRight: spacing.regular,
+  },
+  description: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: spacing.xs / 2,
+  },
+  toggleSwitch: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.border,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleSwitchOn: {
+    backgroundColor: colors.primary,
+  },
+  toggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleKnobOn: {
+    transform: [{ translateX: 22 }],
   },
   versionContainer: {
     flexDirection: 'row',

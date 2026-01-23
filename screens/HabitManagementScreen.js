@@ -681,7 +681,8 @@ const HabitManagementScreen = () => {
   };
 
   const openEditHabit = (habit) => {
-    if (habit.is_custom) {
+    // Allow editing for custom habits OR drug habits (Caffeine, Alcohol)
+    if (habit.is_custom || habit.type === 'quick_consumption') {
       navigation.navigate('EditHabit', {
         habit: habit,
         onSuccess: () => {
@@ -734,7 +735,9 @@ const HabitManagementScreen = () => {
 
     // Render right actions (swipe left to reveal)
     const renderRightActions = () => {
-      if (!isCustom) return null; // Only show actions for custom habits
+      // Allow editing for custom habits OR drug habits (Caffeine, Alcohol)
+      const canEdit = isCustom || habit.type === 'quick_consumption';
+      if (!canEdit) return null;
 
       return (
         <View style={styles.rightActions}>
@@ -745,13 +748,16 @@ const HabitManagementScreen = () => {
           >
             <Ionicons name="pencil" size={24} color={colors.white} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.rightActionButton, styles.deleteActionButton]}
-            onPress={() => openDeleteHabit(habit)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="trash" size={24} color={colors.white} />
-          </TouchableOpacity>
+          {/* Only show delete button for custom habits */}
+          {isCustom && (
+            <TouchableOpacity
+              style={[styles.rightActionButton, styles.deleteActionButton]}
+              onPress={() => openDeleteHabit(habit)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="trash" size={24} color={colors.white} />
+            </TouchableOpacity>
+          )}
         </View>
       );
     };
@@ -888,7 +894,7 @@ const HabitManagementScreen = () => {
                 <View style={styles.header}>
                   <Text style={styles.title}>Manage Your Habits</Text>
                   <Text style={styles.subtitle}>
-                    Long press and drag habits to reorder • Swipe left on custom habits to edit/delete
+                    Long press and drag habits to reorder • Swipe left on habits to edit
                   </Text>
                 </View>
 
@@ -937,7 +943,7 @@ const HabitManagementScreen = () => {
                     <View style={styles.header}>
                       <Text style={styles.title}>Manage Your Habits</Text>
                       <Text style={styles.subtitle}>
-                        Long press and drag habits to reorder • Swipe left on custom habits to edit/delete
+                        Long press and drag habits to reorder • Swipe left on habits to edit
                       </Text>
                     </View>
 

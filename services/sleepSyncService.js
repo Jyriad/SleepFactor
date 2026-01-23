@@ -320,6 +320,42 @@ class SleepSyncService {
   }
 
   /**
+   * Check if sleep data sync is needed
+   * @returns {Promise<boolean>} True if sync is needed
+   */
+  async needsSync() {
+    try {
+      // If we've never synced, we definitely need to sync
+      if (!this.lastSyncTimestamp) {
+        return true;
+      }
+
+      // If it's been more than 6 hours since last sync, we should sync
+      const sixHoursAgo = new Date();
+      sixHoursAgo.setHours(sixHoursAgo.getHours() - 6);
+      if (this.lastSyncTimestamp < sixHoursAgo) {
+        return true;
+      }
+
+      // Check if we have recent sleep data (last 2 days)
+      const today = new Date().toISOString().split('T')[0];
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      const twoDaysAgoString = twoDaysAgo.toISOString().split('T')[0];
+
+      const recentSleepData = await sleepDataService.getSleepDataForRange(twoDaysAgoString, today);
+      const hasRecentData = recentSleepData && recentSleepData.length > 0;
+
+      // If we don't have recent data, we need to sync
+      return !hasRecentData;
+    } catch (error) {
+      console.error('Error checking if sync is needed:', error);
+      // If we can't check, assume we need to sync
+      return true;
+    }
+  }
+
+  /**
    * Get user-friendly error message for sync errors
    * @param {Error} error - The error object
    * @returns {string} User-friendly error message

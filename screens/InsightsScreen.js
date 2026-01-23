@@ -15,7 +15,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import insightsService from '../services/insightsService';
-import precomputedInsightsService from '../services/precomputedInsightsService';
+import sleepSyncService from '../services/sleepSyncService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
@@ -27,9 +27,8 @@ const InsightsScreen = () => {
 
   // State for insights data
   const [loading, setLoading] = useState(true);
-  const [insights, setInsights] = useState({ validInsights: [], placeholders: [] });
-  const [usePrecomputed, setUsePrecomputed] = useState(true); // Use server-side insights by default
-  const [lastComputationStatus, setLastComputationStatus] = useState(null);
+  const [loadingText, setLoadingText] = useState('Loading insights...');
+  const [insights, setInsights] = useState({ validInsights: [] });
 
   // State for selectors
   const [selectedMetric, setSelectedMetric] = useState('total_sleep_minutes');
@@ -42,8 +41,8 @@ const InsightsScreen = () => {
   const [showCoreSleepPicker, setShowCoreSleepPicker] = useState(false);
 
   // Get available options from insights service
-  const availableMetrics = precomputedInsightsService.getAvailableSleepMetrics();
-  const availableTimeRanges = precomputedInsightsService.getAvailableTimeRanges();
+  const availableMetrics = insightsService.getAvailableSleepMetrics();
+  const availableTimeRanges = insightsService.getAvailableTimeRanges();
 
   useEffect(() => {
     loadInsights();
@@ -60,44 +59,68 @@ const InsightsScreen = () => {
     if (!user) return;
 
     setLoading(true);
-    try {
-      if (usePrecomputed) {
-        // Fetch pre-computed insights from the server
-        const serverInsights = await precomputedInsightsService.getUserInsights(user.id);
-        
-        // Get all active habits for placeholder creation
-        const habits = await insightsService.getActiveHabits(user.id);
-        
-        // Transform server insights to UI format
-        const insightsData = precomputedInsightsService.transformServerInsightsToUIFormat(
-          serverInsights,
-          habits
-        );
-        
-        setInsights(insightsData);
-        
-        // Load last computation status
-        const status = await precomputedInsightsService.getLastComputationStatus();
-        setLastComputationStatus(status);
-      } else {
-        // Fallback to on-device computation
-        const dateRange = insightsService.calculateDateRange(selectedTimeRange);
-        const insightsData = await insightsService.getHabitsInsights(
-          user.id,
-          selectedMetric,
-          dateRange.startDate,
-          dateRange.endDate,
-          {
-            useCoreSleep,
-            useEfficiency: selectedAnalysisType === 'percentage'
-          }
-        );
+    setLoadingText('Loading insights...');
 
-        setInsights(insightsData);
+    try {
+      // First, check if sleep data sync is needed
+      setLoadingText('Checking sleep data sync...');
+      const needsSync = await sleepSyncService.needsSync();
+
+      if (needsSync) {
+        setLoadingText('Syncing sleep data...');
+        const syncResult = await sleepSyncService.syncSleepData({ silent: true });
+        if (!syncResult.success) {
+          console.warn('Sleep sync failed, but continuing with insights calculation:', syncResult.error);
+        }
       }
+
+      // Now safe to calculate insights
+      setLoadingText('Calculating insights...');
+      const dateRange = insightsService.calculateDateRange(selectedTimeRange);
+      const insightsData = await insightsService.getHabitsInsights(
+        user.id,
+        selectedMetric,
+        dateRange.startDate,
+        dateRange.endDate,
+        {
+          useCoreSleep,
+          useEfficiency: selectedAnalysisType === 'percentage'
+        }
+      );
+
+      // Sort insights by p-value (lowest first), then by confidence level
+      // Sort insights by p-value (lowest first), then by confidence level
+      const sortedInsights = {
+        validInsights: [...insightsData.validInsights].sort((a, b) => {
+          // First sort by p-value (ascending) - handle null/undefined but preserve 0
+          const aP = (a.pValue !== null && a.pValue !== undefined) ? Number(a.pValue) : 1;
+          const bP = (b.pValue !== null && b.pValue !== undefined) ? Number(b.pValue) : 1;
+
+          if (aP !== bP) {
+            return aP - bP;
+          }
+
+          // If p-values are equal, sort by confidence level priority
+          const confidencePriority = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
+          const aPriority = confidencePriority[a.confidenceLevel] || 3;
+          const bPriority = confidencePriority[b.confidenceLevel] || 3;
+
+          return aPriority - bPriority;
+        })
+      };
+
+      // Debug logging for insights
+      console.log('[InsightsScreen] Loaded insights:', sortedInsights.validInsights.map(insight => ({
+        habitName: insight.habit?.name,
+        type: insight.type,
+        confidenceLevel: insight.confidenceLevel,
+        totalDataPoints: insight.totalDataPoints
+      })));
+
+      setInsights(sortedInsights);
     } catch (error) {
       console.error('Error loading insights:', error);
-      setInsights({ validInsights: [], placeholders: [] });
+      setInsights({ validInsights: [] });
     } finally {
       setLoading(false);
     }
@@ -136,6 +159,7 @@ const InsightsScreen = () => {
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
           isCoreSleepEnabled={useCoreSleep}
+          onRefresh={loadInsights}
         />
       );
     } else if (insight.type === 'placeholder') {
@@ -171,8 +195,8 @@ const InsightsScreen = () => {
           <Text style={styles.title}>Sleep Insights</Text>
         </View>
         <View style={styles.loadingContainer}>
-          <Ionicons name="analytics-outline" size={48} color={colors.primary} />
-          <Text style={styles.loadingText}>Analyzing your sleep data...</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>{loadingText}</Text>
         </View>
       </SafeAreaView>
     );
@@ -390,40 +414,10 @@ const InsightsScreen = () => {
             {useCoreSleep ? ' during your core sleep period' : ''}
           </Text>
 
-          {/* Valid Insights Section */}
+          {/* All Insights Section - sorted by p-value */}
           {insights?.validInsights?.length > 0 && (
             <View style={styles.insightsSection}>
               {insights.validInsights.map(renderInsightCard)}
-            </View>
-          )}
-
-          {/* Placeholder Habits Section */}
-          {insights?.placeholders?.length > 0 && (
-            <View style={styles.placeholdersSection}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.sectionHeaderText}>
-                  The following habits don't have enough data points to determine correlation
-                </Text>
-              </View>
-
-              {/* Icon Legend */}
-              <View style={styles.legendContainer}>
-                <View style={styles.legendItem}>
-                  <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-                  <Text style={styles.legendText}>Days tracked</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <Ionicons name="moon-outline" size={16} color={colors.textSecondary} />
-                  <Text style={styles.legendText}>Days with sleep data</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <Ionicons name="link-outline" size={16} color={colors.primary} />
-                  <Text style={styles.legendText}>Paired data points</Text>
-                </View>
-              </View>
-
-              {insights.placeholders.map(renderInsightCard)}
             </View>
           )}
 
@@ -511,9 +505,6 @@ const styles = StyleSheet.create({
   insightsSection: {
     marginBottom: spacing.xl,
   },
-  placeholdersSection: {
-    marginTop: spacing.lg,
-  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -531,25 +522,6 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     lineHeight: 18,
     flex: 1,
-  },
-  legendContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.regular,
-    marginBottom: spacing.md,
-    paddingHorizontal: spacing.regular,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    flex: 1,
-    minWidth: '45%',
-  },
-  legendText: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
-    lineHeight: 16,
   },
   subtitle: {
     fontSize: typography.sizes.body,

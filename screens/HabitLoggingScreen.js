@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
+import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -404,36 +405,46 @@ const HabitLoggingScreen = () => {
     if (!user || habit.type !== 'quick_consumption') return null;
 
     try {
-      // Get user's notification time (bedtime) from profile
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('notification_time')
-        .eq('id', user.id)
-        .single();
+      // First, try to get actual sleep start time from sleep data
+      const dateString = date instanceof Date ? date.toISOString().split('T')[0] : date;
+      const sleepData = await sleepDataService.getSleepDataForDate(dateString);
 
-      if (userError || !userData?.notification_time) {
-        // Default to 10 PM if no notification time is set
-      }
+      let targetBedtime;
 
-      const notificationTime = userData?.notification_time || '22:00:00';
+      if (sleepData && sleepData.sleep_start_time) {
+        // Use actual sleep start time if available
+        targetBedtime = new Date(sleepData.sleep_start_time);
+        console.log('[HabitLogging] Using actual sleep start time:', targetBedtime.toISOString());
+      } else {
+        // Fall back to user's notification time from profile
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('notification_time')
+          .eq('id', user.id)
+          .single();
 
-      // Create bedtime Date object for the selected date
-      const bedtimeDate = new Date(date);
-      const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
-      bedtimeDate.setHours(hours, minutes, seconds || 0, 0);
+        const notificationTime = userData?.notification_time || '22:00:00';
 
-      // If bedtime is in the past (user already slept), it should be the next day
-      // But for habit logging, we want the bedtime for the night following the logged day
-      const now = new Date();
-      if (bedtimeDate <= now) {
-        bedtimeDate.setDate(bedtimeDate.getDate() + 1);
+        // Create bedtime Date object for the selected date
+        targetBedtime = new Date(date);
+        const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
+        targetBedtime.setHours(hours, minutes, seconds || 0, 0);
+
+        // If bedtime is in the past (user already slept), it should be the next day
+        // But for habit logging, we want the bedtime for the night following the logged day
+        const now = new Date();
+        if (targetBedtime <= now) {
+          targetBedtime.setDate(targetBedtime.getDate() + 1);
+        }
+
+        console.log('[HabitLogging] Using notification time fallback:', targetBedtime.toISOString());
       }
 
       // Get all consumption events for this habit across the relevant time period
       // Look back far enough to capture long half-life effects (3 half-lives)
       const maxHalfLife = habit.half_life_hours || 5;
       const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
-      const historyStart = new Date(bedtimeDate);
+      const historyStart = new Date(targetBedtime);
       historyStart.setDate(historyStart.getDate() - historyDays);
 
       const { data: eventsData, error: eventsError } = await supabase
@@ -442,7 +453,7 @@ const HabitLoggingScreen = () => {
         .eq('user_id', user.id)
         .eq('habit_id', habit.id)
         .gte('consumed_at', historyStart.toISOString())
-        .lte('consumed_at', bedtimeDate.toISOString())
+        .lte('consumed_at', targetBedtime.toISOString())
         .order('consumed_at', { ascending: true });
 
       if (eventsError) {
@@ -453,8 +464,8 @@ const HabitLoggingScreen = () => {
         return 0; // No consumption events means 0 drug level
       }
 
-      // Calculate the drug level at bedtime
-      const bedtimeLevel = getBedtimeDrugLevel(eventsData, bedtimeDate, habit.half_life_hours || 5);
+      // Calculate the drug level at target bedtime (actual sleep start or notification time)
+      const bedtimeLevel = getBedtimeDrugLevel(eventsData, targetBedtime, habit.half_life_hours || 5);
 
       return bedtimeLevel;
 

@@ -17,31 +17,25 @@ const BinaryHabitInsight = ({
     return null;
   }
 
-  const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats, confidenceLevel } = insight;
+  const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats, confidenceLevel, pValue, isSignificant } = insight;
 
-  // Check if we have sufficient data
-  if (totalDataPoints < 10) {
+  // Non-significant insights show as compact, non-expandable cards
+  const isSignificantInsight = confidenceLevel !== 'none';
+
+  // Non-significant insights show compact card
+  if (!isSignificantInsight) {
     return (
-      <View style={[styles.container, { width }]}>
-        <View style={styles.header}>
+      <View style={[styles.container, styles.compactContainer, { width }]}>
+        <View style={styles.compactHeader}>
           <Text style={styles.habitName}>{habit.name}</Text>
-          <View style={styles.insufficientDataBadge}>
-            <Ionicons name="warning-outline" size={14} color={colors.warning} />
-            <Text style={styles.insufficientDataText}>Insufficient Data</Text>
+          <View style={styles.logCountBadge}>
+            <Ionicons name="list-outline" size={14} color={colors.textSecondary} />
+            <Text style={styles.logCountText}>
+              Logged {totalDataPoints} time{totalDataPoints !== 1 ? 's' : ''}
+            </Text>
           </View>
         </View>
-
-        <View style={styles.insufficientDataContent}>
-          <Text style={styles.insufficientDataTitle}>
-            Need at least 10 logged days to show insights
-          </Text>
-          <Text style={styles.insufficientDataSubtitle}>
-            Keep logging this habit to see patterns emerge between "{habit.name}" and your sleep.
-          </Text>
-          <Text style={styles.dataCount}>
-            Currently logged: {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''}
-          </Text>
-        </View>
+        <Text style={styles.noSignificanceText}>No statistical significance yet</Text>
       </View>
     );
   }
@@ -182,21 +176,25 @@ const BinaryHabitInsight = ({
               )}
               <View style={[
                 styles.confidenceBadge,
-                { 
-                  backgroundColor: confidenceLevel === 'high' ? colors.success + '20' : 
-                                  confidenceLevel === 'medium' ? colors.warning + '20' : 
+                {
+                  backgroundColor: confidenceLevel === 'high' ? colors.success + '20' :
+                                  confidenceLevel === 'medium' ? colors.warning + '20' :
+                                  confidenceLevel === 'low' ? colors.error + '20' :
                                   colors.textSecondary + '20'
                 }
               ]}>
                 <Text style={[
                   styles.confidenceBadgeText,
-                  { 
-                    color: confidenceLevel === 'high' ? colors.success : 
-                           confidenceLevel === 'medium' ? colors.warning : 
+                  {
+                    color: confidenceLevel === 'high' ? colors.success :
+                           confidenceLevel === 'medium' ? colors.warning :
+                           confidenceLevel === 'low' ? colors.error :
                            colors.textSecondary
                   }
                 ]}>
-                  {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}
+                  {confidenceLevel === 'none' ? 'No Statistical Significance' :
+                   confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` :
+                   'Low Confidence'}
                 </Text>
               </View>
             </View>
@@ -272,11 +270,25 @@ const BinaryHabitInsight = ({
           <Text style={styles.statLabel}>Confidence: </Text>
           <Text style={[
             styles.confidenceValue,
-            { color: confidenceLevel === 'high' ? colors.success : 
-                     confidenceLevel === 'medium' ? colors.warning : colors.textSecondary }
+            {
+              color: confidenceLevel === 'high' ? colors.success :
+                     confidenceLevel === 'medium' ? colors.warning :
+                     confidenceLevel === 'low' ? colors.error :
+                     colors.textSecondary
+            }
           ]}>
-            {confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence` : 'Low Confidence'}
+            {confidenceLevel === 'none' ? 'No statistical significance yet' :
+             confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} confidence` :
+             'Low confidence'}
           </Text>
+          {pValue !== null && pValue !== undefined && (
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>P-value: </Text>
+              <Text style={styles.pValue}>
+                {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     </View>
@@ -349,6 +361,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
     paddingHorizontal: spacing.regular,
+    paddingTop: spacing.sm,
   },
   expandedHeader: {
     marginBottom: spacing.sm,
@@ -465,18 +478,14 @@ const styles = StyleSheet.create({
     marginVertical: spacing.regular,
   },
   statsContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 8,
-    marginTop: spacing.regular,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
+    marginTop: spacing.xs,
+    gap: spacing.xs,
   },
   statRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.regular,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     flexWrap: 'wrap',
   },
   statLabel: {
@@ -566,6 +575,36 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
+  },
+  pValue: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    fontFamily: 'monospace',
+    color: colors.textPrimary,
+  },
+  compactContainer: {
+    padding: spacing.regular,
+  },
+  compactHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  logCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  logCountText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  noSignificanceText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
   },
 });
 
