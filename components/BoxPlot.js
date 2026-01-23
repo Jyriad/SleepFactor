@@ -267,8 +267,29 @@ export const BoxPlotComparison = ({
         ))}
       </View>
 
-      <TouchableOpacity onPress={() => handlePress(healthierData, healthierLabel)} activeOpacity={0.7}>
-        <Svg width={plotWidth} height={plotHeight} style={styles.chartContainer}>
+      <View style={styles.chartContainer}>
+        {/* Create separate touchable areas for each box plot */}
+        {positions.map((pos, index) => {
+          const touchableWidth = data1 && data2 ? plotWidth / 2 : plotWidth;
+          const touchableLeft = index * touchableWidth;
+
+          return (
+            <TouchableOpacity
+              key={`touchable-${index}`}
+              style={{
+                position: 'absolute',
+                left: touchableLeft,
+                top: 0,
+                width: touchableWidth,
+                height: plotHeight,
+              }}
+              onPress={() => handlePress(pos.data, pos.label)}
+              activeOpacity={0.7}
+            />
+          );
+        })}
+
+        <Svg width={plotWidth} height={plotHeight}>
           {positions.map((pos, index) => {
             const { data, color, x } = pos;
             if (!data) return null;
@@ -363,7 +384,7 @@ export const BoxPlotComparison = ({
             );
           })}
         </Svg>
-      </TouchableOpacity>
+      </View>
 
       {showStats && positions.length > 0 && (
         <View style={styles.statsContainer}>

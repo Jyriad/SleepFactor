@@ -299,7 +299,7 @@ class BedtimeHabitsService {
         .from('habits')
         .select('id, name, is_active')
         .eq('user_id', userId)
-        .in('name', ['Bedtime Consistency', 'Actual Bedtime']);
+        .in('name', ['Bedtime Consistency']);
 
       if (habitsError) {
         console.log('[BedtimeConsistency] Error fetching habits:', habitsError);
@@ -311,9 +311,8 @@ class BedtimeHabitsService {
       // Find habits regardless of active state for backfill operations
       // This allows manual syncs to refresh data even if habit is temporarily disabled
       const bedtimeConsistencyHabit = habits?.find(h => h.name === 'Bedtime Consistency');
-      const actualBedtimeHabit = habits?.find(h => h.name === 'Actual Bedtime');
 
-      if (!bedtimeConsistencyHabit && !actualBedtimeHabit) {
+      if (!bedtimeConsistencyHabit) {
         console.log('[BedtimeConsistency] No bedtime habits found, skipping backfill');
         return;
       }
@@ -360,19 +359,6 @@ class BedtimeHabitsService {
           }
         }
 
-        // Add actual bedtime (can estimate from sleep duration data)
-        if (actualBedtimeHabit) {
-          const actualBedtime = await this.getActualBedtime(userId, date);
-          if (actualBedtime) {
-            habitLogEntries.push({
-              user_id: userId,
-              habit_id: actualBedtimeHabit.id,
-              date: date,
-              value: actualBedtime,
-            });
-          }
-        }
-
         // Upsert habit logs
         if (habitLogEntries.length > 0) {
           const { error: logError } = await supabase
@@ -409,7 +395,7 @@ class BedtimeHabitsService {
         .from('habits')
         .select('id, name, is_active')
         .eq('user_id', userId)
-        .in('name', ['Bedtime Consistency', 'Actual Bedtime']);
+        .in('name', ['Bedtime Consistency']);
 
       if (habitsError) {
         return;
@@ -417,10 +403,8 @@ class BedtimeHabitsService {
 
 
       const bedtimeConsistencyHabit = habits?.find(h => h.name === 'Bedtime Consistency');
-      const actualBedtimeHabit = habits?.find(h => h.name === 'Actual Bedtime');
 
-
-      if (!bedtimeConsistencyHabit && !actualBedtimeHabit) {
+      if (!bedtimeConsistencyHabit) {
         return;
       }
 
@@ -441,19 +425,6 @@ class BedtimeHabitsService {
               date: date,
               value: consistency.toString(),
               numeric_value: consistency,
-            });
-          }
-        }
-
-        // Add actual bedtime (can estimate from sleep duration data)
-        if (actualBedtimeHabit) {
-          const actualBedtime = await this.getActualBedtime(userId, date);
-          if (actualBedtime) {
-            habitLogEntries.push({
-              user_id: userId,
-              habit_id: actualBedtimeHabit.id,
-              date: date,
-              value: actualBedtime,
             });
           }
         }

@@ -22,11 +22,13 @@ const EditHabitScreen = () => {
   const { habit, onSuccess } = route.params || {};
 
   const [habitName, setHabitName] = useState(habit?.name || '');
+  const [halfLifeHours, setHalfLifeHours] = useState(habit?.half_life_hours?.toString() || '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (habit) {
       setHabitName(habit.name || '');
+      setHalfLifeHours(habit.half_life_hours?.toString() || '');
     }
   }, [habit]);
 
@@ -39,15 +41,30 @@ const EditHabitScreen = () => {
 
     setSaving(true);
     try {
+      const updateData = {
+        name: habitName.trim(),
+        updated_at: new Date().toISOString(),
+      };
+
+      // Allow editing drug habits (caffeine/alcohol) even if they're not custom
+      if (habit.type !== 'quick_consumption' && !habit.is_custom) {
+        Alert.alert('Error', 'Only custom habits can be edited');
+        return;
+      }
+
+      // Add half-life for drug habits
+      if (habit.type === 'quick_consumption' && halfLifeHours.trim()) {
+        const halfLifeValue = parseFloat(halfLifeHours.trim());
+        if (!isNaN(halfLifeValue) && halfLifeValue > 0) {
+          updateData.half_life_hours = halfLifeValue;
+        }
+      }
+
       const { error } = await supabase
         .from('habits')
-        .update({ 
-          name: habitName.trim(),
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', habit.id)
-        .eq('user_id', user.id)
-        .eq('is_custom', true); // Only allow editing custom habits
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -69,7 +86,9 @@ const EditHabitScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Edit Habit Name</Text>
+        <Text style={styles.title}>
+          {habit?.type === 'quick_consumption' ? 'Edit Drug Habit' : 'Edit Habit Name'}
+        </Text>
         <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
           <Ionicons name="close" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
@@ -85,6 +104,30 @@ const EditHabitScreen = () => {
           onChangeText={setHabitName}
           maxLength={50}
         />
+
+        {/* Half-life input for drug habits */}
+        {habit?.type === 'quick_consumption' && (
+          <>
+            <Text style={[styles.label, styles.halfLifeLabel]}>
+              Half-Life (hours)
+              <Text style={styles.halfLifeHelp}>
+                {'  '}How long it takes for the substance to reduce by half in your system
+              </Text>
+            </Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g., 5 (for caffeine)"
+              placeholderTextColor={colors.textLight}
+              value={halfLifeHours}
+              onChangeText={setHalfLifeHours}
+              keyboardType="numeric"
+              maxLength={10}
+            />
+            <Text style={styles.halfLifeExamples}>
+              Common half-lives: Caffeine (4-6 hours), Alcohol (4-5 hours)
+            </Text>
+          </>
+        )}
       </View>
 
       <View style={styles.actions}>
@@ -101,7 +144,7 @@ const EditHabitScreen = () => {
           disabled={saving}
         >
           <Text style={styles.saveButtonText}>
-            {saving ? 'Updating...' : 'Update'}
+            {saving ? 'Updating...' : 'Update Habit'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -148,6 +191,21 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     backgroundColor: colors.background,
+  },
+  halfLifeLabel: {
+    marginTop: spacing.regular,
+  },
+  halfLifeHelp: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  halfLifeExamples: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginTop: spacing.xs / 2,
+    marginBottom: spacing.regular,
+    lineHeight: 16,
   },
   actions: {
     flexDirection: 'row',

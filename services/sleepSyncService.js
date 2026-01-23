@@ -10,6 +10,8 @@ class SleepSyncService {
   constructor() {
     this.isInitialized = false;
     this.lastSyncTimestamp = null;
+    this.isSyncing = false; // Track if a sync is currently in progress
+    this.syncQueue = Promise.resolve(); // Queue to serialize sync operations
   }
 
   /**
@@ -55,9 +57,37 @@ class SleepSyncService {
    * @param {Object} options - Sync options
    * @param {number} options.daysBack - Number of days back to sync (default: 7)
    * @param {boolean} options.force - Force sync even if recently synced
+   * @param {boolean} options.silent - If true, don't show UI indicators (for background sync)
    * @returns {Promise<Object>} Sync result with success status and data
    */
-  async syncSleepData({ daysBack = 7, force = false } = {}) {
+  async syncSleepData({ daysBack = 7, force = false, silent = false } = {}) {
+    // If a sync is already in progress, return early to prevent race conditions
+    if (this.isSyncing && !force) {
+      console.log('Sync already in progress, skipping...');
+      return {
+        success: true,
+        data: [],
+        message: 'Sync already in progress',
+        skipped: true
+      };
+    }
+
+    // Queue this sync operation to ensure serialization
+    return this.syncQueue = this.syncQueue.then(async () => {
+      this.isSyncing = true;
+      try {
+        return await this._performSync({ daysBack, force, silent });
+      } finally {
+        this.isSyncing = false;
+      }
+    });
+  }
+
+  /**
+   * Internal method that performs the actual sync
+   * @private
+   */
+  async _performSync({ daysBack = 7, force = false, silent = false } = {}) {
     try {
       // Initialize health service first - if this succeeds, Health Connect is available
       if (!healthService.isInitialized) {
@@ -217,6 +247,14 @@ class SleepSyncService {
   }
 
   /**
+   * Check if a sync is currently in progress
+   * @returns {boolean} True if syncing
+   */
+  getIsSyncing() {
+    return this.isSyncing;
+  }
+
+  /**
    * Check if a sync is needed (based on time since last sync)
    * @param {number} maxAgeHours - Maximum age in hours before sync is needed (default: 24)
    * @returns {boolean} True if sync is needed
@@ -278,6 +316,42 @@ class SleepSyncService {
       return await healthService.hasPermissions();
     } catch (error) {
       return false;
+    }
+  }
+
+  /**
+   * Check if sleep data sync is needed
+   * @returns {Promise<boolean>} True if sync is needed
+   */
+  async needsSync() {
+    try {
+      // If we've never synced, we definitely need to sync
+      if (!this.lastSyncTimestamp) {
+        return true;
+      }
+
+      // If it's been more than 6 hours since last sync, we should sync
+      const sixHoursAgo = new Date();
+      sixHoursAgo.setHours(sixHoursAgo.getHours() - 6);
+      if (this.lastSyncTimestamp < sixHoursAgo) {
+        return true;
+      }
+
+      // Check if we have recent sleep data (last 2 days)
+      const today = new Date().toISOString().split('T')[0];
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      const twoDaysAgoString = twoDaysAgo.toISOString().split('T')[0];
+
+      const recentSleepData = await sleepDataService.getSleepDataForRange(twoDaysAgoString, today);
+      const hasRecentData = recentSleepData && recentSleepData.length > 0;
+
+      // If we don't have recent data, we need to sync
+      return !hasRecentData;
+    } catch (error) {
+      console.error('Error checking if sync is needed:', error);
+      // If we can't check, assume we need to sync
+      return true;
     }
   }
 

@@ -8,6 +8,8 @@ const PREFERENCES_STORAGE_KEY = '@user_preferences';
 // Default preferences
 const DEFAULT_PREFERENCES = {
   timeFormat: '12', // '12' or '24'
+  outlierSensitivity: 'standard', // 'conservative', 'standard', or 'aggressive'
+  autoExcludeOutliers: false, // whether to automatically exclude detected outliers
   // Add more preferences here as needed
 };
 

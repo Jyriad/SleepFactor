@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, Alert } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Alert, TouchableOpacity } from 'react-native';
 import Svg, { Circle, Line, Text as SvgText, G, Rect } from 'react-native-svg';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
@@ -21,9 +21,18 @@ const ScatterPlot = ({
   correlation = null,
   correlationStrength = 'weak',
   trendDirection = 'none',
-  onPointPress = null // Callback for data point presses
+  onPointPress = null, // Callback for data point presses
+  xValueFormatter = null // Optional function to format x-axis values
 }) => {
   const [selectedPoint, setSelectedPoint] = useState(null);
+
+  // Debug logging for props
+  console.log('[ScatterPlot] Rendered with props:', {
+    dataLength: data?.length,
+    hasOnPointPress: !!onPointPress,
+    xLabel,
+    yLabel
+  });
 
   if (!data || data.length === 0) {
     return (
@@ -143,32 +152,105 @@ const ScatterPlot = ({
     return { start: niceStart, end: niceEnd, step: niceStep };
   };
 
-  // Handle point press with navigation placeholder
-  const handlePointPress = (point) => {
-    setSelectedPoint(point);
+  // Find the closest data point to touch coordinates
+  const findClosestPoint = (touchX, touchY) => {
+    if (!validData || validData.length === 0) return null;
 
-    if (onPointPress) {
-      // Custom callback provided - let parent handle navigation
-      onPointPress(point);
-    } else {
-      // Default behavior - show alert with placeholder navigation
-      Alert.alert(
-        'Data Point Details',
-        `Date: ${point.date}\n${xLabel}: ${point.x}\n${yLabel}: ${point.y}`,
-        [
-          { text: 'View Details', onPress: () => {
-            // Placeholder for navigation - replace with actual navigation logic
-            Alert.alert('Navigation Placeholder', 'This would navigate to a detailed view of this data point');
-          }},
-          { text: 'Cancel', style: 'cancel' }
-        ]
+    let closestPoint = null;
+    let closestDistance = Infinity;
+
+    validData.forEach((point, index) => {
+      const pointScreenX = xScale(point.x);
+      const pointScreenY = yScale(point.y);
+
+      // Calculate Euclidean distance
+      const distance = Math.sqrt(
+        Math.pow(touchX - pointScreenX, 2) + Math.pow(touchY - pointScreenY, 2)
       );
+
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestPoint = { ...point, screenX: pointScreenX, screenY: pointScreenY, distance };
+      }
+    });
+
+    // Only return the point if it's within a reasonable touch distance (e.g., 50px radius for easier tapping)
+    return closestDistance <= 50 ? closestPoint : null;
+  };
+
+  // Handle container press with coordinate-based hit testing
+  const handleContainerPress = (event) => {
+    const { locationX, locationY } = event.nativeEvent;
+
+    console.log('[ScatterChart] Container pressed at:', { locationX, locationY });
+    console.log('[ScatterChart] Chart dimensions:', { safeWidth, safeHeight });
+    console.log('[ScatterChart] Margins:', margin);
+    console.log('[ScatterChart] Data ranges:', { xMin: displayXMin, xMax: displayXMax, yMin: displayYMin, yMax: displayYMax });
+
+    // For TouchableOpacity, locationX and locationY are relative to the TouchableOpacity bounds
+    // Since TouchableOpacity covers the entire chart area, these are already in the right coordinate system
+    // But we need to account for the fact that the actual chart plotting area is inset by margins
+    const chartX = locationX;
+    const chartY = locationY;
+
+    console.log('[ScatterChart] Using raw touch coordinates (TouchableOpacity covers full area):', { chartX, chartY });
+
+    const closestPoint = findClosestPoint(chartX, chartY);
+
+    if (closestPoint) {
+      console.log('[ScatterChart] Found closest point:', {
+        date: closestPoint.date,
+        x: closestPoint.x,
+        y: closestPoint.y,
+        screenX: closestPoint.screenX,
+        screenY: closestPoint.screenY,
+        distance: closestPoint.distance,
+        hasExclusionData: closestPoint.hasOwnProperty('exclude_from_insights'),
+        isExcluded: closestPoint.exclude_from_insights,
+        autoExcluded: closestPoint.auto_excluded
+      });
+
+      setSelectedPoint(closestPoint);
+
+      if (onPointPress) {
+        console.log('[ScatterChart] Calling onPointPress callback with point:', closestPoint);
+        onPointPress(closestPoint);
+      } else {
+        console.log('[ScatterChart] No onPointPress callback - showing default alert');
+        Alert.alert(
+          'Data Point Details',
+          `Date: ${closestPoint.date}\n${xLabel}: ${closestPoint.x}\n${yLabel}: ${closestPoint.y}`,
+          [
+            { text: 'View Details', onPress: () => {
+              console.log('[ScatterChart] Default "View Details" pressed');
+              Alert.alert('Navigation Placeholder', 'This would navigate to a detailed view of this data point');
+            }},
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
+      }
+    } else {
+      console.log('[ScatterChart] No point found within touch distance');
+
+      // Debug: show what points are available and their screen coordinates
+      validData.slice(0, 5).forEach((point, index) => {
+        const screenX = xScale(point.x);
+        const screenY = yScale(point.y);
+        const distance = Math.sqrt(Math.pow(chartX - screenX, 2) + Math.pow(chartY - screenY, 2));
+        console.log(`[ScatterChart] Point ${index} (${point.date}): screen=(${screenX}, ${screenY}), touch=(${chartX}, ${chartY}), distance=${distance}`);
+      });
     }
   };
 
   // Create scales for positioning
   const xScale = (value) => ((value - displayXMin) / displayXRange) * chartWidth + margin.left;
   const yScale = (value) => chartHeight - ((value - displayYMin) / displayYRange) * chartHeight + margin.top;
+
+  // Debug scaling functions
+  console.log('[ScatterChart] Scaling functions test:');
+  console.log('[ScatterChart] xScale(31):', xScale(31), 'yScale(440):', yScale(440));
+  console.log('[ScatterChart] xScale range:', { min: xScale(displayXMin), max: xScale(displayXMax) });
+  console.log('[ScatterChart] yScale range:', { min: yScale(displayYMin), max: yScale(displayYMax) });
 
   // Generate axis markers with nice number rounding
   const generateAxisMarkers = () => {
@@ -183,8 +265,12 @@ const ScatterPlot = ({
       if (value >= displayXMin && value <= displayXMax) {
         const ratio = (value - displayXMin) / displayXRange;
         const x = margin.left + (ratio * chartWidth);
+        // Use formatter if provided, otherwise default formatting
+        const formattedValue = xValueFormatter
+          ? xValueFormatter(value)
+          : value.toFixed(value % 1 === 0 ? 0 : 1); // No decimals for whole numbers
         xMarkers.push({
-          value: value.toFixed(value % 1 === 0 ? 0 : 1), // No decimals for whole numbers
+          value: formattedValue,
           x: x,
           y: safeHeight - margin.bottom + 15
         });
@@ -214,7 +300,11 @@ const ScatterPlot = ({
 
   return (
     <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
-      <View style={styles.chartContainer}>
+      <TouchableOpacity
+        style={styles.chartContainer}
+        onPress={handleContainerPress}
+        activeOpacity={1}
+      >
         <Svg width={safeWidth} height={safeHeight}>
           <Rect
             x={0}
@@ -224,144 +314,183 @@ const ScatterPlot = ({
             fill={colors.cardBackground}
           />
 
-          {/* Grid lines */}
-          {xMarkers.map((marker, index) => (
-            <Line
-              key={`x-grid-${index}`}
-              x1={marker.x}
-              y1={margin.top}
-              x2={marker.x}
-              y2={margin.top + chartHeight}
-              stroke={colors.border}
-              strokeWidth={1}
-              opacity={0.3}
-            />
-          ))}
 
-          {yMarkers.map((marker, index) => (
+            {/* Grid lines */}
+            {xMarkers.map((marker, index) => (
+              <Line
+                key={`x-grid-${index}`}
+                x1={marker.x}
+                y1={margin.top}
+                x2={marker.x}
+                y2={margin.top + chartHeight}
+                stroke={colors.border}
+                strokeWidth={1}
+                opacity={0.3}
+              />
+            ))}
+
+            {yMarkers.map((marker, index) => (
+              <Line
+                key={`y-grid-${index}`}
+                x1={margin.left}
+                y1={marker.y - 4}
+                x2={margin.left + chartWidth}
+                y2={marker.y - 4}
+                stroke={colors.border}
+                strokeWidth={1}
+                opacity={0.3}
+              />
+            ))}
+
+            {/* Axis lines */}
             <Line
-              key={`y-grid-${index}`}
               x1={margin.left}
-              y1={marker.y - 4}
+              y1={margin.top + chartHeight}
               x2={margin.left + chartWidth}
-              y2={marker.y - 4}
-              stroke={colors.border}
+              y2={margin.top + chartHeight}
+              stroke={colors.textSecondary}
               strokeWidth={1}
-              opacity={0.3}
             />
-          ))}
-
-          {/* Axis lines */}
-          <Line
-            x1={margin.left}
-            y1={margin.top + chartHeight}
-            x2={margin.left + chartWidth}
-            y2={margin.top + chartHeight}
-            stroke={colors.textSecondary}
-            strokeWidth={1}
-          />
-          <Line
-            x1={margin.left}
-            y1={margin.top}
-            x2={margin.left}
-            y2={margin.top + chartHeight}
-            stroke={colors.textSecondary}
-            strokeWidth={1}
-          />
-
-          {/* Trend line */}
-          {trendLineData && trendLineData.length >= 2 && (
             <Line
-              x1={xScale(trendLineData[0].x)}
-              y1={yScale(trendLineData[0].y)}
-              x2={xScale(trendLineData[1].x)}
-              y2={yScale(trendLineData[1].y)}
-              stroke={trendLineColor}
-              strokeWidth={2}
+              x1={margin.left}
+              y1={margin.top}
+              x2={margin.left}
+              y2={margin.top + chartHeight}
+              stroke={colors.textSecondary}
+              strokeWidth={1}
             />
-          )}
 
-          {/* Axis labels */}
-          {xLabel && (
-            <SvgText
-              x={margin.left + chartWidth / 2}
-              y={safeHeight - 10}
-              textAnchor="middle"
-              fontSize={12}
-              fontWeight="bold"
-              fill={colors.textPrimary}
-              fontFamily="monospace"
-            >
-              {xLabel}
-            </SvgText>
-          )}
+            {/* Trend line */}
+            {trendLineData && trendLineData.length >= 2 && (
+              <Line
+                x1={xScale(trendLineData[0].x)}
+                y1={yScale(trendLineData[0].y)}
+                x2={xScale(trendLineData[1].x)}
+                y2={yScale(trendLineData[1].y)}
+                stroke={trendLineColor}
+                strokeWidth={2}
+              />
+            )}
 
-          {yLabel && (
-            <SvgText
-              x={12}
-              y={margin.top + chartHeight / 2}
-              textAnchor="middle"
-              fontSize={12}
-              fontWeight="bold"
-              fill={colors.textPrimary}
-              fontFamily="monospace"
-              transform={`rotate(-90, 12, ${margin.top + chartHeight / 2})`}
-            >
-              {yLabel}
-            </SvgText>
-          )}
+            {/* Axis labels */}
+            {xLabel && (
+              <SvgText
+                x={margin.left + chartWidth / 2}
+                y={safeHeight - 10}
+                textAnchor="middle"
+                fontSize={12}
+                fontWeight="bold"
+                fill={colors.textPrimary}
+                fontFamily="monospace"
+              >
+                {xLabel}
+              </SvgText>
+            )}
 
-          {/* X-axis markers and labels */}
-          {xMarkers.map((marker, index) => (
-            <SvgText
-              key={`x-marker-${index}`}
-              x={marker.x}
-              y={marker.y}
-              textAnchor="middle"
-              fontSize={10}
-              fill={colors.textSecondary}
-              fontFamily="monospace"
-            >
-              {marker.value}
-            </SvgText>
-          ))}
+            {yLabel && (
+              <SvgText
+                x={12}
+                y={margin.top + chartHeight / 2}
+                textAnchor="middle"
+                fontSize={12}
+                fontWeight="bold"
+                fill={colors.textPrimary}
+                fontFamily="monospace"
+                transform={`rotate(-90, 12, ${margin.top + chartHeight / 2})`}
+              >
+                {yLabel}
+              </SvgText>
+            )}
 
-          {/* Y-axis markers and labels */}
-          {yMarkers.map((marker, index) => (
-            <SvgText
-              key={`y-marker-${index}`}
-              x={marker.x}
-              y={marker.y}
-              textAnchor="end"
-              fontSize={10}
-              fill={colors.textSecondary}
-              fontFamily="monospace"
-            >
-              {marker.value}
-            </SvgText>
-          ))}
-          {/* Data points */}
-          {validData.map((point, index) => (
-            <Circle
-              key={`point-${index}`}
-              cx={xScale(point.x)}
-              cy={yScale(point.y)}
-              r={10}
-              fill={pointColor}
-              opacity={0.8}
-              onPress={() => handlePointPress(point)}
-            />
-          ))}
-        </Svg>
+            {/* X-axis markers and labels */}
+            {xMarkers.map((marker, index) => (
+              <SvgText
+                key={`x-marker-${index}`}
+                x={marker.x}
+                y={marker.y}
+                textAnchor="middle"
+                fontSize={10}
+                fill={colors.textSecondary}
+                fontFamily="monospace"
+              >
+                {marker.value}
+              </SvgText>
+            ))}
+
+            {/* Y-axis markers and labels */}
+            {yMarkers.map((marker, index) => (
+              <SvgText
+                key={`y-marker-${index}`}
+                x={marker.x}
+                y={marker.y}
+                textAnchor="end"
+                fontSize={10}
+                fill={colors.textSecondary}
+                fontFamily="monospace"
+              >
+                {marker.value}
+              </SvgText>
+            ))}
+
+            {/* Data points */}
+            {validData.map((point, index) => {
+              const isOutlier = point.isOutlier || false;
+              const isExcluded = point.exclude_from_insights || false;
+              const isAutoExcluded = point.auto_excluded || false;
+
+              // Determine visual properties based on exclusion status
+              let pointFillColor = pointColor;
+              let pointOpacity = 0.8;
+              let pointRadius = 10;
+              let strokeColor = 'none';
+              let strokeWidth = 0;
+
+              if (isExcluded) {
+                // Excluded points are smaller, more transparent, and have a border
+                pointRadius = 6;
+                pointOpacity = 0.4;
+                strokeColor = isAutoExcluded ? colors.warning : colors.error;
+                strokeWidth = 2;
+                pointFillColor = colors.textSecondary;
+              } else if (isOutlier) {
+                // Outliers (but not excluded) are slightly dimmed
+                pointFillColor = colors.textSecondary;
+                pointOpacity = 0.6;
+              }
+
+              console.log(`[ScatterChart] Rendering point ${index}:`, {
+                date: point.date,
+                x: point.x,
+                y: point.y,
+                isExcluded,
+                isAutoExcluded,
+                isOutlier,
+                visual: { pointRadius, pointOpacity, strokeColor, strokeWidth }
+              });
+
+              return (
+                <Circle
+                  key={`point-${index}`}
+                  cx={xScale(point.x)}
+                  cy={yScale(point.y)}
+                  r={pointRadius}
+                  fill={pointFillColor}
+                  opacity={pointOpacity}
+                  stroke={strokeColor}
+                  strokeWidth={strokeWidth}
+                />
+              );
+            })}
+          </Svg>
+        </TouchableOpacity>
+
+        {/* Statistics */}
+        <View style={styles.statsContainer}>
+          <Text style={styles.statsText}>
+            n={validData.length} | {correlationText}
+          </Text>
+        </View>
       </View>
-
-      {/* Statistics */}
-      <View style={styles.statsContainer}>
-        <Text style={styles.statsText}>
-          n={validData.length} | {correlationText}
-        </Text>
-      </View>
-    </View>
   );
 };
 

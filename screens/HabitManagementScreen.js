@@ -34,7 +34,6 @@ const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
   { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
   { name: 'Bedtime Consistency', type: 'numeric', unit: 'minutes', is_automated: true },
-  { name: 'Actual Bedtime', type: 'time', unit: null, is_automated: true },
 ];
 
 
@@ -188,7 +187,7 @@ const HabitManagementScreen = () => {
 
       // Helper function to check if a habit is an automated bedtime habit
       const isAutomatedBedtimeHabit = (habit) => {
-        return habit && (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime');
+        return habit && habit.name === 'Bedtime Consistency';
       };
 
       // Separate habits into manual and automatic categories
@@ -682,7 +681,8 @@ const HabitManagementScreen = () => {
   };
 
   const openEditHabit = (habit) => {
-    if (habit.is_custom) {
+    // Allow editing for custom habits OR drug habits (Caffeine, Alcohol)
+    if (habit.is_custom || habit.type === 'quick_consumption') {
       navigation.navigate('EditHabit', {
         habit: habit,
         onSuccess: () => {
@@ -735,7 +735,9 @@ const HabitManagementScreen = () => {
 
     // Render right actions (swipe left to reveal)
     const renderRightActions = () => {
-      if (!isCustom) return null; // Only show actions for custom habits
+      // Allow editing for custom habits OR drug habits (Caffeine, Alcohol)
+      const canEdit = isCustom || habit.type === 'quick_consumption';
+      if (!canEdit) return null;
 
       return (
         <View style={styles.rightActions}>
@@ -746,13 +748,16 @@ const HabitManagementScreen = () => {
           >
             <Ionicons name="pencil" size={24} color={colors.white} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.rightActionButton, styles.deleteActionButton]}
-            onPress={() => openDeleteHabit(habit)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="trash" size={24} color={colors.white} />
-          </TouchableOpacity>
+          {/* Only show delete button for custom habits */}
+          {isCustom && (
+            <TouchableOpacity
+              style={[styles.rightActionButton, styles.deleteActionButton]}
+              onPress={() => openDeleteHabit(habit)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="trash" size={24} color={colors.white} />
+            </TouchableOpacity>
+          )}
         </View>
       );
     };
@@ -889,7 +894,7 @@ const HabitManagementScreen = () => {
                 <View style={styles.header}>
                   <Text style={styles.title}>Manage Your Habits</Text>
                   <Text style={styles.subtitle}>
-                    Long press and drag habits to reorder • Swipe left on custom habits to edit/delete
+                    Long press and drag habits to reorder • Swipe left on habits to edit
                   </Text>
                 </View>
 
@@ -938,7 +943,7 @@ const HabitManagementScreen = () => {
                     <View style={styles.header}>
                       <Text style={styles.title}>Manage Your Habits</Text>
                       <Text style={styles.subtitle}>
-                        Long press and drag habits to reorder • Swipe left on custom habits to edit/delete
+                        Long press and drag habits to reorder • Swipe left on habits to edit
                       </Text>
                     </View>
 
@@ -1010,8 +1015,6 @@ const HabitManagementScreen = () => {
                             <Text style={styles.automaticHabitDescription}>
                               {habit.name === 'Bedtime Consistency'
                                 ? 'Tracks how consistent your bedtime is over the last 5 nights'
-                                : habit.name === 'Actual Bedtime'
-                                ? 'Records your actual bedtime from sleep tracking data'
                                 : 'Automatically tracked habit'
                               }
                             </Text>
@@ -1023,7 +1026,7 @@ const HabitManagementScreen = () => {
                             await toggleAutomaticHabit(habit);
 
                             // If enabling bedtime habits, backfill historical data
-                            if (value && (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime')) {
+                            if (value && habit.name === 'Bedtime Consistency') {
                               try {
                                 const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
                                 await bedtimeHabitsService.backfillBedtimeHabits(user.id);

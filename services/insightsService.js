@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import dataQualityService from './dataQualityService';
 import {
   calculateMedian,
   calculateQuartiles,
@@ -7,7 +8,9 @@ import {
   calculateCorrelation,
   calculateLinearRegression,
   calculateRSquared,
-  calculatePercentile
+  calculatePercentile,
+  calculateCorrelationPValue,
+  calculateGroupDifferencePValue
 } from '../utils/statistics';
 
 /**
@@ -63,15 +66,18 @@ class InsightsService {
    * Transform sleep data for core sleep analysis by filtering to first X hours
    * @param {Object} sleepData - Original sleep data object
    * @param {number} coreDurationMinutes - Core sleep duration in minutes
-   * @returns {Object|null} Transformed sleep data or null if night is shorter than core duration
+   * @returns {Object|null} Transformed sleep data (always returns data, never null)
    */
   transformSleepDataForCoreSleep(sleepData, coreDurationMinutes) {
-    // Exclude nights shorter than core duration
-    if (!sleepData.total_sleep_minutes || sleepData.total_sleep_minutes < coreDurationMinutes) {
-      return null;
+    // If night is shorter than or equal to core duration, use it as-is
+    if (!sleepData.total_sleep_minutes || sleepData.total_sleep_minutes <= coreDurationMinutes) {
+      return {
+        ...sleepData,
+        is_core_sleep_filtered: false // Mark that this wasn't truncated
+      };
     }
 
-    // If detailed sleep stages are available, filter them to core sleep period
+    // For nights longer than core duration, truncate to core sleep period
     if (sleepData.sleep_stages && Array.isArray(sleepData.sleep_stages) && sleepData.sleep_start_time) {
       try {
         const sleepStartTime = new Date(sleepData.sleep_start_time);
@@ -126,7 +132,7 @@ class InsightsService {
           else if (stageType === 'awake') stageTotals.awake_minutes += stage.durationMinutes;
         });
 
-        // Return transformed sleep data
+        // Return transformed sleep data (truncated to core duration)
         return {
           ...sleepData,
           total_sleep_minutes: Math.min(coreDurationMinutes, sleepData.total_sleep_minutes),
@@ -188,29 +194,35 @@ class InsightsService {
    * @param {string} sleepMetric - Sleep metric to analyze (e.g., 'total_sleep_minutes')
    * @param {Date} startDate - Start date for analysis
    * @param {Date} endDate - End date for analysis
-   * @param {Object} options - Analysis options { useCoreSleep: boolean, useEfficiency: boolean }
+   * @param {Object} options - Analysis options { useCoreSleep: boolean, useEfficiency: boolean, autoExcludeOutliers: boolean, outlierSensitivity: string }
    * @returns {Promise<Object>} Object with validInsights and placeholders arrays
    */
   async getHabitsInsights(userId, sleepMetric, startDate, endDate, options) {
     try {
-      // Simple defensive options parsing
+      // Parse analysis options with defaults
       let useCoreSleep = false;
       let useEfficiency = false;
+      let autoExcludeOutliers = false;
+      let outlierSensitivity = 'standard';
+      let includeExcludedData = false;
 
       try {
         useCoreSleep = options && options.useCoreSleep ? true : false;
         useEfficiency = options && options.useEfficiency ? true : false;
+        autoExcludeOutliers = options && options.autoExcludeOutliers ? true : false;
+        outlierSensitivity = options && options.outlierSensitivity ? options.outlierSensitivity : 'standard';
+        includeExcludedData = options && options.includeExcludedData ? true : false;
       } catch (parseError) {
         console.warn('Error parsing options:', parseError);
       }
 
-      console.log('getHabitsInsights options parsed - useCoreSleep:', useCoreSleep, 'useEfficiency:', useEfficiency, 'options:', options);
+      console.log('getHabitsInsights options parsed - useCoreSleep:', useCoreSleep, 'useEfficiency:', useEfficiency, 'autoExcludeOutliers:', autoExcludeOutliers, 'outlierSensitivity:', outlierSensitivity, 'options:', options);
 
       // Load habits and their logs
       const habits = await this.getActiveHabits(userId);
-      const habitLogs = await this.getHabitLogs(userId, startDate, endDate);
+      const habitLogs = await this.getHabitLogs(userId, startDate, endDate, includeExcludedData);
       const drugLevels = await this.getDrugLevels(userId, startDate, endDate);
-      let sleepData = await this.getSleepData(userId, startDate, endDate);
+      let sleepData = await this.getSleepData(userId, startDate, endDate, includeExcludedData);
 
       // Calculate core sleep duration if needed
       let coreSleepDuration = null;
@@ -221,8 +233,39 @@ class InsightsService {
       // Apply core sleep transformation if enabled
       if (useCoreSleep && coreSleepDuration) {
         sleepData = sleepData
-          .map(sleep => this.transformSleepDataForCoreSleep(sleep, coreSleepDuration))
-          .filter(sleep => sleep !== null); // Remove excluded nights
+          .map(sleep => this.transformSleepDataForCoreSleep(sleep, coreSleepDuration));
+        // No longer filter out null values - all nights are included
+      }
+
+      // Auto-exclude outliers if enabled
+      if (autoExcludeOutliers && !includeExcludedData) {
+        console.log('Auto-excluding outliers with sensitivity:', outlierSensitivity);
+
+        // Auto-exclude sleep data outliers
+        if (sleepData.length > 10) { // Only run outlier detection if we have sufficient data
+          try {
+            const sleepExclusionResult = await dataQualityService.autoExcludeSleepDataOutliers(
+              userId,
+              sleepMetric,
+              { startDate, endDate, sensitivity: outlierSensitivity }
+            );
+            console.log('Sleep data outlier exclusion result:', sleepExclusionResult);
+
+            // Reload sleep data after exclusion
+            if (sleepExclusionResult.success && sleepExclusionResult.excludedCount > 0) {
+              sleepData = await this.getSleepData(userId, startDate, endDate, includeExcludedData);
+
+              // Re-apply core sleep transformation if needed
+              if (useCoreSleep && coreSleepDuration) {
+                sleepData = sleepData
+                  .map(sleep => this.transformSleepDataForCoreSleep(sleep, coreSleepDuration))
+                  .filter(sleep => sleep !== null);
+              }
+            }
+          } catch (error) {
+            console.warn('Error during sleep data outlier exclusion:', error);
+          }
+        }
       }
 
       // Group logs by habit
@@ -262,7 +305,12 @@ class InsightsService {
         console.log(`Processing habit ${habit.name}, ${habitData.length} data points`);
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency);
         if (insight) {
-          validInsights.push(insight);
+          if (insight.type === 'binary_placeholder') {
+            // Special case: binary habits that don't meet criteria go to placeholders
+            placeholders.push(insight);
+          } else {
+            validInsights.push(insight);
+          }
         } else {
           // Create placeholder insight with tracking statistics
           const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
@@ -308,13 +356,14 @@ class InsightsService {
    * @param {string} userId - User ID
    * @param {Date} startDate - Start date
    * @param {Date} endDate - End date
+   * @param {boolean} includeExcluded - Whether to include excluded data (default: false)
    * @returns {Promise<Array>} Array of habit logs
    */
-  async getHabitLogs(userId, startDate, endDate) {
+  async getHabitLogs(userId, startDate, endDate, includeExcluded = false) {
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('habit_logs')
       .select(`
         *,
@@ -324,6 +373,19 @@ class InsightsService {
       .gte('date', startDateStr)
       .lte('date', endDateStr)
       .order('date', { ascending: true });
+
+    // Only filter out excluded data if the column exists and we're not explicitly including excluded data
+    if (!includeExcluded) {
+      try {
+        // Try to filter by exclusion column - if it fails, the column doesn't exist and we'll get all data
+        query = query.neq('exclude_from_insights', true);
+      } catch (e) {
+        // Column doesn't exist, continue with unfiltered query
+        console.warn('exclude_from_insights column not found, using all habit data');
+      }
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
 
@@ -337,19 +399,35 @@ class InsightsService {
    * @param {string} userId - User ID
    * @param {Date} startDate - Start date
    * @param {Date} endDate - End date
+   * @param {boolean} includeExcluded - Whether to include excluded data (default: false)
    * @returns {Promise<Array>} Array of sleep data
    */
-  async getSleepData(userId, startDate, endDate) {
+  async getSleepData(userId, startDate, endDate, includeExcluded = false) {
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
 
-    const { data, error } = await supabase
+    // Build query dynamically to handle missing exclusion columns
+    let selectFields = '*';
+    let query = supabase
       .from('sleep_data')
-      .select('*')
+      .select(selectFields)
       .eq('user_id', userId)
       .gte('date', startDateStr)
       .lte('date', endDateStr)
       .order('date', { ascending: true });
+
+    // Only filter out excluded data if the column exists and we're not explicitly including excluded data
+    if (!includeExcluded) {
+      try {
+        // Try to filter by exclusion column - if it fails, the column doesn't exist and we'll get all data
+        query = query.neq('exclude_from_insights', true);
+      } catch (e) {
+        // Column doesn't exist, continue with unfiltered query
+        console.warn('exclude_from_insights column not found, using all sleep data');
+      }
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
@@ -489,7 +567,7 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
-      } else if (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime') {
+      } else if (habit.name === 'Bedtime Consistency') {
         // For bedtime habits, the date corresponds directly to sleep data date
         // (bedtime affects the sleep data for the same night)
         sleepDataDate = log.date;
@@ -520,7 +598,11 @@ class InsightsService {
             date: log.date,
             sleepDate: sleep.date, // Store the actual sleep date for reference
             habitLog: log,
-            sleepData: sleep
+            sleepData: sleep,
+            // Include exclusion information for chart visualization
+            exclude_from_insights: log.exclude_from_insights,
+            auto_excluded: log.auto_excluded,
+            exclusion_reason: log.exclusion_reason
           });
           matchedDates.push(`${log.date} → ${sleep.date}`);
         } else {
@@ -543,30 +625,68 @@ class InsightsService {
       }
     });
 
-    // For binary habits, check for minimum yes/no responses
+    // Detect outliers and mark data points before creating insights
+    const outlierDetectionResult = this.detectOutliersInDataPoints(dataPoints, habit);
+    const dataPointsWithOutliers = outlierDetectionResult.dataPoints;
+
+    // Always calculate insights for all habit types (no minimum thresholds)
     if (habit.type === 'binary') {
-      const yesCount = dataPoints.filter(dp => dp.habitValue === 1).length;
-      const noCount = dataPoints.filter(dp => dp.habitValue === 0).length;
-      
-      if (yesCount < this.MIN_BINARY_YES || noCount < this.MIN_BINARY_NO) {
-        return null; // Insufficient yes/no responses for binary comparison
-      }
-      
-      const insight = this.calculateBinaryInsight(habit, dataPoints);
+      const insight = this.calculateBinaryInsight(habit, dataPointsWithOutliers);
       return insight;
-    } 
-    
-    // For numerical habits, check for minimum total data points
-    if (dataPoints.length < this.MIN_DATA_POINTS) {
-      return null; // Insufficient paired data points
     }
-    
+
     if (habit.type === 'numeric' || habit.type === 'quick_consumption' || habit.type === 'time') {
-      const insight = this.calculateNumericalInsight(habit, dataPoints);
+      const insight = this.calculateNumericalInsight(habit, dataPointsWithOutliers);
       return insight;
     }
 
     return null; // Unsupported habit type
+  }
+
+  /**
+   * Detect outliers in data points and mark them accordingly
+   * @param {Array} dataPoints - Array of data point objects
+   * @param {Object} habit - Habit object
+   * @returns {Object} Object with marked data points and outlier information
+   */
+  detectOutliersInDataPoints(dataPoints, habit) {
+    try {
+      const markedDataPoints = [...dataPoints];
+
+      // Detect outliers only in sleep data across all data points
+      // This marks nights with anomalous sleep data as outliers, regardless of habit values
+      if (dataPoints.length >= 4) {
+        const sleepValues = dataPoints.map(dp => dp.sleepValue);
+        const outlierResult = dataQualityService.detectOutliers(sleepValues);
+
+        if (outlierResult.isValidDataset) {
+          // Mark data points where sleep data is an outlier
+          dataPoints.forEach(dp => {
+            const isOutlier = outlierResult.outliers.includes(dp.sleepValue);
+            markedDataPoints.find(mdp => mdp === dp).isOutlier = isOutlier;
+          });
+        }
+      }
+
+      // Ensure all data points have isOutlier property (default to false)
+      markedDataPoints.forEach(dp => {
+        if (dp.isOutlier === undefined) {
+          dp.isOutlier = false;
+        }
+      });
+
+      return {
+        dataPoints: markedDataPoints,
+        hasOutliers: markedDataPoints.some(dp => dp.isOutlier)
+      };
+    } catch (error) {
+      console.warn('Error detecting outliers in data points:', error);
+      // Return original data points with no outliers marked
+      return {
+        dataPoints: dataPoints.map(dp => ({ ...dp, isOutlier: false })),
+        hasOutliers: false
+      };
+    }
   }
 
   /**
@@ -638,7 +758,7 @@ class InsightsService {
     const yesData = dataPoints.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
     const noData = dataPoints.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
 
-    const confidenceLevel = this.calculateConfidenceLevel(dataPoints.length, null);
+    const confidenceResult = this.calculateConfidenceLevel(dataPoints.length, null, yesData, noData);
 
     const insight = {
       habit,
@@ -647,7 +767,9 @@ class InsightsService {
       yesDataPoints: yesData.length,
       noDataPoints: noData.length,
       hasComparisonData: yesData.length > 0 && noData.length > 0,
-      confidenceLevel: confidenceLevel
+      confidenceLevel: confidenceResult.confidenceLevel,
+      pValue: confidenceResult.pValue,
+      isSignificant: confidenceResult.isSignificant
     };
 
     if (yesData.length > 0) {
@@ -680,35 +802,80 @@ class InsightsService {
       insight.noStats = noStats;
     }
 
+    console.log(`Binary insight created for ${habit.name}: ${yesData.length} yes, ${noData.length} no, p=${confidenceResult.pValue}, confidence=${confidenceResult.confidenceLevel}`);
     return insight;
   }
 
   /**
-   * Calculate confidence level based on sample size and correlation strength
+   * Calculate confidence level and p-value based on statistical significance
    * @param {number} n - Number of data points
    * @param {number} correlation - Correlation coefficient (for numerical) or null (for binary)
-   * @returns {string} Confidence level: 'high', 'medium', or 'low'
+   * @param {Array} group1 - First group data (for binary habits)
+   * @param {Array} group2 - Second group data (for binary habits)
+   * @returns {Object} Object with confidenceLevel and pValue
    */
-  calculateConfidenceLevel(n, correlation = null) {
+  calculateConfidenceLevel(n, correlation = null, group1 = null, group2 = null) {
     if (correlation !== null) {
-      // For numerical habits: based on n and |r|
-      const absCorrelation = Math.abs(correlation);
-      if (n > 30 && absCorrelation > 0.3) {
-        return 'high';
-      } else if (n > 20 && absCorrelation > 0.2) {
-        return 'medium';
+      // For numerical habits: use correlation p-value
+      const pValue = calculateCorrelationPValue(correlation, n);
+
+      let confidenceLevel;
+      if (pValue < 0.05) {
+        confidenceLevel = 'high'; // Statistically significant
+      } else if (pValue < 0.10) {
+        confidenceLevel = 'medium'; // Suggestive
+      } else if (pValue < 0.20) {
+        confidenceLevel = 'low'; // Weak evidence
       } else {
-        return 'low';
+        confidenceLevel = 'none'; // No statistical significance
       }
+
+      console.log(`Numerical confidence for ${n} points, r=${correlation}: p=${pValue}, level=${confidenceLevel}`);
+      return {
+        confidenceLevel,
+        pValue: Math.round(pValue * 1000) / 1000, // Round to 3 decimal places
+        isSignificant: pValue < 0.10
+      };
+    } else if (group1 && group2) {
+      // For binary habits: use statistical test for group differences
+      const pValue = calculateGroupDifferencePValue(group1, group2);
+
+      let confidenceLevel;
+      if (pValue < 0.05) {
+        confidenceLevel = 'high'; // Statistically significant difference
+      } else if (pValue < 0.10) {
+        confidenceLevel = 'medium'; // Suggestive difference
+      } else if (pValue < 0.20) {
+        confidenceLevel = 'low'; // Weak evidence of difference
+      } else {
+        confidenceLevel = 'none'; // No statistical significance
+      }
+
+      console.log(`Binary confidence for groups (${group1.length}, ${group2.length} points): p=${pValue}, level=${confidenceLevel}`);
+      return {
+        confidenceLevel,
+        pValue: Math.round(pValue * 1000) / 1000, // Round to 3 decimal places
+        isSignificant: pValue < 0.10
+      };
     } else {
-      // For binary habits: based on sample size
-      if (n >= 20) {
-        return 'high';
+      // Fallback for binary habits without group data (shouldn't happen)
+      let confidenceLevel;
+      if (n >= 30) {
+        confidenceLevel = 'high';
+      } else if (n >= 20) {
+        confidenceLevel = 'medium';
       } else if (n >= 15) {
-        return 'medium';
+        confidenceLevel = 'low';
       } else {
-        return 'low';
+        confidenceLevel = 'none';
       }
+
+      console.log(`Fallback confidence for ${n} points: level=${confidenceLevel}`);
+      return {
+        confidenceLevel,
+        pValue: null,
+        isSignificant: n >= 20
+      };
     }
   }
 
@@ -729,23 +896,39 @@ class InsightsService {
       ? correlation 
       : 0;
 
-    const confidenceLevel = this.calculateConfidenceLevel(dataPoints.length, validCorrelation);
+    const confidenceResult = this.calculateConfidenceLevel(dataPoints.length, validCorrelation);
 
-    return {
+    const result = {
       habit,
       type: 'numerical',
       totalDataPoints: dataPoints.length,
       dataPoints: dataPoints.map(dp => ({
         x: dp.habitValue,
         y: dp.sleepValue,
-        date: dp.date
+        date: dp.date,
+        isOutlier: dp.isOutlier || false,
+        // Include exclusion information for chart visualization
+        exclude_from_insights: dp.exclude_from_insights,
+        auto_excluded: dp.auto_excluded,
+        exclusion_reason: dp.exclusion_reason,
+        // Store references to original data for modal
+        habitLog: dp.habitLog,
+        sleepData: dp.sleepData,
+        // Add habitValue and sleepValue for modal display
+        habitValue: dp.habitValue,
+        sleepValue: dp.sleepValue
       })),
       correlation: validCorrelation,
       correlationStrength: Math.abs(validCorrelation) > 0.7 ? 'strong' :
                           Math.abs(validCorrelation) > 0.3 ? 'moderate' : 'weak',
       trendDirection: validCorrelation > 0 ? 'positive' : validCorrelation < 0 ? 'negative' : 'none',
-      confidenceLevel: confidenceLevel
+      confidenceLevel: confidenceResult.confidenceLevel,
+      pValue: confidenceResult.pValue,
+      isSignificant: confidenceResult.isSignificant
     };
+
+    console.log(`Numerical insight created for ${habit.name}: ${dataPoints.length} points, r=${validCorrelation.toFixed(3)}, p=${confidenceResult.pValue}, confidence=${confidenceResult.confidenceLevel}`);
+    return result;
   }
 
   /**
@@ -787,8 +970,7 @@ class InsightsService {
       { key: 'light_sleep_minutes', label: 'Light Sleep', unit: 'minutes' },
       { key: 'rem_sleep_minutes', label: 'REM Sleep', unit: 'minutes' },
       { key: 'awake_minutes', label: 'Awake Time', unit: 'minutes' },
-      { key: 'awakenings_count', label: 'Awakenings', unit: 'count' },
-      { key: 'sleep_score', label: 'Sleep Score', unit: 'score' }
+      { key: 'awakenings_count', label: 'Awakenings', unit: 'count' }
     ];
   }
 
@@ -836,6 +1018,29 @@ class InsightsService {
   }
 
   /**
+   * Get data quality statistics for insights calculation
+   * @param {string} userId - User ID
+   * @param {Date} startDate - Start date
+   * @param {Date} endDate - End date
+   * @returns {Promise<Object>} Data quality statistics
+   */
+  async getDataQualityStats(userId, startDate, endDate) {
+    try {
+      return await dataQualityService.getDataQualityStats(userId, { startDate, endDate });
+    } catch (error) {
+      console.error('Error getting data quality stats:', error);
+      return {
+        sleepData: { total: 0, included: 0, excluded: 0, autoExcluded: 0, manualExcluded: 0 },
+        habitData: { total: 0, included: 0, excluded: 0, autoExcluded: 0, manualExcluded: 0 },
+        totalExcluded: 0,
+        totalAutoExcluded: 0,
+        totalManualExcluded: 0,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Create a placeholder insight for habits with insufficient data
    * @param {Object} habit - Habit object
    * @param {Array} habitData - Array of habit logs for this habit
@@ -856,7 +1061,7 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
-      } else if (habit.name === 'Bedtime Consistency' || habit.name === 'Actual Bedtime') {
+      } else if (habit.name === 'Bedtime Consistency') {
         // For bedtime habits, the date corresponds directly to sleep data date
         // (bedtime affects the sleep data for the same night)
         sleepDataDate = log.date;

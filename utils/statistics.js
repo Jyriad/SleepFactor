@@ -203,6 +203,87 @@ export function calculateRSquared(x, y) {
 }
 
 /**
+ * Calculate p-value for Pearson correlation coefficient
+ * @param {number} r - Correlation coefficient
+ * @param {number} n - Sample size
+ * @returns {number} Two-tailed p-value (0 to 1)
+ */
+export function calculateCorrelationPValue(r, n) {
+  if (!r || !n || n < 3 || Math.abs(r) > 1) {
+    return 1; // No significance
+  }
+
+  // Calculate t-statistic: t = r * sqrt((n-2) / (1-r²))
+  const tStatistic = r * Math.sqrt((n - 2) / (1 - r * r));
+
+  // For large samples, approximate with normal distribution
+  // For smaller samples, this is a reasonable approximation
+  // Two-tailed test
+  const pValue = 2 * (1 - normalCDF(Math.abs(tStatistic)));
+
+  return Math.min(pValue, 1); // Ensure p-value doesn't exceed 1
+}
+
+/**
+ * Calculate p-value for difference between two groups (Welch's t-test approximation)
+ * @param {Array<number>} group1 - First group of values
+ * @param {Array<number>} group2 - Second group of values
+ * @returns {number} Two-tailed p-value (0 to 1)
+ */
+export function calculateGroupDifferencePValue(group1, group2) {
+  if (!group1 || !group2 || group1.length < 2 || group2.length < 2) {
+    return 1; // No significance
+  }
+
+  // Calculate means
+  const mean1 = group1.reduce((sum, val) => sum + val, 0) / group1.length;
+  const mean2 = group2.reduce((sum, val) => sum + val, 0) / group2.length;
+
+  // Calculate variances
+  const var1 = group1.reduce((sum, val) => sum + Math.pow(val - mean1, 2), 0) / (group1.length - 1);
+  const var2 = group2.reduce((sum, val) => sum + Math.pow(val - mean2, 2), 0) / (group2.length - 1);
+
+  // Calculate standard error using Welch's approximation
+  const se = Math.sqrt(var1 / group1.length + var2 / group2.length);
+
+  if (se === 0) {
+    return mean1 === mean2 ? 1 : 0; // No difference vs infinite difference
+  }
+
+  // Calculate t-statistic
+  const tStatistic = Math.abs(mean1 - mean2) / se;
+
+  // Two-tailed test using normal approximation
+  const pValue = 2 * (1 - normalCDF(tStatistic));
+
+  return Math.min(pValue, 1); // Ensure p-value doesn't exceed 1
+}
+
+/**
+ * Cumulative distribution function for standard normal distribution
+ * Approximation using error function
+ * @param {number} x - Value
+ * @returns {number} CDF value (0 to 1)
+ */
+function normalCDF(x) {
+  // Abramowitz & Stegun approximation
+  const a1 =  0.254829592;
+  const a2 = -0.284496736;
+  const a3 =  1.421413741;
+  const a4 = -1.453152027;
+  const a5 =  1.061405429;
+  const p  =  0.3275911;
+
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2.0);
+
+  const t = 1.0 / (1.0 + p * x);
+  const erf = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+  return 0.5 * (1.0 + sign * erf);
+}
+
+/**
  * Calculate mean of an array
  * @param {Array<number>} array - Array of numbers
  * @returns {number} Mean value
