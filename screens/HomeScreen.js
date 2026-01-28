@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -103,7 +103,11 @@ const SleepDataCard = ({
   calculateSleepMetrics,
   formatSleepDuration,
   renderSleepMetricRow,
-  syncError
+  syncError,
+  isExcluded,
+  exclusionReason,
+  onExclude,
+  onInclude
 }) => {
   const viewingToday = isToday(selectedDate);
 
@@ -143,6 +147,27 @@ const SleepDataCard = ({
             </Text>
           )}
         </Text>
+        {sleepData && (
+          <View style={styles.exclusionControls}>
+            <Text style={styles.exclusionLabel}>
+              {isExcluded ? 'Data excluded from insights' : 'Data included in insights'}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.toggleSwitch,
+                !isExcluded && styles.toggleSwitchOn,
+              ]}
+              onPress={() => isExcluded ? onInclude() : onExclude()}
+            >
+              <View
+                style={[
+                  styles.toggleKnob,
+                  !isExcluded && styles.toggleKnobOn,
+                ]}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
     {/* Sleep Timeline Visualization */}
@@ -340,6 +365,7 @@ import DatePickerModal from '../components/DatePickerModal';
 import NavigationCard from '../components/NavigationCard';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
+import dataQualityService from '../services/dataQualityService';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -364,6 +390,8 @@ const HomeScreen = () => {
   const [sleepData, setSleepData] = useState(null);
   const [sleepDataLoading, setSleepDataLoading] = useState(false);
   const [autoSyncLoading, setAutoSyncLoading] = useState(false);
+  const [isExcluded, setIsExcluded] = useState(false);
+  const [exclusionReason, setExclusionReason] = useState(null);
 
   // Personal sleep averages state
   const [personalAverages, setPersonalAverages] = useState(null);
@@ -374,6 +402,9 @@ const HomeScreen = () => {
   const [habitCountCache, setHabitCountCache] = useState(new Map());
   const [cacheLoading, setCacheLoading] = useState(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
+
+  // Ref to track if we just completed a sync to prevent re-triggering
+  const justSyncedRef = useRef(false);
 
   // Health sync hook
   const {
@@ -437,6 +468,19 @@ const HomeScreen = () => {
     // Only run auto-sync for today's date
     if (!isToday(selectedDate)) {
       console.log('[SleepFactor:AutoSync] Skipping auto-sync - not viewing today');
+      // Reset autoSyncLoading if we're not viewing today
+      if (autoSyncLoading) {
+        console.log('[SleepFactor:AutoSync] Resetting autoSyncLoading - not viewing today');
+        setAutoSyncLoading(false);
+      }
+      return;
+    }
+
+    // Reset autoSyncLoading if we already have sleep data for today (handles stuck state from navigation)
+    const todayDateString = getToday();
+    if (autoSyncLoading && sleepData && sleepData.date === todayDateString) {
+      console.log('[SleepFactor:AutoSync] Resetting stuck autoSyncLoading - sleep data exists for today');
+      setAutoSyncLoading(false);
       return;
     }
 
@@ -464,6 +508,13 @@ const HomeScreen = () => {
       // Check if we already have sleep data for today (from database, not just cache)
       if (sleepDataLoading) {
         console.log('[SleepFactor:AutoSync] Skipping - sleep data already loading');
+        return;
+      }
+
+      // Check if we just synced (prevent immediate re-trigger from sleepData update)
+      if (justSyncedRef.current) {
+        console.log('[SleepFactor:AutoSync] Just synced - skipping to prevent loop');
+        justSyncedRef.current = false; // Reset the flag
         return;
       }
 
@@ -515,7 +566,18 @@ const HomeScreen = () => {
           updateSleepDataCache(selectedDate, undefined);
           updateHabitCountCache(selectedDate, undefined);
           await new Promise(resolve => setTimeout(resolve, 200));
-          await fetchSleepData();
+          
+          // Wrap fetchSleepData in try-catch to ensure cleanup happens even if it fails
+          try {
+            await fetchSleepData();
+            console.log('[SleepFactor:AutoSync] fetchSleepData completed successfully');
+          } catch (fetchError) {
+            console.log('[SleepFactor:AutoSync] fetchSleepData error:', fetchError);
+            // Continue - we still want to set autoSyncLoading to false
+          }
+          
+          // Mark that we just synced to prevent re-trigger
+          justSyncedRef.current = true;
         } else {
           console.log('[SleepFactor:AutoSync] Sync failed or cancelled:', { success: result.success, isCancelled });
         }
@@ -542,10 +604,13 @@ const HomeScreen = () => {
     const timeoutId = setTimeout(autoSyncSleepData, 500);
 
     return () => {
+      console.log('[SleepFactor:AutoSync] Cleanup function called - cancelling sync');
       isCancelled = true;
       clearTimeout(timeoutId);
+      // Reset autoSyncLoading when effect is cleaned up (e.g., navigating away)
+      setAutoSyncLoading(false);
     };
-  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading, sleepData, sleepDataLoading]);
+  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading, sleepDataLoading]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -654,6 +719,11 @@ const HomeScreen = () => {
     }
   };
 
+  // Helper function to check if a habit is an automated bedtime habit
+  const isAutomatedBedtimeHabit = (habit) => {
+    return habit && habit.name === 'Bedtime Consistency';
+  };
+
   const fetchHabitCountForDate = async (date) => {
     if (!user) return 0;
 
@@ -675,9 +745,9 @@ const HomeScreen = () => {
 
       if (habitLogsError) {
       } else {
-        // Add regular habits (excluding health metrics)
+        // Add regular habits (excluding health metrics and automated bedtime habits)
         habitLogs?.forEach(log => {
-          if (!healthMetricsService.isHealthMetricHabit(log.habits)) {
+          if (!healthMetricsService.isHealthMetricHabit(log.habits) && !isAutomatedBedtimeHabit(log.habits)) {
             loggedHabits.add(log.habit_id);
           }
         });
@@ -724,12 +794,14 @@ const HomeScreen = () => {
 
       if (error) throw error;
 
-      // Filter out health metric habits and untracked habits
+      // Filter out health metric habits, automated bedtime habits, and untracked habits
       const allHabits = data || [];
       const healthMetrics = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
       const untracked = allHabits.filter(habit => habit.is_active === false);
       const manualHabits = allHabits.filter(habit =>
-        !healthMetricsService.isHealthMetricHabit(habit) && habit.is_active !== false
+        !healthMetricsService.isHealthMetricHabit(habit) && 
+        !isAutomatedBedtimeHabit(habit) && 
+        habit.is_active !== false
       );
 
       setTotalHabitCount(manualHabits.length);
@@ -780,6 +852,9 @@ const HomeScreen = () => {
     if (cachedData !== undefined) {
       console.log('[SleepFactor:DataFetch] Using cached data:', cachedData);
       setSleepData(cachedData);
+      // Update exclusion status from cached data
+      setIsExcluded(cachedData?.exclude_from_insights || false);
+      setExclusionReason(cachedData?.exclusion_reason || null);
       return; // No loading state needed for cached data
     }
 
@@ -805,6 +880,9 @@ const HomeScreen = () => {
       });
 
       setSleepData(data);
+      // Update exclusion status
+      setIsExcluded(data?.exclude_from_insights || false);
+      setExclusionReason(data?.exclusion_reason || null);
       updateSleepDataCache(selectedDate, data);
       console.log('[SleepFactor:DataFetch] State updated and cache refreshed');
     } catch (error) {
@@ -859,6 +937,112 @@ const HomeScreen = () => {
 
   const handleDismissPermissions = () => {
     setShowPermissionPrompt(false);
+  };
+
+  const handleExcludeSleepData = async () => {
+    if (!user || !sleepData) return;
+
+    const reason = 'Manually excluded by user';
+    
+    // Store original state for potential revert
+    const originalSleepData = { ...sleepData };
+    const originalIsExcluded = isExcluded;
+    const originalReason = exclusionReason;
+    
+    // Optimistic update - update UI immediately
+    setIsExcluded(true);
+    setExclusionReason(reason);
+    
+    // Update sleepData object directly
+    const updatedSleepData = {
+      ...sleepData,
+      exclude_from_insights: true,
+      exclusion_reason: reason,
+      auto_excluded: false
+    };
+    setSleepData(updatedSleepData);
+    
+    // Update cache immediately
+    updateSleepDataCache(selectedDate, updatedSleepData);
+
+    // Perform API call in background
+    try {
+      console.log('[HomeScreen] Excluding sleep data');
+      const result = await dataQualityService.excludeSleepData(
+        user.id,
+        sleepData.date,
+        reason
+      );
+
+      if (!result.success) {
+        // Revert on error
+        setIsExcluded(originalIsExcluded);
+        setExclusionReason(originalReason);
+        setSleepData(originalSleepData);
+        updateSleepDataCache(selectedDate, originalSleepData);
+        Alert.alert('Error', result.error || 'Failed to exclude sleep data');
+      }
+    } catch (error) {
+      console.error('[HomeScreen] Error excluding sleep data:', error);
+      // Revert on error
+      setIsExcluded(originalIsExcluded);
+      setExclusionReason(originalReason);
+      setSleepData(originalSleepData);
+      updateSleepDataCache(selectedDate, originalSleepData);
+      Alert.alert('Error', 'Failed to exclude sleep data');
+    }
+  };
+
+  const handleIncludeSleepData = async () => {
+    if (!user || !sleepData) return;
+
+    // Store original state for potential revert
+    const originalSleepData = { ...sleepData };
+    const originalIsExcluded = isExcluded;
+    const originalReason = exclusionReason;
+    
+    // Optimistic update - update UI immediately
+    setIsExcluded(false);
+    setExclusionReason(null);
+    
+    // Update sleepData object directly
+    const updatedSleepData = {
+      ...sleepData,
+      exclude_from_insights: false,
+      exclusion_reason: null,
+      auto_excluded: false
+    };
+    setSleepData(updatedSleepData);
+    
+    // Update cache immediately
+    updateSleepDataCache(selectedDate, updatedSleepData);
+
+    // Perform API call in background
+    try {
+      console.log('[HomeScreen] Including sleep data back');
+      const result = await dataQualityService.includeData(
+        user.id,
+        'sleep_data',
+        sleepData.date
+      );
+
+      if (!result.success) {
+        // Revert on error
+        setIsExcluded(originalIsExcluded);
+        setExclusionReason(originalReason);
+        setSleepData(originalSleepData);
+        updateSleepDataCache(selectedDate, originalSleepData);
+        Alert.alert('Error', result.error || 'Failed to include sleep data');
+      }
+    } catch (error) {
+      console.error('[HomeScreen] Error including sleep data:', error);
+      // Revert on error
+      setIsExcluded(originalIsExcluded);
+      setExclusionReason(originalReason);
+      setSleepData(originalSleepData);
+      updateSleepDataCache(selectedDate, originalSleepData);
+      Alert.alert('Error', 'Failed to include sleep data');
+    }
   };
 
   // Cache management functions
@@ -1266,6 +1450,10 @@ const HomeScreen = () => {
                   formatSleepDuration={formatSleepDuration}
                   renderSleepMetricRow={renderSleepMetricRow}
                   syncError={syncError}
+                  isExcluded={isExcluded}
+                  exclusionReason={exclusionReason}
+                  onExclude={handleExcludeSleepData}
+                  onInclude={handleIncludeSleepData}
                 />
               );
             }
@@ -1549,6 +1737,42 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginLeft: spacing.xs,
     flex: 1,
+  },
+  exclusionControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  exclusionLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+    flex: 1,
+  },
+  toggleSwitch: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.border,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleSwitchOn: {
+    backgroundColor: colors.primary,
+  },
+  toggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
+  },
+  toggleKnobOn: {
+    alignSelf: 'flex-end',
   },
 });
 

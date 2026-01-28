@@ -769,7 +769,8 @@ class InsightsService {
       hasComparisonData: yesData.length > 0 && noData.length > 0,
       confidenceLevel: confidenceResult.confidenceLevel,
       pValue: confidenceResult.pValue,
-      isSignificant: confidenceResult.isSignificant
+      isSignificant: confidenceResult.isSignificant,
+      dataMaturityLabel: confidenceResult.dataMaturityLabel
     };
 
     if (yesData.length > 0) {
@@ -812,9 +813,12 @@ class InsightsService {
    * @param {number} correlation - Correlation coefficient (for numerical) or null (for binary)
    * @param {Array} group1 - First group data (for binary habits)
    * @param {Array} group2 - Second group data (for binary habits)
-   * @returns {Object} Object with confidenceLevel and pValue
+   * @returns {Object} Object with confidenceLevel, pValue, and dataMaturityLabel
    */
   calculateConfidenceLevel(n, correlation = null, group1 = null, group2 = null) {
+    // Determine data maturity label based on total data points
+    const dataMaturityLabel = n < 20 ? 'Emerging Trend' : 'Significant Insight';
+
     if (correlation !== null) {
       // For numerical habits: use correlation p-value
       const pValue = calculateCorrelationPValue(correlation, n);
@@ -830,32 +834,53 @@ class InsightsService {
         confidenceLevel = 'none'; // No statistical significance
       }
 
-      console.log(`Numerical confidence for ${n} points, r=${correlation}: p=${pValue}, level=${confidenceLevel}`);
+      console.log(`Numerical confidence for ${n} points, r=${correlation}: p=${pValue}, level=${confidenceLevel}, maturity=${dataMaturityLabel}`);
       return {
         confidenceLevel,
         pValue: Math.round(pValue * 1000) / 1000, // Round to 3 decimal places
-        isSignificant: pValue < 0.10
+        isSignificant: pValue < 0.10,
+        dataMaturityLabel
       };
     } else if (group1 && group2) {
       // For binary habits: use statistical test for group differences
       const pValue = calculateGroupDifferencePValue(group1, group2);
 
+      // STRICTLY enforce minimum sample size requirements - both groups MUST meet minimums
+      const hasMinimumYes = group1.length >= this.MIN_BINARY_YES;
+      const hasMinimumNo = group2.length >= this.MIN_BINARY_NO;
+      const meetsMinimums = hasMinimumYes && hasMinimumNo;
+
       let confidenceLevel;
-      if (pValue < 0.05) {
-        confidenceLevel = 'high'; // Statistically significant difference
-      } else if (pValue < 0.10) {
-        confidenceLevel = 'medium'; // Suggestive difference
-      } else if (pValue < 0.20) {
-        confidenceLevel = 'low'; // Weak evidence of difference
+      
+      // STRICTLY enforce: Only assign high/medium confidence if BOTH groups meet minimum sample sizes
+      if (meetsMinimums) {
+        if (pValue < 0.05) {
+          confidenceLevel = 'high'; // Statistically significant difference
+        } else if (pValue < 0.10) {
+          confidenceLevel = 'medium'; // Suggestive difference
+        } else if (pValue < 0.20) {
+          confidenceLevel = 'low'; // Weak evidence of difference
+        } else {
+          confidenceLevel = 'none'; // No statistical significance
+        }
       } else {
-        confidenceLevel = 'none'; // No statistical significance
+        // Insufficient sample size - STRICTLY cap confidence at low/none regardless of p-value
+        // Even if p-value suggests significance, we don't trust it without proper sample sizes
+        if (pValue < 0.20 && hasMinimumYes && hasMinimumNo) {
+          // This shouldn't happen if we're here, but double-check
+          confidenceLevel = 'low';
+        } else {
+          confidenceLevel = 'none'; // No statistical significance - insufficient data
+        }
+        console.log(`Binary confidence STRICTLY capped due to insufficient sample size: ${group1.length} yes (min ${this.MIN_BINARY_YES}), ${group2.length} no (min ${this.MIN_BINARY_NO}), p=${pValue}`);
       }
 
-      console.log(`Binary confidence for groups (${group1.length}, ${group2.length} points): p=${pValue}, level=${confidenceLevel}`);
+      console.log(`Binary confidence for groups (${group1.length}, ${group2.length} points): p=${pValue}, level=${confidenceLevel}, meetsMinimums=${meetsMinimums}, maturity=${dataMaturityLabel}`);
       return {
         confidenceLevel,
         pValue: Math.round(pValue * 1000) / 1000, // Round to 3 decimal places
-        isSignificant: pValue < 0.10
+        isSignificant: pValue < 0.10 && meetsMinimums,
+        dataMaturityLabel
       };
     } else {
       // Fallback for binary habits without group data (shouldn't happen)
@@ -870,11 +895,12 @@ class InsightsService {
         confidenceLevel = 'none';
       }
 
-      console.log(`Fallback confidence for ${n} points: level=${confidenceLevel}`);
+      console.log(`Fallback confidence for ${n} points: level=${confidenceLevel}, maturity=${dataMaturityLabel}`);
       return {
         confidenceLevel,
         pValue: null,
-        isSignificant: n >= 20
+        isSignificant: n >= 20,
+        dataMaturityLabel
       };
     }
   }
@@ -924,7 +950,8 @@ class InsightsService {
       trendDirection: validCorrelation > 0 ? 'positive' : validCorrelation < 0 ? 'negative' : 'none',
       confidenceLevel: confidenceResult.confidenceLevel,
       pValue: confidenceResult.pValue,
-      isSignificant: confidenceResult.isSignificant
+      isSignificant: confidenceResult.isSignificant,
+      dataMaturityLabel: confidenceResult.dataMaturityLabel
     };
 
     console.log(`Numerical insight created for ${habit.name}: ${dataPoints.length} points, r=${validCorrelation.toFixed(3)}, p=${confidenceResult.pValue}, confidence=${confidenceResult.confidenceLevel}`);

@@ -12,6 +12,8 @@ import { typography, spacing } from '../constants';
 import { formatDateForDB, getToday } from '../utils/dateHelpers';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import sleepDataService from '../services/sleepDataService';
+import healthMetricsService from '../services/healthMetricsService';
 
 const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
   const { user } = useAuth();
@@ -20,11 +22,13 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
     return selectedDate ? new Date(selectedDate) : new Date();
   });
   const [loggedDates, setLoggedDates] = useState([]);
+  const [sleepDataDates, setSleepDataDates] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (visible && user) {
       fetchLoggedDatesForMonth();
+      fetchSleepDataDatesForMonth();
     }
   }, [visible, currentMonth, user]);
 
@@ -35,10 +39,14 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
     }
   }, [visible, selectedDate]);
 
+  // Helper function to check if a habit is an automated bedtime habit
+  const isAutomatedBedtimeHabit = (habit) => {
+    return habit && habit.name === 'Bedtime Consistency';
+  };
+
   const fetchLoggedDatesForMonth = async () => {
     if (!user) return;
 
-    setLoading(true);
     try {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
@@ -50,21 +58,92 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
       const startDate = formatDateForDB(firstDay);
       const endDate = formatDateForDB(lastDay);
 
-      const { data, error } = await supabase
+      const loggedDatesSet = new Set();
+
+      // 1. Get all habit logs for the month (with habit details)
+      const { data: habitLogs, error: habitLogsError } = await supabase
         .from('habit_logs')
-        .select('date')
+        .select(`
+          date,
+          habit_id,
+          habits!inner(*)
+        `)
         .eq('user_id', user.id)
         .gte('date', startDate)
         .lte('date', endDate);
 
-      if (error) throw error;
+      if (!habitLogsError && habitLogs) {
+        // Group by date and check if any log is for a meaningful habit
+        const datesWithLogs = new Set();
+        habitLogs.forEach(log => {
+          // Only count if it's not a health metric or automated bedtime habit
+          if (!healthMetricsService.isHealthMetricHabit(log.habits) && 
+              !isAutomatedBedtimeHabit(log.habits)) {
+            datesWithLogs.add(log.date);
+          }
+        });
+        datesWithLogs.forEach(date => loggedDatesSet.add(date));
+      }
 
-      const loggedDateSet = new Set(data?.map(log => log.date) || []);
-      setLoggedDates(Array.from(loggedDateSet));
+      // 2. Get all consumption events for the month
+      const startDateTime = `${startDate}T00:00:00.000Z`;
+      const endDateTime = `${endDate}T23:59:59.999Z`;
+      
+      const { data: consumptionEvents, error: consumptionError } = await supabase
+        .from('habit_consumption_events')
+        .select(`
+          consumed_at,
+          habits!inner(type)
+        `)
+        .eq('user_id', user.id)
+        .gte('consumed_at', startDateTime)
+        .lte('consumed_at', endDateTime);
+
+      if (!consumptionError && consumptionEvents) {
+        // Group by date and check if any event is for a quick_consumption habit
+        const datesWithConsumption = new Set();
+        consumptionEvents.forEach(event => {
+          if (event.habits?.type === 'quick_consumption') {
+            const eventDate = new Date(event.consumed_at);
+            const dateString = formatDateForDB(eventDate);
+            datesWithConsumption.add(dateString);
+          }
+        });
+        datesWithConsumption.forEach(date => loggedDatesSet.add(date));
+      }
+
+      setLoggedDates(Array.from(loggedDatesSet));
     } catch (error) {
       setLoggedDates([]);
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const fetchSleepDataDatesForMonth = async () => {
+    if (!user) return;
+
+    try {
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      
+      // Get first and last day of month
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      
+      const startDate = formatDateForDB(firstDay);
+      const endDate = formatDateForDB(lastDay);
+
+      const sleepData = await sleepDataService.getSleepDataForRange(startDate, endDate);
+      
+      // Filter out excluded sleep data (exclude_from_insights = true)
+      // Only include sleep data that is not excluded
+      const validSleepData = sleepData?.filter(record => 
+        !record.exclude_from_insights
+      ) || [];
+      
+      const sleepDateSet = new Set(validSleepData.map(record => record.date));
+      setSleepDataDates(Array.from(sleepDateSet));
+    } catch (error) {
+      setSleepDataDates([]);
     }
   };
 
@@ -176,8 +255,10 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
               {/* Day names */}
               <View style={styles.dayNamesRow}>
                 {dayNames.map((dayName) => (
-                  <View key={dayName} style={styles.dayNameCell}>
-                    <Text style={styles.dayNameText}>{dayName}</Text>
+                  <View key={dayName} style={styles.dayNameCellWrapper}>
+                    <View style={styles.dayNameCell}>
+                      <Text style={styles.dayNameText}>{dayName}</Text>
+                    </View>
                   </View>
                 ))}
               </View>
@@ -186,43 +267,78 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
               <View style={styles.calendarGrid}>
                 {days.map((dayItem, index) => {
                   if (!dayItem) {
-                    return <View key={`empty-${index}`} style={styles.dateCell} />;
+                    return <View key={`empty-${index}`} style={styles.dateCellWrapper} />;
                   }
 
                   const isSelected = dayItem.date === selectedDate;
                   const isLogged = loggedDates.includes(dayItem.date);
+                  const hasSleepData = sleepDataDates.includes(dayItem.date);
                   const isTodayDate = dayItem.date === today;
                   const isFuture = dayItem.date > today;
 
                   // Don't render future dates
                   if (isFuture) {
-                    return <View key={dayItem.date} style={styles.dateCell} />;
+                    return <View key={dayItem.date} style={styles.dateCellWrapper} />;
+                  }
+
+                  // Determine background color based on data availability
+                  let backgroundColorStyle = null;
+                  if (isSelected) {
+                    backgroundColorStyle = styles.selectedDateCell;
+                  } else if (isLogged && hasSleepData) {
+                    // Both habits and sleep data - use darker blue
+                    backgroundColorStyle = styles.bothDataCell;
+                  } else if (hasSleepData) {
+                    // Only sleep data - use medium blue
+                    backgroundColorStyle = styles.sleepDataCell;
+                  } else if (isLogged) {
+                    // Only habits logged - use light blue
+                    backgroundColorStyle = styles.loggedDateCell;
                   }
 
                   return (
-                    <TouchableOpacity
-                      key={dayItem.date}
-                      style={[
-                        styles.dateCell,
-                        isLogged && !isSelected && styles.loggedDateCell,
-                        isTodayDate && !isSelected && styles.todayCell,
-                        isSelected && styles.selectedDateCell,
-                      ]}
-                      onPress={() => handleDateSelect(dayItem.date)}
-                      activeOpacity={0.7}
-                    >
-                      <Text
+                    <View key={dayItem.date} style={styles.dateCellWrapper}>
+                      <TouchableOpacity
                         style={[
-                          styles.dateText,
-                          isTodayDate && !isSelected && styles.todayText,
-                          isSelected && styles.selectedText,
+                          styles.dateCell,
+                          backgroundColorStyle,
+                          isTodayDate && !isSelected && styles.todayCell,
                         ]}
+                        onPress={() => handleDateSelect(dayItem.date)}
+                        activeOpacity={0.7}
                       >
-                        {dayItem.day}
-                      </Text>
-                    </TouchableOpacity>
+                        <Text
+                          style={[
+                            styles.dateText,
+                            isTodayDate && !isSelected && styles.todayText,
+                            isSelected && styles.selectedText,
+                          ]}
+                        >
+                          {dayItem.day}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   );
                 })}
+              </View>
+
+              {/* Color Legend */}
+              <View style={styles.legend}>
+                <Text style={styles.legendTitle}>Date Colors</Text>
+                <View style={styles.legendItems}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendColor, styles.loggedDateCell]} />
+                    <Text style={styles.legendText}>Habits logged</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendColor, styles.sleepDataCell]} />
+                    <Text style={styles.legendText}>Sleep data</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendColor, styles.bothDataCell]} />
+                    <Text style={styles.legendText}>Both</Text>
+                  </View>
+                </View>
               </View>
             </View>
           </TouchableOpacity>
@@ -269,8 +385,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: spacing.sm,
   },
+  dayNameCellWrapper: {
+    width: '14.28%', // 7 columns
+    paddingHorizontal: 2, // Match date cell margin
+  },
   dayNameCell: {
-    flex: 1,
     alignItems: 'center',
     paddingVertical: spacing.xs,
   },
@@ -284,13 +403,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     minHeight: 200, // Fixed height to accommodate 6 rows (reduced from 240)
   },
+  dateCellWrapper: {
+    width: '14.28%', // 7 columns - matches dayNameCellWrapper width exactly
+    paddingHorizontal: 2, // Consistent spacing
+    paddingVertical: 2, // Vertical spacing between rows
+  },
   dateCell: {
-    width: '14.28%', // 7 columns
     aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 8,
-    margin: 2,
   },
   dateText: {
     fontSize: typography.sizes.body,
@@ -298,7 +420,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
   },
   loggedDateCell: {
-    backgroundColor: 'rgba(16, 185, 129, 0.2)', // colors.success with 20% opacity
+    backgroundColor: 'rgba(147, 197, 253, 0.4)', // Light blue - habits only (#93C5FD with 40% opacity)
+  },
+  sleepDataCell: {
+    backgroundColor: 'rgba(59, 130, 246, 0.5)', // Medium blue - sleep data only (#3B82F6 with 50% opacity)
+  },
+  bothDataCell: {
+    backgroundColor: 'rgba(30, 58, 138, 0.6)', // Darker blue - both habits and sleep data (#1E3A8A with 60% opacity)
   },
   todayCell: {
     borderWidth: 2,
@@ -314,6 +442,38 @@ const styles = StyleSheet.create({
   selectedText: {
     color: '#FFFFFF',
     fontWeight: typography.weights.bold,
+  },
+  legend: {
+    marginTop: spacing.regular,
+    paddingTop: spacing.regular,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  legendTitle: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  legendItems: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  legendColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    marginRight: spacing.xs,
+  },
+  legendText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
   },
 });
 

@@ -393,6 +393,30 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
+            <View style={[styles.infoCard, styles.toggleCard]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Show Habits Without Significance</Text>
+                  <Text style={styles.description}>
+                    Show habits with "no statistical significance yet" to help debug data issues
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    preferences.showNoSignificanceHabits && styles.toggleSwitchOn,
+                  ]}
+                  onPress={() => updatePreference('showNoSignificanceHabits', !preferences.showNoSignificanceHabits)}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      preferences.showNoSignificanceHabits && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
 
           {/* Settings */}
