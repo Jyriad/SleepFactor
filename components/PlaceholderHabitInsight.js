@@ -80,6 +80,21 @@ const PlaceholderHabitInsight = ({ insight, width }) => {
           </Text>
         </View>
       )}
+
+      {/* Progress Bar for reaching minimum data points */}
+      {!isBinaryPlaceholder && (
+        <View style={styles.progressSection}>
+          <Text style={styles.progressLabel}>Keep Logging</Text>
+          <View style={styles.progressBarBackground}>
+            <View style={[styles.progressBarFill, { width: `${Math.min(100, (daysWithPairedData / 10) * 100)}%` }]} />
+          </View>
+          <Text style={styles.progressText}>
+            {daysWithPairedData < 10 
+              ? `${10 - daysWithPairedData} more day${10 - daysWithPairedData !== 1 ? 's' : ''} needed`
+              : 'Almost there!'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -170,6 +185,34 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 16,
     flex: 1,
+  },
+  progressSection: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  progressLabel: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  progressBarBackground: {
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
   },
 });
 

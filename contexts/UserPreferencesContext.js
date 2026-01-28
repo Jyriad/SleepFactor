@@ -10,6 +10,7 @@ const DEFAULT_PREFERENCES = {
   timeFormat: '12', // '12' or '24'
   outlierSensitivity: 'standard', // 'conservative', 'standard', or 'aggressive'
   autoExcludeOutliers: false, // whether to automatically exclude detected outliers
+  showNoSignificanceHabits: false, // whether to show habits with 'no statistical significance yet'
   // Add more preferences here as needed
 };
 

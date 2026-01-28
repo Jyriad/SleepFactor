@@ -26,14 +26,6 @@ const ScatterPlot = ({
 }) => {
   const [selectedPoint, setSelectedPoint] = useState(null);
 
-  // Debug logging for props
-  console.log('[ScatterPlot] Rendered with props:', {
-    dataLength: data?.length,
-    hasOnPointPress: !!onPointPress,
-    xLabel,
-    yLabel
-  });
-
   if (!data || data.length === 0) {
     return (
       <View style={[styles.container, { width, height }]}>
@@ -69,13 +61,21 @@ const ScatterPlot = ({
   const yMax = Math.max(...yValues);
 
   const xRange = xMax - xMin || 1;
-  const yRange = yMax - yMin || 1;
+  // Ensure yRange is never 0 - if all y values are the same, add padding
+  let displayYMin = yMin;
+  let displayYMax = yMax;
+  let yRange = yMax - yMin;
+  if (yRange === 0) {
+    // If all y values are the same, add 10% padding above and below
+    const padding = Math.abs(yMin) * 0.1 || 1;
+    displayYMin = yMin - padding;
+    displayYMax = yMax + padding;
+    yRange = padding * 2;
+  }
 
   // Use original ranges for axis markers - don't recalculate during zoom
   const displayXMin = xMin;
   const displayXMax = xMax;
-  const displayYMin = yMin;
-  const displayYMax = yMax;
   const displayXRange = xRange;
   const displayYRange = yRange;
 
@@ -229,16 +229,6 @@ const ScatterPlot = ({
           ]
         );
       }
-    } else {
-      console.log('[ScatterChart] No point found within touch distance');
-
-      // Debug: show what points are available and their screen coordinates
-      validData.slice(0, 5).forEach((point, index) => {
-        const screenX = xScale(point.x);
-        const screenY = yScale(point.y);
-        const distance = Math.sqrt(Math.pow(chartX - screenX, 2) + Math.pow(chartY - screenY, 2));
-        console.log(`[ScatterChart] Point ${index} (${point.date}): screen=(${screenX}, ${screenY}), touch=(${chartX}, ${chartY}), distance=${distance}`);
-      });
     }
   };
 
@@ -246,11 +236,6 @@ const ScatterPlot = ({
   const xScale = (value) => ((value - displayXMin) / displayXRange) * chartWidth + margin.left;
   const yScale = (value) => chartHeight - ((value - displayYMin) / displayYRange) * chartHeight + margin.top;
 
-  // Debug scaling functions
-  console.log('[ScatterChart] Scaling functions test:');
-  console.log('[ScatterChart] xScale(31):', xScale(31), 'yScale(440):', yScale(440));
-  console.log('[ScatterChart] xScale range:', { min: xScale(displayXMin), max: xScale(displayXMax) });
-  console.log('[ScatterChart] yScale range:', { min: yScale(displayYMin), max: yScale(displayYMax) });
 
   // Generate axis markers with nice number rounding
   const generateAxisMarkers = () => {
@@ -457,16 +442,6 @@ const ScatterPlot = ({
                 pointFillColor = colors.textSecondary;
                 pointOpacity = 0.6;
               }
-
-              console.log(`[ScatterChart] Rendering point ${index}:`, {
-                date: point.date,
-                x: point.x,
-                y: point.y,
-                isExcluded,
-                isAutoExcluded,
-                isOutlier,
-                visual: { pointRadius, pointOpacity, strokeColor, strokeWidth }
-              });
 
               return (
                 <Circle

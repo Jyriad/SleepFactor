@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import insightsService from '../services/insightsService';
 import sleepSyncService from '../services/sleepSyncService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
@@ -24,6 +25,7 @@ const { width: screenWidth } = Dimensions.get('window');
 
 const InsightsScreen = () => {
   const { user } = useAuth();
+  const { preferences } = useUserPreferences();
 
   // State for insights data
   const [loading, setLoading] = useState(true);
@@ -46,13 +48,13 @@ const InsightsScreen = () => {
 
   useEffect(() => {
     loadInsights();
-  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep]);
+  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits]);
 
   // Refresh insights data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadInsights();
-    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep])
+    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits])
   );
 
   const loadInsights = async () => {
@@ -88,10 +90,13 @@ const InsightsScreen = () => {
         }
       );
 
-      // Sort insights by p-value (lowest first), then by confidence level
+      // Don't filter insights - they should all be visible
+      // The allowExpandNoSignificance prop controls whether non-significant insights can be expanded
+      let filteredInsights = [...insightsData.validInsights];
+
       // Sort insights by p-value (lowest first), then by confidence level
       const sortedInsights = {
-        validInsights: [...insightsData.validInsights].sort((a, b) => {
+        validInsights: filteredInsights.sort((a, b) => {
           // First sort by p-value (ascending) - handle null/undefined but preserve 0
           const aP = (a.pValue !== null && a.pValue !== undefined) ? Number(a.pValue) : 1;
           const bP = (b.pValue !== null && b.pValue !== undefined) ? Number(b.pValue) : 1;
@@ -142,24 +147,26 @@ const InsightsScreen = () => {
     if (insight.type === 'binary') {
       return (
         <BinaryHabitInsight
-          key={insight.habit.id}
+          key={`${insight.habit.id}-${selectedMetric}-${selectedAnalysisType}-${useCoreSleep}`}
           insight={insight}
           sleepMetric={metricInfo}
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
           isCoreSleepEnabled={useCoreSleep}
+          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
         />
       );
     } else if (insight.type === 'numerical') {
       return (
         <NumericalHabitInsight
-          key={insight.habit.id}
+          key={`${insight.habit.id}-${selectedMetric}-${selectedAnalysisType}-${useCoreSleep}`}
           insight={insight}
           sleepMetric={metricInfo}
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
           isCoreSleepEnabled={useCoreSleep}
           onRefresh={loadInsights}
+          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
         />
       );
     } else if (insight.type === 'placeholder') {

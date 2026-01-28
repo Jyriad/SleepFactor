@@ -10,10 +10,13 @@
  * @param {string} trendDirection - 'positive', 'negative', or 'none'
  * @param {Object} sleepMetric - Sleep metric object with label, unit
  * @param {Array} dataPoints - Array of data points for analysis
+ * @param {boolean} isPercentageMode - Whether values are in percentage mode
+ * @param {string} confidenceLevel - Confidence level: 'high', 'medium', 'low', or 'none'
  * @returns {string} Natural language headline
  */
-export function generateNumericalHeadline(habit, correlation, correlationStrength, trendDirection, sleepMetric, dataPoints) {
-  if (!correlation || correlationStrength === 'weak' || trendDirection === 'none') {
+export function generateNumericalHeadline(habit, correlation, correlationStrength, trendDirection, sleepMetric, dataPoints, isPercentageMode = false, confidenceLevel = null) {
+  // Only say "no clear relationship" if confidence is 'none' or correlation is truly null/undefined/0
+  if (confidenceLevel === 'none' || correlation === null || correlation === undefined || correlation === 0 || trendDirection === 'none') {
     return `Your ${habit.name.toLowerCase()} habits show no clear relationship with ${sleepMetric.label.toLowerCase()}`;
   }
 
@@ -36,6 +39,21 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
   const avgHabitValue = habitValues.reduce((sum, val) => sum + val, 0) / habitValues.length;
   const avgSleepValue = sleepValues.reduce((sum, val) => sum + val, 0) / sleepValues.length;
 
+  if (isPercentageMode) {
+    // In percentage mode, focus on percentage changes
+    const directionText = trendDirection === 'positive' ? 'more' : 'less';
+    const impact = correlationStrength === 'strong' ? 'significantly' : correlationStrength === 'moderate' ? 'moderately' : 'slightly';
+    
+    if (correlationStrength === 'strong') {
+      return `Your ${habitName} ${impact} affects your ${sleepMetricName} (${directionText} ${sleepMetricName} with higher ${habitName})`;
+    } else if (correlationStrength === 'moderate') {
+      return `Your ${habitName} tends to affect your ${sleepMetricName} (${directionText} ${sleepMetricName} with higher ${habitName})`;
+    } else {
+      // Weak correlation but still significant
+      return `Your ${habitName} shows a ${directionText === 'more' ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
+    }
+  }
+
   if (correlationStrength === 'strong') {
     if (threshold !== null && habit.unit) {
       const thresholdText = `${threshold.toFixed(1)} ${habit.unit}`;
@@ -50,9 +68,10 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
     } else {
       return `Your ${habitName} moderately affects ${sleepMetricName}`;
     }
+  } else {
+    // Weak correlation but still significant
+    return `Your ${habitName} shows a ${direction === 'higher' ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
   }
-
-  return `Your ${habitName} shows some relationship with ${sleepMetricName}`;
 }
 
 /**
@@ -63,10 +82,13 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
  * @param {Object} sleepMetric - Sleep metric object with label, unit
  * @param {number} yesDataPoints - Number of "yes" data points
  * @param {number} noDataPoints - Number of "no" data points
+ * @param {boolean} isPercentageMode - Whether values are in percentage mode
+ * @param {string} confidenceLevel - Confidence level: 'high', 'medium', 'low', or 'none'
  * @returns {string} Natural language headline
  */
-export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints) {
-  if (!yesStats || !noStats || !yesStats.median || !noStats.median) {
+export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints, isPercentageMode = false, confidenceLevel = null) {
+  // Only say "no significant difference" if confidence is 'none' or stats are missing
+  if (confidenceLevel === 'none' || !yesStats || !noStats || !yesStats.median || !noStats.median) {
     return `${habit.name} shows no significant difference in ${sleepMetric.label.toLowerCase()}`;
   }
 
@@ -78,17 +100,36 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
   const habitName = habit.name.toLowerCase();
   const sleepMetricName = sleepMetric.label.toLowerCase();
 
-  if (Math.abs(difference) < 1) {
-    return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
-  }
+  if (isPercentageMode) {
+    // In percentage mode, difference is already a percentage, so use it directly
+    const absPercentChange = Math.abs(difference);
+    if (absPercentChange < 1) {
+      return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
+    }
 
-  const direction = difference > 0 ? 'higher' : 'lower';
-  const impact = percentChange > 20 ? 'significantly' : percentChange > 10 ? 'moderately' : 'slightly';
+    const direction = difference > 0 ? 'more' : 'less';
+    const impact = absPercentChange > 20 ? 'significantly' : absPercentChange > 10 ? 'moderately' : 'slightly';
+    const percentText = `${absPercentChange.toFixed(0)}%`;
 
-  if (difference > 0) {
-    return `You get ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
+    if (difference > 0) {
+      return `You get ${percentText} ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
+    } else {
+      return `You get ${percentText} ${impact} ${direction} ${sleepMetricName} when you skip "${habitName}"`;
+    }
   } else {
-    return `You get ${impact} ${direction} ${sleepMetricName} when you skip "${habitName}"`;
+    // Absolute mode - use original logic
+    if (Math.abs(difference) < 1) {
+      return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
+    }
+
+    const direction = difference > 0 ? 'higher' : 'lower';
+    const impact = percentChange > 20 ? 'significantly' : percentChange > 10 ? 'moderately' : 'slightly';
+
+    if (difference > 0) {
+      return `You get ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
+    } else {
+      return `You get ${impact} ${direction} ${sleepMetricName} when you skip "${habitName}"`;
+    }
   }
 }
 
