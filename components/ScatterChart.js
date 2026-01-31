@@ -283,8 +283,12 @@ const ScatterPlot = ({
 
   const { xMarkers, yMarkers } = generateAxisMarkers();
 
+  // Include space for stats text below the chart (prevents overlap with content below)
+  const statsAreaHeight = 28;
+  const totalHeight = safeHeight + statsAreaHeight;
+
   return (
-    <View style={[styles.container, { width: safeWidth, height: safeHeight }]}>
+    <View style={[styles.container, { width: safeWidth, minHeight: totalHeight }]}>
       <TouchableOpacity
         style={styles.chartContainer}
         onPress={handleContainerPress}
@@ -493,6 +497,7 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     marginTop: spacing.xs,
+    marginBottom: spacing.sm,
     paddingHorizontal: spacing.regular,
     alignItems: 'center',
   },

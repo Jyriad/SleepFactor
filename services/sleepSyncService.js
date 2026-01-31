@@ -1,6 +1,7 @@
 import healthService from './healthService';
 import sleepDataService from './sleepDataService';
 import bedtimeHabitsService from './bedtimeHabitsService';
+import syncAttemptTracker from './syncAttemptTracker';
 import { supabase } from './supabase';
 
 /**
@@ -137,10 +138,17 @@ class SleepSyncService {
 
 
       if (!rawSleepData || rawSleepData.length === 0) {
+        // Mark that Health Connect has no data for the date range
+        const today = new Date().toISOString().split('T')[0];
+        await syncAttemptTracker.markNoData(today);
+        
         return {
           success: true,
           data: [],
-          message: 'No new sleep data to sync'
+          syncedRecords: 0,
+          resultType: 'SUCCESS_NO_DATA', // Clear distinction: success but no data available
+          message: 'No sleep data available in Health Connect',
+          dateRange: { startDate: startDateString, endDate: endDateString }
         };
       }
 
@@ -159,7 +167,10 @@ class SleepSyncService {
         return {
           success: true,
           data: [],
-          message: 'All sleep data already synced'
+          syncedRecords: 0,
+          resultType: 'SUCCESS_ALREADY_SYNCED', // All data already in database
+          message: 'All sleep data already synced',
+          dateRange: { startDate: startDateString, endDate: endDateString }
         };
       }
 
@@ -218,10 +229,20 @@ class SleepSyncService {
       // Update last sync timestamp
       this.lastSyncTimestamp = new Date();
 
+      // Clear "no_data" markers for dates we successfully synced
+      for (const record of savedRecords) {
+        await syncAttemptTracker.clearNoData(record.date);
+        await syncAttemptTracker.recordAttempt({ 
+          date: record.date, 
+          outcome: 'success' 
+        });
+      }
+
       const result = {
         success: true,
         data: savedRecords,
         syncedRecords: savedRecords.length,
+        resultType: savedRecords.length > 0 ? 'SUCCESS_WITH_DATA' : 'SUCCESS_NO_DATA',
         errors: errors.length,
         dateRange: { startDate: startDateString, endDate: endDateString },
         lastSyncTimestamp: this.lastSyncTimestamp.toISOString()
@@ -230,8 +251,16 @@ class SleepSyncService {
       return result;
 
     } catch (error) {
+      // Record error attempt
+      const today = new Date().toISOString().split('T')[0];
+      await syncAttemptTracker.recordAttempt({ 
+        date: today, 
+        outcome: 'error' 
+      });
+      
       return {
         success: false,
+        resultType: 'ERROR',
         error: healthService.getErrorMessage(error),
         data: null
       };

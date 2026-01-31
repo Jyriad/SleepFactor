@@ -204,15 +204,15 @@ const NumericalHabitInsight = ({
           >
             <Text style={styles.collapsedHabitName}>{habit.name}</Text>
             <Text style={styles.impactHeadline}>{headline}</Text>
-            <View style={styles.collapsedFooter}>
-              <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
-                <Ionicons name="time-outline" size={12} color={stabilityColor} />
-                <Text style={[styles.stabilityBadgeText, { color: stabilityColor }]}>
-                  {stabilityLabel}
-                </Text>
-              </View>
-              <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          <View style={styles.collapsedFooter}>
+            <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
+              <Ionicons name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} size={12} color={stabilityColor} />
+              <Text style={[styles.stabilityBadgeText, { color: stabilityColor }]}>
+                {stabilityLabel}
+              </Text>
             </View>
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          </View>
           </TouchableOpacity>
 
           <DataPointDetailModal
@@ -271,11 +271,11 @@ const NumericalHabitInsight = ({
             </View>
           )}
 
-          {/* Stability Badge and Expand Hint */}
+          {/* Stability Badge - same design as expanded view */}
           <View style={styles.collapsedFooter}>
             <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
               <Ionicons 
-                name={totalDataPoints >= 20 ? "checkmark-circle" : "time-outline"} 
+                name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} 
                 size={12} 
                 color={stabilityColor} 
               />
@@ -283,12 +283,6 @@ const NumericalHabitInsight = ({
                 {stabilityLabel}
               </Text>
             </View>
-            {confidenceLevel === 'high' && (
-              <View style={styles.expandHint}>
-                <Ionicons name="pulse" size={14} color={colors.primary} />
-                <Text style={styles.expandHintText}>Tap to see why</Text>
-              </View>
-            )}
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
         </TouchableOpacity>
@@ -336,18 +330,20 @@ const NumericalHabitInsight = ({
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
             <View style={styles.headerRight}>
-              {confidenceLevel === 'none' && (
-                <View style={styles.warningBadge}>
-                  <Ionicons name="alert-circle-outline" size={14} color={colors.warning} />
-                  <Text style={styles.warningText}>No Statistical Significance</Text>
-                </View>
-              )}
+              <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
+                <Ionicons 
+                  name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} 
+                  size={14} 
+                  color={stabilityColor} 
+                />
+                <Text style={[styles.stabilityBadgeText, { color: stabilityColor, fontSize: typography.sizes.small }]}>{stabilityLabel}</Text>
+              </View>
               <View style={styles.dataBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
                 <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
               </View>
-              <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
             </View>
+            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
           </View>
         </TouchableOpacity>
 
@@ -383,7 +379,7 @@ const NumericalHabitInsight = ({
         <View style={styles.dataMaturityContainer}>
           <View style={styles.dataMaturityHeader}>
             <Ionicons 
-              name={totalDataPoints >= 20 ? "checkmark-circle" : "time-outline"} 
+              name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} 
               size={16} 
               color={stabilityColor} 
             />
@@ -394,22 +390,12 @@ const NumericalHabitInsight = ({
           </Text>
         </View>
 
-        {/* Statistical Significance */}
+        {/* Statistical Significance - use stabilityLabel for consistency with collapsed view */}
         <View style={styles.statsContainer}>
           <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Statistical Significance: </Text>
-            <Text style={[
-              styles.confidenceValue,
-              {
-                color: confidenceLevel === 'high' ? colors.success :
-                       confidenceLevel === 'medium' ? colors.warning :
-                       confidenceLevel === 'low' ? colors.error :
-                       colors.textSecondary
-              }
-            ]}>
-              {confidenceLevel === 'none' ? 'No statistical significance yet' :
-               confidenceLevel ? `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} confidence` :
-               'Low confidence'}
+            <Text style={styles.statLabel}>Insight reliability: </Text>
+            <Text style={[styles.confidenceValue, { color: stabilityColor }]}>
+              {stabilityLabel}
             </Text>
           </View>
           {pValue !== null && pValue !== undefined && (
@@ -465,6 +451,7 @@ const styles = StyleSheet.create({
     marginVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
   },
   compactContainer: {
     padding: spacing.regular,
@@ -530,7 +517,6 @@ const styles = StyleSheet.create({
   collapsedRValue: {
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.semibold,
-    fontFamily: 'monospace',
     color: colors.textPrimary,
   },
   confidenceBadge: {
@@ -556,10 +542,14 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    flexShrink: 1,
     gap: spacing.sm,
+    maxWidth: '60%',
   },
   collapseIcon: {
     marginLeft: spacing.xs,
+    flexShrink: 0,
   },
   habitName: {
     fontSize: typography.sizes.body,
@@ -672,7 +662,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
-    fontFamily: 'monospace',
   },
   trendContainer: {
     flexDirection: 'row',
@@ -740,7 +729,6 @@ const styles = StyleSheet.create({
   meterValue: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
-    fontFamily: 'monospace',
     textAlign: 'center',
   },
   adviceContainer: {
@@ -768,34 +756,36 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   statsContainer: {
-    marginTop: spacing.regular,
-    gap: spacing.sm,
+    marginTop: spacing.sm,
+    gap: spacing.xs,
   },
   statRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
     paddingHorizontal: spacing.regular,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   statLabel: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
+    flexShrink: 0,
   },
   statValue: {
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     fontWeight: typography.weights.medium,
-    fontFamily: 'monospace',
   },
   confidenceValue: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
+    flex: 1,
+    flexWrap: 'wrap',
   },
   pValue: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
-    fontFamily: 'monospace',
     color: colors.textPrimary,
   },
   warningBadge: {
@@ -910,7 +900,7 @@ const styles = StyleSheet.create({
   },
   expandedHeadlineContainer: {
     paddingHorizontal: spacing.regular,
-    marginBottom: spacing.regular,
+    marginBottom: spacing.sm,
   },
   expandedHeadline: {
     fontSize: typography.sizes.body,
@@ -923,7 +913,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: spacing.regular,
     marginHorizontal: spacing.regular,
-    marginBottom: spacing.regular,
+    marginTop: spacing.regular,
+    marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
   },
