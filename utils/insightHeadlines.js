@@ -107,7 +107,8 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
       return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
     }
 
-    const direction = difference > 0 ? 'more' : 'less';
+    // Always describe the scenario that gives MORE sleep - direction is 'more' for both cases
+    const direction = 'more';
     const impact = absPercentChange > 20 ? 'significantly' : absPercentChange > 10 ? 'moderately' : 'slightly';
     const percentText = `${absPercentChange.toFixed(0)}%`;
 
@@ -117,12 +118,14 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
       return `You get ${percentText} ${impact} ${direction} ${sleepMetricName} when you skip "${habitName}"`;
     }
   } else {
-    // Absolute mode - use original logic
+    // Absolute mode - always describe the scenario that gives higher sleep
     if (Math.abs(difference) < 1) {
       return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
     }
 
-    const direction = difference > 0 ? 'higher' : 'lower';
+    // When difference > 0: doing habit gives more sleep. When difference < 0: skipping gives more sleep.
+    // In both cases we describe the scenario with higher sleep, so direction is always 'higher'
+    const direction = 'higher';
     const impact = percentChange > 20 ? 'significantly' : percentChange > 10 ? 'moderately' : 'slightly';
 
     if (difference > 0) {

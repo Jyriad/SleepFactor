@@ -919,7 +919,12 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       >
         <View style={styles.modalOverlay}>
           <View style={styles.timePickerModal}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
+            <ScrollView
+              style={styles.modalScrollView}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={styles.modalTitle}>
                 Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
               </Text>
@@ -1092,25 +1097,26 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 </TouchableOpacity>
               </View>
             </View>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => {
-                    setShowTimeModal(false);
-                    setEditingEvent(null);
-                  }}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.addButton]}
-                  onPress={confirmTimeModal}
-                >
-                  <Text style={styles.addButtonText}>{editingEvent ? 'Update' : 'Add'}</Text>
-                </TouchableOpacity>
-              </View>
             </ScrollView>
+
+            {/* Fixed footer: always visible Cancel and Add/Update */}
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowTimeModal(false);
+                  setEditingEvent(null);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.addButton]}
+                onPress={confirmTimeModal}
+              >
+                <Text style={styles.addButtonText}>{editingEvent ? 'Update' : 'Add'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1165,105 +1171,113 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
               <View style={styles.timePickerModal}>
-                <Text style={styles.modalTitle}>
-                  Quick Add {habit?.name?.toLowerCase() || 'consumption'}
-                </Text>
-
-                <View style={styles.timePickerContainer}>
-                  <View style={styles.pickerGroup}>
-                    <Text style={styles.timeLabel}>Hour</Text>
-                    <Picker
-                      pickerData={hourData}
-                      selectedValue={selectedHour.toString()}
-                      onValueChange={handleHourChange}
-                      textColor={colors.textSecondary}
-                      selectTextColor={colors.primary}
-                      textSize={20}
-                      itemHeight={50}
-                      style={styles.wheelPicker}
-                    />
-                  </View>
-
-                  <View style={styles.pickerGroup}>
-                    <Text style={styles.timeLabel}>Minute</Text>
-                    <Picker
-                      pickerData={minuteData}
-                      selectedValue={selectedMinute.toString()}
-                      onValueChange={handleMinuteChange}
-                      textColor={colors.textSecondary}
-                      selectTextColor={colors.primary}
-                      textSize={20}
-                      itemHeight={50}
-                      style={styles.wheelPicker}
-                    />
-                  </View>
-                </View>
-
-                {/* Amount Input */}
-                <View style={styles.amountInputContainer}>
-                  <Text style={styles.amountLabel}>
-                    Amount ({habit?.name?.toLowerCase().includes('caffeine') ? 'mg' : 'units'})
+                <ScrollView
+                  style={styles.modalScrollView}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.modalScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={styles.modalTitle}>
+                    Quick Add {habit?.name?.toLowerCase() || 'consumption'}
                   </Text>
-                  <TextInput
-                    style={styles.amountInput}
-                    value={quickAddAmount}
-                    onChangeText={setQuickAddAmount}
-                    placeholder={habit?.name?.toLowerCase().includes('caffeine') ? '95' : '1'}
-                    keyboardType="numeric"
-                    maxLength={4}
-                  />
-                </View>
 
-                <View style={styles.quickTimeOptions}>
-                  <Text style={styles.quickTimeLabel}>Quick Time:</Text>
-                  <View style={styles.quickTimeButtons}>
-                    <TouchableOpacity
-                      style={styles.quickTimeButton}
-                      onPress={() => {
-                        const amount = parseFloat(quickAddAmount);
-                        if (isNaN(amount) || amount <= 0) {
-                          Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
-                          return;
-                        }
-                        const morning = new Date(selectedDate);
-                        morning.setHours(10, 0, 0, 0);
-                        addQuickConsumption(morning, amount);
-                        setShowQuickAddModal(false);
-                      }}
-                    >
-                      <Text style={styles.quickTimeButtonText}>Morning</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.quickTimeButton}
-                      onPress={() => {
-                        const amount = parseFloat(quickAddAmount);
-                        if (isNaN(amount) || amount <= 0) {
-                          Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
-                          return;
-                        }
-                        const afternoon = new Date(selectedDate);
-                        afternoon.setHours(15, 0, 0, 0);
-                        addQuickConsumption(afternoon, amount);
-                        setShowQuickAddModal(false);
-                      }}
-                    >
-                      <Text style={styles.quickTimeButtonText}>Afternoon</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.quickTimeButton}
-                      onPress={() => {
-                        const evening = new Date(selectedDate);
-                        evening.setHours(19, 0, 0, 0);
-                        addQuickConsumption(evening, amount);
-                        setShowQuickAddModal(false);
-                      }}
-                    >
-                      <Text style={styles.quickTimeButtonText}>Evening</Text>
-                    </TouchableOpacity>
+                  <View style={styles.timePickerContainer}>
+                    <View style={styles.pickerGroup}>
+                      <Text style={styles.timeLabel}>Hour</Text>
+                      <Picker
+                        pickerData={hourData}
+                        selectedValue={selectedHour.toString()}
+                        onValueChange={handleHourChange}
+                        textColor={colors.textSecondary}
+                        selectTextColor={colors.primary}
+                        textSize={20}
+                        itemHeight={50}
+                        style={styles.wheelPicker}
+                      />
+                    </View>
+
+                    <View style={styles.pickerGroup}>
+                      <Text style={styles.timeLabel}>Minute</Text>
+                      <Picker
+                        pickerData={minuteData}
+                        selectedValue={selectedMinute.toString()}
+                        onValueChange={handleMinuteChange}
+                        textColor={colors.textSecondary}
+                        selectTextColor={colors.primary}
+                        textSize={20}
+                        itemHeight={50}
+                        style={styles.wheelPicker}
+                      />
+                    </View>
                   </View>
-                </View>
 
-                <View style={styles.modalButtons}>
+                  {/* Amount Input */}
+                  <View style={styles.amountInputContainer}>
+                    <Text style={styles.amountLabel}>
+                      Amount ({habit?.name?.toLowerCase().includes('caffeine') ? 'mg' : 'units'})
+                    </Text>
+                    <TextInput
+                      style={styles.amountInput}
+                      value={quickAddAmount}
+                      onChangeText={setQuickAddAmount}
+                      placeholder={habit?.name?.toLowerCase().includes('caffeine') ? '95' : '1'}
+                      keyboardType="numeric"
+                      maxLength={4}
+                    />
+                  </View>
+
+                  <View style={styles.quickTimeOptions}>
+                    <Text style={styles.quickTimeLabel}>Quick Time:</Text>
+                    <View style={styles.quickTimeButtons}>
+                      <TouchableOpacity
+                        style={styles.quickTimeButton}
+                        onPress={() => {
+                          const amount = parseFloat(quickAddAmount);
+                          if (isNaN(amount) || amount <= 0) {
+                            Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
+                            return;
+                          }
+                          const morning = new Date(selectedDate);
+                          morning.setHours(10, 0, 0, 0);
+                          addQuickConsumption(morning, amount);
+                          setShowQuickAddModal(false);
+                        }}
+                      >
+                        <Text style={styles.quickTimeButtonText}>Morning</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.quickTimeButton}
+                        onPress={() => {
+                          const amount = parseFloat(quickAddAmount);
+                          if (isNaN(amount) || amount <= 0) {
+                            Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
+                            return;
+                          }
+                          const afternoon = new Date(selectedDate);
+                          afternoon.setHours(15, 0, 0, 0);
+                          addQuickConsumption(afternoon, amount);
+                          setShowQuickAddModal(false);
+                        }}
+                      >
+                        <Text style={styles.quickTimeButtonText}>Afternoon</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.quickTimeButton}
+                        onPress={() => {
+                          const evening = new Date(selectedDate);
+                          evening.setHours(19, 0, 0, 0);
+                          addQuickConsumption(evening, amount);
+                          setShowQuickAddModal(false);
+                        }}
+                      >
+                        <Text style={styles.quickTimeButtonText}>Evening</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </ScrollView>
+
+                {/* Fixed footer: always visible Cancel and Add */}
+                <View style={styles.modalFooter}>
                   <TouchableOpacity
                     style={[styles.modalButton, styles.cancelButton]}
                     onPress={() => setShowQuickAddModal(false)}
@@ -1508,15 +1522,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  modalScrollView: {
+    flex: 1,
+  },
   modalScrollContent: {
     padding: spacing.regular,
+    paddingBottom: spacing.md,
   },
   timePickerModal: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     width: '90%',
     maxWidth: 350,
+    height: '80%',
     maxHeight: '80%',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    padding: spacing.regular,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.cardBackground,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
   },
   modalTitle: {
     fontSize: typography.sizes.large,

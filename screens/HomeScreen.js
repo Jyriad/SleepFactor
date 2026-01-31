@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
+import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -446,6 +447,9 @@ const HomeScreen = () => {
     fetchLoggedDates();
     calculatePersonalAverages();
     fetchTotalHabitCount(); // Fetch total habit count once on mount
+    
+    // Cleanup old sync attempt records on app startup
+    syncAttemptTracker.cleanupOldRecords();
   }, [user]);
 
 
@@ -533,11 +537,18 @@ const HomeScreen = () => {
         return; // Fresh sleep data already exists
       }
 
+      // Check if we should attempt sync (prevents infinite retry loops)
+      const shouldSync = await syncAttemptTracker.shouldAttemptSync(todayDateString);
+      if (!shouldSync) {
+        console.log('[SleepFactor:AutoSync] Skipping sync - already determined no data available or recently attempted');
+        return;
+      }
+
       // Check last sync time (removed 1-hour limit to match dev behavior)
       const lastSyncTime = getLastSyncTimestamp();
       console.log('[SleepFactor:AutoSync] Last sync time:', lastSyncTime);
 
-      // Always attempt sync for today's data until we have it (dev behavior)
+      // Attempt sync for today's data
       // Use force: true to ensure we get the latest data for today, even if it already exists
       isRunning = true;
       setAutoSyncLoading(true);
@@ -561,19 +572,35 @@ const HomeScreen = () => {
         console.log('[SleepFactor:AutoSync] Sync result:', result);
 
         if (!isCancelled && result.success) {
-          console.log('[SleepFactor:AutoSync] Sync successful - clearing cache and refreshing data');
-          // Always clear cache and refresh after successful sync
-          updateSleepDataCache(selectedDate, undefined);
-          updateHabitCountCache(selectedDate, undefined);
-          await new Promise(resolve => setTimeout(resolve, 200));
+          const resultType = result.resultType || 'SUCCESS_WITH_DATA';
+          console.log('[SleepFactor:AutoSync] Sync successful - resultType:', resultType, 'syncedRecords:', result.syncedRecords);
           
-          // Wrap fetchSleepData in try-catch to ensure cleanup happens even if it fails
-          try {
+          // Handle different success types
+          if (resultType === 'SUCCESS_WITH_DATA' && result.syncedRecords > 0) {
+            // Data was synced - clear cache and refresh
+            console.log('[SleepFactor:AutoSync] Data synced successfully - refreshing display');
+            updateSleepDataCache(selectedDate, undefined);
+            updateHabitCountCache(selectedDate, undefined);
+            
+            // Wait a bit for database to update, then fetch
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            try {
+              await fetchSleepData();
+              console.log('[SleepFactor:AutoSync] fetchSleepData completed successfully');
+            } catch (fetchError) {
+              console.log('[SleepFactor:AutoSync] fetchSleepData error:', fetchError);
+            }
+          } else if (resultType === 'SUCCESS_NO_DATA') {
+            // No data available - this is expected, don't retry
+            console.log('[SleepFactor:AutoSync] No data available in Health Connect - will not retry');
+            // The syncAttemptTracker already marked this as no_data
+            // Just fetch to make sure we show the "no data" state
             await fetchSleepData();
-            console.log('[SleepFactor:AutoSync] fetchSleepData completed successfully');
-          } catch (fetchError) {
-            console.log('[SleepFactor:AutoSync] fetchSleepData error:', fetchError);
-            // Continue - we still want to set autoSyncLoading to false
+          } else if (resultType === 'SUCCESS_ALREADY_SYNCED') {
+            // Data already exists - just refresh to be sure
+            console.log('[SleepFactor:AutoSync] Data already synced - refreshing display');
+            await fetchSleepData();
           }
           
           // Mark that we just synced to prevent re-trigger
@@ -916,15 +943,36 @@ const HomeScreen = () => {
   const handleSyncNow = async () => {
     try {
       clearError();
+      setAutoSyncLoading(true);
+      
       const result = await performSync({ force: true, userId: user.id });
+      
       if (result.success) {
-        // Clear cache and refresh sleep data for current date
-        updateSleepDataCache(selectedDate, undefined);
-        await new Promise(resolve => setTimeout(resolve, 200));
-        await fetchSleepData();
+        const resultType = result.resultType || 'SUCCESS_WITH_DATA';
+        
+        if (resultType === 'SUCCESS_WITH_DATA' && result.syncedRecords > 0) {
+          // Data was synced - clear cache and refresh
+          updateSleepDataCache(selectedDate, undefined);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await fetchSleepData();
+        } else if (resultType === 'SUCCESS_NO_DATA') {
+          // No data available - still refresh to show the state
+          await fetchSleepData();
+          Alert.alert(
+            'No Data Available',
+            'No sleep data was found in Health Connect for the selected date range.'
+          );
+        } else {
+          // Already synced or other success state
+          await fetchSleepData();
+        }
+      } else {
+        Alert.alert('Sync Failed', result.error || 'Unable to sync sleep data');
       }
     } catch (error) {
       Alert.alert('Sync Failed', error.message || 'Unable to sync sleep data');
+    } finally {
+      setAutoSyncLoading(false);
     }
   };
 

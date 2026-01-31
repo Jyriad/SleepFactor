@@ -4,6 +4,7 @@ export const colors = {
   // Primary colors
   primary: '#1E3A8A', // Dark blue for active states, buttons
   primaryLight: '#2563EB',
+  secondary: '#6366F1', // Indigo for secondary elements, chart comparison
   
   // Background
   background: '#FFFFFF',
