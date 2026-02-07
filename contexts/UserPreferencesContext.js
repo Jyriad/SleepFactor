@@ -11,6 +11,8 @@ const DEFAULT_PREFERENCES = {
   outlierSensitivity: 'standard', // 'conservative', 'standard', or 'aggressive'
   autoExcludeOutliers: false, // whether to automatically exclude detected outliers
   showNoSignificanceHabits: false, // whether to show habits with 'no statistical significance yet'
+  measurementSystem: 'metric', // 'metric' (ml) or 'imperial' (fl oz) - for drink/volume display
+  measurementRegion: 'metric', // 'US', 'UK', or 'metric' - which preset options to use (affects default drink sizes)
   // Add more preferences here as needed
 };
 

@@ -20,6 +20,7 @@ import sleepSyncService from '../services/sleepSyncService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
+import CoreSleepInfoModal from '../components/CoreSleepInfoModal';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -41,6 +42,7 @@ const InsightsScreen = () => {
   const [showTimeRangePicker, setShowTimeRangePicker] = useState(false);
   const [showAnalysisTypePicker, setShowAnalysisTypePicker] = useState(false);
   const [showCoreSleepPicker, setShowCoreSleepPicker] = useState(false);
+  const [showCoreSleepInfo, setShowCoreSleepInfo] = useState(false);
 
   // Get available options from insights service
   const availableMetrics = insightsService.getAvailableSleepMetrics();
@@ -281,6 +283,8 @@ const InsightsScreen = () => {
         </TouchableOpacity>
       </View>
 
+      <CoreSleepInfoModal visible={showCoreSleepInfo} onClose={() => setShowCoreSleepInfo(false)} />
+
       {/* Metric Picker Options */}
       {showMetricPicker && (
         <View style={styles.pickerContainer}>
@@ -393,23 +397,35 @@ const InsightsScreen = () => {
               Off - Use Full Night
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity
+          <View
             style={[
               styles.pickerOption,
+              styles.pickerOptionRow,
               useCoreSleep && styles.pickerOptionSelected
             ]}
-            onPress={() => {
-              setUseCoreSleep(true);
-              setShowCoreSleepPicker(false);
-            }}
           >
-            <Text style={[
-              styles.pickerOptionText,
-              useCoreSleep && styles.pickerOptionTextSelected
-            ]}>
-              On - Core Sleep Analysis
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.pickerOptionTouchable}
+              onPress={() => {
+                setUseCoreSleep(true);
+                setShowCoreSleepPicker(false);
+              }}
+            >
+              <Text style={[
+                styles.pickerOptionText,
+                useCoreSleep && styles.pickerOptionTextSelected
+              ]}>
+                On - Core Sleep Analysis
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowCoreSleepInfo(true)}
+              style={styles.pickerOptionHelpButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="help-circle-outline" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -490,6 +506,17 @@ const styles = StyleSheet.create({
     padding: spacing.regular,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  pickerOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pickerOptionTouchable: {
+    flex: 1,
+  },
+  pickerOptionHelpButton: {
+    paddingLeft: spacing.sm,
   },
   pickerOptionSelected: {
     backgroundColor: colors.primary + '20',

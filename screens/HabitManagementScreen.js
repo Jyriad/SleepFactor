@@ -32,7 +32,7 @@ const PREDEFINED_HABITS = [
 // Always available habits that are automatically created for all users
 const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
-  { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
+  { name: 'Alcohol', type: 'quick_consumption', unit: 'units', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
   { name: 'Bedtime Consistency', type: 'numeric', unit: 'minutes', is_automated: true },
 ];
 

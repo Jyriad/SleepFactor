@@ -19,11 +19,16 @@ import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
+import { formatVolume, getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import Button from './Button';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
 import EditConsumptionOptionModal from './EditConsumptionOptionModal';
 
 const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded }) => {
+  const { preferences } = useUserPreferences();
+  const measurementRegion = preferences.measurementRegion || 'metric';
+  const measurementSystem = preferences.measurementSystem || 'metric';
   const consumptionEvents = value || []; // Use value prop directly as controlled component
 
   // Check if "None" has been explicitly selected (special none event exists)
@@ -48,14 +53,14 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [quickAddAmount, setQuickAddAmount] = useState('');
   const [editingEvent, setEditingEvent] = useState(null);
 
-  // Load consumption options from database
+  // Load consumption options from database (filtered by user's region preference)
   useEffect(() => {
     const loadConsumptionOptions = async () => {
       if (!habit?.id) return;
 
       setLoadingOptions(true);
       try {
-        const result = await consumptionOptionsService.getOptionsForHabit(habit.id);
+        const result = await consumptionOptionsService.getOptionsForHabit(habit.id, measurementRegion);
         if (result.success) {
           setConsumptionOptions(result.data);
         } else {
@@ -69,7 +74,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     };
 
     loadConsumptionOptions();
-  }, [habit?.id]);
+  }, [habit?.id, measurementRegion]);
 
   const resetTimeForm = () => {
     const now = new Date();
@@ -79,20 +84,30 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   // Modal handlers
   const handleCreateOption = async (newOption) => {
-    // Refresh the options from database to ensure proper ordering and visibility
     if (!habit?.id) return;
 
+    // Optimistically add the new option so it appears immediately
+    setConsumptionOptions(prev => {
+      const exists = prev.some(o => o.id === newOption?.id);
+      if (exists) return prev;
+      const merged = [...prev, newOption];
+      return merged.sort((a, b) => {
+        if (a.name === 'None Today') return -1;
+        if (b.name === 'None Today') return 1;
+        const aCustom = a.is_custom ? 1 : 0;
+        const bCustom = b.is_custom ? 1 : 0;
+        if (bCustom !== aCustom) return bCustom - aCustom;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    });
+
     try {
-      const result = await consumptionOptionsService.getOptionsForHabit(habit.id);
+      const result = await consumptionOptionsService.getOptionsForHabit(habit.id, measurementRegion);
       if (result.success) {
         setConsumptionOptions(result.data);
-      } else {
-        // Fallback: add to local state
-        setConsumptionOptions(prev => [...prev, newOption]);
       }
     } catch (error) {
-      // Fallback: add to local state
-      setConsumptionOptions(prev => [...prev, newOption]);
+      // Keep optimistic update on refetch failure
     }
   };
 
@@ -269,25 +284,23 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     return null; // No default volume
   };
 
-  const calculateCustomDrugAmount = (volume) => {
+  const calculateCustomDrugAmount = (volumeMl) => {
     if (!selectedOption || !selectedOption.drug_amount) return 0;
+    if (volumeMl == null || volumeMl <= 0) return 0;
 
-    const volumeNum = parseFloat(volume) || 0;
-    if (volumeNum <= 0) return 0;
-
-    // If we have a default volume, use ratio calculation
+    // default_volume is always in ml - use ratio calculation
     if (selectedOption.default_volume) {
-      const calculated = (volumeNum / selectedOption.default_volume) * selectedOption.drug_amount;
-      return Math.round(calculated * 10) / 10; // Round to 1 decimal place
+      const calculated = (volumeMl / selectedOption.default_volume) * selectedOption.drug_amount;
+      return Math.round(calculated * 10) / 10;
     }
-
-    // If no default volume, assume 1:1 ratio
-    return Math.round(volumeNum * 10) / 10;
+    return Math.round(volumeMl * 10) / 10;
   };
 
-  const handleCustomVolumeChange = (volume) => {
-    setCustomVolume(volume);
-    const calculatedAmount = calculateCustomDrugAmount(volume);
+  const handleCustomVolumeChange = (userInput) => {
+    setCustomVolume(userInput);
+    const inputUnit = getVolumeUnitLabel(measurementSystem);
+    const volumeMl = parseVolumeInputToMl(userInput, measurementSystem, inputUnit);
+    const calculatedAmount = calculateCustomDrugAmount(volumeMl);
     setCustomDrugAmount(calculatedAmount);
   };
 
@@ -491,14 +504,15 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         baseAmount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1; // Default caffeine or alcohol amount
       }
 
-      // Calculate total amount and volume based on serving type
+      // Calculate total amount and volume based on serving type (volume always stored in ml)
       let servingMultiplier;
       let volumeConsumed;
       if (selectedServing === 'custom') {
-        // Use custom calculated amount
         totalAmount = customDrugAmount;
-        volumeConsumed = parseInt(customVolume) || selectedOption?.default_volume || 0;
-        servingMultiplier = 'custom'; // Indicate custom serving
+        const inputUnit = getVolumeUnitLabel(measurementSystem);
+        volumeConsumed = parseVolumeInputToMl(customVolume, measurementSystem, inputUnit)
+          || selectedOption?.default_volume || 0;
+        servingMultiplier = 'custom';
       } else {
         // Use multiplier calculation
         servingMultiplier = selectedServing || 1;
@@ -587,7 +601,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
       if (selectedServing === 'custom') {
         totalAmount = customDrugAmount;
-        volumeConsumed = parseInt(customVolume) || resolvedOption?.default_volume || 0;
+        const inputUnit = getVolumeUnitLabel(measurementSystem);
+        volumeConsumed = parseVolumeInputToMl(customVolume, measurementSystem, inputUnit)
+          || resolvedOption?.default_volume || 0;
         servingMultiplier = 'custom';
       } else {
         servingMultiplier = selectedServing || 1;
@@ -694,12 +710,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     if (event.serving === 'custom') {
       setSelectedServing('custom');
       setCustomDrugAmount(event.amount);
-      // Use stored volume if available (new format), otherwise calculate from old format
-      if (event.volume) {
-        setCustomVolume(event.volume.toString());
-      } else {
-        setCustomVolume(event.base_amount ? (event.amount / event.base_amount * (resolvedOption?.default_volume || 100)).toString() : '100');
+      let volumeMl = event.volume;
+      if (!volumeMl && event.base_amount && resolvedOption?.default_volume) {
+        volumeMl = (event.amount / event.base_amount) * resolvedOption.default_volume;
       }
+      setCustomVolume(volumeMl ? mlToUserUnit(volumeMl, measurementSystem) : '100');
       setShowCustomVolume(true);
     } else {
       setSelectedServing(event.serving || 1);
@@ -788,7 +803,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           <Text style={styles.loadingText}>Loading options...</Text>
         ) : consumptionOptions && consumptionOptions.length > 0 ? (
           <>
-            {consumptionOptions.slice(0, 6).map((option) => {
+            {consumptionOptions.slice(0, 8).map((option) => {
               const isNoneOption = option.drug_amount === 0;
               const isNoneSelected = isNoneOption && hasNoneEvent;
               return (
@@ -809,7 +824,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                     ]}
                     numberOfLines={1}
                   >
-                    {option.name.split(' ')[0]}
+                    {option.name}
                   </Text>
                 </TouchableOpacity>
               );
@@ -848,12 +863,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               {consumptionEvents.map((event) => {
             try {
               const resolvedOption = resolveConsumptionType(event.drink_type);
-              // Display volume if available, otherwise fall back to amount
+              // Display volume if available - format based on user's measurement preference (volume is stored in ml)
               let volumeDisplay;
-              if (event.volume && resolvedOption?.serving_unit) {
-                volumeDisplay = `${event.volume}${resolvedOption.serving_unit}`;
-              } else if (event.volume) {
-                volumeDisplay = `${event.volume}ml`; // Fallback if no serving_unit
+              if (event.volume) {
+                volumeDisplay = formatVolume(event.volume, measurementSystem) || `${event.volume} ml`;
               } else {
                 volumeDisplay = `${event.amount} ${habit?.unit || 'units'}`;
               }
@@ -934,8 +947,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 <View style={styles.modalServingSection}>
                   <Text style={styles.servingLabel}>
                     {selectedOption.name}
-                    {selectedOption.default_volume && selectedOption.serving_unit ? ` ${selectedOption.default_volume}${selectedOption.serving_unit}` : ''}
-                    {selectedOption.drug_amount ? `${selectedOption.default_volume && selectedOption.serving_unit ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}` : ''}
+                    {selectedOption.default_volume ? ` ${formatVolume(selectedOption.default_volume, measurementSystem)}` : ''}
+                    {selectedOption.drug_amount ? `${selectedOption.default_volume ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}` : ''}
                     {(selectedOption.default_volume || selectedOption.drug_amount) ? ' per serving' : ''}
                   </Text>
                   <View style={styles.modalServingButtons}>
@@ -967,7 +980,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                             styles.modalServingAmountText,
                             selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
                           ]}>
-                            {totalVolume && selectedOption.serving_unit ? `${totalVolume}${selectedOption.serving_unit}` : ''}
+                            {totalVolume ? formatVolume(totalVolume, measurementSystem) : ''}
                             {(totalVolume || totalDrugAmount) && (totalVolume && totalDrugAmount) ? '\n' : ''}
                             {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
                           </Text>
@@ -984,8 +997,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                       onPress={() => {
                         setSelectedServing('custom');
                         setShowCustomVolume(true);
-                        // Pre-fill with base volume as default, or empty if not available
-                        const defaultVolume = selectedOption.default_volume ? selectedOption.default_volume.toString() : '';
+                        const defaultVolume = selectedOption.default_volume
+                          ? mlToUserUnit(selectedOption.default_volume, measurementSystem)
+                          : '';
                         setCustomVolume(defaultVolume);
                         setCustomDrugAmount(selectedOption.drug_amount || 0);
                       }}
@@ -1014,11 +1028,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                           style={styles.customVolumeInput}
                           value={customVolume}
                           onChangeText={handleCustomVolumeChange}
-                          placeholder={selectedOption.default_volume ? `${selectedOption.default_volume}` : "100"}
+                          placeholder={selectedOption.default_volume ? mlToUserUnit(selectedOption.default_volume, measurementSystem) : '100'}
                           keyboardType="numeric"
                           maxLength={4}
                         />
-                        <Text style={styles.customVolumeUnit}>{selectedOption.serving_unit || 'ml'}</Text>
+                        <Text style={styles.customVolumeUnit}>{getVolumeUnitLabel(measurementSystem)}</Text>
                         <Text style={styles.customVolumeArrow}>→</Text>
                         <Text style={styles.customVolumeResult}>
                           {customDrugAmount.toFixed(1)} {selectedOption.drug_unit || habit?.unit}
@@ -1147,13 +1161,35 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   style={styles.menuOption}
                   onPress={() => {
                     setShowPlusMenu(false);
-                    setQuickAddAmount(''); // Reset amount
+                    setQuickAddAmount('');
                     setShowQuickAddModal(true);
                   }}
                 >
                   <Ionicons name="time" size={20} color={colors.primary} />
                   <Text style={styles.menuOptionText}>Quick add one-time</Text>
                 </TouchableOpacity>
+
+                {consumptionOptions && consumptionOptions.length > 0 && (
+                  <ScrollView
+                    style={styles.plusMenuOptionsList}
+                    showsVerticalScrollIndicator={true}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <Text style={styles.plusMenuSectionLabel}>All options</Text>
+                    {consumptionOptions.filter(o => o.drug_amount !== 0).map((option) => (
+                      <TouchableOpacity
+                        key={option.id}
+                        style={styles.plusMenuOptionItem}
+                        onPress={() => {
+                          setShowPlusMenu(false);
+                          selectConsumptionOption(option);
+                        }}
+                      >
+                        <Text style={styles.plusMenuOptionText}>{option.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -1655,6 +1691,27 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginLeft: spacing.sm,
     fontWeight: typography.weights.medium,
+  },
+  plusMenuOptionsList: {
+    maxHeight: 200,
+    marginTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+  },
+  plusMenuSectionLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    fontWeight: typography.weights.semibold,
+  },
+  plusMenuOptionItem: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  plusMenuOptionText: {
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
   },
   amountInputContainer: {
     marginBottom: spacing.lg,
