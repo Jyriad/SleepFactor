@@ -8,20 +8,31 @@ import { supabase } from './supabase';
 class ConsumptionOptionsService {
   /**
    * Get all active options for a specific habit
-   * Returns both system defaults and user custom options
+   * Returns system options for the given region + user's custom options
+   * @param {string} habitId - Habit UUID
+   * @param {string} region - 'US', 'UK', or 'metric' - which preset set to use. Default 'metric'
    */
-  async getOptionsForHabit(habitId) {
+  async getOptionsForHabit(habitId, region = 'metric') {
     try {
       const { data, error } = await supabase
         .from('consumption_options')
         .select('*')
         .eq('habit_id', habitId)
         .eq('is_active', true)
+        .or(`region.eq.${region},region.eq.custom`)
         .order('is_custom', { ascending: false }) // Custom options first
         .order('name', { ascending: true });
 
       if (error) throw error;
-      return { success: true, data: data || [] };
+
+      // Sort: None Today first, then alphabetically
+      const sorted = (data || []).sort((a, b) => {
+        if (a.name === 'None Today') return -1;
+        if (b.name === 'None Today') return 1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      return { success: true, data: sorted };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -116,7 +127,8 @@ class ConsumptionOptionsService {
           serving_unit: servingUnit,
           drug_unit: finalDrugUnit,
           is_custom: true,
-          is_active: true
+          is_active: true,
+          region: 'custom'
         })
         .select()
         .single();

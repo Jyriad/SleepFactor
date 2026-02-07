@@ -1,12 +1,14 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
+import CoreSleepInfoModal from './CoreSleepInfoModal';
 
-const SleepTimeline = ({ sleepData }) => {
+const SleepTimeline = ({ sleepData, coreSleepDurationMinutes }) => {
   const { formatTime } = useUserPreferences();
+  const [showCoreSleepInfo, setShowCoreSleepInfo] = useState(false);
 
   if (!sleepData) return null;
 
@@ -144,15 +146,56 @@ const SleepTimeline = ({ sleepData }) => {
 
   if (!timelineData || timelineData.segments.length === 0) return null;
 
-  const { segments, sleepStart, sleepEnd } = timelineData;
+  const { segments, sleepStart, sleepEnd, totalDurationMinutes } = timelineData;
   const startTime = formatTime(sleepStart);
   const endTime = formatTime(sleepEnd);
 
-  // Get unique stage types for legend
-  const uniqueStages = Array.from(new Set(segments.map(s => s.type)));
+  // Core sleep: first N minutes of the night. Show as a thin bar underneath, full width to match timeline.
+  const showCoreSleep = coreSleepDurationMinutes != null && totalDurationMinutes > 0;
+  const coreWidthPercent = showCoreSleep
+    ? Math.min(100, (coreSleepDurationMinutes / totalDurationMinutes) * 100)
+    : 0;
+  const coreSleepDurationLabel = showCoreSleep
+    ? (coreSleepDurationMinutes % 60 === 0
+        ? `${Math.floor(coreSleepDurationMinutes / 60)}h`
+        : `${Math.floor(coreSleepDurationMinutes / 60)}h ${coreSleepDurationMinutes % 60}m`)
+    : '';
 
   return (
     <View style={styles.container}>
+      {/* Core sleep indicator - above timeline, annotates the period with bookends */}
+      {showCoreSleep && (
+        <View style={styles.coreSleepBlock}>
+          <View style={styles.coreSleepLabelRow}>
+            <View style={styles.coreSleepLabelWithHelp}>
+              <Text style={styles.coreSleepLabel}>Core sleep</Text>
+              <TouchableOpacity
+                onPress={() => setShowCoreSleepInfo(true)}
+                style={styles.coreSleepHelpButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="help-circle-outline" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.coreSleepDuration}>{coreSleepDurationLabel}</Text>
+          </View>
+          <View style={styles.coreSleepBarWrap}>
+            <View style={styles.coreSleepBar}>
+              <View
+                style={[
+                  styles.coreSleepFill,
+                  coreWidthPercent >= 100 && styles.coreSleepFillFull,
+                  { width: `${coreWidthPercent}%` },
+                ]}
+              />
+              <View style={[styles.coreSleepRest, { width: `${100 - coreWidthPercent}%` }]} />
+            </View>
+            <View style={[styles.coreSleepBookend, styles.coreSleepBookendLeft]} />
+            <View style={[styles.coreSleepBookend, styles.coreSleepBookendRight, { left: `${coreWidthPercent}%` }]} />
+          </View>
+        </View>
+      )}
+
       {/* Timeline Bar */}
       <View style={styles.timelineContainer}>
         <View style={styles.timelineBar}>
@@ -179,18 +222,18 @@ const SleepTimeline = ({ sleepData }) => {
             );
           })}
         </View>
-        {/* Moon icon at start */}
         <View style={styles.moonIcon}>
           <Ionicons name="moon" size={14} color="#FFFFFF" />
         </View>
       </View>
 
-      {/* Time Labels */}
+      {/* Time Labels - directly under timeline, not pushed by core sleep */}
       <View style={styles.timeLabels}>
         <Text style={styles.timeLabel}>{startTime}</Text>
         <Text style={styles.timeLabel}>{endTime}</Text>
       </View>
 
+      <CoreSleepInfoModal visible={showCoreSleepInfo} onClose={() => setShowCoreSleepInfo(false)} />
     </View>
   );
 };
@@ -219,6 +262,77 @@ const styles = StyleSheet.create({
     left: 8,
     top: 12,
     zIndex: 1,
+  },
+  coreSleepBlock: {
+    marginBottom: spacing.sm,
+  },
+  coreSleepLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+    paddingHorizontal: spacing.xs,
+  },
+  coreSleepLabelWithHelp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  coreSleepLabel: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  coreSleepHelpButton: {
+    padding: 2,
+  },
+  coreSleepDuration: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  coreSleepBarWrap: {
+    width: '100%',
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coreSleepBar: {
+    width: '100%',
+    flexDirection: 'row',
+    height: 3,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  coreSleepFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    opacity: 0.9,
+    borderTopLeftRadius: 2,
+    borderBottomLeftRadius: 2,
+  },
+  coreSleepFillFull: {
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  coreSleepRest: {
+    height: '100%',
+    backgroundColor: 'transparent',
+    minWidth: 0,
+  },
+  coreSleepBookend: {
+    position: 'absolute',
+    top: -2,
+    bottom: -2,
+    width: 2,
+    backgroundColor: colors.primary,
+    borderRadius: 1,
+  },
+  coreSleepBookendLeft: {
+    left: 0,
+  },
+  coreSleepBookendRight: {
+    // left set inline as percentage
   },
   timeLabels: {
     flexDirection: 'row',

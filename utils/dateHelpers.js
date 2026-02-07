@@ -93,6 +93,72 @@ export const getDatesArray = () => {
 };
 
 /**
+ * Get array of dates for the horizontal date strip (e.g. 14 days ending at today).
+ * Only includes today and past dates. Returns { date, dayName, dayNumber }.
+ */
+export const getDateStripArray = (numDays = 14) => {
+  const today = new Date();
+  const dates = [];
+  const todayStr = formatDateForDB(today);
+
+  for (let i = numDays - 1; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    const dateStr = formatDateForDB(date);
+    // Only include today or past (no future)
+    if (dateStr > todayStr) continue;
+
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+    const dayNumber = date.getDate();
+    dates.push({
+      date: dateStr,
+      dayName,
+      dayNumber,
+      fullDate: date,
+    });
+  }
+  return dates;
+};
+
+/**
+ * Get array of dates for the horizontal strip centered on the given date.
+ * Returns numDays (default 7) with the center date in the middle when possible.
+ * Only includes today and past dates (no future). Returns { date, dayName, dayNumber }.
+ */
+export const getDateStripArrayCentered = (centerDate, numDays = 7) => {
+  const center = typeof centerDate === 'string'
+    ? new Date(centerDate + 'T12:00:00')
+    : new Date(centerDate);
+  const today = new Date();
+  const todayStr = formatDateForDB(today);
+
+  const centerTime = center.getTime();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const daysFromCenterToToday = Math.max(0, Math.floor((todayStart - centerTime) / (24 * 60 * 60 * 1000)));
+
+  const half = Math.floor(numDays / 2);
+  const afterCount = Math.min(half, daysFromCenterToToday);
+  const beforeCount = numDays - 1 - afterCount;
+  const startOffset = beforeCount;
+
+  const dates = [];
+  for (let i = 0; i < numDays; i++) {
+    const d = new Date(center);
+    d.setDate(center.getDate() - startOffset + i);
+    const dateStr = formatDateForDB(d);
+    if (dateStr > todayStr) continue;
+
+    dates.push({
+      date: dateStr,
+      dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      dayNumber: d.getDate(),
+      fullDate: d,
+    });
+  }
+  return dates;
+};
+
+/**
  * Format date for date selector display (e.g., "Mon 20")
  */
 export const formatDateSelector = (date) => {

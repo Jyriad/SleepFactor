@@ -254,10 +254,13 @@ class HealthConnectService {
         return null;
       }
 
-      // Calculate date (sleep date is the morning after, so if sleep ends at 6:30 AM on Jan 2,
-      // the sleep date is Jan 2)
+      // Calculate date (sleep date is the morning you woke, in local time).
+      // Use local date so it matches the app's "today" and "last night" (getToday() uses local date).
       const endDate = new Date(rawData.endTime);
-      const sleepDate = endDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+      const y = endDate.getFullYear();
+      const m = String(endDate.getMonth() + 1).padStart(2, '0');
+      const d = String(endDate.getDate()).padStart(2, '0');
+      const sleepDate = `${y}-${m}-${d}`;
 
       // Calculate total sleep duration in minutes
       const startTime = new Date(rawData.startTime);

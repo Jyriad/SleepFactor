@@ -7,8 +7,10 @@ import {
   TouchableOpacity,
   Alert,
   Dimensions,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -94,6 +96,7 @@ const SleepDataCard = ({
   isToday,
   formatDateTitle,
   sleepData,
+  coreSleepDurationMinutes,
   hasPermissions,
   healthSyncInitialized,
   handleSyncNow,
@@ -172,7 +175,7 @@ const SleepDataCard = ({
       </View>
 
     {/* Sleep Timeline Visualization */}
-    <SleepTimeline sleepData={sleepData} />
+    <SleepTimeline sleepData={sleepData} coreSleepDurationMinutes={coreSleepDurationMinutes} />
 
     <View style={styles.sleepMetrics}>
       {(() => {
@@ -360,13 +363,13 @@ const AVERAGE_SLEEP_PERCENTAGES = {
   awakenings_count: 1.5, // Average number of awakenings per night
 };
 import { getToday, isSameDay, formatDateTitle, getDatesArray, isToday, formatTimeAgo } from '../utils/dateHelpers';
-import DateSelector from '../components/DateSelector';
+import DateHeader from '../components/DateHeader';
 import HabitSummaryCard from '../components/HabitSummaryCard';
-import DatePickerModal from '../components/DatePickerModal';
 import NavigationCard from '../components/NavigationCard';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
 import dataQualityService from '../services/dataQualityService';
+import insightsService from '../services/insightsService';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -385,7 +388,6 @@ const HomeScreen = () => {
   const [habitCount, setHabitCount] = useState(0);
   const [totalHabitCount, setTotalHabitCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [calendarModalVisible, setCalendarModalVisible] = useState(false);
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
@@ -397,6 +399,8 @@ const HomeScreen = () => {
   // Personal sleep averages state
   const [personalAverages, setPersonalAverages] = useState(null);
   const [averagesLoading, setAveragesLoading] = useState(false);
+  // Core sleep duration (minutes) for timeline indicator - from user's 95th percentile
+  const [coreSleepDurationMinutes, setCoreSleepDurationMinutes] = useState(null);
 
   // Data cache for recent dates (today + last 5 days)
   const [sleepDataCache, setSleepDataCache] = useState(new Map());
@@ -406,6 +410,9 @@ const HomeScreen = () => {
 
   // Ref to track if we just completed a sync to prevent re-triggering
   const justSyncedRef = useRef(false);
+  // Cooldown: don't start another auto-sync for the same date within this many ms
+  const AUTO_SYNC_COOLDOWN_MS = 2 * 60 * 1000;
+  const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
 
   // Health sync hook
   const {
@@ -421,6 +428,19 @@ const HomeScreen = () => {
     clearError,
     resetNeedsPermissions,
   } = useHealthSync();
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary);
+      }
+      return () => {
+        if (Platform.OS === 'android') {
+          StatusBar.setBackgroundColor(colors.background);
+        }
+      };
+    }, [])
+  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -447,7 +467,7 @@ const HomeScreen = () => {
     fetchLoggedDates();
     calculatePersonalAverages();
     fetchTotalHabitCount(); // Fetch total habit count once on mount
-    
+    fetchCoreSleepDuration();
     // Cleanup old sync attempt records on app startup
     syncAttemptTracker.cleanupOldRecords();
   }, [user]);
@@ -544,6 +564,16 @@ const HomeScreen = () => {
         return;
       }
 
+      // Cooldown: avoid starting another auto-sync for today if we just ran one (stops flicker loop)
+      const now = Date.now();
+      if (
+        lastAutoSyncRef.current.dateString === todayDateString &&
+        now - lastAutoSyncRef.current.timestamp < AUTO_SYNC_COOLDOWN_MS
+      ) {
+        console.log('[SleepFactor:AutoSync] Skipping - within cooldown for', todayDateString);
+        return;
+      }
+
       // Check last sync time (removed 1-hour limit to match dev behavior)
       const lastSyncTime = getLastSyncTimestamp();
       console.log('[SleepFactor:AutoSync] Last sync time:', lastSyncTime);
@@ -551,6 +581,7 @@ const HomeScreen = () => {
       // Attempt sync for today's data
       // Use force: true to ensure we get the latest data for today, even if it already exists
       isRunning = true;
+      lastAutoSyncRef.current = { dateString: todayDateString, timestamp: Date.now() };
       setAutoSyncLoading(true);
       console.log('[SleepFactor:AutoSync] Starting sync - set autoSyncLoading to true');
 
@@ -637,7 +668,7 @@ const HomeScreen = () => {
       // Reset autoSyncLoading when effect is cleaned up (e.g., navigating away)
       setAutoSyncLoading(false);
     };
-  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading, sleepDataLoading]);
+  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -932,12 +963,6 @@ const HomeScreen = () => {
     const today = new Date();
     safeSetSelectedDate(today);
     navigation.navigate('HabitLogging', { date: today.toISOString() });
-  };
-
-  const handleCalendarDateSelect = (date) => {
-    safeSetSelectedDate(date);
-    const dateObj = date instanceof Date ? date : new Date(date);
-    navigation.navigate('HabitLogging', { date: dateObj.toISOString() });
   };
 
   const handleSyncNow = async () => {
@@ -1304,6 +1329,18 @@ const HomeScreen = () => {
     }
   };
 
+  // Fetch core sleep duration (95th percentile of user's sleep) for timeline indicator
+  // Core sleep = 5th percentile so 95% of nights exceed it (same definition as Insights).
+  const fetchCoreSleepDuration = async () => {
+    if (!user) return;
+    try {
+      const duration = await insightsService.calculateCoreSleepDuration(user.id);
+      setCoreSleepDurationMinutes(duration);
+    } catch (error) {
+      setCoreSleepDurationMinutes(null);
+    }
+  };
+
   // Calculate personal sleep averages from historical data
   const calculatePersonalAverages = async () => {
     if (!user) return;
@@ -1369,32 +1406,24 @@ const HomeScreen = () => {
   };
 
 
+  const insets = useSafeAreaInsets();
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={[styles.dateHeaderWrap, { paddingTop: insets.top }]}>
+        <DateHeader
+          selectedDate={selectedDate}
+          onDateChange={safeSetSelectedDate}
+          loggedDates={loggedDates}
+          datesWithUnsavedChanges={datesWithUnsavedChanges}
+          showTodayButton
+        />
+      </View>
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{formatDateTitle(selectedDate)}</Text>
-          <TouchableOpacity
-            onPress={() => setCalendarModalVisible(true)}
-            style={styles.calendarIconButton}
-          >
-            <Ionicons name="calendar-outline" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Date Selector */}
-        <DateSelector
-          selectedDate={selectedDate}
-          onDateChange={safeSetSelectedDate}
-          loggedDates={loggedDates}
-          datesWithUnsavedChanges={datesWithUnsavedChanges}
-        />
-
         {/* Today's Habits Reminder - Always show if not logged */}
         {!loading && !todaysHabitsLogged && (
           <View style={styles.todayReminder}>
@@ -1487,6 +1516,7 @@ const HomeScreen = () => {
                   isToday={isToday}
                   formatDateTitle={formatDateTitle}
                   sleepData={sleepData}
+                  coreSleepDurationMinutes={coreSleepDurationMinutes}
                   hasPermissions={hasPermissions}
                   healthSyncInitialized={healthSyncInitialized}
                   handleSyncNow={handleSyncNow}
@@ -1527,13 +1557,6 @@ const HomeScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Date Picker Modal */}
-      <DatePickerModal
-        visible={calendarModalVisible}
-        onClose={() => setCalendarModalVisible(false)}
-        selectedDate={selectedDate}
-        onDateSelect={handleCalendarDateSelect}
-      />
     </SafeAreaView>
   );
 };
@@ -1543,27 +1566,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  dateHeaderWrap: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingBottom: 72, // Navigation footer height + margin
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.regular,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
-  },
-  title: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-  },
-  calendarIconButton: {
-    padding: spacing.xs,
   },
   todayReminder: {
     backgroundColor: colors.cardBackground,

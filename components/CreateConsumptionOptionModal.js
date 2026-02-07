@@ -13,6 +13,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import {
+  ML_PER_FL_OZ,
+  calculateAlcoholUnits,
+} from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import Button from './Button';
 
@@ -34,10 +38,14 @@ const CreateConsumptionOptionModal = ({
   const [drugAmount, setDrugAmount] = useState('');
   const [volume, setVolume] = useState('');
   const [servingUnit, setServingUnit] = useState('ml');
+  const [alcoholPercent, setAlcoholPercent] = useState('');
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState('');
   const [amountError, setAmountError] = useState('');
   const [volumeError, setVolumeError] = useState('');
+  const [alcoholError, setAlcoholError] = useState('');
+
+  const isAlcoholHabit = (habitName || '').toLowerCase().includes('alcohol');
 
   // Reset form when modal opens
   useEffect(() => {
@@ -46,9 +54,11 @@ const CreateConsumptionOptionModal = ({
       setDrugAmount('');
       setVolume('');
       setServingUnit('ml');
+      setAlcoholPercent('');
       setNameError('');
       setAmountError('');
       setVolumeError('');
+      setAlcoholError('');
     }
   }, [visible]);
 
@@ -66,38 +76,44 @@ const CreateConsumptionOptionModal = ({
       setNameError('');
     }
 
-    // Validate drug amount
-    const amount = parseFloat(drugAmount);
-    if (!drugAmount || isNaN(amount)) {
-      setAmountError('Valid amount is required');
-      isValid = false;
-    } else if (amount <= 0) {
-      setAmountError('Amount must be greater than 0');
-      isValid = false;
-    } else if (amount > 10000) {
-      setAmountError('Amount seems too high');
-      isValid = false;
-    } else {
-      setAmountError('');
-    }
-
-    // Validate volume (optional field)
-    if (volume.trim()) {
+    if (isAlcoholHabit) {
+      // For alcohol: volume and ABV are required
       const volumeNum = parseFloat(volume);
-      if (isNaN(volumeNum)) {
-        setVolumeError('Valid volume is required');
-        isValid = false;
-      } else if (volumeNum <= 0) {
-        setVolumeError('Volume must be greater than 0');
-        isValid = false;
-      } else if (volumeNum > 10000) {
-        setVolumeError('Volume seems too high');
+      if (!volume.trim() || isNaN(volumeNum) || volumeNum <= 0 || volumeNum > 10000) {
+        setVolumeError('Valid volume is required (e.g. 355)');
         isValid = false;
       } else {
         setVolumeError('');
       }
+      const abv = parseFloat(alcoholPercent);
+      if (!alcoholPercent.trim() || isNaN(abv) || abv <= 0 || abv > 100) {
+        setAlcoholError('Valid alcohol % is required (e.g. 5)');
+        isValid = false;
+      } else {
+        setAlcoholError('');
+      }
+      setAmountError('');
     } else {
-      setVolumeError('');
+      // For caffeine: drug amount required, volume optional
+      const amount = parseFloat(drugAmount);
+      if (!drugAmount || isNaN(amount) || amount <= 0 || amount > 10000) {
+        setAmountError('Valid amount is required');
+        isValid = false;
+      } else {
+        setAmountError('');
+      }
+      if (volume.trim()) {
+        const volumeNum = parseFloat(volume);
+        if (isNaN(volumeNum) || volumeNum <= 0 || volumeNum > 10000) {
+          setVolumeError('Valid volume is required');
+          isValid = false;
+        } else {
+          setVolumeError('');
+        }
+      } else {
+        setVolumeError('');
+      }
+      setAlcoholError('');
     }
 
     return isValid;
@@ -108,16 +124,38 @@ const CreateConsumptionOptionModal = ({
 
     setSaving(true);
     try {
-      const volumeMl = volume.trim() ? parseFloat(volume) : null;
+      let volumeMl = null;
+      if (volume.trim()) {
+        const num = parseFloat(volume);
+        volumeMl = (servingUnit === 'ounces' || servingUnit === 'fl oz')
+          ? Math.round(num * ML_PER_FL_OZ)
+          : Math.round(num);
+      }
+
+      let finalDrugAmount;
+      let finalDrugUnit;
+      if (isAlcoholHabit) {
+        finalDrugAmount = calculateAlcoholUnits(volumeMl || 0, parseFloat(alcoholPercent) || 0);
+        if (finalDrugAmount < 0.1) {
+          setAlcoholError('Volume and alcohol % give less than 0.1 units. Check your values.');
+          setSaving(false);
+          return;
+        }
+        finalDrugUnit = 'units';
+      } else {
+        finalDrugAmount = parseFloat(drugAmount);
+        finalDrugUnit = getDrugUnit();
+      }
+
       const result = await consumptionOptionsService.createCustomOption(
         userId,
         habitId,
         name.trim(),
-        parseFloat(drugAmount),
-        null, // No icon for now
+        finalDrugAmount,
+        null,
         volumeMl,
         servingUnit,
-        getDrugUnit() // Auto-determine drug unit based on habit type
+        finalDrugUnit
       );
 
       if (result.success) {
@@ -161,10 +199,11 @@ const CreateConsumptionOptionModal = ({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.overlay}>
-          <TouchableWithoutFeedback>
-            <View style={styles.modal}>
+      <View style={styles.overlay}>
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={StyleSheet.absoluteFillObject} />
+        </TouchableWithoutFeedback>
+        <View style={styles.modal}>
               <View style={styles.header}>
                 <Text style={styles.title}>Create Custom Option</Text>
                 <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -174,11 +213,12 @@ const CreateConsumptionOptionModal = ({
 
               <ScrollView
                 style={styles.content}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
                 bounces={true}
-                alwaysBounceVertical={false}
-                decelerationRate="normal"
+                decelerationRate="fast"
                 contentContainerStyle={{ paddingBottom: 20 }}
+                nestedScrollEnabled={true}
               >
                 <Text style={styles.subtitle}>
                   Add a custom option for {habitName?.toLowerCase() || 'this habit'}
@@ -194,86 +234,163 @@ const CreateConsumptionOptionModal = ({
                       setName(text);
                       if (nameError) setNameError('');
                     }}
-                    placeholder="e.g., Diet Coke, Dark Roast, etc."
+                    placeholder={isAlcoholHabit ? 'e.g., Craft IPA, Pinot Noir' : 'e.g., Diet Coke, Dark Roast'}
                     placeholderTextColor={colors.textLight}
                     maxLength={50}
                   />
                   {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
                 </View>
 
-                {/* Drug Amount Input */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Amount ({getUnitLabel()})</Text>
-                  <TextInput
-                    style={[styles.textInput, amountError ? styles.inputError : null]}
-                    value={drugAmount}
-                    onChangeText={(text) => {
-                      setDrugAmount(text);
-                      if (amountError) setAmountError('');
-                    }}
-                    placeholder={`e.g., 34`}
-                    placeholderTextColor={colors.textLight}
-                    keyboardType="numeric"
-                    maxLength={10}
-                  />
-                  {amountError ? <Text style={styles.errorText}>{amountError}</Text> : null}
-                </View>
+                {isAlcoholHabit ? (
+                  <>
+                    {/* Volume - required for alcohol */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Volume per serving</Text>
+                      <TextInput
+                        style={[styles.textInput, volumeError ? styles.inputError : null]}
+                        value={volume}
+                        onChangeText={(text) => {
+                          setVolume(text);
+                          if (volumeError) setVolumeError('');
+                        }}
+                        placeholder="e.g., 355"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="numeric"
+                        maxLength={5}
+                      />
+                      {volumeError ? <Text style={styles.errorText}>{volumeError}</Text> : null}
+                      <Text style={styles.helpText}>
+                        Volume of one serving (e.g., 355 for a 12 oz can, 175 for a wine glass).
+                      </Text>
+                    </View>
 
-                {/* Volume Input */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Amount per Serving - Optional</Text>
-                  <TextInput
-                    style={[styles.textInput, volumeError ? styles.inputError : null]}
-                    value={volume}
-                    onChangeText={(text) => {
-                      setVolume(text);
-                      if (volumeError) setVolumeError('');
-                    }}
-                    placeholder="e.g., 240"
-                    placeholderTextColor={colors.textLight}
-                    keyboardType="numeric"
-                    maxLength={5}
-                  />
-                  {volumeError ? <Text style={styles.errorText}>{volumeError}</Text> : null}
-                  <Text style={styles.helpText}>
-                    Amount per serving (e.g., 240 ml, 1 spoon, 2 pills).
-                  </Text>
-                </View>
+                    {/* Volume unit - ml or ounces for alcohol */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Volume unit</Text>
+                      <View style={styles.unitGrid}>
+                        {['ml', 'ounces'].map((unit) => (
+                          <TouchableOpacity
+                            key={unit}
+                            style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}
+                            onPress={() => setServingUnit(unit)}
+                          >
+                            <Text style={[styles.unitText, servingUnit === unit && styles.selectedUnitText]}>
+                              {unit}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
 
-                {/* Serving Unit Selection */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Serving Unit</Text>
-                  <View style={styles.unitGrid}>
-                    {SERVING_UNITS.map((unit) => (
-                      <TouchableOpacity
-                        key={unit}
-                        style={[
-                          styles.unitOption,
-                          servingUnit === unit && styles.selectedUnit
-                        ]}
-                        onPress={() => setServingUnit(unit)}
-                      >
-                        <Text style={[
-                          styles.unitText,
-                          servingUnit === unit && styles.selectedUnitText
-                        ]}>
-                          {unit}
+                    {/* Alcohol % (ABV) */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Alcohol % (ABV)</Text>
+                      <TextInput
+                        style={[styles.textInput, alcoholError ? styles.inputError : null]}
+                        value={alcoholPercent}
+                        onChangeText={(text) => {
+                          setAlcoholPercent(text);
+                          if (alcoholError) setAlcoholError('');
+                        }}
+                        placeholder="e.g., 5 for beer, 12 for wine, 40 for spirits"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="decimal-pad"
+                        maxLength={5}
+                      />
+                      {alcoholError ? <Text style={styles.errorText}>{alcoholError}</Text> : null}
+                      <Text style={styles.helpText}>
+                        Alcohol by volume. Check the label (e.g., 5% beer, 12% wine, 40% vodka).
+                      </Text>
+                    </View>
+
+                    {/* Preview for alcohol */}
+                    <View style={styles.preview}>
+                      <Text style={styles.previewLabel}>Preview:</Text>
+                      <View style={styles.previewOption}>
+                        <Text style={styles.previewText}>
+                          {name.trim() || 'Option Name'}{volume.trim() && alcoholPercent.trim()
+                            ? ` – ${volume} ${servingUnit}, ${alcoholPercent}% ABV ≈ ${calculateAlcoholUnits(
+                                servingUnit === 'ounces' ? parseFloat(volume || 0) * ML_PER_FL_OZ : parseFloat(volume || 0),
+                                parseFloat(alcoholPercent || 0)
+                              ).toFixed(1)} units`
+                            : ' – Enter volume and alcohol %'}
                         </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    {/* Caffeine: Volume per serving - same order as alcohol */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Volume per serving - Optional</Text>
+                      <TextInput
+                        style={[styles.textInput, volumeError ? styles.inputError : null]}
+                        value={volume}
+                        onChangeText={(text) => {
+                          setVolume(text);
+                          if (volumeError) setVolumeError('');
+                        }}
+                        placeholder="e.g., 250"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="numeric"
+                        maxLength={5}
+                      />
+                      {volumeError ? <Text style={styles.errorText}>{volumeError}</Text> : null}
+                      <Text style={styles.helpText}>
+                        Volume of one serving (e.g., 250 ml for a cup of coffee).
+                      </Text>
+                    </View>
 
+                    {/* Volume unit for caffeine */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Volume unit</Text>
+                      <View style={styles.unitGrid}>
+                        {['ml', 'ounces'].map((unit) => (
+                          <TouchableOpacity
+                            key={unit}
+                            style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}
+                            onPress={() => setServingUnit(unit)}
+                          >
+                            <Text style={[styles.unitText, servingUnit === unit && styles.selectedUnitText]}>
+                              {unit}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
 
-                {/* Preview */}
-                <View style={styles.preview}>
-                  <Text style={styles.previewLabel}>Preview:</Text>
-                  <View style={styles.previewOption}>
-                    <Text style={styles.previewText}>
-                      {name.trim() || 'Option Name'} ({drugAmount || '0'} {getUnitLabel()}{volume.trim() ? `, ${volume} ${servingUnit}` : ''})
-                    </Text>
-                  </View>
-                </View>
+                    {/* Caffeine (mg) */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Caffeine (mg)</Text>
+                      <TextInput
+                        style={[styles.textInput, amountError ? styles.inputError : null]}
+                        value={drugAmount}
+                        onChangeText={(text) => {
+                          setDrugAmount(text);
+                          if (amountError) setAmountError('');
+                        }}
+                        placeholder="e.g., 95 for coffee, 47 for tea"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="numeric"
+                        maxLength={10}
+                      />
+                      {amountError ? <Text style={styles.errorText}>{amountError}</Text> : null}
+                      <Text style={styles.helpText}>
+                        Mg of caffeine per serving. Check the label or use typical values.
+                      </Text>
+                    </View>
+
+                    {/* Preview for caffeine */}
+                    <View style={styles.preview}>
+                      <Text style={styles.previewLabel}>Preview:</Text>
+                      <View style={styles.previewOption}>
+                        <Text style={styles.previewText}>
+                          {name.trim() || 'Option Name'} ({drugAmount || '0'} {getUnitLabel()}{volume.trim() ? `, ${volume} ${servingUnit}` : ''})
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
               </ScrollView>
 
               {/* Action Buttons */}
@@ -295,10 +412,8 @@ const CreateConsumptionOptionModal = ({
                   </Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </TouchableWithoutFeedback>
         </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 };

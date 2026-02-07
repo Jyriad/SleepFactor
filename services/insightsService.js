@@ -24,45 +24,6 @@ class InsightsService {
   }
 
   /**
-   * Calculate core sleep duration as the 95th percentile of historical total sleep times
-   * @param {string} userId - User ID
-   * @returns {Promise<number|null>} Core sleep duration in minutes, or null if insufficient data
-   */
-  async calculateCoreSleepDuration(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('sleep_data')
-        .select('total_sleep_minutes')
-        .eq('user_id', userId)
-        .not('total_sleep_minutes', 'is', null)
-        .gt('total_sleep_minutes', 0); // Only include positive sleep values
-
-      if (error) throw error;
-
-      if (!data || data.length < 20) {
-        // Insufficient data - use median as fallback
-        if (data && data.length > 0) {
-          const sleepDurations = data.map(d => d.total_sleep_minutes).sort((a, b) => a - b);
-          return calculateMedian(sleepDurations, true);
-        }
-        return null; // No data available
-      }
-
-      // Calculate 95th percentile of all historical sleep durations
-      const sleepDurations = data.map(d => d.total_sleep_minutes).sort((a, b) => a - b);
-      const coreSleepMinutes = calculatePercentile(sleepDurations, 95);
-
-      // Ensure reasonable bounds (4-10 hours)
-      const boundedCoreSleep = Math.max(240, Math.min(600, coreSleepMinutes)); // 4-10 hours in minutes
-
-      return Math.round(boundedCoreSleep);
-    } catch (error) {
-      console.error('Error calculating core sleep duration:', error);
-      return null;
-    }
-  }
-
-  /**
    * Transform sleep data for core sleep analysis by filtering to first X hours
    * @param {Object} sleepData - Original sleep data object
    * @param {number} coreDurationMinutes - Core sleep duration in minutes
@@ -492,11 +453,13 @@ class InsightsService {
   }
 
   /**
-   * Calculate core sleep duration (95th percentile of historical total sleep)
+   * Calculate core sleep duration as 20th percentile of historical total sleep.
+   * So 80% of sleep sessions exceed this duration – core sleep is a period the user usually gets.
    * @param {string} userId - User ID
+   * @param {number} [percentile=20] - Percentile (20 = 80% of nights are this long or longer)
    * @returns {Promise<number|null>} Core sleep duration in minutes, or null if insufficient data
    */
-  async calculateCoreSleepDuration(userId) {
+  async calculateCoreSleepDuration(userId, percentile = 20) {
     try {
       // Fetch all historical sleep data for the user (no date range limit)
       const { data, error } = await supabase
@@ -512,15 +475,15 @@ class InsightsService {
       const sleepDurations = data?.map(record => record.total_sleep_minutes).filter(val => val > 0) || [];
 
       if (sleepDurations.length < 20) {
-        // Insufficient data for 95th percentile, fall back to median
+        // Insufficient data for 20th percentile, fall back to median
         if (sleepDurations.length >= 5) {
-          return Math.round(calculateMedian(sleepDurations, false));
+          const median = calculateMedian(sleepDurations, false);
+          return Math.round(Math.max(240, Math.min(600, median)));
         }
         return null; // Not enough data
       }
 
-      // Calculate 95th percentile
-      const coreSleepMinutes = calculatePercentile(sleepDurations, 95);
+      const coreSleepMinutes = calculatePercentile(sleepDurations, percentile);
 
       // Ensure reasonable bounds (4-10 hours)
       const boundedDuration = Math.max(240, Math.min(600, coreSleepMinutes));

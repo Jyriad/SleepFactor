@@ -7,10 +7,12 @@ import {
   Alert,
   TouchableOpacity,
   Dimensions,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
@@ -20,9 +22,8 @@ import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
-import DateSelector from '../components/DateSelector';
+import DateHeader from '../components/DateHeader';
 import HabitInput from '../components/HabitInput';
-import DatePickerModal from '../components/DatePickerModal';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -36,7 +37,6 @@ const HabitLoggingScreen = () => {
   const [habits, setHabits] = useState([]);
   const [habitLogs, setHabitLogs] = useState({});
   const [loading, setLoading] = useState(true);
-  const [calendarModalVisible, setCalendarModalVisible] = useState(false);
   const [habitLogCounts, setHabitLogCounts] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
 
@@ -44,6 +44,19 @@ const HabitLoggingScreen = () => {
   const isAutomatedBedtimeHabit = (habit) => {
     return habit && habit.name === 'Bedtime Consistency';
   };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary);
+      }
+      return () => {
+        if (Platform.OS === 'android') {
+          StatusBar.setBackgroundColor(colors.background);
+        }
+      };
+    }, [])
+  );
 
   useEffect(() => {
     loadHabitsAndLogs();
@@ -227,7 +240,7 @@ const HabitLoggingScreen = () => {
   const cleanupAndEnsureHabits = async (existingHabits) => {
     const alwaysAvailableHabits = [
       { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
-      { name: 'Alcohol', type: 'quick_consumption', unit: 'drinks', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
+      { name: 'Alcohol', type: 'quick_consumption', unit: 'units', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
     ];
 
     // Old/deprecated habits to remove (replaced by Caffeine/Alcohol)
@@ -482,40 +495,24 @@ const HabitLoggingScreen = () => {
     return formatDateRange(previousDate, date);
   };
 
-  const handleCalendarDateSelect = (date) => {
-    setSelectedDate(date);
-    setCalendarModalVisible(false);
-  };
-
-  const screenTitle = `${formatDateTitle(selectedDate)}'s Habits`;
-
-  // Separate habits into pinned and unpinned
-  const pinnedHabits = habits.filter(h => h.is_pinned);
-  const unpinnedHabits = habits.filter(h => !h.is_pinned);
+  const insets = useSafeAreaInsets();
+  const backButton = (
+    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+      <Ionicons name="chevron-back" size={24} color={colors.white} />
+    </TouchableOpacity>
+  );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>{screenTitle}</Text>
-        <TouchableOpacity
-          onPress={() => setCalendarModalVisible(true)}
-          style={styles.calendarIconButton}
-        >
-          <Ionicons name="calendar-outline" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Date Selector */}
-        <DateSelector
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={[styles.dateHeaderWrap, { paddingTop: insets.top }]}>
+        <DateHeader
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
+          leftElement={backButton}
+          showTodayButton={false}
         />
-
+      </View>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Date Range Display */}
         <Text style={styles.dateRange}>{getDateRangeText()}</Text>
 
@@ -589,14 +586,6 @@ const HabitLoggingScreen = () => {
 
 
       </ScrollView>
-
-      {/* Calendar Modal */}
-      <DatePickerModal
-        visible={calendarModalVisible}
-        selectedDate={selectedDate}
-        onDateSelect={handleCalendarDateSelect}
-        onClose={() => setCalendarModalVisible(false)}
-      />
     </SafeAreaView>
   );
 };
@@ -606,26 +595,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.regular,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  dateHeaderWrap: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
   },
   backButton: {
-    padding: spacing.xs,
-  },
-  title: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-    flex: 1,
-    textAlign: 'center',
-  },
-  calendarIconButton: {
     padding: spacing.xs,
   },
   scrollView: {

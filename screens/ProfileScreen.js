@@ -42,7 +42,7 @@ import bedtimeHabitsService from '../services/bedtimeHabitsService';
 const ProfileScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
-  const { preferences, updatePreference } = useUserPreferences();
+  const { preferences, updatePreference, savePreferences } = useUserPreferences();
 
   // Clear user-specific cached data from AsyncStorage
   const clearUserCaches = async (userId) => {
@@ -129,7 +129,7 @@ const ProfileScreen = () => {
   const handleSyncData = async () => {
     try {
       const result = await performSync({
-        daysBack: 30,
+        daysBack: 100,
         userId: user.id,
         force: true
       });
@@ -137,9 +137,9 @@ const ProfileScreen = () => {
       if (result.success) {
         const syncedRecords = result.syncedRecords || 0;
         
-        // After successful sleep data sync, backfill bedtime habits
+        // After successful sleep data sync, backfill bedtime habits for same range
         try {
-          await bedtimeHabitsService.backfillBedtimeHabits(user.id, 30);
+          await bedtimeHabitsService.backfillBedtimeHabits(user.id, 100);
         } catch (bedtimeError) {
           // Don't fail the entire sync if bedtime habits backfill fails
           console.log('Bedtime habits backfill error:', bedtimeError);
@@ -147,7 +147,7 @@ const ProfileScreen = () => {
         
         Alert.alert(
           'Sync Complete',
-          `Successfully synced 30 days of sleep data and health metrics.\n\nSynced ${syncedRecords} records.\n\nBedtime habits have been updated.`
+          `Successfully synced all available sleep data (last 100 days) and health metrics.\n\nSynced ${syncedRecords} records.\n\nBedtime habits have been updated.`
         );
       } else {
         Alert.alert('Sync Failed', result.error || 'Failed to sync data');
@@ -261,7 +261,7 @@ const ProfileScreen = () => {
             {hasPermissions && (
               <>
                 <Button
-                  title="Sync 30 Days of Data"
+                  title="Sync All Sleep Data"
                   onPress={handleSyncData}
                   loading={isLoading}
                   style={styles.syncButton}
@@ -422,6 +422,65 @@ const ProfileScreen = () => {
           {/* Settings */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
+            <View style={[styles.infoCard, styles.measurementCard]}>
+              <Text style={styles.label}>Units for Drinks</Text>
+              <Text style={styles.description}>
+                Affects how serving sizes are displayed (e.g. 12 fl oz vs 355 ml). Your existing data stays the same when you switch.
+              </Text>
+              <View style={styles.measurementContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.measurementOption,
+                    preferences.measurementRegion === 'US' && styles.measurementOptionSelected,
+                  ]}
+                  onPress={() => savePreferences({ measurementRegion: 'US', measurementSystem: 'imperial' })}
+                >
+                  <Text
+                    style={[
+                      styles.measurementText,
+                      preferences.measurementRegion === 'US' && styles.measurementTextSelected,
+                    ]}
+                  >
+                    US
+                  </Text>
+                  <Text style={styles.measurementSubtext}>fl oz, oz</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.measurementOption,
+                    preferences.measurementRegion === 'UK' && styles.measurementOptionSelected,
+                  ]}
+                  onPress={() => savePreferences({ measurementRegion: 'UK', measurementSystem: 'metric' })}
+                >
+                  <Text
+                    style={[
+                      styles.measurementText,
+                      preferences.measurementRegion === 'UK' && styles.measurementTextSelected,
+                    ]}
+                  >
+                    UK
+                  </Text>
+                  <Text style={styles.measurementSubtext}>ml, pint</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.measurementOption,
+                    preferences.measurementRegion === 'metric' && styles.measurementOptionSelected,
+                  ]}
+                  onPress={() => savePreferences({ measurementRegion: 'metric', measurementSystem: 'metric' })}
+                >
+                  <Text
+                    style={[
+                      styles.measurementText,
+                      preferences.measurementRegion === 'metric' && styles.measurementTextSelected,
+                    ]}
+                  >
+                    Metric
+                  </Text>
+                  <Text style={styles.measurementSubtext}>ml</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
             <View style={styles.infoCard}>
               <Text style={styles.label}>Time Format</Text>
               <View style={styles.timeFormatContainer}>
@@ -576,6 +635,40 @@ const styles = StyleSheet.create({
   },
   notificationsCard: {
     marginTop: spacing.md,
+  },
+  measurementCard: {
+    marginBottom: spacing.md,
+  },
+  measurementContainer: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  measurementOption: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  measurementOptionSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  measurementText: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.semibold,
+  },
+  measurementTextSelected: {
+    color: '#FFFFFF',
+  },
+  measurementSubtext: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   timeFormatContainer: {
     flexDirection: 'row',
