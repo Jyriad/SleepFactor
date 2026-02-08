@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,11 @@ import {
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -25,13 +28,32 @@ import CoreSleepInfoModal from '../components/CoreSleepInfoModal';
 const { width: screenWidth } = Dimensions.get('window');
 
 const InsightsScreen = () => {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
+  const headerTopPadding = Math.max(spacing.regular, topInset);
   const { user } = useAuth();
   const { preferences } = useUserPreferences();
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary);
+      }
+      return () => {
+        if (Platform.OS === 'android') {
+          StatusBar.setBackgroundColor(colors.background);
+        }
+      };
+    }, [])
+  );
 
   // State for insights data
   const [loading, setLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('Loading insights...');
   const [insights, setInsights] = useState({ validInsights: [] });
+  const lastLoadTimeRef = useRef(0);
+  const isFirstFocusRef = useRef(true);
+  const FOCUS_REFRESH_STALE_MS = 30000;
 
   // State for selectors
   const [selectedMetric, setSelectedMetric] = useState('total_sleep_minutes');
@@ -49,37 +71,54 @@ const InsightsScreen = () => {
   const availableTimeRanges = insightsService.getAvailableTimeRanges();
 
   useEffect(() => {
-    loadInsights();
+    loadInsights({ backgroundRefresh: false });
   }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits]);
 
-  // Refresh insights data when screen comes into focus
+  // Refresh insights when screen comes into focus: show cached data immediately, refresh in background if stale
   useFocusEffect(
     useCallback(() => {
-      loadInsights();
-    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits])
+      if (isFirstFocusRef.current) {
+        isFirstFocusRef.current = false;
+        return;
+      }
+      const hasCached = insights.validInsights && insights.validInsights.length > 0;
+      const now = Date.now();
+      if (hasCached && (now - lastLoadTimeRef.current) < FOCUS_REFRESH_STALE_MS) {
+        return;
+      }
+      loadInsights({ backgroundRefresh: true });
+    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits, insights.validInsights])
   );
 
-  const loadInsights = async () => {
+  const loadInsights = async (options = {}) => {
+    const { backgroundRefresh = false } = options;
     if (!user) return;
 
-    setLoading(true);
-    setLoadingText('Loading insights...');
+    const hasCached = insights.validInsights && insights.validInsights.length > 0;
+    if (!backgroundRefresh || !hasCached) {
+      setLoading(true);
+      setLoadingText('Loading insights...');
+    }
 
     try {
-      // First, check if sleep data sync is needed
-      setLoadingText('Checking sleep data sync...');
+      if (!backgroundRefresh || !hasCached) {
+        setLoadingText('Checking sleep data sync...');
+      }
       const needsSync = await sleepSyncService.needsSync();
 
       if (needsSync) {
-        setLoadingText('Syncing sleep data...');
+        if (!backgroundRefresh || !hasCached) {
+          setLoadingText('Syncing sleep data...');
+        }
         const syncResult = await sleepSyncService.syncSleepData({ silent: true });
         if (!syncResult.success) {
-          console.warn('Sleep sync failed, but continuing with insights calculation:', syncResult.error);
+          // Continue with insights calculation even if sync fails
         }
       }
 
-      // Now safe to calculate insights
-      setLoadingText('Calculating insights...');
+      if (!backgroundRefresh || !hasCached) {
+        setLoadingText('Calculating insights...');
+      }
       const dateRange = insightsService.calculateDateRange(selectedTimeRange);
       const insightsData = await insightsService.getHabitsInsights(
         user.id,
@@ -92,14 +131,9 @@ const InsightsScreen = () => {
         }
       );
 
-      // Don't filter insights - they should all be visible
-      // The allowExpandNoSignificance prop controls whether non-significant insights can be expanded
       let filteredInsights = [...insightsData.validInsights];
-
-      // Sort insights by p-value (lowest first), then by confidence level
       const sortedInsights = {
         validInsights: filteredInsights.sort((a, b) => {
-          // First sort by p-value (ascending) - handle null/undefined but preserve 0
           const aP = (a.pValue !== null && a.pValue !== undefined) ? Number(a.pValue) : 1;
           const bP = (b.pValue !== null && b.pValue !== undefined) ? Number(b.pValue) : 1;
 
@@ -107,7 +141,6 @@ const InsightsScreen = () => {
             return aP - bP;
           }
 
-          // If p-values are equal, sort by confidence level priority
           const confidencePriority = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
           const aPriority = confidencePriority[a.confidenceLevel] || 3;
           const bPriority = confidencePriority[b.confidenceLevel] || 3;
@@ -116,17 +149,9 @@ const InsightsScreen = () => {
         })
       };
 
-      // Debug logging for insights
-      console.log('[InsightsScreen] Loaded insights:', sortedInsights.validInsights.map(insight => ({
-        habitName: insight.habit?.name,
-        type: insight.type,
-        confidenceLevel: insight.confidenceLevel,
-        totalDataPoints: insight.totalDataPoints
-      })));
-
       setInsights(sortedInsights);
+      lastLoadTimeRef.current = Date.now();
     } catch (error) {
-      console.error('Error loading insights:', error);
       setInsights({ validInsights: [] });
     } finally {
       setLoading(false);
@@ -197,29 +222,26 @@ const InsightsScreen = () => {
     </View>
   );
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Sleep Insights</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>{loadingText}</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   const metricInfo = getSelectedMetricInfo();
   const timeRangeInfo = getSelectedTimeRangeInfo();
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Sleep Insights</Text>
-      </View>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>{loadingText}</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          {/* Header scrolls with content */}
+          <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Sleep Insights</Text>
+            </View>
+          </View>
 
+          <View style={styles.contentArea}>
       {/* Selectors */}
       {/* First Row: Primary Filters */}
       <View style={styles.selectorsRow}>
@@ -429,8 +451,7 @@ const InsightsScreen = () => {
         </View>
       )}
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
+      <View style={styles.content}>
           <Text style={styles.subtitle}>
             Discover how your habits impact {metricInfo.label.toLowerCase()}
             {selectedAnalysisType === 'percentage' ? ' (as percentage of total sleep)' : ''}
@@ -449,7 +470,9 @@ const InsightsScreen = () => {
             renderEmptyState()
           )}
         </View>
-      </ScrollView>
+          </View>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 };
@@ -459,15 +482,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  contentArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  headerWrap: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
   header: {
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.regular,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
   },
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+    color: colors.white,
   },
   selectorsRow: {
     flexDirection: 'row',

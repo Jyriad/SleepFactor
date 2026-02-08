@@ -12,6 +12,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 import { Alert } from 'react-native';
 
 const DeleteHabitScreen = () => {
@@ -40,6 +41,7 @@ const DeleteHabitScreen = () => {
       if (onSuccess) {
         onSuccess();
       }
+      requestHabitsRefresh();
       navigation.goBack();
     } catch (error) {
       Alert.alert('Error', error.message || 'Failed to delete habit');

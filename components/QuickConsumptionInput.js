@@ -189,7 +189,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       if (sleepData && sleepData.sleep_start_time) {
         // Use actual sleep start time if available
         targetBedtime = new Date(sleepData.sleep_start_time);
-        console.log('[QuickConsumption] Using actual sleep start time:', targetBedtime.toISOString());
       } else {
         // Fall back to user's notification time from profile
         const { data: userData, error: userError } = await supabase
@@ -210,8 +209,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         if (targetBedtime <= now) {
           targetBedtime.setDate(targetBedtime.getDate() + 1);
         }
-
-        console.log('[QuickConsumption] Using notification time fallback:', targetBedtime.toISOString());
       }
 
       // Get all consumption events for this habit across the relevant time period

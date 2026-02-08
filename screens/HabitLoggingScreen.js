@@ -3,18 +3,18 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Alert,
   TouchableOpacity,
   Dimensions,
-  StatusBar,
   Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
+import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
@@ -22,7 +22,7 @@ import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
-import DateHeader from '../components/DateHeader';
+import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -30,33 +30,31 @@ const { width: screenWidth } = Dimensions.get('window');
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const initialDate = route.params?.date ? new Date(route.params.date) : new Date();
+  const dateHeader = useDateHeader();
+  const selectedDate = dateHeader?.selectedDate ?? new Date();
+  const setSelectedDate = dateHeader?.setSelectedDate ?? (() => {});
 
-  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [habits, setHabits] = useState([]);
   const [habitLogs, setHabitLogs] = useState({});
   const [loading, setLoading] = useState(true);
   const [habitLogCounts, setHabitLogCounts] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
 
+  // Sync route param date into shared context so the header shows the correct date
+  useEffect(() => {
+    const paramDate = route.params?.date;
+    if (paramDate) {
+      const dateObj = paramDate instanceof Date ? paramDate : new Date(paramDate);
+      setSelectedDate(dateObj);
+    }
+  }, [route.params?.date, setSelectedDate]);
+
   // Helper function to check if a habit is an automated bedtime habit
   const isAutomatedBedtimeHabit = (habit) => {
     return habit && habit.name === 'Bedtime Consistency';
   };
-
-  useFocusEffect(
-    React.useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
-      }
-      return () => {
-        if (Platform.OS === 'android') {
-          StatusBar.setBackgroundColor(colors.background);
-        }
-      };
-    }, [])
-  );
 
   useEffect(() => {
     loadHabitsAndLogs();
@@ -427,7 +425,6 @@ const HabitLoggingScreen = () => {
       if (sleepData && sleepData.sleep_start_time) {
         // Use actual sleep start time if available
         targetBedtime = new Date(sleepData.sleep_start_time);
-        console.log('[HabitLogging] Using actual sleep start time:', targetBedtime.toISOString());
       } else {
         // Fall back to user's notification time from profile
         const { data: userData, error: userError } = await supabase
@@ -449,11 +446,9 @@ const HabitLoggingScreen = () => {
         if (targetBedtime <= now) {
           targetBedtime.setDate(targetBedtime.getDate() + 1);
         }
-
-        console.log('[HabitLogging] Using notification time fallback:', targetBedtime.toISOString());
       }
 
-      // Get all consumption events for this habit across the relevant time period
+      // Get all consumption events for this habit across the relevant time period for this habit across the relevant time period
       // Look back far enough to capture long half-life effects (3 half-lives)
       const maxHalfLife = habit.half_life_hours || 5;
       const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
@@ -495,24 +490,14 @@ const HabitLoggingScreen = () => {
     return formatDateRange(previousDate, date);
   };
 
-  const insets = useSafeAreaInsets();
-  const backButton = (
-    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-      <Ionicons name="chevron-back" size={24} color={colors.white} />
-    </TouchableOpacity>
-  );
-
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <View style={[styles.dateHeaderWrap, { paddingTop: insets.top }]}>
-        <DateHeader
-          selectedDate={selectedDate}
-          onDateChange={setSelectedDate}
-          leftElement={backButton}
-          showTodayButton={false}
-        />
-      </View>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
+      <ScrollableDateHeaderBar />
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!dateHeader?.isHeaderExpanded}
+      >
         {/* Date Range Display */}
         <Text style={styles.dateRange}>{getDateRangeText()}</Text>
 
@@ -586,23 +571,14 @@ const HabitLoggingScreen = () => {
 
 
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  dateHeaderWrap: {
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
-  },
-  backButton: {
-    padding: spacing.xs,
   },
   scrollView: {
     flex: 1,

@@ -61,18 +61,14 @@ const AccountScreen = () => {
       if (sleepError) throw sleepError;
 
       // Calculate insights count: count habits with 10+ log entries
-      console.log('🔍 Debug: Loading insights count for user:', user.id);
       const { data: habitLogs, error: insightsError } = await supabase
         .from('habit_logs')
         .select('habit_id')
         .eq('user_id', user.id);
 
       if (insightsError) {
-        console.error('❌ Debug: Error fetching habit logs:', insightsError);
         throw insightsError;
       }
-
-      console.log('🔍 Debug: Raw habitLogs data:', habitLogs);
 
       // Count how many times each habit has been logged
       const habitCounts = {};
@@ -80,12 +76,8 @@ const AccountScreen = () => {
         habitCounts[log.habit_id] = (habitCounts[log.habit_id] || 0) + 1;
       });
 
-      console.log('🔍 Debug: Habit counts:', habitCounts);
-
       // Count habits with 10+ logs (minimum for insights)
       const insightsCount = Object.values(habitCounts).filter(count => count >= 10).length;
-
-      console.log('🔍 Debug: Final insights count:', insightsCount);
 
       const finalStats = {
         totalHabits: habitsData?.length || 0,
@@ -94,7 +86,6 @@ const AccountScreen = () => {
         insightsGenerated: insightsCount,
       };
 
-      console.log('🔍 Debug: Final stats object:', finalStats);
       setStats(finalStats);
     } catch (error) {
       Alert.alert('Error', 'Failed to load account statistics');

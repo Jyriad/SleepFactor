@@ -162,7 +162,6 @@ class DataQualityService {
         threshold
       };
     } catch (error) {
-      console.error('Error detecting sleep data outliers:', error);
       return {
         outliers: [],
         totalPoints: 0,
@@ -239,7 +238,6 @@ class DataQualityService {
         threshold
       };
     } catch (error) {
-      console.error('Error detecting habit data outliers:', error);
       return {
         outliers: [],
         totalPoints: 0,
@@ -317,7 +315,6 @@ class DataQualityService {
         message: `Excluded ${outlierDates.length} outlier data points`
       };
     } catch (error) {
-      console.error('Error auto-excluding sleep data outliers:', error);
       return {
         success: false,
         error: error.message
@@ -398,7 +395,6 @@ class DataQualityService {
         message: `Excluded ${outlierLogIds.length} outlier data points`
       };
     } catch (error) {
-      console.error('Error auto-excluding habit data outliers:', error);
       return {
         success: false,
         error: error.message
@@ -448,7 +444,6 @@ class DataQualityService {
         message: 'Sleep data excluded successfully'
       };
     } catch (error) {
-      console.error('Error excluding sleep data:', error);
       return {
         success: false,
         error: error.message
@@ -498,7 +493,6 @@ class DataQualityService {
         message: 'Habit log excluded successfully'
       };
     } catch (error) {
-      console.error('Error excluding habit log:', error);
       return {
         success: false,
         error: error.message
@@ -580,7 +574,6 @@ class DataQualityService {
         message: 'Data included back into insights'
       };
     } catch (error) {
-      console.error('Error including data:', error);
       return {
         success: false,
         error: error.message
@@ -614,7 +607,6 @@ class DataQualityService {
           sleepData = data || [];
         }
       } catch (exclusionError) {
-        console.warn('Exclusion columns not available for sleep_data, using basic stats');
         // Get basic count if exclusion columns don't exist
         let sleepQuery = supabase
           .from('sleep_data')
@@ -646,7 +638,6 @@ class DataQualityService {
           habitData = data || [];
         }
       } catch (habitExclusionError) {
-        console.warn('Exclusion columns not available for habit_logs, using basic stats');
         // Get basic count if exclusion columns don't exist
         let habitQuery = supabase
           .from('habit_logs')
@@ -674,7 +665,6 @@ class DataQualityService {
         totalManualExcluded: sleepStats.manualExcluded + habitStats.manualExcluded
       };
     } catch (error) {
-      console.error('Error getting data quality stats:', error);
       return {
         sleepData: { total: 0, included: 0, excluded: 0, autoExcluded: 0, manualExcluded: 0 },
         habitData: { total: 0, included: 0, excluded: 0, autoExcluded: 0, manualExcluded: 0 },

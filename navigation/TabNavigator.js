@@ -1,17 +1,29 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { DefaultTheme } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import HomeScreen from '../screens/HomeScreen';
+import HomeStackWrapper from './HomeStackWrapper';
 import InsightsScreen from '../screens/InsightsScreen';
 import HabitManagementScreen from '../screens/HabitManagementScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
+// Use primary as screen root background so the area above the blue header is never white
+// (avoids white strip when native layer or safe area adds top padding)
+const tabScreenTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: colors.primary,
+  },
+};
+
 const TabNavigator = () => {
   return (
     <Tab.Navigator
+      theme={tabScreenTheme}
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
@@ -52,9 +64,11 @@ const TabNavigator = () => {
           fontSize: 12,
           fontWeight: '500',
         },
+        // Ensure screen container is blue so any top padding area matches the header
+        sceneStyle: { backgroundColor: colors.primary },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" component={HomeStackWrapper} />
       <Tab.Screen name="Insights" component={InsightsScreen} />
       <Tab.Screen name="Habits" component={HabitManagementScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />

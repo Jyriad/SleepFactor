@@ -106,7 +106,7 @@ class InsightsService {
         };
 
       } catch (error) {
-        console.warn('Error processing sleep stages for core sleep, falling back to proportional scaling:', error);
+        // Fall back to proportional scaling on error
       }
     }
 
@@ -174,10 +174,8 @@ class InsightsService {
         outlierSensitivity = options && options.outlierSensitivity ? options.outlierSensitivity : 'standard';
         includeExcludedData = options && options.includeExcludedData ? true : false;
       } catch (parseError) {
-        console.warn('Error parsing options:', parseError);
+        // Use defaults on parse error
       }
-
-      console.log('getHabitsInsights options parsed - useCoreSleep:', useCoreSleep, 'useEfficiency:', useEfficiency, 'autoExcludeOutliers:', autoExcludeOutliers, 'outlierSensitivity:', outlierSensitivity, 'options:', options);
 
       // Load habits and their logs
       const habits = await this.getActiveHabits(userId);
@@ -200,8 +198,6 @@ class InsightsService {
 
       // Auto-exclude outliers if enabled
       if (autoExcludeOutliers && !includeExcludedData) {
-        console.log('Auto-excluding outliers with sensitivity:', outlierSensitivity);
-
         // Auto-exclude sleep data outliers
         if (sleepData.length > 10) { // Only run outlier detection if we have sufficient data
           try {
@@ -210,7 +206,6 @@ class InsightsService {
               sleepMetric,
               { startDate, endDate, sensitivity: outlierSensitivity }
             );
-            console.log('Sleep data outlier exclusion result:', sleepExclusionResult);
 
             // Reload sleep data after exclusion
             if (sleepExclusionResult.success && sleepExclusionResult.excludedCount > 0) {
@@ -224,7 +219,7 @@ class InsightsService {
               }
             }
           } catch (error) {
-            console.warn('Error during sleep data outlier exclusion:', error);
+            // Continue without excluding on error
           }
         }
       }
@@ -251,7 +246,6 @@ class InsightsService {
       }
 
       // Calculate insights for each habit
-      console.log(`Processing ${habits.length} habits, ${sleepData.length} sleep records`);
       for (const habit of habits) {
         // Use different data sources based on habit type
         let habitData;
@@ -263,7 +257,6 @@ class InsightsService {
           habitData = logsByHabit[habit.id] || [];
         }
 
-        console.log(`Processing habit ${habit.name}, ${habitData.length} data points`);
         const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency);
         if (insight) {
           if (insight.type === 'binary_placeholder') {
@@ -284,7 +277,6 @@ class InsightsService {
         placeholders: placeholders || []
       };
     } catch (error) {
-      console.error('Error in getHabitsInsights:', error);
       return {
         validInsights: [],
         placeholders: []
@@ -342,7 +334,6 @@ class InsightsService {
         query = query.neq('exclude_from_insights', true);
       } catch (e) {
         // Column doesn't exist, continue with unfiltered query
-        console.warn('exclude_from_insights column not found, using all habit data');
       }
     }
 
@@ -384,7 +375,6 @@ class InsightsService {
         query = query.neq('exclude_from_insights', true);
       } catch (e) {
         // Column doesn't exist, continue with unfiltered query
-        console.warn('exclude_from_insights column not found, using all sleep data');
       }
     }
 
@@ -490,7 +480,6 @@ class InsightsService {
 
       return Math.round(boundedDuration);
     } catch (error) {
-      console.error('Error calculating core sleep duration:', error);
       return null;
     }
   }
@@ -643,7 +632,6 @@ class InsightsService {
         hasOutliers: markedDataPoints.some(dp => dp.isOutlier)
       };
     } catch (error) {
-      console.warn('Error detecting outliers in data points:', error);
       // Return original data points with no outliers marked
       return {
         dataPoints: dataPoints.map(dp => ({ ...dp, isOutlier: false })),
@@ -766,7 +754,6 @@ class InsightsService {
       insight.noStats = noStats;
     }
 
-    console.log(`Binary insight created for ${habit.name}: ${yesData.length} yes, ${noData.length} no, p=${confidenceResult.pValue}, confidence=${confidenceResult.confidenceLevel}`);
     return insight;
   }
 
@@ -797,7 +784,6 @@ class InsightsService {
         confidenceLevel = 'none'; // No statistical significance
       }
 
-      console.log(`Numerical confidence for ${n} points, r=${correlation}: p=${pValue}, level=${confidenceLevel}, maturity=${dataMaturityLabel}`);
       return {
         confidenceLevel,
         pValue: Math.round(pValue * 1000) / 1000, // Round to 3 decimal places
@@ -835,10 +821,8 @@ class InsightsService {
         } else {
           confidenceLevel = 'none'; // No statistical significance - insufficient data
         }
-        console.log(`Binary confidence STRICTLY capped due to insufficient sample size: ${group1.length} yes (min ${this.MIN_BINARY_YES}), ${group2.length} no (min ${this.MIN_BINARY_NO}), p=${pValue}`);
       }
 
-      console.log(`Binary confidence for groups (${group1.length}, ${group2.length} points): p=${pValue}, level=${confidenceLevel}, meetsMinimums=${meetsMinimums}, maturity=${dataMaturityLabel}`);
       return {
         confidenceLevel,
         pValue: Math.round(pValue * 1000) / 1000, // Round to 3 decimal places
@@ -858,7 +842,6 @@ class InsightsService {
         confidenceLevel = 'none';
       }
 
-      console.log(`Fallback confidence for ${n} points: level=${confidenceLevel}, maturity=${dataMaturityLabel}`);
       return {
         confidenceLevel,
         pValue: null,
@@ -917,7 +900,6 @@ class InsightsService {
       dataMaturityLabel: confidenceResult.dataMaturityLabel
     };
 
-    console.log(`Numerical insight created for ${habit.name}: ${dataPoints.length} points, r=${validCorrelation.toFixed(3)}, p=${confidenceResult.pValue}, confidence=${confidenceResult.confidenceLevel}`);
     return result;
   }
 
@@ -1018,7 +1000,6 @@ class InsightsService {
     try {
       return await dataQualityService.getDataQualityStats(userId, { startDate, endDate });
     } catch (error) {
-      console.error('Error getting data quality stats:', error);
       return {
         sleepData: { total: 0, included: 0, excluded: 0, autoExcluded: 0, manualExcluded: 0 },
         habitData: { total: 0, included: 0, excluded: 0, autoExcluded: 0, manualExcluded: 0 },

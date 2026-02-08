@@ -32,21 +32,10 @@ const NumericalHabitInsight = ({
     if (componentKey !== prevComponentKeyRef.current) {
       setIsExpanded(false);
       prevComponentKeyRef.current = componentKey;
-      console.log(`[NumericalHabitInsight] Reset expanded state for habit: ${insight?.habit?.name} (ID: ${insight?.habit?.id}) - key changed from ${prevComponentKeyRef.current} to ${componentKey}`);
     }
   }, [componentKey, insight?.habit?.name, insight?.habit?.id]);
 
-  // Track expanded state changes
-  useEffect(() => {
-    if (isExpanded) {
-      console.log(`[NumericalHabitInsight] EXPANDED: ${insight?.habit?.name} (ID: ${insight?.habit?.id})`);
-    } else {
-      console.log(`[NumericalHabitInsight] COLLAPSED: ${insight?.habit?.name} (ID: ${insight?.habit?.id})`);
-    }
-  }, [isExpanded, insight?.habit?.name, insight?.habit?.id]);
-
   if (!insight) {
-    console.log(`[NumericalHabitInsight] No insight provided, returning null`);
     return null;
   }
 
@@ -54,17 +43,11 @@ const NumericalHabitInsight = ({
   
   // Early validation - if habit is missing, something is wrong
   if (!habit || !habit.id) {
-    console.log(`[NumericalHabitInsight] ERROR: Habit or habit.id is missing for insight`);
     return null;
   }
 
   // Non-significant insights show as compact, non-expandable cards (unless allowExpandNoSignificance is true)
   const isSignificantInsight = confidenceLevel !== 'none';
-
-  // Log initial render state with all relevant values
-  useEffect(() => {
-    console.log(`[NumericalHabitInsight] Initial render: ${habit.name} (ID: ${habit.id}) - isExpanded: ${isExpanded}, confidenceLevel: ${confidenceLevel}, isSignificantInsight: ${isSignificantInsight}, allowExpandNoSignificance: ${allowExpandNoSignificance}`);
-  }, []);
 
   // Time formatter for habits that store values as minutes past midnight
   const formatTimeValue = (minutes) => {
@@ -186,12 +169,8 @@ const NumericalHabitInsight = ({
 
   // Collapsed view - Impact-First Design (for significant insights OR non-significant when allowExpandNoSignificance is true)
   const shouldShowCollapsed = !isExpanded && (isSignificantInsight || allowExpandNoSignificance);
-  const renderId = useRef(0);
-  renderId.current += 1;
-  console.log(`[NumericalHabitInsight] Render #${renderId.current} for ${habit.name}: !isExpanded=${!isExpanded}, isSignificantInsight=${isSignificantInsight}, allowExpandNoSignificance=${allowExpandNoSignificance}, shouldShowCollapsed=${shouldShowCollapsed}, componentKey=${componentKey}`);
   
   if (shouldShowCollapsed) {
-    console.log(`[NumericalHabitInsight] Render #${renderId.current} - Rendering COLLAPSED view for: ${habit.name}`);
     
     // For non-significant insights with allowExpandNoSignificance, show a simpler collapsed view
     if (!isSignificantInsight && allowExpandNoSignificance) {
@@ -311,12 +290,6 @@ const NumericalHabitInsight = ({
   }
 
   // Expanded view - full details with Data Maturity and Pro-Tip
-  // Only render expanded if isExpanded is true
-  if (!isExpanded) {
-    console.log(`[NumericalHabitInsight] ERROR Render #${renderId.current}: Rendering EXPANDED view when isExpanded is false for: ${habit.name} (isSignificantInsight: ${isSignificantInsight}, allowExpandNoSignificance: ${allowExpandNoSignificance}, shouldShowCollapsed was: ${shouldShowCollapsed})`);
-  } else {
-    console.log(`[NumericalHabitInsight] Render #${renderId.current} - Rendering EXPANDED view for: ${habit.name} (isExpanded: ${isExpanded})`);
-  }
   const actionableAdvice = generateActionableAdvice('numerical', habit, displayCorrelation, displayCorrelationStrength, displayTrendDirection, null, null, sleepMetric);
 
   return (
@@ -430,9 +403,8 @@ const NumericalHabitInsight = ({
         point={selectedPoint}
         habit={habit}
         sleepMetric={sleepMetric}
-        onExclusionComplete={() => {
-          console.log('[NumericalHabitInsight] Exclusion completed, refreshing data');
-          setShowDetailModal(false);
+          onExclusionComplete={() => {
+            setShowDetailModal(false);
           setSelectedPoint(null);
           // Refresh the insights data
           if (onRefresh) {

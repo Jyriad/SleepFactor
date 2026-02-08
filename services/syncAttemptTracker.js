@@ -17,7 +17,6 @@ const readState = async () => {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch (error) {
-    console.log('[SyncAttemptTracker] Error reading state:', error);
     return {};
   }
 };
@@ -29,7 +28,6 @@ const writeState = async (state) => {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
-    console.log('[SyncAttemptTracker] Error writing state:', error);
     // Non-blocking - don't fail if storage write fails
   }
 };
@@ -64,7 +62,6 @@ export const recordAttempt = async ({ date, outcome, timestamp = new Date().toIS
   ].slice(-MAX_RECORDS_PER_DATE);
   
   await writeState(state);
-  console.log(`[SyncAttemptTracker] Recorded ${outcome} for ${dateKey}`);
 };
 
 /**
@@ -87,7 +84,6 @@ export const clearNoData = async (date) => {
   state[dateKey] = state[dateKey].filter(record => record.outcome !== 'no_data');
   
   await writeState(state);
-  console.log(`[SyncAttemptTracker] Cleared no_data marker for ${dateKey}`);
 };
 
 /**
@@ -176,7 +172,6 @@ export const cleanupOldRecords = async () => {
   
   if (cleaned) {
     await writeState(state);
-    console.log('[SyncAttemptTracker] Cleaned up old records');
   }
 };
 

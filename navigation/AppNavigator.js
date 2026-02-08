@@ -1,20 +1,27 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { colors } from '../constants/colors';
 import AuthScreen from '../screens/AuthScreen';
 import TabNavigator from './TabNavigator';
-import HabitLoggingScreen from '../screens/HabitLoggingScreen';
-import AccountScreen from '../screens/AccountScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
-import AddHabitScreen from '../screens/AddHabitScreen';
-import EditHabitScreen from '../screens/EditHabitScreen';
-import DeleteHabitScreen from '../screens/DeleteHabitScreen';
-import SleepDataReviewScreen from '../screens/SleepDataReviewScreen';
-import HabitDataReviewScreen from '../screens/HabitDataReviewScreen';
+
+const AccountScreen = lazy(() => import('../screens/AccountScreen'));
+const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
+const EditHabitScreen = lazy(() => import('../screens/EditHabitScreen'));
+const DeleteHabitScreen = lazy(() => import('../screens/DeleteHabitScreen'));
+const SleepDataReviewScreen = lazy(() => import('../screens/SleepDataReviewScreen'));
+const HabitDataReviewScreen = lazy(() => import('../screens/HabitDataReviewScreen'));
 
 const Stack = createNativeStackNavigator();
+
+const LazyFallback = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color="#1E3A8A" />
+  </View>
+);
 
 const AppNavigator = ({ navigationRef }) => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -70,48 +77,69 @@ const AppNavigator = ({ navigationRef }) => {
     );
   }
 
+  // Set status bar to blue when on Home tab (shared header) or nested HabitLogging
+  const onStateChange = (state) => {
+    if (!state) return;
+    const route = state?.routes?.[state.index];
+    const name = route?.name;
+    const tabIndex = route?.state?.index ?? 0;
+    const tabName = route?.state?.routes?.[tabIndex]?.name;
+    const nestedRoute = route?.state?.routes?.[tabIndex]?.state?.routes;
+    const nestedIndex = route?.state?.routes?.[tabIndex]?.state?.index ?? 0;
+    const nestedName = nestedRoute?.[nestedIndex]?.name;
+    if (Platform.OS === 'android') {
+      const isHomeOrHabitLogging = name === 'MainTabs' && (tabName === 'Home' || nestedName === 'HabitLogging');
+      if (isHomeOrHabitLogging) {
+        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setTranslucent?.(true);
+      }
+    }
+  };
+
   return (
     <NavigationContainer
       ref={navigationRef}
+      onStateChange={onStateChange}
     >
-      <Stack.Navigator
-        screenOptions={{ headerShown: false }}
-        initialRouteName={initialRoute}
-      >
-        {isAuthenticated && user ? (
-          <>
-            <Stack.Screen name="MainTabs" component={TabNavigator} />
-            <Stack.Screen
-              name="HabitLogging"
-              component={HabitLoggingScreen}
-              options={{ presentation: 'modal' }}
-            />
-            <Stack.Screen
-              name="AddHabit"
-              component={AddHabitScreen}
-              options={{ presentation: 'modal' }}
-            />
-            <Stack.Screen
-              name="EditHabit"
-              component={EditHabitScreen}
-              options={{ presentation: 'modal' }}
-            />
-            <Stack.Screen
-              name="DeleteHabit"
-              component={DeleteHabitScreen}
-              options={{ presentation: 'modal' }}
-            />
-            <Stack.Screen name="Account" component={AccountScreen} />
-            <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} />
-            <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} />
-          </>
-        ) : (
-          <>
-            <Stack.Screen name="Auth" component={AuthScreen} />
-            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-          </>
-        )}
-      </Stack.Navigator>
+      <Suspense fallback={<LazyFallback />}>
+        <Stack.Navigator
+          screenOptions={{ headerShown: false }}
+          initialRouteName={initialRoute}
+        >
+          {isAuthenticated && user ? (
+            <>
+              <Stack.Screen
+                name="MainTabs"
+                component={TabNavigator}
+                options={{ statusBarTranslucent: true }}
+              />
+              <Stack.Screen
+                name="AddHabit"
+                component={AddHabitScreen}
+                options={{ presentation: 'modal' }}
+              />
+              <Stack.Screen
+                name="EditHabit"
+                component={EditHabitScreen}
+                options={{ presentation: 'modal' }}
+              />
+              <Stack.Screen
+                name="DeleteHabit"
+                component={DeleteHabitScreen}
+                options={{ presentation: 'modal' }}
+              />
+              <Stack.Screen name="Account" component={AccountScreen} />
+              <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} />
+              <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} />
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="Auth" component={AuthScreen} />
+              <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+            </>
+          )}
+        </Stack.Navigator>
+      </Suspense>
     </NavigationContainer>
   );
 };

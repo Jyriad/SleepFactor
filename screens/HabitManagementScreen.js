@@ -8,8 +8,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import DraggableFlatList from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +24,7 @@ import healthMetricsService from '../services/healthMetricsService';
 import sleepSyncService from '../services/sleepSyncService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 
 const PREDEFINED_HABITS = [
   { name: 'Exercise', type: 'binary', unit: null },
@@ -38,7 +42,30 @@ const ALWAYS_AVAILABLE_HABITS = [
 
 
 const HabitManagementScreen = () => {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
+  const headerTopPadding = Math.max(spacing.regular, topInset);
   const navigation = useNavigation();
+
+  // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor(colors.primary);
+    }
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary);
+      }
+      return () => {
+        if (Platform.OS === 'android') {
+          StatusBar.setBackgroundColor(colors.background);
+        }
+      };
+    }, [])
+  );
   const { user } = useAuth();
   const [manualHabits, setManualHabits] = useState([]);
   const [automaticHabits, setAutomaticHabits] = useState([]);
@@ -46,27 +73,32 @@ const HabitManagementScreen = () => {
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
   const swipeableRefs = useRef({}); // Track open Swipeable instances
+  const lastRefreshTriggerRef = useRef(getHabitsRefreshTrigger());
 
   // Close all open swipeables when screen loses focus
   const closeAllSwipeables = useCallback(() => {
-    console.log('Closing all swipeables, current refs:', Object.keys(swipeableRefs.current));
     Object.values(swipeableRefs.current).forEach(ref => {
       if (ref && typeof ref.close === 'function') {
         try {
           ref.close();
         } catch (error) {
-          console.log('Error closing swipeable:', error);
+          // Silently handle swipeable close errors
         }
       }
     });
     // Don't clear refs here - they're needed for future operations
   }, []);
 
-  // Reload habits when screen comes into focus (after modal closes)
+  // Reload habits when screen comes into focus only if list may have changed (e.g. returning from Add/Edit/Delete)
   useFocusEffect(
     useCallback(() => {
-      loadHabits(true);
-      // Close any open swipeables when screen comes into focus
+      const trigger = getHabitsRefreshTrigger();
+      if (trigger !== lastRefreshTriggerRef.current) {
+        lastRefreshTriggerRef.current = trigger;
+        loadHabits(true);
+      } else {
+        loadHabits(false);
+      }
       closeAllSwipeables();
     }, [user, closeAllSwipeables])
   );
@@ -769,10 +801,8 @@ const HabitManagementScreen = () => {
         ref={(ref) => {
           if (ref) {
             swipeableRefs.current[habitId] = ref;
-            console.log('Swipeable ref set for:', habit.name, 'Total refs:', Object.keys(swipeableRefs.current).length);
           } else {
             delete swipeableRefs.current[habitId];
-            console.log('Swipeable ref removed for:', habit.name);
           }
         }}
         renderRightActions={renderRightActions}
@@ -781,21 +811,18 @@ const HabitManagementScreen = () => {
         overshootRight={false}
         enabled={!isActive} // Disable swipe when actively dragging
         onSwipeableWillOpen={() => {
-          console.log('Swipeable will open for:', habit.name, 'Current refs:', Object.keys(swipeableRefs.current));
           // Close all other swipeables when this one opens
           Object.entries(swipeableRefs.current).forEach(([id, ref]) => {
             if (id !== habitId && ref && typeof ref.close === 'function') {
-              console.log('Closing swipeable for id:', id);
               try {
                 ref.close();
               } catch (error) {
-                console.log('Error closing swipeable:', error);
+                // Silently handle swipeable close errors
               }
             }
           });
         }}
         onSwipeableOpen={() => {
-          console.log('Swipeable opened for:', habit.name);
           // Use setTimeout to ensure refs are updated
           setTimeout(() => {
             Object.entries(swipeableRefs.current).forEach(([id, ref]) => {
@@ -803,7 +830,7 @@ const HabitManagementScreen = () => {
                 try {
                   ref.close();
                 } catch (error) {
-                  console.log('Error closing swipeable in onSwipeableOpen:', error);
+                  // Silently handle swipeable close errors
                 }
               }
             });
@@ -818,7 +845,6 @@ const HabitManagementScreen = () => {
         <TouchableOpacity
           style={styles.cardContent}
           onLongPress={() => {
-            console.log('Long press triggered for:', habit.name);
             // Close any open swipeables when starting to drag
             closeAllSwipeables();
             drag();
@@ -885,30 +911,102 @@ const HabitManagementScreen = () => {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.rootContainer}>
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={styles.container} edges={['bottom']}>
           {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+          <View style={styles.contentWrap}>
           <View style={styles.manualHabitsSection}>
             {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
             {!loading && manualHabits.length === 0 && (
-              <>
-                <View style={styles.header}>
-                  <Text style={styles.title}>Manage Your Habits</Text>
-                  <Text style={styles.subtitle}>
-                    Long press and drag habits to reorder • Swipe left on habits to edit
-                  </Text>
+              <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.draggableListContent}>
+                <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+                  <View style={styles.header}>
+                    <Text style={styles.title}>Manage Your Habits</Text>
+                    <Text style={styles.subtitle}>Long press and drag habits to reorder • Swipe left on habits to edit</Text>
+                  </View>
                 </View>
-
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Your Habits</Text>
                   <Text style={styles.sectionSubtitle}>
                     Habits you track manually (exercise, reading, etc.)
                   </Text>
                 </View>
-
                 <Text style={styles.emptyText}>
                   No custom habits yet. Add your first habit below.
                 </Text>
-              </>
+                {/* Automatic habits section and Add button when no manual habits - reusing same structure as list footer below */}
+                {automaticHabits.length > 0 && (
+                  <View style={styles.footerSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionTitle}>Automatic Habits</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        Habits automatically tracked from your sleep and health data
+                      </Text>
+                    </View>
+                    <View style={styles.instructionContainer}>
+                      <Ionicons name="fitness-outline" size={20} color={colors.primary} />
+                      <Text style={styles.instructionText}>
+                        Toggle habits on/off to control what data is tracked for insights
+                      </Text>
+                    </View>
+                    {automaticHabits.map((habit) => {
+                      const healthMetric = healthMetricsService.getAvailableMetrics().find(m => m.name === habit.name);
+                      const isEnabled = habit.is_active !== false;
+                      if (healthMetric) {
+                        return (
+                          <View key={healthMetric.key} style={styles.automaticHabitItem}>
+                            <View style={styles.automaticHabitInfo}>
+                              <Ionicons name="fitness-outline" size={24} color={colors.primary} />
+                              <View style={styles.automaticHabitText}>
+                                <Text style={styles.automaticHabitName}>{healthMetric.name}</Text>
+                                <Text style={styles.automaticHabitDescription}>{healthMetric.description}</Text>
+                              </View>
+                            </View>
+                            <Switch
+                              value={isEnabled}
+                              onValueChange={(value) => toggleHealthMetric(healthMetric, value)}
+                              trackColor={{ false: colors.border, true: colors.primary }}
+                              thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                            />
+                          </View>
+                        );
+                      }
+                      return (
+                        <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
+                          <View style={styles.automaticHabitInfo}>
+                            <Ionicons name="moon-outline" size={24} color={colors.primary} />
+                            <View style={styles.automaticHabitText}>
+                              <Text style={styles.automaticHabitName}>{habit.name}</Text>
+                              <Text style={styles.automaticHabitDescription}>
+                                {habit.name === 'Bedtime Consistency' ? 'Tracks how consistent your bedtime is over the last 5 nights' : 'Automatically tracked habit'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Switch
+                            value={isEnabled}
+                            onValueChange={async (value) => {
+                              await toggleAutomaticHabit(habit);
+                              if (value && habit.name === 'Bedtime Consistency') {
+                                try {
+                                  const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
+                                  await bedtimeHabitsService.backfillBedtimeHabits(user.id);
+                                } catch (error) {}
+                              }
+                            }}
+                            trackColor={{ false: colors.border, true: colors.primary }}
+                            thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+                <View style={styles.addCustomHabitContainer}>
+                  <TouchableOpacity style={styles.addCustomHabitButton} onPress={openAddHabit}>
+                    <Ionicons name="add-circle" size={24} color="#FFFFFF" />
+                    <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             )}
             {!loading && manualHabits.length > 0 && (
               <DraggableFlatList
@@ -917,18 +1015,12 @@ const HabitManagementScreen = () => {
                 renderItem={renderHabitItem}
                 onDragEnd={onDragEnd}
                 onScrollBeginDrag={() => {
-                  console.log('Scroll begin drag - closing all swipeables');
-                  // Close all swipeables when user starts scrolling
                   closeAllSwipeables();
                 }}
                 onMomentumScrollBegin={() => {
-                  console.log('Momentum scroll begin - closing all swipeables');
-                  // Close swipeables when momentum scrolling starts
                   closeAllSwipeables();
                 }}
                 onScrollEndDrag={() => {
-                  console.log('Scroll end drag - closing all swipeables');
-                  // Close swipeables when scroll drag ends
                   closeAllSwipeables();
                 }}
                 showsVerticalScrollIndicator={false}
@@ -940,13 +1032,12 @@ const HabitManagementScreen = () => {
                 scrollEnabled={true}
                 ListHeaderComponent={
                   <>
-                    <View style={styles.header}>
-                      <Text style={styles.title}>Manage Your Habits</Text>
-                      <Text style={styles.subtitle}>
-                        Long press and drag habits to reorder • Swipe left on habits to edit
-                      </Text>
+                    <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+                      <View style={styles.header}>
+                        <Text style={styles.title}>Manage Your Habits</Text>
+                        <Text style={styles.subtitle}>Long press and drag habits to reorder • Swipe left on habits to edit</Text>
+                      </View>
                     </View>
-
                     <View style={styles.sectionHeader}>
                       <Text style={styles.sectionTitle}>Your Habits</Text>
                       <Text style={styles.sectionSubtitle}>
@@ -1060,6 +1151,7 @@ const HabitManagementScreen = () => {
               />
             )}
           </View>
+          </View>
         </SafeAreaView>
       </View>
     </GestureHandlerRootView>
@@ -1074,6 +1166,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  contentWrap: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   scrollView: {
     flex: 1,
   },
@@ -1083,19 +1179,26 @@ const styles = StyleSheet.create({
   listContainer: {
     flex: 1,
   },
+  headerWrap: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
   header: {
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.regular,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
   },
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+    color: colors.white,
   },
   subtitle: {
     fontSize: typography.sizes.small,
-    color: colors.textSecondary,
+    color: 'rgba(255,255,255,0.9)',
     marginTop: spacing.xs,
   },
   listContent: {
@@ -1107,7 +1210,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.regular,
     paddingVertical: spacing.md,
     backgroundColor: colors.cardBackground,
-    marginHorizontal: spacing.regular,
     marginBottom: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
@@ -1122,6 +1224,7 @@ const styles = StyleSheet.create({
   cardWrapper: {
     borderRadius: 12,
     marginVertical: spacing.xs,
+    marginHorizontal: spacing.regular,
   },
   cardWrapperDragging: {
     shadowColor: colors.primary,
@@ -1207,6 +1310,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.regular,
     fontStyle: 'italic',
   },
   loadingText: {
@@ -1214,10 +1318,10 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.regular,
   },
   manualHabitsSection: {
     flex: 1,
-    paddingHorizontal: spacing.regular,
   },
   draggableListContent: {
     paddingBottom: spacing.xl,
@@ -1225,6 +1329,7 @@ const styles = StyleSheet.create({
   footerSection: {
     paddingTop: spacing.lg,
     paddingBottom: 100, // Extra padding to prevent button from being obscured by navigation
+    paddingHorizontal: spacing.regular,
   },
   sectionContainer: {
     paddingHorizontal: spacing.regular,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -27,7 +29,7 @@ const IS_DEV_BUILD =
 const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 
   ? `${BASE_VERSION} Dev` 
   : BASE_VERSION;
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { signOut } from '../services/auth';
@@ -40,9 +42,32 @@ import sleepDataService from '../services/sleepDataService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 
 const ProfileScreen = () => {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
+  const headerTopPadding = Math.max(spacing.regular, topInset);
   const navigation = useNavigation();
   const { user } = useAuth();
   const { preferences, updatePreference, savePreferences } = useUserPreferences();
+
+  // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor(colors.primary);
+    }
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary);
+      }
+      return () => {
+        if (Platform.OS === 'android') {
+          StatusBar.setBackgroundColor(colors.background);
+        }
+      };
+    }, [])
+  );
 
   // Clear user-specific cached data from AsyncStorage
   const clearUserCaches = async (userId) => {
@@ -142,7 +167,6 @@ const ProfileScreen = () => {
           await bedtimeHabitsService.backfillBedtimeHabits(user.id, 100);
         } catch (bedtimeError) {
           // Don't fail the entire sync if bedtime habits backfill fails
-          console.log('Bedtime habits backfill error:', bedtimeError);
         }
         
         Alert.alert(
@@ -229,16 +253,17 @@ const ProfileScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Profile</Text>
-      </View>
-
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollViewContent}
       >
+        <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Profile</Text>
+          </View>
+        </View>
         <View style={styles.content}>
           {/* Account Navigation */}
           <View style={styles.section}>
@@ -553,15 +578,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  headerWrap: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
   header: {
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.regular,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
   },
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+    color: colors.white,
   },
   scrollView: {
     flex: 1,
