@@ -27,29 +27,14 @@ const BinaryHabitInsight = ({
     if (componentKey !== prevComponentKeyRef.current) {
       setIsExpanded(false);
       prevComponentKeyRef.current = componentKey;
-      console.log(`[BinaryHabitInsight] Reset expanded state for habit: ${insight?.habit?.name} (ID: ${insight?.habit?.id}) - key changed from ${prevComponentKeyRef.current} to ${componentKey}`);
     }
   }, [componentKey, insight?.habit?.name, insight?.habit?.id]);
-
-  // Track expanded state changes
-  useEffect(() => {
-    if (isExpanded) {
-      console.log(`[BinaryHabitInsight] EXPANDED: ${insight?.habit?.name} (ID: ${insight?.habit?.id})`);
-    } else {
-      console.log(`[BinaryHabitInsight] COLLAPSED: ${insight?.habit?.name} (ID: ${insight?.habit?.id})`);
-    }
-  }, [isExpanded, insight?.habit?.name, insight?.habit?.id]);
 
   if (!insight) {
     return null;
   }
 
   const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats, confidenceLevel, pValue, isSignificant, dataMaturityLabel } = insight;
-
-  // Log initial render state
-  useEffect(() => {
-    console.log(`[BinaryHabitInsight] Initial render: ${habit.name} (ID: ${habit.id}) - isExpanded: ${isExpanded}, isSignificant: ${confidenceLevel !== 'none'}`);
-  }, []);
 
   // Non-significant insights show as compact, non-expandable cards (unless allowExpandNoSignificance is true)
   const isSignificantInsight = confidenceLevel !== 'none';
@@ -329,7 +314,6 @@ const BinaryHabitInsight = ({
 
   // Collapsed view - Impact-First Design (only for significant insights)
   if (!isExpanded && hasComparisonData && yesStats && noStats && isSignificantInsight) {
-    console.log(`[BinaryHabitInsight] Rendering COLLAPSED view for: ${habit.name} (isExpanded: ${isExpanded})`);
     return (
       <TouchableOpacity 
         style={[styles.container, styles.collapsedContainer, { width }]}
@@ -385,7 +369,6 @@ const BinaryHabitInsight = ({
   }
 
   // Expanded view - full details with Data Maturity and Pro-Tip
-  console.log(`[BinaryHabitInsight] Rendering EXPANDED view for: ${habit.name} (isExpanded: ${isExpanded})`);
   const actionableAdvice = generateActionableAdvice('binary', habit, null, null, null, yesStats, noStats, sleepMetric);
 
   return (

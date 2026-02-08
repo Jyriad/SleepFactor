@@ -150,12 +150,6 @@ const DataPointDetailModal = ({
     if (!point) return;
 
     try {
-      console.log('[DataPointDetailModal] Checking exclusion status for point:', {
-        date: point.date,
-        hasHabitLog: !!point.habitLog,
-        hasSleepData: !!point.sleepData
-      });
-
       // Use the data already available in the point object
       if (point.habitLog && point.sleepData) {
         // This is habit data with both habit log and sleep data
@@ -173,11 +167,9 @@ const DataPointDetailModal = ({
           autoExcluded: point.sleepData.auto_excluded
         });
       } else {
-        console.warn('[DataPointDetailModal] Point missing required data');
         setExclusionStatus({ excluded: false, reason: null, autoExcluded: false });
       }
     } catch (error) {
-      console.error('[DataPointDetailModal] Error in checkExclusionStatus:', error);
       setExclusionStatus({ excluded: false, reason: null, autoExcluded: false });
     }
   };
@@ -186,12 +178,9 @@ const DataPointDetailModal = ({
     if (!point || !point.date) return;
 
     try {
-      console.log('[DataPointDetailModal] Fetching sleep data for:', point.date);
       const data = await sleepDataService.getSleepDataForDate(point.date);
       setSleepData(data);
-      console.log('[DataPointDetailModal] Sleep data loaded:', !!data);
     } catch (error) {
-      console.error('[DataPointDetailModal] Error fetching sleep data:', error);
       setSleepData(null);
     }
   };
@@ -200,8 +189,6 @@ const DataPointDetailModal = ({
     if (!point || !point.date || !user) return;
 
     try {
-      console.log('[DataPointDetailModal] Fetching habits data for:', point.date);
-
       // First, get drug levels for quick_consumption habits (these show bedtime levels)
       const { data: drugLevels, error: drugError } = await supabase
         .from('drug_levels')
@@ -213,7 +200,7 @@ const DataPointDetailModal = ({
         .eq('date', point.date);
 
       if (drugError) {
-        console.warn('[DataPointDetailModal] Error fetching drug levels:', drugError);
+        // Continue without drug levels
       }
 
       // Get regular habit logs for this date (non-quick_consumption habits)
@@ -242,7 +229,7 @@ const DataPointDetailModal = ({
         .lt('consumed_at', `${point.date}T23:59:59.999Z`);
 
       if (consumptionError) {
-        console.warn('[DataPointDetailModal] Error fetching consumption events:', consumptionError);
+        // Continue without consumption events
       }
 
       // Combine all habits data with proper prioritization
@@ -292,9 +279,7 @@ const DataPointDetailModal = ({
       }
 
       setHabitsData(allHabitsData);
-      console.log('[DataPointDetailModal] Habits data loaded:', allHabitsData.length, 'items');
     } catch (error) {
-      console.error('[DataPointDetailModal] Error fetching habits data:', error);
       setHabitsData([]);
     }
   };
@@ -304,13 +289,6 @@ const DataPointDetailModal = ({
 
     const isSleepData = !habit;
     const currentlyExcluded = exclusionStatus.excluded;
-
-    console.log('[DataPointDetailModal] Toggling exclusion:', {
-      isSleepData,
-      currentlyExcluded,
-      date: point.date,
-      habitId: habit?.id
-    });
 
     // Show confirmation dialog
     const action = currentlyExcluded ? 'include' : 'exclude';
@@ -374,8 +352,6 @@ const DataPointDetailModal = ({
   const performExclusion = async (reason) => {
     setLoading(true);
     try {
-      console.log('[DataPointDetailModal] Performing exclusion with reason:', reason);
-
       let result;
       if (!habit) {
         // Sleep data exclusion
@@ -386,7 +362,6 @@ const DataPointDetailModal = ({
       }
 
       if (result.success) {
-        console.log('[DataPointDetailModal] Exclusion successful');
         setExclusionStatus(prev => ({
           ...prev,
           excluded: true,
@@ -400,11 +375,9 @@ const DataPointDetailModal = ({
 
         Alert.alert('Success', 'Data point excluded from insights');
       } else {
-        console.error('[DataPointDetailModal] Exclusion failed:', result.error);
         Alert.alert('Error', result.error || 'Failed to exclude data point');
       }
     } catch (error) {
-      console.error('[DataPointDetailModal] Error in performExclusion:', error);
       Alert.alert('Error', 'Failed to exclude data point');
     } finally {
       setLoading(false);
@@ -414,8 +387,6 @@ const DataPointDetailModal = ({
   const performInclusion = async () => {
     setLoading(true);
     try {
-      console.log('[DataPointDetailModal] Performing inclusion');
-
       let result;
       if (!habit) {
         // Sleep data inclusion
@@ -426,7 +397,6 @@ const DataPointDetailModal = ({
       }
 
       if (result.success) {
-        console.log('[DataPointDetailModal] Inclusion successful');
         setExclusionStatus(prev => ({
           ...prev,
           excluded: false,
@@ -440,11 +410,9 @@ const DataPointDetailModal = ({
 
         Alert.alert('Success', 'Data point included back in insights');
       } else {
-        console.error('[DataPointDetailModal] Inclusion failed:', result.error);
         Alert.alert('Error', result.error || 'Failed to include data point');
       }
     } catch (error) {
-      console.error('[DataPointDetailModal] Error in performInclusion:', error);
       Alert.alert('Error', 'Failed to include data point');
     } finally {
       setLoading(false);

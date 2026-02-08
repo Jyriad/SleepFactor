@@ -1,12 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Platform, StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
-import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider } from './contexts/AuthContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import AppNavigator from './navigation/AppNavigator';
 import { supabase } from './services/supabase';
+import { colors } from './constants/colors';
 
+// Set status bar to blue as soon as the app bundle loads so the first paint never shows white
+if (Platform.OS === 'android') {
+  StatusBar.setBackgroundColor(colors.primary);
+  if (StatusBar.setTranslucent) {
+    StatusBar.setTranslucent(true);
+  }
+}
 
 export default function App() {
 
@@ -99,12 +109,16 @@ export default function App() {
   }, [navigationRef.current, pendingDeepLink]);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <UserPreferencesProvider>
-        <AuthProvider>
-          <AppNavigator navigationRef={navigationRef} />
-        </AuthProvider>
-      </UserPreferencesProvider>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.primary }}>
+      <BottomSheetModalProvider>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <UserPreferencesProvider>
+            <AuthProvider>
+              <AppNavigator navigationRef={navigationRef} />
+            </AuthProvider>
+          </UserPreferencesProvider>
+        </SafeAreaProvider>
+      </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
 }

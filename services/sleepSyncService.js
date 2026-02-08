@@ -64,7 +64,6 @@ class SleepSyncService {
   async syncSleepData({ daysBack = 7, force = false, silent = false } = {}) {
     // If a sync is already in progress, return early to prevent race conditions
     if (this.isSyncing && !force) {
-      console.log('Sync already in progress, skipping...');
       return {
         success: true,
         data: [],
@@ -378,7 +377,6 @@ class SleepSyncService {
       // If we don't have recent data, we need to sync
       return !hasRecentData;
     } catch (error) {
-      console.error('Error checking if sync is needed:', error);
       // If we can't check, assume we need to sync
       return true;
     }

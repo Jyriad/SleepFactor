@@ -15,6 +15,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 
 const AddHabitScreen = () => {
   const navigation = useNavigation();
@@ -65,6 +66,7 @@ const AddHabitScreen = () => {
       if (onSuccess) {
         onSuccess();
       }
+      requestHabitsRefresh();
       navigation.goBack();
     } catch (error) {
       Alert.alert('Error', error.message || 'Failed to add habit');

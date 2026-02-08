@@ -51,7 +51,6 @@ const SleepDataReviewScreen = () => {
       const stats = await insightsService.getDataQualityStats(user.id, start, end);
       setDataQualityStats(stats);
     } catch (error) {
-      console.error('Error loading sleep data:', error);
       Alert.alert('Error', 'Failed to load sleep data');
     } finally {
       setLoading(false);
@@ -110,7 +109,6 @@ const SleepDataReviewScreen = () => {
         ]
       );
     } catch (error) {
-      console.error('Error toggling exclusion:', error);
       Alert.alert('Error', 'Failed to update data exclusion status');
     }
   };

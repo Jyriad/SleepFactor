@@ -24,7 +24,6 @@ class BedtimeHabitsService {
 
     const totalTime = total_sleep_minutes + awake_minutes;
     if (totalTime === 0) {
-      console.log('[BedtimeConsistency] calculateEstimatedBedtime: No sleep time for date', sleepRecord.date);
       return null;
     }
 
@@ -33,7 +32,6 @@ class BedtimeHabitsService {
     // Use actual sleep session times if available (same as SleepTimeline)
     if (sleep_start_time && sleep_end_time) {
       sleepStart = new Date(sleep_start_time);
-      console.log('[BedtimeConsistency] calculateEstimatedBedtime: Using actual session time for', sleepRecord.date, '=', sleepStart.toISOString());
     } else {
       // Estimate start time when we don't have exact data (same as SleepTimeline)
       // Calculate backwards from the sleep date to estimate when sleep might have started
@@ -43,13 +41,6 @@ class BedtimeHabitsService {
 
       sleepStart = new Date(sleepEnd);
       sleepStart.setMinutes(sleepStart.getMinutes() - totalTime); // Subtract total sleep time
-      
-      console.log('[BedtimeConsistency] calculateEstimatedBedtime: Estimated for', sleepRecord.date);
-      console.log('  Sleep date:', sleepDate.toISOString().split('T')[0]);
-      console.log('  Assumed wake time: 8:00 AM');
-      console.log('  Total sleep time:', totalTime, 'minutes');
-      console.log('  Calculated bedtime:', sleepStart.toISOString());
-      console.log('  Bedtime time:', sleepStart.getHours() + ':' + sleepStart.getMinutes().toString().padStart(2, '0'));
     }
 
     return sleepStart;
@@ -88,10 +79,6 @@ class BedtimeHabitsService {
     // Filter out bedtimes more than 4 hours (240 minutes) from median
     const maxDeviation = 240;
     const filtered = bedtimes.filter(bt => Math.abs(bt - median) <= maxDeviation);
-    
-    if (filtered.length < bedtimes.length) {
-      console.log(`[BedtimeConsistency] Filtered out ${bedtimes.length - filtered.length} outliers`);
-    }
     
     return filtered;
   }
@@ -137,8 +124,6 @@ class BedtimeHabitsService {
    */
   async calculateBedtimeConsistency(userId, date) {
     try {
-      console.log('[BedtimeConsistency] Starting calculation for date:', date);
-      
       // Get sleep data for the last 6 nights (including current date)
       const targetDate = new Date(date);
       const startDate = new Date(targetDate);
@@ -147,12 +132,9 @@ class BedtimeHabitsService {
       const startDateString = startDate.toISOString().split('T')[0];
       const endDateString = date;
 
-      console.log('[BedtimeConsistency] Fetching sleep data from', startDateString, 'to', endDateString);
       const sleepData = await sleepDataService.getSleepDataForRange(startDateString, endDateString, userId);
-      console.log('[BedtimeConsistency] Found', sleepData?.length || 0, 'sleep records');
 
       if (!sleepData || sleepData.length < 2) {
-        console.log('[BedtimeConsistency] Insufficient sleep data:', sleepData?.length || 0);
         return null; // Need at least 2 nights to calculate consistency
       }
 
@@ -164,7 +146,6 @@ class BedtimeHabitsService {
           
           // Validate sleep duration
           if (!this.validateSleepDuration(totalSleep, awakeMinutes)) {
-            console.log(`[BedtimeConsistency] Skipping ${record.date}: invalid duration ${totalSleep + awakeMinutes} minutes`);
             return null;
           }
           
@@ -177,7 +158,6 @@ class BedtimeHabitsService {
           
           // Validate bedtime is in reasonable range
           if (!this.validateBedtime(bedtimeMinutes)) {
-            console.log(`[BedtimeConsistency] Skipping ${record.date}: unusual bedtime ${bedtimeMinutes} minutes (${bedtimeTime})`);
             return null;
           }
           
@@ -193,10 +173,7 @@ class BedtimeHabitsService {
         })
         .filter(detail => detail !== null);
 
-      console.log('[BedtimeConsistency] Bedtime details:', JSON.stringify(bedtimeDetails, null, 2));
-
       if (bedtimeDetails.length < 2) {
-        console.log('[BedtimeConsistency] Insufficient valid bedtimes:', bedtimeDetails.length);
         return null; // Need at least 2 nights to calculate consistency
       }
 
@@ -205,26 +182,20 @@ class BedtimeHabitsService {
       const filteredBedtimes = this.filterOutliers(bedtimes);
       
       if (filteredBedtimes.length < 2) {
-        console.log('[BedtimeConsistency] Insufficient bedtimes after outlier filtering:', filteredBedtimes.length);
         return null;
       }
 
       // Calculate mean average bedtime
       const averageBedtime = filteredBedtimes.reduce((sum, time) => sum + time, 0) / filteredBedtimes.length;
-      const avgHours = Math.floor(averageBedtime / 60);
-      const avgMins = Math.round(averageBedtime % 60);
-      console.log('[BedtimeConsistency] Average bedtime:', averageBedtime.toFixed(1), 'minutes =', `${avgHours}:${avgMins.toString().padStart(2, '0')}`);
 
       // Find the target record
       const targetDetail = bedtimeDetails.find(d => d.date === date);
 
       if (!targetDetail) {
-        console.log('[BedtimeConsistency] No target record found for date:', date);
         return null; // No sleep data for target date
       }
 
       const targetBedtimeMinutes = targetDetail.bedtimeMinutes;
-      console.log('[BedtimeConsistency] Target bedtime:', targetBedtimeMinutes, 'minutes =', targetDetail.bedtimeTime);
 
       // Calculate absolute deviation from average (consistency = how far from average, regardless of direction)
       let deviation = Math.abs(targetBedtimeMinutes - averageBedtime);
@@ -233,24 +204,11 @@ class BedtimeHabitsService {
       const maxReasonableDeviation = 480; // 8 hours
       const cappedDeviation = Math.min(maxReasonableDeviation, deviation); // Only upper bound since always positive
 
-      if (deviation !== cappedDeviation) {
-        console.log(`[BedtimeConsistency] Capped inconsistency from ${deviation} to ${cappedDeviation} minutes`);
-      }
-
       const roundedDeviation = Math.round(cappedDeviation);
-
-      console.log('[BedtimeConsistency] Inconsistency calculation:');
-      console.log('  Target:', targetBedtimeMinutes, 'minutes');
-      console.log('  Average:', averageBedtime.toFixed(1), 'minutes');
-      console.log('  Absolute deviation:', deviation.toFixed(1), 'minutes (consistency measure)');
-      console.log('  Capped:', cappedDeviation.toFixed(1), 'minutes');
-      console.log('  Rounded:', roundedDeviation, 'minutes');
-      console.log('[BedtimeConsistency] Final result:', roundedDeviation);
 
       return roundedDeviation;
 
     } catch (error) {
-      console.error('[BedtimeConsistency] Error:', error);
       return null;
     }
   }
@@ -292,8 +250,6 @@ class BedtimeHabitsService {
    */
   async backfillBedtimeHabits(userId, daysBack = 30) {
     try {
-      console.log('[BedtimeConsistency] Starting backfill for', daysBack, 'days');
-      
       // Get habit IDs for bedtime habits
       const { data: habits, error: habitsError } = await supabase
         .from('habits')
@@ -302,18 +258,14 @@ class BedtimeHabitsService {
         .in('name', ['Bedtime Consistency']);
 
       if (habitsError) {
-        console.log('[BedtimeConsistency] Error fetching habits:', habitsError);
         return;
       }
-
-      console.log('[BedtimeConsistency] Found habits:', habits?.map(h => ({ name: h.name, id: h.id, active: h.is_active })));
 
       // Find habits regardless of active state for backfill operations
       // This allows manual syncs to refresh data even if habit is temporarily disabled
       const bedtimeConsistencyHabit = habits?.find(h => h.name === 'Bedtime Consistency');
 
       if (!bedtimeConsistencyHabit) {
-        console.log('[BedtimeConsistency] No bedtime habits found, skipping backfill');
         return;
       }
 
@@ -325,10 +277,7 @@ class BedtimeHabitsService {
       const startDateString = startDate.toISOString().split('T')[0];
       const endDateString = endDate.toISOString().split('T')[0];
 
-      console.log('[BedtimeConsistency] Fetching sleep data from', startDateString, 'to', endDateString);
-      // Get all sleep data for the period
       const sleepData = await sleepDataService.getSleepDataForRange(startDateString, endDateString, userId);
-      console.log('[BedtimeConsistency] Found', sleepData?.length || 0, 'sleep records');
 
       if (!sleepData || sleepData.length === 0) {
         return;
@@ -342,9 +291,7 @@ class BedtimeHabitsService {
 
         // Calculate and add bedtime consistency (uses estimated bedtime calculation, same as SleepTimeline)
         if (bedtimeConsistencyHabit) {
-          console.log('[BedtimeConsistency] Calculating consistency for date:', date);
           const consistency = await this.calculateBedtimeConsistency(userId, date);
-          console.log('[BedtimeConsistency] Result for', date, ':', consistency);
           if (consistency !== null) {
             habitLogEntries.push({
               user_id: userId,
@@ -353,9 +300,6 @@ class BedtimeHabitsService {
               value: consistency.toString(),
               numeric_value: consistency,
             });
-            console.log('[BedtimeConsistency] Added log entry for', date, 'with value:', consistency);
-          } else {
-            console.log('[BedtimeConsistency] Skipping', date, '- consistency is null');
           }
         }
 

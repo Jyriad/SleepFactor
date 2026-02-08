@@ -182,47 +182,22 @@ const ScatterPlot = ({
   const handleContainerPress = (event) => {
     const { locationX, locationY } = event.nativeEvent;
 
-    console.log('[ScatterChart] Container pressed at:', { locationX, locationY });
-    console.log('[ScatterChart] Chart dimensions:', { safeWidth, safeHeight });
-    console.log('[ScatterChart] Margins:', margin);
-    console.log('[ScatterChart] Data ranges:', { xMin: displayXMin, xMax: displayXMax, yMin: displayYMin, yMax: displayYMax });
-
-    // For TouchableOpacity, locationX and locationY are relative to the TouchableOpacity bounds
-    // Since TouchableOpacity covers the entire chart area, these are already in the right coordinate system
-    // But we need to account for the fact that the actual chart plotting area is inset by margins
     const chartX = locationX;
     const chartY = locationY;
-
-    console.log('[ScatterChart] Using raw touch coordinates (TouchableOpacity covers full area):', { chartX, chartY });
 
     const closestPoint = findClosestPoint(chartX, chartY);
 
     if (closestPoint) {
-      console.log('[ScatterChart] Found closest point:', {
-        date: closestPoint.date,
-        x: closestPoint.x,
-        y: closestPoint.y,
-        screenX: closestPoint.screenX,
-        screenY: closestPoint.screenY,
-        distance: closestPoint.distance,
-        hasExclusionData: closestPoint.hasOwnProperty('exclude_from_insights'),
-        isExcluded: closestPoint.exclude_from_insights,
-        autoExcluded: closestPoint.auto_excluded
-      });
-
       setSelectedPoint(closestPoint);
 
       if (onPointPress) {
-        console.log('[ScatterChart] Calling onPointPress callback with point:', closestPoint);
         onPointPress(closestPoint);
       } else {
-        console.log('[ScatterChart] No onPointPress callback - showing default alert');
         Alert.alert(
           'Data Point Details',
           `Date: ${closestPoint.date}\n${xLabel}: ${closestPoint.x}\n${yLabel}: ${closestPoint.y}`,
           [
             { text: 'View Details', onPress: () => {
-              console.log('[ScatterChart] Default "View Details" pressed');
               Alert.alert('Navigation Placeholder', 'This would navigate to a detailed view of this data point');
             }},
             { text: 'Cancel', style: 'cancel' }
