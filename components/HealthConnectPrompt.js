@@ -8,9 +8,10 @@ import { typography, spacing } from '../constants';
 import sleepSyncService from '../services/sleepSyncService';
 
 /**
- * Component that prompts users to grant health data permissions
+ * Component that prompts users to grant health data permissions.
+ * When compact={true}, renders a short inline version that fits a fixed-height slot (e.g. sleep section).
  */
-const HealthConnectPrompt = ({ onPermissionsGranted, onDismiss }) => {
+const HealthConnectPrompt = ({ onPermissionsGranted, onDismiss, compact }) => {
   const [isRequesting, setIsRequesting] = useState(false);
 
   const isAndroid = Platform.OS === 'android';
@@ -71,6 +72,40 @@ const HealthConnectPrompt = ({ onPermissionsGranted, onDismiss }) => {
 
   const content = getPlatformSpecificContent();
 
+  if (compact) {
+    return (
+      <View style={styles.compactRoot}>
+        <View style={styles.compactHeader}>
+          <View style={styles.compactIconContainer}>
+            <Ionicons name={content.icon} size={32} color={colors.primary} />
+          </View>
+          <Text style={styles.compactTitle}>{content.title}</Text>
+          <Text style={styles.compactDescription} numberOfLines={2}>
+            {content.description}
+          </Text>
+        </View>
+        <Text style={styles.compactPrivacy}>
+          <Ionicons name="shield-checkmark-outline" size={14} color={colors.textSecondary} /> Your data stays private.
+        </Text>
+        <View style={styles.compactButtons}>
+          <Button
+            title={`Grant ${platformName} Access`}
+            onPress={handleRequestPermissions}
+            loading={isRequesting}
+            style={styles.compactPrimaryButton}
+          />
+          <Button
+            title="Maybe Later"
+            onPress={onDismiss}
+            variant="secondary"
+            disabled={isRequesting}
+            style={styles.compactSecondaryButton}
+          />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.overlay} edges={['top']}>
       <View style={styles.container}>
@@ -124,6 +159,52 @@ const HealthConnectPrompt = ({ onPermissionsGranted, onDismiss }) => {
 };
 
 const styles = StyleSheet.create({
+  compactRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingVertical: spacing.regular,
+  },
+  compactHeader: {
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  compactIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.cardBackground,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  compactTitle: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  compactDescription: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  compactPrivacy: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.regular,
+    paddingHorizontal: spacing.regular,
+  },
+  compactButtons: {
+    gap: spacing.sm,
+    paddingHorizontal: spacing.regular,
+  },
+  compactPrimaryButton: {},
+  compactSecondaryButton: {},
   overlay: {
     flex: 1,
     backgroundColor: colors.background,

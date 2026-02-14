@@ -4,11 +4,15 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
+import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from './contexts/AuthContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import AppNavigator from './navigation/AppNavigator';
 import { supabase } from './services/supabase';
 import { colors } from './constants/colors';
+
+// Keep native splash visible until we hide it after the first screen has laid out
+SplashScreen.preventAutoHideAsync();
 
 // Set status bar to blue as soon as the app bundle loads so the first paint never shows white
 if (Platform.OS === 'android') {

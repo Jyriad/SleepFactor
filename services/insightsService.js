@@ -21,6 +21,8 @@ class InsightsService {
     this.MIN_DATA_POINTS = 10; // Minimum data points needed for meaningful insights
     this.MIN_BINARY_YES = 5; // Minimum "yes" responses for binary habits
     this.MIN_BINARY_NO = 5; // Minimum "no" responses for binary habits
+    this._homeSummaryCache = null;
+    this._HOME_SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000;
   }
 
   /**
@@ -583,7 +585,7 @@ class InsightsService {
 
     // Always calculate insights for all habit types (no minimum thresholds)
     if (habit.type === 'binary') {
-      const insight = this.calculateBinaryInsight(habit, dataPointsWithOutliers);
+      const insight = this.calculateBinaryInsight(habit, dataPointsWithOutliers, useEfficiency);
       return insight;
     }
 
@@ -699,12 +701,50 @@ class InsightsService {
   }
 
   /**
+   * Compute impact level (effect size) for binary habits from median difference.
+   * @param {Object} yesStats - Stats for "yes" group (median)
+   * @param {Object} noStats - Stats for "no" group (median)
+   * @param {boolean} isPercentageMode - If true, use % change; else use absolute difference (minutes)
+   * @returns {string} 'large' | 'moderate' | 'small' | 'minimal'
+   */
+  computeImpactLevelBinary(yesStats, noStats, isPercentageMode = false) {
+    if (!yesStats || !noStats || yesStats.median == null || noStats.median == null) return 'minimal';
+    const diff = Math.abs(yesStats.median - noStats.median);
+    if (isPercentageMode) {
+      const noMedian = noStats.median;
+      const pct = noMedian !== 0 ? (diff / Math.abs(noMedian)) * 100 : 0;
+      if (pct >= 20) return 'large';
+      if (pct >= 10) return 'moderate';
+      if (pct >= 5) return 'small';
+      return 'minimal';
+    }
+    if (diff >= 20) return 'large';
+    if (diff >= 10) return 'moderate';
+    if (diff >= 5) return 'small';
+    return 'minimal';
+  }
+
+  /**
+   * Compute impact level (effect size) for numerical habits from |correlation|.
+   * @param {number} correlation - Correlation coefficient (-1 to 1)
+   * @returns {string} 'large' | 'moderate' | 'small' | 'minimal'
+   */
+  computeImpactLevelNumerical(correlation) {
+    const absR = Math.abs(correlation ?? 0);
+    if (absR >= 0.5) return 'large';
+    if (absR >= 0.3) return 'moderate';
+    if (absR >= 0.2) return 'small';
+    return 'minimal';
+  }
+
+  /**
    * Calculate insights for binary habits
    * @param {Object} habit - Habit object
    * @param {Array} dataPoints - Array of {habitValue, sleepValue, date} objects
+   * @param {boolean} isPercentageMode - If true, sleep values are efficiency %; affects impact level
    * @returns {Object} Binary insight object
    */
-  calculateBinaryInsight(habit, dataPoints) {
+  calculateBinaryInsight(habit, dataPoints, isPercentageMode = false) {
     // Separate data points by habit value (0 = No, 1 = Yes)
     const yesData = dataPoints.filter(dp => dp.habitValue === 1).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
     const noData = dataPoints.filter(dp => dp.habitValue === 0).map(dp => dp.sleepValue).filter(val => val !== null && val !== undefined && !isNaN(val));
@@ -752,6 +792,12 @@ class InsightsService {
         noStats.q3 = 0;
       }
       insight.noStats = noStats;
+    }
+
+    if (insight.yesStats && insight.noStats) {
+      insight.impactLevel = this.computeImpactLevelBinary(insight.yesStats, insight.noStats, isPercentageMode);
+    } else {
+      insight.impactLevel = 'minimal';
     }
 
     return insight;
@@ -897,7 +943,8 @@ class InsightsService {
       confidenceLevel: confidenceResult.confidenceLevel,
       pValue: confidenceResult.pValue,
       isSignificant: confidenceResult.isSignificant,
-      dataMaturityLabel: confidenceResult.dataMaturityLabel
+      dataMaturityLabel: confidenceResult.dataMaturityLabel,
+      impactLevel: this.computeImpactLevelNumerical(validCorrelation)
     };
 
     return result;
@@ -929,6 +976,70 @@ class InsightsService {
    */
   calculateCorrelation(x, y) {
     return calculateCorrelation(x, y);
+  }
+
+  /**
+   * Get aggregated insights summary for the homepage across all analysis combinations:
+   * 2 (absolute vs % based) × 2 (core sleep only vs all sleep) = 4 analyses per habit.
+   * Uses a fixed time range (last 30 days). Result is cached for a short period.
+   * @param {string} userId - User ID
+   * @returns {Promise<Object>} { totalFindings, byConfidence: { high, medium, low, none }, habitsWithAtLeastOne }
+   */
+  async getInsightsSummaryForHome(userId) {
+    const now = Date.now();
+    if (
+      this._homeSummaryCache &&
+      this._homeSummaryCache.userId === userId &&
+      (now - this._homeSummaryCache.timestamp) < this._HOME_SUMMARY_CACHE_TTL_MS
+    ) {
+      return this._homeSummaryCache.result;
+    }
+
+    const dateRange = this.calculateDateRange('30');
+    const metric = 'total_sleep_minutes';
+    const runs = [
+      { useEfficiency: false, useCoreSleep: false },
+      { useEfficiency: false, useCoreSleep: true },
+      { useEfficiency: true, useCoreSleep: false },
+      { useEfficiency: true, useCoreSleep: true },
+    ];
+
+    const allInsights = [];
+    for (const options of runs) {
+      const { validInsights } = await this.getHabitsInsights(
+        userId,
+        metric,
+        dateRange.startDate,
+        dateRange.endDate,
+        options
+      );
+      if (validInsights && validInsights.length) {
+        allInsights.push(...validInsights);
+      }
+    }
+
+    const byEvidence = { strong: 0, moderate: 0, limited: 0, none: 0 };
+    const byImpact = { large: 0, moderate: 0, small: 0, minimal: 0 };
+    const confidenceToEvidence = { high: 'strong', medium: 'moderate', low: 'limited', none: 'none' };
+    const habitIds = new Set();
+    for (const insight of allInsights) {
+      const conf = insight.confidenceLevel || 'none';
+      const evidence = confidenceToEvidence[conf] || 'none';
+      byEvidence[evidence]++;
+      const impact = insight.impactLevel || 'minimal';
+      if (byImpact[impact] !== undefined) byImpact[impact]++;
+      if (insight.habit && insight.habit.id) habitIds.add(insight.habit.id);
+    }
+
+    const result = {
+      totalInsights: allInsights.length,
+      byEvidence,
+      byImpact,
+      habitsWithAtLeastOne: habitIds.size,
+    };
+
+    this._homeSummaryCache = { userId, result, timestamp: now };
+    return result;
   }
 
   /**

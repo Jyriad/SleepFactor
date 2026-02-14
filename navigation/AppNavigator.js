@@ -1,7 +1,8 @@
-import React, { useEffect, Suspense, lazy } from 'react';
+import React, { useCallback, useEffect, useRef, Suspense, lazy } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../contexts/AuthContext';
 import { colors } from '../constants/colors';
 import AuthScreen from '../screens/AuthScreen';
@@ -25,8 +26,15 @@ const LazyFallback = () => (
 
 const AppNavigator = ({ navigationRef }) => {
   const { isAuthenticated, loading, user } = useAuth();
+  const splashHiddenRef = useRef(false);
 
   const initialRoute = isAuthenticated && user ? "MainTabs" : "Auth";
+
+  const onRootLayout = useCallback(() => {
+    if (splashHiddenRef.current) return;
+    splashHiddenRef.current = true;
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
   // Reset navigation when auth state changes
   // IMPORTANT: This useEffect must come BEFORE any conditional returns to maintain hooks order
@@ -97,6 +105,7 @@ const AppNavigator = ({ navigationRef }) => {
   };
 
   return (
+    <View style={styles.root} onLayout={onRootLayout}>
     <NavigationContainer
       ref={navigationRef}
       onStateChange={onStateChange}
@@ -141,10 +150,14 @@ const AppNavigator = ({ navigationRef }) => {
         </Stack.Navigator>
       </Suspense>
     </NavigationContainer>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

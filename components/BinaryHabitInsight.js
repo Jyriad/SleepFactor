@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
 import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
+import { getEvidenceLabel, getImpactLabel } from '../utils/insightLabels';
 
 const BinaryHabitInsight = ({
   insight,
@@ -11,7 +12,9 @@ const BinaryHabitInsight = ({
   width = 350,
   isPercentageMode = false,
   isCoreSleepEnabled = false,
-  allowExpandNoSignificance = false
+  allowExpandNoSignificance = false,
+  isExpanded: controlledIsExpanded,
+  onToggleExpand
 }) => {
   // Create a stable key based on insight and filters
   const componentKey = useMemo(() => 
@@ -19,22 +22,28 @@ const BinaryHabitInsight = ({
     [insight?.habit?.id, insight?.totalDataPoints, isPercentageMode, sleepMetric?.key]
   );
   
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Use controlled state if provided, otherwise fall back to internal state
+  const [internalIsExpanded, setInternalIsExpanded] = useState(false);
+  const isExpanded = controlledIsExpanded !== undefined ? controlledIsExpanded : internalIsExpanded;
+  const toggleExpand = onToggleExpand || (() => setInternalIsExpanded(prev => !prev));
+  
   const prevComponentKeyRef = useRef(componentKey);
 
-  // Reset expanded state when component key changes (insight or filters changed)
+  // Reset expanded state when component key changes (insight or filters changed) - only for internal state
   useEffect(() => {
     if (componentKey !== prevComponentKeyRef.current) {
-      setIsExpanded(false);
+      if (controlledIsExpanded === undefined) {
+        setInternalIsExpanded(false);
+      }
       prevComponentKeyRef.current = componentKey;
     }
-  }, [componentKey, insight?.habit?.name, insight?.habit?.id]);
+  }, [componentKey, insight?.habit?.name, insight?.habit?.id, controlledIsExpanded]);
 
   if (!insight) {
     return null;
   }
 
-  const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats, confidenceLevel, pValue, isSignificant, dataMaturityLabel } = insight;
+  const { habit, type, totalDataPoints, yesDataPoints, noDataPoints, hasComparisonData, yesStats, noStats, confidenceLevel, pValue, isSignificant, dataMaturityLabel, impactLevel } = insight;
 
   // Non-significant insights show as compact, non-expandable cards (unless allowExpandNoSignificance is true)
   const isSignificantInsight = confidenceLevel !== 'none';
@@ -59,11 +68,11 @@ const BinaryHabitInsight = ({
   const impactBarPercentage = Math.min(100, Math.max(0, 50 + (percentChange * 2))); // Scale percentChange to bar width
   const impactBarDirection = difference > 0 ? 'right' : 'left'; // Right = positive, Left = negative
 
-  // Get stability badge info - based on statistical significance, not just data volume
-  const stabilityLabel = confidenceLevel === 'none' 
-    ? 'Emerging Trend' 
-    : (confidenceLevel === 'high' || confidenceLevel === 'medium' ? 'Significant Insight' : 'Emerging Trend');
-  const stabilityColor = (confidenceLevel === 'high' || confidenceLevel === 'medium') ? colors.success : colors.warning;
+  // Evidence (confidence) and impact (effect size) labels - standardised across app
+  const evidenceLabel = getEvidenceLabel(confidenceLevel);
+  const impactLabel = getImpactLabel(impactLevel);
+  const isStrongOrModerateEvidence = confidenceLevel === 'high' || confidenceLevel === 'medium';
+  const evidenceColor = isStrongOrModerateEvidence ? colors.success : colors.warning;
 
   // Non-significant insights show compact card (but allow expansion if preference is enabled)
   if (!isSignificantInsight && !allowExpandNoSignificance) {
@@ -78,7 +87,7 @@ const BinaryHabitInsight = ({
             </Text>
           </View>
         </View>
-        <Text style={styles.noSignificanceText}>No statistical significance yet</Text>
+        <Text style={styles.noSignificanceText}>Not enough data yet</Text>
       </View>
     );
   }
@@ -90,15 +99,15 @@ const BinaryHabitInsight = ({
       return (
         <TouchableOpacity 
           style={[styles.container, styles.collapsedContainer, { width }]}
-          onPress={() => setIsExpanded(true)}
+          onPress={toggleExpand}
           activeOpacity={0.7}
         >
           <Text style={styles.collapsedHabitName}>{habit.name}</Text>
           <Text style={styles.impactHeadline}>{headline}</Text>
           <View style={styles.collapsedFooter}>
-            <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
-              <Ionicons name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} size={12} color={stabilityColor} />
-              <Text style={[styles.stabilityBadgeText, { color: stabilityColor }]}>{stabilityLabel}</Text>
+            <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
+              <Ionicons name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} size={12} color={evidenceColor} />
+              <Text style={[styles.stabilityBadgeText, { color: evidenceColor }]}>{evidenceLabel} · {impactLabel}</Text>
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
@@ -111,15 +120,15 @@ const BinaryHabitInsight = ({
       <View style={[styles.container, { width }]}>
         <TouchableOpacity 
           style={styles.expandedHeader}
-          onPress={() => setIsExpanded(false)}
+          onPress={toggleExpand}
           activeOpacity={0.7}
         >
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
             <View style={styles.headerRight}>
-              <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
-                <Ionicons name="time-outline" size={14} color={stabilityColor} />
-                <Text style={[styles.stabilityBadgeText, { color: stabilityColor, fontSize: typography.sizes.small }]}>{stabilityLabel}</Text>
+              <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
+                <Ionicons name="time-outline" size={14} color={evidenceColor} />
+                <Text style={[styles.stabilityBadgeText, { color: evidenceColor, fontSize: typography.sizes.small }]}>{evidenceLabel} · {impactLabel}</Text>
               </View>
               <View style={styles.dataBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
@@ -138,10 +147,10 @@ const BinaryHabitInsight = ({
 
         <View style={styles.warningContent}>
           <Text style={styles.warningTitle}>
-            Insufficient data for statistical analysis
+            Not enough data yet
           </Text>
           <Text style={styles.warningSubtitle}>
-            This habit needs more data points to determine if it affects your sleep. Continue logging to see insights.
+            Keep logging this habit to unlock insights into how it affects your sleep.
           </Text>
         </View>
 
@@ -213,8 +222,12 @@ const BinaryHabitInsight = ({
             </View>
           )}
           <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Insight reliability: </Text>
-            <Text style={[styles.confidenceValue, { color: stabilityColor }]}>{stabilityLabel}</Text>
+            <Text style={styles.statLabel}>Evidence: </Text>
+            <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{evidenceLabel}</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Impact: </Text>
+            <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{impactLabel}</Text>
           </View>
         </View>
       </View>
@@ -232,7 +245,7 @@ const BinaryHabitInsight = ({
       return (
         <TouchableOpacity 
           style={[styles.container, styles.collapsedContainer, { width }]}
-          onPress={() => setIsExpanded(true)}
+          onPress={toggleExpand}
           activeOpacity={0.7}
         >
           <View style={styles.collapsedHeader}>
@@ -260,7 +273,7 @@ const BinaryHabitInsight = ({
       <View style={[styles.container, { width }]}>
         <TouchableOpacity 
           style={styles.expandedHeader}
-          onPress={() => setIsExpanded(false)}
+          onPress={toggleExpand}
           activeOpacity={0.7}
         >
           <View style={styles.header}>
@@ -317,7 +330,7 @@ const BinaryHabitInsight = ({
     return (
       <TouchableOpacity 
         style={[styles.container, styles.collapsedContainer, { width }]}
-        onPress={() => setIsExpanded(true)}
+        onPress={toggleExpand}
         activeOpacity={0.7}
       >
         {/* Habit Name Header */}
@@ -352,14 +365,14 @@ const BinaryHabitInsight = ({
 
         {/* Stability Badge - same design as expanded view */}
         <View style={styles.collapsedFooter}>
-          <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
+          <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
             <Ionicons 
-              name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} 
+              name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
               size={12} 
-              color={stabilityColor} 
+              color={evidenceColor} 
             />
-            <Text style={[styles.stabilityBadgeText, { color: stabilityColor }]}>
-              {stabilityLabel}
+            <Text style={[styles.stabilityBadgeText, { color: evidenceColor }]}>
+              {evidenceLabel} · {impactLabel}
             </Text>
           </View>
           <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
@@ -375,19 +388,19 @@ const BinaryHabitInsight = ({
     <View style={[styles.container, { width }]}>
       <TouchableOpacity 
         style={styles.expandedHeader}
-        onPress={() => setIsExpanded(false)}
+        onPress={toggleExpand}
         activeOpacity={0.7}
       >
         <View style={styles.header}>
           <Text style={styles.habitName}>{habit.name}</Text>
           <View style={styles.headerRight}>
-            <View style={[styles.stabilityBadge, { backgroundColor: stabilityColor + '20' }]}>
+            <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
               <Ionicons 
-                name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} 
+                name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
                 size={14} 
-                color={stabilityColor} 
+                color={evidenceColor} 
               />
-              <Text style={[styles.stabilityBadgeText, { color: stabilityColor, fontSize: typography.sizes.small }]}>{stabilityLabel}</Text>
+              <Text style={[styles.stabilityBadgeText, { color: evidenceColor, fontSize: typography.sizes.small }]}>{evidenceLabel} · {impactLabel}</Text>
             </View>
             <View style={styles.dataBadge}>
               <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
@@ -440,9 +453,9 @@ const BinaryHabitInsight = ({
       <View style={styles.dataMaturityContainer}>
         <View style={styles.dataMaturityHeader}>
           <Ionicons 
-            name={stabilityLabel === 'Significant Insight' ? 'checkmark-circle' : 'time-outline'} 
+            name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
             size={16} 
-            color={stabilityColor} 
+            color={evidenceColor} 
           />
           <Text style={styles.dataMaturityTitle}>Data Maturity</Text>
         </View>
@@ -482,8 +495,12 @@ const BinaryHabitInsight = ({
           </View>
         )}
         <View style={styles.statRow}>
-          <Text style={styles.statLabel}>Insight reliability: </Text>
-          <Text style={[styles.confidenceValue, { color: stabilityColor }]}>{stabilityLabel}</Text>
+          <Text style={styles.statLabel}>Evidence: </Text>
+          <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{evidenceLabel}</Text>
+        </View>
+        <View style={styles.statRow}>
+          <Text style={styles.statLabel}>Impact: </Text>
+          <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{impactLabel}</Text>
         </View>
         {pValue !== null && pValue !== undefined && (
           <View style={styles.statRow}>

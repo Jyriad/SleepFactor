@@ -121,6 +121,40 @@ export const getDateStripArray = (numDays = 14) => {
 };
 
 /**
+ * Returns true if the given date is within the last 7 days (today minus 6 through today).
+ */
+export const isWithinLast7Days = (date) => {
+  const d = typeof date === 'string' ? new Date(date + 'T12:00:00') : new Date(date);
+  const today = new Date();
+  const todayStr = formatDateForDB(today);
+  const dateStr = formatDateForDB(d);
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  const sevenDaysAgoStr = formatDateForDB(sevenDaysAgo);
+  return dateStr >= sevenDaysAgoStr && dateStr <= todayStr;
+};
+
+/**
+ * Returns the last 7 days (today minus 6 through today) for the strip.
+ * Same format as other strip helpers: { date, dayName, dayNumber }.
+ */
+export const getDateStripArrayLast7Days = () => {
+  const today = new Date();
+  const dates = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    dates.push({
+      date: formatDateForDB(d),
+      dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      dayNumber: d.getDate(),
+      fullDate: d,
+    });
+  }
+  return dates;
+};
+
+/**
  * Get array of dates for the horizontal strip centered on the given date.
  * Returns numDays (default 7) with the center date in the middle when possible.
  * Only includes today and past dates (no future). Returns { date, dayName, dayNumber }.

@@ -76,7 +76,7 @@ const PlaceholderHabitInsight = ({ insight, width }) => {
         <View style={styles.binaryMessage}>
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={styles.binaryMessageText}>
-            Binary habits need at least {requiredYes} "Yes" and {requiredNo} "No" responses to show correlations.
+            Log at least {requiredYes} "Yes" and {requiredNo} "No" to unlock this insight.
           </Text>
         </View>
       )}
@@ -84,13 +84,13 @@ const PlaceholderHabitInsight = ({ insight, width }) => {
       {/* Progress Bar for reaching minimum data points */}
       {!isBinaryPlaceholder && (
         <View style={styles.progressSection}>
-          <Text style={styles.progressLabel}>Keep Logging</Text>
+          <Text style={styles.progressLabel}>Not enough data yet</Text>
           <View style={styles.progressBarBackground}>
             <View style={[styles.progressBarFill, { width: `${Math.min(100, (daysWithPairedData / 10) * 100)}%` }]} />
           </View>
           <Text style={styles.progressText}>
             {daysWithPairedData < 10 
-              ? `${10 - daysWithPairedData} more day${10 - daysWithPairedData !== 1 ? 's' : ''} needed`
+              ? `Log ${10 - daysWithPairedData} more day${10 - daysWithPairedData !== 1 ? 's' : ''} to unlock this insight`
               : 'Almost there!'}
           </Text>
         </View>

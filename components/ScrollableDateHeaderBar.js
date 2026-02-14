@@ -16,7 +16,7 @@ const HEADER_BOTTOM_RADIUS = 12;
  * Fixed date-picker header (top row + 7-day strip + handle).
  * Tapping the handle opens the calendar in a bottom sheet (via context).
  */
-const ScrollableDateHeaderBar = () => {
+const ScrollableDateHeaderBar = ({ rightElement = null }) => {
   const ctx = useDateHeader();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -47,6 +47,7 @@ const ScrollableDateHeaderBar = () => {
           loggedDates={ctx.loggedDates}
           datesWithUnsavedChanges={ctx.datesWithUnsavedChanges}
           leftElement={backButton}
+          rightElement={rightElement}
           showTodayButton={!isHabitLogging}
           onExpandChange={handleExpandChange}
         />
