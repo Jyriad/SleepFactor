@@ -16,6 +16,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
+import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
@@ -27,14 +28,15 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   <HealthConnectPrompt
     onPermissionsGranted={onPermissionsGranted}
     onDismiss={onDismiss}
+    compact
   />
 );
 
-const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay }) => {
+const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle }) => {
   const viewingToday = isToday(selectedDate);
 
   return (
-    <View style={styles.sleepCard}>
+    <View style={[styles.sleepCard, containerStyle]}>
       <View style={styles.sleepCardHeader}>
         <View style={styles.sleepCardTitleRow}>
           <Ionicons name="moon-outline" size={24} color={colors.primary} />
@@ -110,12 +112,13 @@ const SleepDataCard = ({
   isExcluded,
   exclusionReason,
   onExclude,
-  onInclude
+  onInclude,
+  containerStyle,
 }) => {
   const viewingToday = isToday(selectedDate);
 
   return (
-    <View style={styles.sleepCard}>
+    <View style={[styles.sleepCard, containerStyle]}>
       <View style={styles.sleepCardHeader}>
         <View style={styles.sleepCardTitleRow}>
           <Ionicons name="moon-outline" size={24} color={colors.primary} />
@@ -261,8 +264,8 @@ const SleepDataSimpleLoading = () => (
   </View>
 );
 
-const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle }) => (
-  <View style={[styles.sleepCard, styles.skeletonCard]}>
+const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, containerStyle }) => (
+  <View style={[styles.sleepCard, styles.skeletonCard, containerStyle]}>
     <View style={styles.sleepCardHeader}>
       <View style={styles.sleepCardTitleRow}>
         <Ionicons name="moon-outline" size={24} color={colors.primary} />
@@ -362,7 +365,7 @@ const AVERAGE_SLEEP_PERCENTAGES = {
   awakenings_count: 1.5, // Average number of awakenings per night
 };
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getToday, isSameDay, formatDateTitle, getDatesArray, isToday, formatTimeAgo } from '../utils/dateHelpers';
+import { getToday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, isToday, formatTimeAgo } from '../utils/dateHelpers';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
@@ -370,7 +373,6 @@ import NavigationCard from '../components/NavigationCard';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
 import dataQualityService from '../services/dataQualityService';
-import insightsService from '../services/insightsService';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -393,6 +395,8 @@ const HomeScreen = () => {
   const [todaysHabitsLogged, setTodaysHabitsLogged] = useState(false);
   const [habitCount, setHabitCount] = useState(0);
   const [totalHabitCount, setTotalHabitCount] = useState(0);
+  const [loggingStreak, setLoggingStreak] = useState(0);
+  const [insightsSummary, setInsightsSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Sleep data state
@@ -462,6 +466,8 @@ const HomeScreen = () => {
       checkTodaysHabitsLogged();
       fetchHabitCount();
       fetchTotalHabitCount();
+      fetchLoggingStreak();
+      fetchInsightsSummary();
     }, [selectedDate, user])
   );
 
@@ -480,6 +486,8 @@ const HomeScreen = () => {
     fetchLoggedDates();
     calculatePersonalAverages();
     fetchTotalHabitCount(); // Fetch total habit count once on mount
+    fetchLoggingStreak(); // Fetch logging streak on mount
+    fetchInsightsSummary();
     fetchCoreSleepDuration();
     // Cleanup old sync attempt records on app startup
     syncAttemptTracker.cleanupOldRecords();
@@ -696,20 +704,53 @@ const HomeScreen = () => {
     if (!user) return;
 
     try {
-      const dates = getDatesArray();
+      // Use 7-day array to match the header strip display
+      const dates = getDateStripArrayLast7Days();
       const dateStrings = dates.map(d => d.date);
+      const loggedDateSet = new Set();
 
-      // Fetch logged dates from database
-      const { data, error } = await supabase
+      // 1. Fetch regular habit logs - include habit info to filter out automatic habits
+      const { data: habitLogs, error: habitLogsError } = await supabase
         .from('habit_logs')
-        .select('date')
+        .select(`
+          date,
+          habits!inner(name, type)
+        `)
         .eq('user_id', user.id)
         .in('date', dateStrings);
 
-      if (error) throw error;
+      if (!habitLogsError && habitLogs) {
+        // Filter to only include manually logged habits (exclude health metrics and automated bedtime)
+        habitLogs.forEach(log => {
+          if (!healthMetricsService.isHealthMetricHabit(log.habits) && 
+              !(log.habits && log.habits.name === 'Bedtime Consistency')) {
+            loggedDateSet.add(log.date);
+          }
+        });
+      }
 
-      // Get unique dates that have submitted logs
-      const loggedDateSet = new Set(data?.map(log => log.date) || []);
+      // 2. Also check consumption events (caffeine/alcohol) for these dates
+      const startDate = dateStrings[0];
+      const endDate = dateStrings[dateStrings.length - 1];
+      const { data: consumptionEvents, error: consumptionError } = await supabase
+        .from('habit_consumption_events')
+        .select(`
+          consumed_at,
+          habits!inner(type)
+        `)
+        .eq('user_id', user.id)
+        .gte('consumed_at', `${startDate}T00:00:00.000Z`)
+        .lte('consumed_at', `${endDate}T23:59:59.999Z`);
+
+      if (!consumptionError && consumptionEvents) {
+        consumptionEvents.forEach(event => {
+          if (event.habits?.type === 'quick_consumption') {
+            const eventDate = event.consumed_at.split('T')[0];
+            loggedDateSet.add(eventDate);
+          }
+        });
+      }
+
       setLoggedDates(Array.from(loggedDateSet));
 
       // Check for dates with unsaved changes in AsyncStorage (batch operation for better performance)
@@ -832,6 +873,132 @@ const HomeScreen = () => {
       setTotalHabitCount(manualHabits.length);
     } catch (error) {
       setTotalHabitCount(0);
+    }
+  };
+
+  const fetchLoggingStreak = async () => {
+    if (!user) return;
+
+    try {
+      // Step 1: Get all manual habit IDs (excluding health metrics and automated bedtime habits)
+      // This matches the same filtering used in fetchHabitCountForDate
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, name, type')
+        .eq('user_id', user.id)
+        .neq('is_active', false);
+
+      if (habitsError) throw habitsError;
+
+      const manualHabits = (habitsData || [])
+        .filter(habit => 
+          !healthMetricsService.isHealthMetricHabit(habit) && 
+          !isAutomatedBedtimeHabit(habit)
+        );
+      
+      const manualHabitIds = manualHabits.map(habit => habit.id);
+      const quickConsumptionHabitIds = manualHabits
+        .filter(habit => habit.type === 'quick_consumption')
+        .map(habit => habit.id);
+
+      if (manualHabitIds.length === 0) {
+        setLoggingStreak(0);
+        return;
+      }
+
+      // Step 2: Get dates from habit_logs for manual habits
+      const { data: logsData, error: logsError } = await supabase
+        .from('habit_logs')
+        .select('date, habit_id')
+        .eq('user_id', user.id)
+        .in('habit_id', manualHabitIds)
+        .order('date', { ascending: false });
+
+      if (logsError) throw logsError;
+
+      // Step 3: Also get dates from consumption events (for caffeine, alcohol, etc.)
+      let consumptionDates = [];
+      if (quickConsumptionHabitIds.length > 0) {
+        const { data: consumptionData, error: consumptionError } = await supabase
+          .from('habit_consumption_events')
+          .select('consumed_at, habit_id')
+          .eq('user_id', user.id)
+          .in('habit_id', quickConsumptionHabitIds);
+
+        if (!consumptionError && consumptionData) {
+          // Extract dates from consumption timestamps
+          consumptionDates = consumptionData.map(event => 
+            event.consumed_at.split('T')[0]
+          );
+        }
+      }
+
+      // Combine all dates from both sources
+      const allLogDates = [
+        ...(logsData || []).map(log => log.date),
+        ...consumptionDates
+      ];
+
+      if (allLogDates.length === 0) {
+        setLoggingStreak(0);
+        return;
+      }
+
+      // Get unique dates where any manual habits were logged (including consumption)
+      const uniqueDates = [...new Set(allLogDates)].sort().reverse();
+
+      // Calculate streak - consecutive days ending with today or yesterday
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const todayStr = today.toISOString().split('T')[0];
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      // Start counting from today or yesterday
+      let streak = 0;
+      let checkDate = new Date(today);
+
+      // If most recent log is not today or yesterday, streak is 0
+      if (uniqueDates[0] !== todayStr && uniqueDates[0] !== yesterdayStr) {
+        setLoggingStreak(0);
+        return;
+      }
+
+      // If user hasn't logged today but logged yesterday, start from yesterday
+      if (uniqueDates[0] !== todayStr) {
+        checkDate = new Date(yesterday);
+      }
+
+      // Count consecutive days
+      const dateSet = new Set(uniqueDates);
+      
+      while (true) {
+        const checkDateStr = checkDate.toISOString().split('T')[0];
+        
+        if (dateSet.has(checkDateStr)) {
+          streak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          // Gap found, stop counting
+          break;
+        }
+      }
+
+      setLoggingStreak(streak);
+    } catch (error) {
+      setLoggingStreak(0);
+    }
+  };
+
+  const fetchInsightsSummary = async () => {
+    if (!user) return;
+    try {
+      const summary = await insightsService.getInsightsSummaryForHome(user.id);
+      setInsightsSummary(summary);
+    } catch (error) {
+      setInsightsSummary(null);
     }
   };
 
@@ -1337,109 +1504,160 @@ const HomeScreen = () => {
   };
 
 
+  // Streak indicator for the header
+  const streakIndicator = (
+    <View style={styles.streakIndicator}>
+      <Ionicons name="flame" size={18} color={colors.white} />
+      <Text style={styles.streakText}>{loggingStreak}</Text>
+    </View>
+  );
+
   return (
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
-      <ScrollableDateHeaderBar />
+      <ScrollableDateHeaderBar rightElement={streakIndicator} />
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
       >
-        {/* Today's Habits Reminder - Always show if not logged */}
-        {!loading && !todaysHabitsLogged && (
-          <View style={styles.todayReminder}>
-            <View style={styles.todayReminderHeader}>
-              <Ionicons name="warning" size={20} color="#F97316" />
-              <Text style={styles.todayReminderText}>
-                You haven't logged your habits for today
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.todayReminderButton}
-              onPress={handleLogTodaysHabits}
-            >
-              <Text style={styles.todayReminderButtonText}>Log Today's Habits</Text>
-            </TouchableOpacity>
+        {/* Today's Habits Reminder - Only when viewing another date (not today) and user hasn't logged today. Nudge: "you're looking at the past but haven't logged today yet." */}
+        {!isToday(selectedDate) && (loading || !todaysHabitsLogged) && (
+          <View style={styles.todayReminderSlot}>
+            {loading ? (
+              <View style={[styles.todayReminder, styles.todayReminderSkeleton]}>
+                <View style={styles.todayReminderHeader}>
+                  <Ionicons name="warning" size={20} color={colors.textSecondary} />
+                  <Text style={[styles.todayReminderText, styles.skeletonText]}>Loading...</Text>
+                </View>
+                <View style={[styles.todayReminderButton, styles.skeletonButton]} />
+              </View>
+            ) : (
+              <View style={styles.todayReminder}>
+                <View style={styles.todayReminderHeader}>
+                  <Ionicons name="warning" size={20} color="#F97316" />
+                  <Text style={styles.todayReminderText}>
+                    You haven't logged your habits for today
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.todayReminderButton}
+                  onPress={handleLogTodaysHabits}
+                >
+                  <Text style={styles.todayReminderButtonText}>Log Today's Habits</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
-        {/* Habit Summary Card - Hide if viewing today and habits aren't logged (to avoid duplicate message) */}
-        {!loading && !(isToday(selectedDate) && !todaysHabitsLogged) && (
-          <View style={styles.section}>
-            <HabitSummaryCard
-              date={selectedDate}
-              habitCount={habitCount}
-              totalHabitCount={totalHabitCount}
-              onPress={handleLogHabits}
-            />
-          </View>
-        )}
-
-
-
-        {/* Sleep Data Card */}
+        {/* Habit Summary Card - Always visible with stable layout; skeleton when loading */}
         <View style={styles.section}>
+          <HabitSummaryCard
+            date={selectedDate}
+            habitCount={habitCount}
+            totalHabitCount={totalHabitCount}
+            onPress={handleLogHabits}
+            loading={loading}
+          />
+        </View>
+
+
+
+        {/* Sleep Data Card - Fixed-height container so size never changes during sync */}
+        <View style={styles.section}>
+          <View style={styles.sleepSectionStable}>
           {(() => {
             if (showPermissionPrompt) {
               return (
-                <SleepPermissionPrompt
-                  onPermissionsGranted={handlePermissionsGranted}
-                  onDismiss={handleDismissPermissions}
-                />
+                <View style={styles.sleepSectionInner}>
+                  <View style={[styles.sleepCardFill, styles.sleepCard]}>
+                    <SleepPermissionPrompt
+                      onPermissionsGranted={handlePermissionsGranted}
+                      onDismiss={handleDismissPermissions}
+                    />
+                  </View>
+                </View>
               );
             } else if (autoSyncLoading) {
               return (
-                <SleepDataLoadingSkeleton
-                  selectedDate={selectedDate}
-                  isToday={isToday}
-                  formatDateTitle={formatDateTitle}
-                />
+                <View style={styles.sleepSectionInner}>
+                  <View style={styles.sleepCardFill}>
+                    <SleepDataLoadingSkeleton
+                      selectedDate={selectedDate}
+                      isToday={isToday}
+                      formatDateTitle={formatDateTitle}
+                      containerStyle={styles.sleepCardFillCard}
+                    />
+                  </View>
+                </View>
               );
             } else if (sleepDataLoading) {
-              return <SleepDataSimpleLoading />;
+              return (
+                <View style={styles.sleepSectionInner}>
+                  <View style={styles.sleepCardFill}>
+                    <SleepDataLoadingSkeleton
+                      selectedDate={selectedDate}
+                      isToday={isToday}
+                      formatDateTitle={formatDateTitle}
+                      containerStyle={styles.sleepCardFillCard}
+                    />
+                  </View>
+                </View>
+              );
             } else if (!sleepData) {
               return (
-                <SleepNoDataSkeleton
-                  selectedDate={selectedDate}
-                  isToday={isToday}
-                  formatDateTitle={formatDateTitle}
-                  hasPermissions={hasPermissions}
-                  healthSyncInitialized={healthSyncInitialized}
-                  handleSyncNow={handleSyncNow}
-                  autoSyncLoading={autoSyncLoading}
-                  healthSyncLoading={healthSyncLoading}
-                  setShowPermissionPrompt={setShowPermissionPrompt}
-                  getDataSourceDisplay={getDataSourceDisplay}
-                />
+                <View style={styles.sleepSectionInner}>
+                  <View style={styles.sleepCardFill}>
+                    <SleepNoDataSkeleton
+                      selectedDate={selectedDate}
+                      isToday={isToday}
+                      formatDateTitle={formatDateTitle}
+                      hasPermissions={hasPermissions}
+                      healthSyncInitialized={healthSyncInitialized}
+                      handleSyncNow={handleSyncNow}
+                      autoSyncLoading={autoSyncLoading}
+                      healthSyncLoading={healthSyncLoading}
+                      setShowPermissionPrompt={setShowPermissionPrompt}
+                      getDataSourceDisplay={getDataSourceDisplay}
+                      containerStyle={styles.sleepCardFillCard}
+                    />
+                  </View>
+                </View>
               );
             } else {
               return (
-                <SleepDataCard
-                  selectedDate={selectedDate}
-                  isToday={isToday}
-                  formatDateTitle={formatDateTitle}
-                  sleepData={sleepData}
-                  coreSleepDurationMinutes={coreSleepDurationMinutes}
-                  hasPermissions={hasPermissions}
-                  healthSyncInitialized={healthSyncInitialized}
-                  handleSyncNow={handleSyncNow}
-                  autoSyncLoading={autoSyncLoading}
-                  healthSyncLoading={healthSyncLoading}
-                  getDataSourceDisplay={getDataSourceDisplay}
-                  lastSyncResult={lastSyncResult}
-                  calculateSleepMetrics={calculateSleepMetrics}
-                  formatSleepDuration={formatSleepDuration}
-                  renderSleepMetricRow={renderSleepMetricRow}
-                  syncError={syncError}
-                  isExcluded={isExcluded}
-                  exclusionReason={exclusionReason}
-                  onExclude={handleExcludeSleepData}
-                  onInclude={handleIncludeSleepData}
-                />
+                <View style={styles.sleepSectionInner}>
+                  <View style={styles.sleepCardFill}>
+                    <SleepDataCard
+                      selectedDate={selectedDate}
+                      isToday={isToday}
+                      formatDateTitle={formatDateTitle}
+                      sleepData={sleepData}
+                      coreSleepDurationMinutes={coreSleepDurationMinutes}
+                      hasPermissions={hasPermissions}
+                      healthSyncInitialized={healthSyncInitialized}
+                      handleSyncNow={handleSyncNow}
+                      autoSyncLoading={autoSyncLoading}
+                      healthSyncLoading={healthSyncLoading}
+                      getDataSourceDisplay={getDataSourceDisplay}
+                      lastSyncResult={lastSyncResult}
+                      calculateSleepMetrics={calculateSleepMetrics}
+                      formatSleepDuration={formatSleepDuration}
+                      renderSleepMetricRow={renderSleepMetricRow}
+                      syncError={syncError}
+                      isExcluded={isExcluded}
+                      exclusionReason={exclusionReason}
+                      onExclude={handleExcludeSleepData}
+                      onInclude={handleIncludeSleepData}
+                      containerStyle={styles.sleepCardFillCard}
+                    />
+                  </View>
+                </View>
               );
             }
           })()}
+          </View>
         </View>
 
         {/* Navigation Cards */}
@@ -1450,12 +1668,40 @@ const HomeScreen = () => {
             icon="list"
             title="Manage Your Habits"
             subtitle="Control what habits you want to track"
+            stats={[
+              { icon: 'checkbox-outline', label: `${totalHabitCount} habit${totalHabitCount !== 1 ? 's' : ''} tracked` },
+              { icon: 'flame-outline', label: `${loggingStreak} day${loggingStreak !== 1 ? 's' : ''} streak` },
+            ]}
             onPress={() => navigation.navigate('Habits')}
           />
           <NavigationCard
             icon="chatbubbles"
             title="Sleep Insights"
             subtitle="Discover what affects your sleep"
+            stats={
+              insightsSummary === null
+                ? [{ icon: 'ellipse-outline', label: 'Loading insights...' }]
+                : insightsSummary.totalInsights > 0
+                  ? [
+                      ...(insightsSummary.habitsWithAtLeastOne > 0
+                        ? [{ icon: 'list-outline', label: `${insightsSummary.habitsWithAtLeastOne} habit${insightsSummary.habitsWithAtLeastOne !== 1 ? 's' : ''} with insights` }]
+                        : []),
+                      { icon: 'analytics-outline', label: `${insightsSummary.totalInsights} insight${insightsSummary.totalInsights !== 1 ? 's' : ''}` },
+                      ...(insightsSummary.byEvidence.strong > 0
+                        ? [{ icon: 'trending-up', label: `${insightsSummary.byEvidence.strong} strong evidence` }]
+                        : []),
+                      ...(insightsSummary.byEvidence.moderate > 0
+                        ? [{ icon: 'pulse-outline', label: `${insightsSummary.byEvidence.moderate} moderate evidence` }]
+                        : []),
+                      ...(insightsSummary.byEvidence.limited > 0
+                        ? [{ icon: 'ellipse-outline', label: `${insightsSummary.byEvidence.limited} limited evidence` }]
+                        : []),
+                      ...(insightsSummary.byImpact && insightsSummary.byImpact.large > 0
+                        ? [{ icon: 'flash-outline', label: `${insightsSummary.byImpact.large} large impact` }]
+                        : []),
+                    ]
+                  : [{ icon: 'analytics-outline', label: 'No insights yet' }]
+            }
             onPress={() => navigation.navigate('Insights')}
           />
         </View>
@@ -1469,21 +1715,41 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  streakIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  streakText: {
+    color: colors.white,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingBottom: 72, // Navigation footer height + margin
   },
+  todayReminderSlot: {
+    marginHorizontal: spacing.regular,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    minHeight: 100,
+  },
   todayReminder: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     padding: spacing.regular,
-    marginHorizontal: spacing.regular,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  todayReminderSkeleton: {
+    opacity: 0.7,
+  },
+  skeletonButton: {
+    backgroundColor: colors.border,
+    opacity: 0.6,
   },
   todayReminderHeader: {
     flexDirection: 'row',
@@ -1554,12 +1820,50 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
     marginLeft: spacing.xs,
   },
+  sleepSectionStable: {
+    minHeight: 480,
+  },
+  sleepSectionInner: {
+    flex: 1,
+    height: '100%',
+  },
+  sleepCardFill: {
+    flex: 1,
+    minHeight: '100%',
+  },
+  sleepCardFillCard: {
+    flex: 1,
+  },
   sleepCard: {
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  timelineContainer: {
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    position: 'relative',
+  },
+  timelineBar: {
+    height: 40,
+    borderRadius: 20,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    backgroundColor: '#E0E7FF',
+    position: 'relative',
+  },
+  timeLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  timeLabel: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
   },
   skeletonCard: {
     opacity: 0.6,

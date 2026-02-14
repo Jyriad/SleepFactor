@@ -17,7 +17,7 @@
 export function generateNumericalHeadline(habit, correlation, correlationStrength, trendDirection, sleepMetric, dataPoints, isPercentageMode = false, confidenceLevel = null) {
   // Only say "no clear relationship" if confidence is 'none' or correlation is truly null/undefined/0
   if (confidenceLevel === 'none' || correlation === null || correlation === undefined || correlation === 0 || trendDirection === 'none') {
-    return `Your ${habit.name.toLowerCase()} habits show no clear relationship with ${sleepMetric.label.toLowerCase()}`;
+    return `Your ${habit.name.toLowerCase()} habits show no clear link yet with ${sleepMetric.label.toLowerCase()}`;
   }
 
   const habitName = habit.name.toLowerCase();
@@ -89,7 +89,7 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
 export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints, isPercentageMode = false, confidenceLevel = null) {
   // Only say "no significant difference" if confidence is 'none' or stats are missing
   if (confidenceLevel === 'none' || !yesStats || !noStats || !yesStats.median || !noStats.median) {
-    return `${habit.name} shows no significant difference in ${sleepMetric.label.toLowerCase()}`;
+    return `${habit.name} shows no clear link yet with ${sleepMetric.label.toLowerCase()}`;
   }
 
   const yesMedian = yesStats.median;
@@ -104,7 +104,7 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
     // In percentage mode, difference is already a percentage, so use it directly
     const absPercentChange = Math.abs(difference);
     if (absPercentChange < 1) {
-      return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
+      return `Doing "${habitName}" has minimal impact on your ${sleepMetricName}`;
     }
 
     // Always describe the scenario that gives MORE sleep - direction is 'more' for both cases
@@ -120,7 +120,7 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
   } else {
     // Absolute mode - always describe the scenario that gives higher sleep
     if (Math.abs(difference) < 1) {
-      return `Doing "${habitName}" has little impact on your ${sleepMetricName}`;
+      return `Doing "${habitName}" has minimal impact on your ${sleepMetricName}`;
     }
 
     // When difference > 0: doing habit gives more sleep. When difference < 0: skipping gives more sleep.

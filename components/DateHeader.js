@@ -23,7 +23,9 @@ import {
   formatDateForDB,
   formatDateTitle,
   getDateStripArrayCentered,
+  getDateStripArrayLast7Days,
   getToday,
+  isWithinLast7Days,
 } from '../utils/dateHelpers';
 import DatePickerCalendar from './DatePickerCalendar';
 
@@ -73,7 +75,10 @@ const DateHeader = ({
   const stripCenterDate = selectedDate
     ? (typeof selectedDate === 'string' ? new Date(selectedDate + 'T12:00:00') : selectedDate)
     : new Date();
-  const stripDates = getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
+  const stripDates =
+    isWithinLast7Days(stripCenterDate)
+      ? getDateStripArrayLast7Days()
+      : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
   const displayTitle = formatDateTitle(selectedDate);
   const showToday = showTodayButton && displayTitle !== 'Today' && selectedDateStr >= todayStr;
 
@@ -238,53 +243,55 @@ const DateHeader = ({
           <View style={styles.rightSlot}>{rightElement}</View>
         </View>
 
-        <View style={styles.stripRow}>
-          {stripDates.map((dateItem) => {
-            const isSelected = dateItem.date === selectedDateStr;
-            const isLogged = loggedDates.includes(dateItem.date);
-            const hasSleep = stripSleepDates.includes(dateItem.date);
-            return (
-              <TouchableOpacity
-                key={dateItem.date}
-                style={styles.stripItem}
-                onPress={() => onDateChange(new Date(dateItem.date + 'T12:00:00'))}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.stripDayName,
-                    isSelected && styles.stripDayNameSelected,
-                  ]}
-                >
-                  {dateItem.dayName}
-                </Text>
-                <View
-                  style={[
-                    styles.datePill,
-                    isSelected && styles.datePillSelected,
-                  ]}
+        {!isExpanded && (
+          <View style={styles.stripRow}>
+            {stripDates.map((dateItem) => {
+              const isSelected = dateItem.date === selectedDateStr;
+              const isLogged = loggedDates.includes(dateItem.date);
+              const hasSleep = stripSleepDates.includes(dateItem.date);
+              return (
+                <TouchableOpacity
+                  key={dateItem.date}
+                  style={styles.stripItem}
+                  onPress={() => onDateChange(new Date(dateItem.date + 'T12:00:00'))}
+                  activeOpacity={0.7}
                 >
                   <Text
                     style={[
-                      styles.datePillNumber,
-                      isSelected && styles.datePillNumberSelected,
+                      styles.stripDayName,
+                      isSelected && styles.stripDayNameSelected,
                     ]}
                   >
-                    {dateItem.dayNumber}
+                    {dateItem.dayName}
                   </Text>
-                  {isLogged && (
-                    <View style={styles.datePillIndicatorLeft} pointerEvents="none">
-                      <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
-                    </View>
-                  )}
-                  {hasSleep && (
-                    <Text style={[styles.datePillZzz, isSelected && styles.datePillZzzSelected]} pointerEvents="none">Zzz</Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+                  <View
+                    style={[
+                      styles.datePill,
+                      isSelected && styles.datePillSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.datePillNumber,
+                        isSelected && styles.datePillNumberSelected,
+                      ]}
+                    >
+                      {dateItem.dayNumber}
+                    </Text>
+                    {isLogged && (
+                      <View style={styles.datePillIndicatorLeft} pointerEvents="none">
+                        <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
+                      </View>
+                    )}
+                    {hasSleep && (
+                      <Text style={[styles.datePillZzz, isSelected && styles.datePillZzzSelected]} pointerEvents="none">Zzz</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
           <GestureDetector gesture={horizontalMonthPanGesture}>

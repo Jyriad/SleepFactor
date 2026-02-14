@@ -65,6 +65,22 @@ const InsightsScreen = () => {
   const [showAnalysisTypePicker, setShowAnalysisTypePicker] = useState(false);
   const [showCoreSleepPicker, setShowCoreSleepPicker] = useState(false);
   const [showCoreSleepInfo, setShowCoreSleepInfo] = useState(false);
+  
+  // Handler to toggle filter pickers with accordion behavior - only one open at a time
+  const togglePicker = (pickerName) => {
+    setShowMetricPicker(pickerName === 'metric' ? prev => !prev : false);
+    setShowTimeRangePicker(pickerName === 'timeRange' ? prev => !prev : false);
+    setShowAnalysisTypePicker(pickerName === 'analysisType' ? prev => !prev : false);
+    setShowCoreSleepPicker(pickerName === 'coreSleep' ? prev => !prev : false);
+  };
+  
+  // Track which insight card is currently expanded (accordion behavior - only one at a time)
+  const [expandedInsightId, setExpandedInsightId] = useState(null);
+  
+  // Handler to toggle insight expansion - closes others when opening one
+  const handleInsightToggle = (insightId) => {
+    setExpandedInsightId(currentId => currentId === insightId ? null : insightId);
+  };
 
   // Get available options from insights service
   const availableMetrics = insightsService.getAvailableSleepMetrics();
@@ -170,23 +186,27 @@ const InsightsScreen = () => {
     const metricInfo = getSelectedMetricInfo();
     // Use screen width minus padding for responsive cards
     const cardWidth = screenWidth - (spacing.regular * 2);
+    const insightId = `${insight.habit.id}-${selectedMetric}-${selectedAnalysisType}-${useCoreSleep}`;
+    const isExpanded = expandedInsightId === insightId;
 
     if (insight.type === 'binary') {
       return (
         <BinaryHabitInsight
-          key={`${insight.habit.id}-${selectedMetric}-${selectedAnalysisType}-${useCoreSleep}`}
+          key={insightId}
           insight={insight}
           sleepMetric={metricInfo}
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
           isCoreSleepEnabled={useCoreSleep}
           allowExpandNoSignificance={preferences.showNoSignificanceHabits}
+          isExpanded={isExpanded}
+          onToggleExpand={() => handleInsightToggle(insightId)}
         />
       );
     } else if (insight.type === 'numerical') {
       return (
         <NumericalHabitInsight
-          key={`${insight.habit.id}-${selectedMetric}-${selectedAnalysisType}-${useCoreSleep}`}
+          key={insightId}
           insight={insight}
           sleepMetric={metricInfo}
           width={cardWidth}
@@ -194,6 +214,8 @@ const InsightsScreen = () => {
           isCoreSleepEnabled={useCoreSleep}
           onRefresh={loadInsights}
           allowExpandNoSignificance={preferences.showNoSignificanceHabits}
+          isExpanded={isExpanded}
+          onToggleExpand={() => handleInsightToggle(insightId)}
         />
       );
     } else if (insight.type === 'placeholder') {
@@ -212,12 +234,12 @@ const InsightsScreen = () => {
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
       <Ionicons name="analytics-outline" size={64} color={colors.textSecondary} />
-      <Text style={styles.emptyStateTitle}>No Insights Available</Text>
+      <Text style={styles.emptyStateTitle}>No insights yet</Text>
       <Text style={styles.emptyStateText}>
-        Create habits and log them regularly to see how they impact your sleep patterns.
+        Create habits and log them regularly to see how they affect your sleep.
       </Text>
       <Text style={styles.emptyStateSubtext}>
-        We need at least 10 days of data to generate meaningful insights.
+        We need at least 10 days of data to generate insights. Keep logging to unlock them.
       </Text>
     </View>
   );
@@ -248,7 +270,7 @@ const InsightsScreen = () => {
         {/* Metric Selector */}
         <TouchableOpacity
           style={styles.selector}
-          onPress={() => setShowMetricPicker(!showMetricPicker)}
+          onPress={() => togglePicker('metric')}
         >
           <Text style={styles.selectorValue}>{metricInfo.label}</Text>
           <Ionicons
@@ -261,7 +283,7 @@ const InsightsScreen = () => {
         {/* Analysis Type Selector */}
         <TouchableOpacity
           style={styles.selector}
-          onPress={() => setShowAnalysisTypePicker(!showAnalysisTypePicker)}
+          onPress={() => togglePicker('analysisType')}
         >
           <Text style={styles.selectorValue}>
             {selectedAnalysisType === 'absolute' ? 'Absolute' : 'Percentage'}
@@ -279,7 +301,7 @@ const InsightsScreen = () => {
         {/* Time Range Selector */}
         <TouchableOpacity
           style={styles.selector}
-          onPress={() => setShowTimeRangePicker(!showTimeRangePicker)}
+          onPress={() => togglePicker('timeRange')}
         >
           <Text style={styles.selectorValue}>{timeRangeInfo.label}</Text>
           <Ionicons
@@ -292,7 +314,7 @@ const InsightsScreen = () => {
         {/* Core Sleep Selector */}
         <TouchableOpacity
           style={styles.selector}
-          onPress={() => setShowCoreSleepPicker(!showCoreSleepPicker)}
+          onPress={() => togglePicker('coreSleep')}
         >
           <Text style={styles.selectorValue}>
             Core Sleep: {useCoreSleep ? 'On' : 'Off'}

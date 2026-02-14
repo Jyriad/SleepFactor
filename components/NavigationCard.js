@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
-const NavigationCard = ({ icon, title, subtitle, onPress }) => {
+const NavigationCard = ({ icon, title, subtitle, stats, onPress }) => {
   return (
     <TouchableOpacity
       style={styles.card}
@@ -15,6 +15,16 @@ const NavigationCard = ({ icon, title, subtitle, onPress }) => {
       <View style={styles.textContainer}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>{subtitle}</Text>
+        {stats && stats.length > 0 && (
+          <View style={styles.statsContainer}>
+            {stats.map((stat, index) => (
+              <View key={index} style={styles.statItem}>
+                <Ionicons name={stat.icon} size={14} color={colors.primary} />
+                <Text style={styles.statText}>{stat.label}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
       <Ionicons name="chevron-forward" size={24} color={colors.textLight} />
     </TouchableOpacity>
@@ -45,6 +55,22 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: spacing.sm,
+    gap: spacing.regular,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  statText: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    fontWeight: typography.weights.medium,
   },
 });
 

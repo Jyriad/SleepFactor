@@ -5,19 +5,21 @@ import { typography, spacing } from '../constants';
 import { formatDateTitle } from '../utils/dateHelpers';
 import Button from './Button';
 
-const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress }) => {
+const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading }) => {
   const dateTitle = formatDateTitle(date);
   const hasHabits = habitCount > 0;
 
   return (
     <View style={styles.card}>
-      <View style={styles.header}>
-        <Text style={styles.title}>
-          {totalHabitCount > 0
-            ? `${habitCount} out of ${totalHabitCount} habit${totalHabitCount === 1 ? '' : 's'} logged`
-            : hasHabits
-              ? `${habitCount} habit${habitCount === 1 ? '' : 's'} logged`
-              : 'No habits logged'
+      <View style={[styles.header, styles.titleRowFixed]}>
+        <Text style={styles.title} numberOfLines={2}>
+          {loading
+            ? 'Loading habits...'
+            : totalHabitCount > 0
+              ? `${habitCount} out of ${totalHabitCount} habit${totalHabitCount === 1 ? '' : 's'} logged`
+              : hasHabits
+                ? `${habitCount} habit${habitCount === 1 ? '' : 's'} logged`
+                : 'No habits logged'
           }
         </Text>
       </View>
@@ -25,9 +27,10 @@ const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress }) => {
         for {dateTitle}
       </Text>
       <Button
-        title={hasHabits ? "View Full Details" : "Log Habits"}
+        title={loading ? '...' : (hasHabits ? "View Full Details" : "Log Habits")}
         onPress={onPress}
         style={styles.button}
+        disabled={loading}
       />
     </View>
   );
@@ -43,6 +46,10 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: spacing.xs,
+  },
+  titleRowFixed: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   title: {
     fontSize: typography.sizes.medium,
