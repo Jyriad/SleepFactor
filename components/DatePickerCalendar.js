@@ -182,7 +182,7 @@ export default function DatePickerCalendar({
                 style={[
                   styles.calDateCell,
                   bg,
-                  isTodayDate && !isSelected && !isFuture && styles.calTodayCell,
+                  isTodayDate && !isFuture && styles.calTodayCell,
                 ]}
                 onPress={() => !isFuture && handleDateSelect(dayItem.date)}
                 activeOpacity={isFuture ? 1 : 0.7}
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
   },
   calTodayCell: {
     borderWidth: 2,
-    borderColor: colors.white,
+    borderColor: colors.accent,
   },
   calTodayText: {
     color: colors.white,

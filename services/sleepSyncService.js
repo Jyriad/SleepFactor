@@ -31,6 +31,93 @@ class SleepSyncService {
   }
 
   /**
+   * Merge multiple sleep records for the same date into one record (combined totals + sleep_sessions for UI).
+   * When Health Connect returns e.g. main sleep 2:24–06:50 and nap 07:25–08:29, both have the same date;
+   * we sum totals for insights and keep per-session info so the homepage can show two separate cycles.
+   * @param {Array<Object>} records - Transformed sleep records (may have multiple per date)
+   * @returns {Array<Object>} One merged record per date
+   */
+  _mergeSleepRecordsByDate(records) {
+    if (!records || records.length === 0) return [];
+    const byDate = {};
+    for (const r of records) {
+      if (!r || !r.date) continue;
+      if (!byDate[r.date]) byDate[r.date] = [];
+      byDate[r.date].push(r);
+    }
+    // [DEBUG] Multi-session: merge input
+    console.log('[SleepSync DEBUG] _mergeSleepRecordsByDate input:', records.length, 'records, dates:', Object.keys(byDate));
+    Object.keys(byDate).forEach(d => {
+      console.log(`[SleepSync DEBUG]   date ${d}: ${byDate[d].length} session(s)`);
+    });
+    const merged = [];
+    for (const date of Object.keys(byDate).sort()) {
+      const sessions = byDate[date];
+      sessions.sort((a, b) => {
+        const aStart = (a.sleep_start_time && new Date(a.sleep_start_time).getTime()) || 0;
+        const bStart = (b.sleep_start_time && new Date(b.sleep_start_time).getTime()) || 0;
+        return aStart - bStart;
+      });
+      const first = sessions[0];
+      let total_sleep_minutes = 0;
+      let deep_sleep_minutes = 0;
+      let light_sleep_minutes = 0;
+      let rem_sleep_minutes = 0;
+      let awake_minutes = 0;
+      let awakenings_count = 0;
+      const allStages = [];
+      const sleep_sessions = [];
+      let earliestStart = null;
+      let latestEnd = null;
+      for (const s of sessions) {
+        total_sleep_minutes += s.total_sleep_minutes || 0;
+        deep_sleep_minutes += s.deep_sleep_minutes || 0;
+        light_sleep_minutes += s.light_sleep_minutes || 0;
+        rem_sleep_minutes += s.rem_sleep_minutes || 0;
+        awake_minutes += s.awake_minutes || 0;
+        awakenings_count += s.awakenings_count || 0;
+        const start = s.sleep_start_time ? new Date(s.sleep_start_time) : null;
+        const end = s.sleep_end_time ? new Date(s.sleep_end_time) : null;
+        if (start && end) {
+          if (!earliestStart || start < earliestStart) earliestStart = start;
+          if (!latestEnd || end > latestEnd) latestEnd = end;
+          sleep_sessions.push({
+            startTime: s.sleep_start_time,
+            endTime: s.sleep_end_time,
+            totalMinutes: s.total_sleep_minutes || 0,
+            sleep_stages: (s.sleep_stages && s.sleep_stages.length) ? s.sleep_stages : null,
+          });
+        }
+        if (s.sleep_stages && Array.isArray(s.sleep_stages)) {
+          for (const st of s.sleep_stages) {
+            if (st && st.startTime && st.endTime) allStages.push({ ...st });
+          }
+        }
+      }
+      allStages.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      const mergedRecord = {
+        date,
+        total_sleep_minutes,
+        deep_sleep_minutes,
+        light_sleep_minutes,
+        rem_sleep_minutes,
+        awake_minutes,
+        awakenings_count,
+        sleep_score: first.sleep_score ?? null,
+        source: first.source || healthService.getSourceIdentifier(),
+        sleep_stages: allStages.length > 0 ? allStages : null,
+        sleep_start_time: earliestStart ? earliestStart.toISOString() : first.sleep_start_time,
+        sleep_end_time: latestEnd ? latestEnd.toISOString() : first.sleep_end_time,
+        sleep_sessions: sleep_sessions.length > 0 ? sleep_sessions : null,
+      };
+      merged.push(mergedRecord);
+      // [DEBUG] Multi-session: merged record for this date
+      console.log(`[SleepSync DEBUG]   merged date ${date}: totalMin=${mergedRecord.total_sleep_minutes} sleep_sessions.length=${mergedRecord.sleep_sessions?.length ?? 0}`);
+    }
+    return merged;
+  }
+
+  /**
    * Get existing sleep data dates for the current user
    * @param {string} startDate - Start date in YYYY-MM-DD format
    * @param {string} endDate - End date in YYYY-MM-DD format
@@ -151,16 +238,21 @@ class SleepSyncService {
         };
       }
 
+      // Merge multiple sessions per date into one record (combined totals + sleep_sessions for UI)
+      const mergedByDate = this._mergeSleepRecordsByDate(rawSleepData);
+      // [DEBUG] Multi-session: after merge
+      console.log('[SleepSync DEBUG] After merge: rawSleepData.length=', rawSleepData.length, 'mergedByDate.length=', mergedByDate.length);
+      mergedByDate.forEach((m, i) => {
+        console.log(`[SleepSync DEBUG]   merged[${i}] date=${m.date} total_sleep_minutes=${m.total_sleep_minutes} sleep_sessions=${m.sleep_sessions?.length ?? 0}`, m.sleep_sessions ? 'has sessions' : 'no sessions');
+      });
 
-      // Filter out records for dates that already exist (unless forcing)
-      let recordsToProcess = rawSleepData;
+      // Filter out dates that already exist (unless forcing)
+      let recordsToProcess = mergedByDate;
       if (!force && existingDates.size > 0) {
-        const originalCount = rawSleepData.length;
-        recordsToProcess = rawSleepData.filter(record => !existingDates.has(record.date));
-        const filteredCount = originalCount - recordsToProcess.length;
-        if (filteredCount > 0) {
-        }
+        recordsToProcess = mergedByDate.filter(record => !existingDates.has(record.date));
       }
+
+      console.log('[SleepSync DEBUG] existingDates (skip unless force):', Array.from(existingDates), 'force=', force, 'recordsToProcess.length=', recordsToProcess.length);
 
       if (recordsToProcess.length === 0) {
         return {
@@ -173,26 +265,18 @@ class SleepSyncService {
         };
       }
 
-
-
-      // Data is already transformed by healthService.syncSleepData()
-      // Just ensure source is set and save to database
+      // Save merged records (one per date)
       const savedRecords = [];
       const errors = [];
 
       for (const transformedData of recordsToProcess) {
         try {
-          // Data is already transformed by healthService.syncSleepData()
-          // Just ensure source identifier is set
           if (transformedData) {
             if (!transformedData.source) {
               transformedData.source = healthService.getSourceIdentifier();
             }
-
-            // Save to Supabase (this will upsert, overwriting existing data)
             const savedRecord = await sleepDataService.upsertSleepData(transformedData);
             savedRecords.push(savedRecord);
-          } else {
           }
         } catch (error) {
           errors.push({ record: transformedData, error: error.message });

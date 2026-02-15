@@ -8,8 +8,17 @@ if (!Array.prototype.toReversed) {
 const { getDefaultConfig } = require('@expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
+const { transformer, resolver } = config;
 
-// Add SVG support for victory-native
-config.resolver.assetExts.push('svg');
+// react-native-svg-transformer: import SVGs as React components for crisp scaling
+config.transformer = {
+  ...transformer,
+  babelTransformerPath: require.resolve('react-native-svg-transformer/expo'),
+};
+config.resolver = {
+  ...resolver,
+  assetExts: resolver.assetExts.filter((ext) => ext !== 'svg'),
+  sourceExts: [...resolver.sourceExts, 'svg'],
+};
 
 module.exports = config;

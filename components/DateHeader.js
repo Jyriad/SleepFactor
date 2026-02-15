@@ -80,7 +80,7 @@ const DateHeader = ({
       ? getDateStripArrayLast7Days()
       : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
   const displayTitle = formatDateTitle(selectedDate);
-  const showToday = showTodayButton && displayTitle !== 'Today' && selectedDateStr >= todayStr;
+  const showToday = showTodayButton && displayTitle !== 'Today';
 
   useEffect(() => {
     if (selectedDate) setCurrentMonth(new Date(selectedDate));
@@ -233,6 +233,7 @@ const DateHeader = ({
                 style={styles.todayButton}
                 activeOpacity={0.7}
               >
+                <Ionicons name="arrow-undo-outline" size={18} color={colors.primary} style={styles.todayButtonIcon} />
                 <Text style={styles.todayButtonText}>Today</Text>
               </TouchableOpacity>
             ) : null}
@@ -247,6 +248,7 @@ const DateHeader = ({
           <View style={styles.stripRow}>
             {stripDates.map((dateItem) => {
               const isSelected = dateItem.date === selectedDateStr;
+              const isToday = dateItem.date === todayStr;
               const isLogged = loggedDates.includes(dateItem.date);
               const hasSleep = stripSleepDates.includes(dateItem.date);
               return (
@@ -268,6 +270,7 @@ const DateHeader = ({
                     style={[
                       styles.datePill,
                       isSelected && styles.datePillSelected,
+                      isToday && styles.datePillToday,
                     ]}
                   >
                     <Text
@@ -346,10 +349,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   todayButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.accent,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: 20,
+  },
+  todayButtonIcon: {
+    marginRight: spacing.xs,
   },
   todayButtonText: {
     fontSize: typography.sizes.small,
@@ -427,6 +435,10 @@ const styles = StyleSheet.create({
   datePillSelected: {
     backgroundColor: colors.white,
     borderWidth: 0,
+  },
+  datePillToday: {
+    borderWidth: 2,
+    borderColor: colors.accent,
   },
   datePillIndicatorLeft: {
     position: 'absolute',

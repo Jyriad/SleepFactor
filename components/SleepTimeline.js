@@ -6,14 +6,68 @@ import { typography, spacing } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import CoreSleepInfoModal from './CoreSleepInfoModal';
 
+const SLEEP_BAR_RADIUS = 8;
+const CORE_SLEEP_RADIUS = 2;
+
 const SleepTimeline = ({ sleepData, coreSleepDurationMinutes }) => {
   const { formatTime } = useUserPreferences();
   const [showCoreSleepInfo, setShowCoreSleepInfo] = useState(false);
 
   if (!sleepData) return null;
+  // [DEBUG] Multi-session: what SleepTimeline received
+  console.log('[SleepSync DEBUG] SleepTimeline sleepData.date=', sleepData.date, 'sleep_sessions=', sleepData.sleep_sessions?.length ?? 'missing', 'total_sleep_minutes=', sleepData.total_sleep_minutes);
 
-  // Use actual sleep stage intervals if available, otherwise fall back to aggregated data
+  // Multiple sessions (e.g. main sleep + nap): show separate bars per session
   const timelineData = useMemo(() => {
+    const sessions = sleepData.sleep_sessions;
+    if (sessions && Array.isArray(sessions) && sessions.length > 0) {
+      const sessionResults = [];
+      for (const sess of sessions) {
+        const start = sess.startTime ? new Date(sess.startTime) : null;
+        const end = sess.endTime ? new Date(sess.endTime) : null;
+        if (!start || !end) continue;
+        const totalDurationMinutes = sess.totalMinutes || Math.round((end - start) / (1000 * 60));
+        let segments = [];
+        if (sess.sleep_stages && sess.sleep_stages.length > 0) {
+          const stages = sess.sleep_stages
+            .map(stage => ({
+              ...stage,
+              startTime: new Date(stage.startTime),
+              endTime: new Date(stage.endTime),
+            }))
+            .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+          const totalMs = end.getTime() - start.getTime();
+          segments = stages.map(stage => {
+            const segmentStartMs = stage.startTime.getTime() - start.getTime();
+            const segmentDurationMs = stage.endTime.getTime() - stage.startTime.getTime();
+            return {
+              type: stage.stage,
+              startPercent: (segmentStartMs / totalMs) * 100,
+              widthPercent: (segmentDurationMs / totalMs) * 100,
+              durationMinutes: stage.durationMinutes || 0,
+            };
+          });
+        } else {
+          segments = [{ type: 'light', startPercent: 0, widthPercent: 100, durationMinutes: totalDurationMinutes }];
+        }
+        sessionResults.push({
+          segments,
+          sleepStart: start,
+          sleepEnd: end,
+          totalDurationMinutes,
+        });
+      }
+      if (sessionResults.length === 0) return null;
+      const totalAll = sessionResults.reduce((s, r) => s + r.totalDurationMinutes, 0);
+      sessionResults.forEach(s => {
+        s.widthPercent = totalAll > 0 ? (s.totalDurationMinutes / totalAll) * 100 : 0;
+      });
+      return {
+        multipleSessions: true,
+        sessions: sessionResults,
+        totalDurationMinutes: sleepData.total_sleep_minutes || totalAll,
+      };
+    }
     if (sleepData.sleep_stages && Array.isArray(sleepData.sleep_stages) && sleepData.sleep_stages.length > 0) {
       // We have actual interval data - use it!
       const stages = sleepData.sleep_stages
@@ -144,13 +198,10 @@ const SleepTimeline = ({ sleepData, coreSleepDurationMinutes }) => {
     }
   }, [sleepData]);
 
-  if (!timelineData || timelineData.segments.length === 0) return null;
+  if (!timelineData) return null;
+  if (!timelineData.multipleSessions && (!timelineData.segments || timelineData.segments.length === 0)) return null;
 
-  const { segments, sleepStart, sleepEnd, totalDurationMinutes } = timelineData;
-  const startTime = formatTime(sleepStart);
-  const endTime = formatTime(sleepEnd);
-
-  // Core sleep: first N minutes of the night. Show as a thin bar underneath, full width to match timeline.
+  const totalDurationMinutes = timelineData.multipleSessions ? timelineData.totalDurationMinutes : timelineData.totalDurationMinutes;
   const showCoreSleep = coreSleepDurationMinutes != null && totalDurationMinutes > 0;
   const coreWidthPercent = showCoreSleep
     ? Math.min(100, (coreSleepDurationMinutes / totalDurationMinutes) * 100)
@@ -161,9 +212,116 @@ const SleepTimeline = ({ sleepData, coreSleepDurationMinutes }) => {
         : `${Math.floor(coreSleepDurationMinutes / 60)}h ${coreSleepDurationMinutes % 60}m`)
     : '';
 
+  const renderOneTimeline = (segments, sleepStart, sleepEnd, keyPrefix) => {
+    const startTime = formatTime(sleepStart);
+    const endTime = formatTime(sleepEnd);
+    return (
+      <View key={keyPrefix} style={styles.timelineContainer}>
+        <View style={styles.timelineBar}>
+          {segments.map((segment, index) => {
+            const isFirst = index === 0;
+            const isLast = index === segments.length - 1;
+            return (
+              <View
+                key={`${keyPrefix}-${segment.type}-${index}`}
+                style={[
+                  styles.segment,
+                  {
+                    position: 'absolute',
+                    left: `${segment.startPercent}%`,
+                    width: `${segment.widthPercent}%`,
+                    backgroundColor: colors.sleepStages[segment.type] || colors.sleepStages.light,
+                    borderTopLeftRadius: isFirst && segment.startPercent === 0 ? SLEEP_BAR_RADIUS : 0,
+                    borderBottomLeftRadius: isFirst && segment.startPercent === 0 ? SLEEP_BAR_RADIUS : 0,
+                    borderTopRightRadius: isLast ? SLEEP_BAR_RADIUS : 0,
+                    borderBottomRightRadius: isLast ? SLEEP_BAR_RADIUS : 0,
+                  },
+                ]}
+              />
+            );
+          })}
+        </View>
+        <View style={styles.moonIcon}>
+          <Ionicons name="moon" size={14} color="#FFFFFF" />
+        </View>
+        <View style={styles.timeLabels}>
+          <Text style={styles.timeLabel}>{startTime}</Text>
+          <Text style={styles.timeLabel}>{endTime}</Text>
+        </View>
+      </View>
+    );
+  };
+
+  // Multiple sessions: two separate pill-shaped bars, side-by-side, proportionally sized with a gap
+  const renderMultiSessionBar = () => {
+    const { sessions } = timelineData;
+    return (
+      <View style={styles.timelineContainer}>
+        <View style={styles.multiSessionBarsRow}>
+          {sessions.map((sess, i) => (
+            <View
+              key={`session-${i}`}
+              style={[
+                styles.standaloneSessionBar,
+                { flex: sess.totalDurationMinutes },
+                i > 0 && styles.standaloneSessionBarGap,
+              ]}
+            >
+              <View style={styles.standaloneSessionBarInner}>
+                {sess.segments.map((segment, index) => {
+                  const isFirst = index === 0;
+                  const isLast = index === sess.segments.length - 1;
+                  return (
+                    <View
+                      key={`s${i}-${segment.type}-${index}`}
+                      style={[
+                        styles.segment,
+                        {
+                          position: 'absolute',
+                          left: `${segment.startPercent}%`,
+                          width: `${segment.widthPercent}%`,
+                          backgroundColor: colors.sleepStages[segment.type] || colors.sleepStages.light,
+                          borderTopLeftRadius: isFirst && segment.startPercent === 0 ? SLEEP_BAR_RADIUS : 0,
+                          borderBottomLeftRadius: isFirst && segment.startPercent === 0 ? SLEEP_BAR_RADIUS : 0,
+                          borderTopRightRadius: isLast ? SLEEP_BAR_RADIUS : 0,
+                          borderBottomRightRadius: isLast ? SLEEP_BAR_RADIUS : 0,
+                        },
+                      ]}
+                    />
+                  );
+                })}
+              </View>
+              {i === 0 && (
+                <View style={styles.moonIcon}>
+                  <Ionicons name="moon" size={14} color="#FFFFFF" />
+                </View>
+              )}
+            </View>
+          ))}
+        </View>
+        <View style={styles.multiSessionTimeLabels}>
+          {sessions.map((sess, i) => (
+            <View
+              key={`labels-${i}`}
+              style={[
+                styles.multiSessionLabelCell,
+                { flex: sess.totalDurationMinutes },
+                i > 0 && styles.standaloneSessionBarGap,
+                i === sessions.length - 1 && styles.multiSessionLabelCellLast,
+              ]}
+            >
+              <Text style={styles.timeLabel}>
+                {formatTime(sess.sleepStart)} – {formatTime(sess.sleepEnd)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      {/* Core sleep indicator - above timeline, annotates the period with bookends */}
       {showCoreSleep && (
         <View style={styles.coreSleepBlock}>
           <View style={styles.coreSleepLabelRow}>
@@ -196,42 +354,9 @@ const SleepTimeline = ({ sleepData, coreSleepDurationMinutes }) => {
         </View>
       )}
 
-      {/* Timeline Bar */}
-      <View style={styles.timelineContainer}>
-        <View style={styles.timelineBar}>
-          {segments.map((segment, index) => {
-            const isFirst = index === 0;
-            const isLast = index === segments.length - 1;
-            return (
-              <View
-                key={`${segment.type}-${index}`}
-                style={[
-                  styles.segment,
-                  {
-                    position: 'absolute',
-                    left: `${segment.startPercent}%`,
-                    width: `${segment.widthPercent}%`,
-                    backgroundColor: colors.sleepStages[segment.type],
-                    borderTopLeftRadius: isFirst && segment.startPercent === 0 ? 20 : 0,
-                    borderBottomLeftRadius: isFirst && segment.startPercent === 0 ? 20 : 0,
-                    borderTopRightRadius: isLast ? 20 : 0,
-                    borderBottomRightRadius: isLast ? 20 : 0,
-                  },
-                ]}
-              />
-            );
-          })}
-        </View>
-        <View style={styles.moonIcon}>
-          <Ionicons name="moon" size={14} color="#FFFFFF" />
-        </View>
-      </View>
-
-      {/* Time Labels - directly under timeline, not pushed by core sleep */}
-      <View style={styles.timeLabels}>
-        <Text style={styles.timeLabel}>{startTime}</Text>
-        <Text style={styles.timeLabel}>{endTime}</Text>
-      </View>
+      {timelineData.multipleSessions
+        ? renderMultiSessionBar()
+        : renderOneTimeline(timelineData.segments, timelineData.sleepStart, timelineData.sleepEnd, 'single')}
 
       <CoreSleepInfoModal visible={showCoreSleepInfo} onClose={() => setShowCoreSleepInfo(false)} />
     </View>
@@ -245,14 +370,50 @@ const styles = StyleSheet.create({
   timelineContainer: {
     marginBottom: spacing.sm,
     position: 'relative',
+    overflow: 'visible',
   },
   timelineBar: {
     height: 40,
-    borderRadius: 20,
+    borderRadius: SLEEP_BAR_RADIUS,
     flexDirection: 'row',
     overflow: 'hidden',
-    backgroundColor: '#E0E7FF', // Light blue background for the bar
+    backgroundColor: colors.accent,
     position: 'relative',
+    alignItems: 'stretch',
+  },
+  multiSessionBarsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: spacing.sm,
+  },
+  standaloneSessionBar: {
+    height: 40,
+    borderRadius: SLEEP_BAR_RADIUS,
+    overflow: 'hidden',
+    backgroundColor: colors.accent,
+    position: 'relative',
+    minWidth: 40,
+  },
+  standaloneSessionBarGap: {
+    marginLeft: 4,
+  },
+  standaloneSessionBarInner: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+  },
+  sessionSection: {
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  sessionSectionInner: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
   },
   segment: {
     height: '100%',
@@ -301,19 +462,19 @@ const styles = StyleSheet.create({
     width: '100%',
     flexDirection: 'row',
     height: 3,
-    borderRadius: 2,
+    borderRadius: CORE_SLEEP_RADIUS,
     overflow: 'hidden',
   },
   coreSleepFill: {
     height: '100%',
     backgroundColor: colors.primary,
     opacity: 0.9,
-    borderTopLeftRadius: 2,
-    borderBottomLeftRadius: 2,
+    borderTopLeftRadius: CORE_SLEEP_RADIUS,
+    borderBottomLeftRadius: CORE_SLEEP_RADIUS,
   },
   coreSleepFillFull: {
-    borderTopRightRadius: 2,
-    borderBottomRightRadius: 2,
+    borderTopRightRadius: CORE_SLEEP_RADIUS,
+    borderBottomRightRadius: CORE_SLEEP_RADIUS,
   },
   coreSleepRest: {
     height: '100%',
@@ -326,13 +487,28 @@ const styles = StyleSheet.create({
     bottom: -2,
     width: 2,
     backgroundColor: colors.primary,
-    borderRadius: 1,
+    borderRadius: CORE_SLEEP_RADIUS,
   },
   coreSleepBookendLeft: {
     left: 0,
   },
   coreSleepBookendRight: {
     // left set inline as percentage
+  },
+  multiSessionTimeLabels: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+    overflow: 'visible',
+  },
+  multiSessionLabelCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    overflow: 'visible',
+  },
+  multiSessionLabelCellLast: {
+    justifyContent: 'flex-end',
   },
   timeLabels: {
     flexDirection: 'row',

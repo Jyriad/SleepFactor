@@ -217,7 +217,12 @@ class HealthConnectService {
       });
 
       const validData = transformedData.filter(data => data !== null);
-      
+      // [DEBUG] Multi-session: what Health Connect returned
+      console.log('[SleepSync DEBUG] Health Connect raw records count:', records?.length ?? 0);
+      console.log('[SleepSync DEBUG] Transformed valid records count:', validData.length);
+      validData.forEach((r, i) => {
+        console.log(`[SleepSync DEBUG]   record ${i}: date=${r?.date} start=${r?.sleep_start_time} end=${r?.sleep_end_time} totalMin=${r?.total_sleep_minutes}`);
+      });
       return validData;
     } catch (error) {
       throw error;

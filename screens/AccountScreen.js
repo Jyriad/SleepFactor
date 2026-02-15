@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +23,8 @@ const AccountScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [stats, setStats] = useState({
     totalHabits: 0,
     loggedHabits: 0,
@@ -117,6 +121,20 @@ const AccountScreen = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      const { error } = await supabase.auth.deleteUser();
+      if (error) throw error;
+      setShowDeleteModal(false);
+      // Auth state change will automatically navigate to login screen
+    } catch (error) {
+      console.log('Delete account error:', error);
+      Alert.alert('Error', 'Failed to delete account. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const StatCard = ({ title, value, icon, color = colors.primary }) => (
     <View style={styles.statCard}>
@@ -202,37 +220,82 @@ const AccountScreen = () => {
             </View>
           </View>
 
-          {/* Account Actions */}
+          {/* Delete Account */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account Actions</Text>
-            <View style={styles.actionsContainer}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => Alert.alert('Coming Soon', 'Data export feature is coming soon!')}
-              >
-                <Ionicons name="download-outline" size={24} color={colors.primary} />
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Export Data</Text>
-                  <Text style={styles.actionSubtitle}>Download your data for backup or analysis</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => navigation.navigate('Profile')}
-              >
-                <Ionicons name="settings-outline" size={24} color={colors.primary} />
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>App Settings</Text>
-                  <Text style={styles.actionSubtitle}>Manage notifications and preferences</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.sectionTitle}>Delete Account</Text>
+            <TouchableOpacity
+              style={styles.deleteAccountButton}
+              onPress={() => setShowDeleteModal(true)}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="trash-outline" size={24} color={colors.white} />
+                  <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deleting && setShowDeleteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable onPress={() => !deleting && setShowDeleteModal(false)} style={StyleSheet.absoluteFill} />
+          <Pressable style={styles.modalContainer}>
+            <View style={styles.modal}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Delete Account</Text>
+                <TouchableOpacity
+                  onPress={() => !deleting && setShowDeleteModal(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.modalContent}>
+                <View style={styles.modalWarningIcon}>
+                  <Ionicons name="warning" size={48} color={colors.error} />
+                </View>
+                <Text style={styles.modalWarningText}>
+                  Are you sure you want to delete your account?
+                </Text>
+                <Text style={styles.modalDescription}>
+                  This decision is irreversible. All your data including habits, sleep records, and insights will be permanently deleted and cannot be recovered.
+                </Text>
+              </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalCancelButton]}
+                  onPress={() => !deleting && setShowDeleteModal(false)}
+                  disabled={deleting}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalDeleteButton]}
+                  onPress={handleDeleteAccount}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <ActivityIndicator size="small" color={colors.white} />
+                  ) : (
+                    <Text style={styles.modalDeleteButtonText}>Delete Account</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Pressable>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -266,7 +329,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: 100, // Extra padding for navigation bar
+    paddingBottom: 120, // Space so bottom content clears the navigation footer
   },
   section: {
     marginTop: spacing.xl,
@@ -350,31 +413,105 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
   },
-  actionsContainer: {
-    gap: spacing.sm,
-  },
-  actionButton: {
+  deleteAccountButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cardBackground,
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.error,
     borderRadius: 16,
     padding: spacing.lg,
+    borderWidth: 0,
+  },
+  deleteAccountButtonText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.white,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.regular,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 400,
+  },
+  modal: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.regular,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+  },
+  modalCloseButton: {
+    padding: spacing.xs,
+  },
+  modalContent: {
+    padding: spacing.regular,
+    alignItems: 'center',
+  },
+  modalWarningIcon: {
+    marginBottom: spacing.regular,
+  },
+  modalWarningText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  modalDescription: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.regular,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  modalActionButton: {
+    flex: 1,
+    paddingVertical: spacing.regular,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalCancelButton: {
+    backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  actionContent: {
-    flex: 1,
-    marginLeft: spacing.md,
-  },
-  actionTitle: {
+  modalCancelButtonText: {
+    color: colors.textSecondary,
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
   },
-  actionSubtitle: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
+  modalDeleteButton: {
+    backgroundColor: colors.error,
+  },
+  modalDeleteButtonText: {
+    color: colors.white,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
   },
 });
 

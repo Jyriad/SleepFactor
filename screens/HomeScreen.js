@@ -365,7 +365,7 @@ const AVERAGE_SLEEP_PERCENTAGES = {
   awakenings_count: 1.5, // Average number of awakenings per night
 };
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getToday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, isToday, formatTimeAgo } from '../utils/dateHelpers';
+import { getToday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo } from '../utils/dateHelpers';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
@@ -457,6 +457,11 @@ const HomeScreen = () => {
 
   useFocusEffect(
     React.useCallback(() => {
+      // Always refresh habit counts when home gains focus so "x out of y habits logged"
+      // updates immediately after the user returns from logging habits
+      fetchHabitCount();
+      fetchTotalHabitCount();
+
       const now = Date.now();
       if (lastHomeFocusFetchRef.current > 0 && (now - lastHomeFocusFetchRef.current) < HOME_FOCUS_STALE_MS) {
         return;
@@ -464,8 +469,6 @@ const HomeScreen = () => {
       lastHomeFocusFetchRef.current = now;
       checkHabitsLogged();
       checkTodaysHabitsLogged();
-      fetchHabitCount();
-      fetchTotalHabitCount();
       fetchLoggingStreak();
       fetchInsightsSummary();
     }, [selectedDate, user])
@@ -480,10 +483,14 @@ const HomeScreen = () => {
     fetchSleepData();
   }, [selectedDate, user]);
 
+  // Fetch logged dates for the current strip range (last 7 days or week around selected date)
+  useEffect(() => {
+    if (user) fetchLoggedDates();
+  }, [user, selectedDate]);
+
   // Date-independent operations (run once on mount)
   useEffect(() => {
     checkTodaysHabitsLogged();
-    fetchLoggedDates();
     calculatePersonalAverages();
     fetchTotalHabitCount(); // Fetch total habit count once on mount
     fetchLoggingStreak(); // Fetch logging streak on mount
@@ -700,12 +707,17 @@ const HomeScreen = () => {
     }
   };
 
+  const STRIP_DAYS = 7;
+
   const fetchLoggedDates = async () => {
     if (!user) return;
 
     try {
-      // Use 7-day array to match the header strip display
-      const dates = getDateStripArrayLast7Days();
+      // Use the same 7-day range the header strip shows for the selected date
+      const stripCenterDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate + 'T12:00:00');
+      const dates = isWithinLast7Days(stripCenterDate)
+        ? getDateStripArrayLast7Days()
+        : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
       const dateStrings = dates.map(d => d.date);
       const loggedDateSet = new Set();
 
@@ -1507,7 +1519,7 @@ const HomeScreen = () => {
   // Streak indicator for the header
   const streakIndicator = (
     <View style={styles.streakIndicator}>
-      <Ionicons name="flame" size={18} color={colors.white} />
+      <Ionicons name="flame" size={18} color={colors.accent} />
       <Text style={styles.streakText}>{loggingStreak}</Text>
     </View>
   );
@@ -1688,13 +1700,13 @@ const HomeScreen = () => {
                         : []),
                       { icon: 'analytics-outline', label: `${insightsSummary.totalInsights} insight${insightsSummary.totalInsights !== 1 ? 's' : ''}` },
                       ...(insightsSummary.byEvidence.strong > 0
-                        ? [{ icon: 'trending-up', label: `${insightsSummary.byEvidence.strong} strong evidence` }]
+                        ? [{ icon: 'trending-up', label: `${insightsSummary.byEvidence.strong} strong correlation` }]
                         : []),
                       ...(insightsSummary.byEvidence.moderate > 0
-                        ? [{ icon: 'pulse-outline', label: `${insightsSummary.byEvidence.moderate} moderate evidence` }]
+                        ? [{ icon: 'pulse-outline', label: `${insightsSummary.byEvidence.moderate} moderate correlation` }]
                         : []),
                       ...(insightsSummary.byEvidence.limited > 0
-                        ? [{ icon: 'ellipse-outline', label: `${insightsSummary.byEvidence.limited} limited evidence` }]
+                        ? [{ icon: 'ellipse-outline', label: `${insightsSummary.byEvidence.limited} limited correlation` }]
                         : []),
                       ...(insightsSummary.byImpact && insightsSummary.byImpact.large > 0
                         ? [{ icon: 'flash-outline', label: `${insightsSummary.byImpact.large} large impact` }]
@@ -1729,7 +1741,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 72, // Navigation footer height + margin
+    paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   todayReminderSlot: {
     marginHorizontal: spacing.regular,
@@ -1851,7 +1863,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     flexDirection: 'row',
     overflow: 'hidden',
-    backgroundColor: '#E0E7FF',
+    backgroundColor: colors.accent,
     position: 'relative',
   },
   timeLabels: {
@@ -1869,7 +1881,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   skeletonBar: {
-    backgroundColor: '#E0E7FF',
+    backgroundColor: colors.accent,
   },
   skeletonText: {
     color: colors.textSecondary,

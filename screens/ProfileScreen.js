@@ -40,6 +40,7 @@ import NavigationCard from '../components/NavigationCard';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
+import SquareLogoDark from '../assets/SquareLogoDark.svg';
 
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
@@ -261,7 +262,15 @@ const ProfileScreen = () => {
       >
         <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Profile</Text>
+            <View style={styles.headerRow}>
+              <SquareLogoDark
+                width={40}
+                height={40}
+                style={styles.headerLogo}
+                accessibilityLabel="SleepFactor"
+              />
+              <Text style={styles.title}>Profile</Text>
+            </View>
           </View>
         </View>
         <View style={styles.content}>
@@ -590,6 +599,15 @@ const styles = StyleSheet.create({
     paddingTop: spacing.regular,
     paddingBottom: spacing.sm,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  headerLogo: {
+    width: 40,
+    height: 40,
+  },
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
@@ -599,7 +617,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollViewContent: {
-    paddingBottom: 72, // Account for bottom navigation bar height (60px) + positioning (0px) + extra buffer
+    paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   content: {
     paddingHorizontal: spacing.regular,

@@ -24,6 +24,7 @@ import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
+import PageLoadingView from '../components/PageLoadingView';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -493,8 +494,12 @@ const HabitLoggingScreen = () => {
   return (
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
       <ScrollableDateHeaderBar />
+      {loading ? (
+        <PageLoadingView />
+      ) : (
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
       >
@@ -503,9 +508,7 @@ const HabitLoggingScreen = () => {
 
         {/* Habits List */}
         <View style={styles.habitsContainer}>
-          {loading ? (
-            <Text style={styles.loadingText}>Loading habits...</Text>
-          ) : habits.length === 0 ? (
+          {habits.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No habits to track</Text>
               <Text style={styles.emptySubtext}>
@@ -571,6 +574,7 @@ const HabitLoggingScreen = () => {
 
 
       </ScrollView>
+      )}
     </View>
   );
 };
@@ -582,6 +586,9 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   dateRange: {
     fontSize: typography.sizes.small,
@@ -641,12 +648,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
-  },
-  loadingText: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    paddingVertical: spacing.xl,
   },
   emptyContainer: {
     paddingVertical: spacing.xxl,
