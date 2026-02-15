@@ -6,6 +6,12 @@ import { supabase } from './supabase';
 class SleepDataService {
   constructor() {
     this.tableName = 'sleep_data';
+    /** In-memory cache for getSleepDataForRange: key `${userId}:${start}-${end}` -> { data } */
+    this._rangeCache = {};
+  }
+
+  _clearRangeCache() {
+    this._rangeCache = {};
   }
 
   /**
@@ -44,6 +50,9 @@ class SleepDataService {
         updated_at: new Date().toISOString(),
       };
 
+      if (sleepData.sleep_start_time) record.sleep_start_time = sleepData.sleep_start_time;
+      if (sleepData.sleep_end_time) record.sleep_end_time = sleepData.sleep_end_time;
+
       // Only include sleep_stages if it's provided and not null
       // This allows the code to work before the migration is run
       // Also ensure it's a valid array before including it
@@ -66,6 +75,15 @@ class SleepDataService {
         }
       }
 
+      if (sleepData.sleep_sessions !== undefined &&
+          sleepData.sleep_sessions !== null &&
+          Array.isArray(sleepData.sleep_sessions) &&
+          sleepData.sleep_sessions.length > 0) {
+        record.sleep_sessions = sleepData.sleep_sessions;
+      }
+      // [DEBUG] Multi-session: what we're sending to Supabase
+      console.log('[SleepSync DEBUG] upsertSleepData date=', sleepData.date, 'sleep_sessions in payload:', record.sleep_sessions?.length ?? 0, 'total_sleep_minutes=', record.total_sleep_minutes);
+
       let { data, error } = await supabase
         .from(this.tableName)
         .upsert(record, {
@@ -75,17 +93,17 @@ class SleepDataService {
         .select()
         .single();
 
-      // If error is about unknown column (sleep_stages doesn't exist yet), retry without it
+      // If error is about unknown column, retry without optional columns
       if (error && (
-        error.message?.includes('column') && error.message?.includes('does not exist') ||
+        (error.message?.includes('column') && error.message?.includes('does not exist')) ||
         error.message?.includes('sleep_stages') ||
+        error.message?.includes('sleep_sessions') ||
         error.code === '42703' // PostgreSQL undefined_column error code
       )) {
-        // Remove sleep_stages and retry
-        const { sleep_stages, ...recordWithoutStages } = record;
+        const { sleep_stages, sleep_sessions, ...recordWithoutOptional } = record;
         const retryResult = await supabase
           .from(this.tableName)
-          .upsert(recordWithoutStages, {
+          .upsert(recordWithoutOptional, {
             onConflict: 'user_id,date',
             ignoreDuplicates: false
           })
@@ -99,7 +117,10 @@ class SleepDataService {
       if (error) {
         throw error;
       }
+      // [DEBUG] Multi-session: what Supabase returned after upsert
+      console.log('[SleepSync DEBUG] upsertSleepData returned: sleep_sessions=', data?.sleep_sessions?.length ?? 'n/a', 'total_sleep_minutes=', data?.total_sleep_minutes);
 
+      this._clearRangeCache();
       return data;
     } catch (error) {
       throw error;
@@ -132,7 +153,10 @@ class SleepDataService {
       }
 
       const result = data && data.length > 0 ? data[0] : null;
-      // Return the first (most recent) record, or null if no records
+      // [DEBUG] Multi-session: what we return to UI for this date
+      if (result) {
+        console.log('[SleepSync DEBUG] getSleepDataForDate', date, '=> sleep_sessions=', result.sleep_sessions?.length ?? 'missing', 'total_sleep_minutes=', result.total_sleep_minutes);
+      }
       return result;
     } catch (error) {
       throw error;
@@ -153,6 +177,11 @@ class SleepDataService {
         throw new Error('User not authenticated');
       }
 
+      const cacheKey = `${user.id}:${startDate}-${endDate}`;
+      if (this._rangeCache[cacheKey]) {
+        return this._rangeCache[cacheKey];
+      }
+
       const { data, error } = await supabase
         .from(this.tableName)
         .select('*')
@@ -165,7 +194,9 @@ class SleepDataService {
         throw error;
       }
 
-      return data || [];
+      const result = data || [];
+      this._rangeCache[cacheKey] = result;
+      return result;
     } catch (error) {
       throw error;
     }
@@ -195,6 +226,7 @@ class SleepDataService {
         throw error;
       }
 
+      this._clearRangeCache();
       return data;
     } catch (error) {
       throw error;
@@ -223,6 +255,7 @@ class SleepDataService {
         throw error;
       }
 
+      this._clearRangeCache();
       const deletedCount = data?.length || 0;
       return deletedCount;
     } catch (error) {

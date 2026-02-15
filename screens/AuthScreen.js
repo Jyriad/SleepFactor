@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,8 +16,16 @@ import { signUp, signIn, signInWithGoogle } from '../services/auth';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
+import BannerLogoLight from '../assets/BannerLogoLight.svg';
+
+const BANNER_ASPECT_RATIO = 250 / 100; // 2.5:1
+const BANNER_MAX_WIDTH = 200; // Slightly smaller so more content fits above the fold
 
 const AuthScreen = () => {
+  const { width: windowWidth } = useWindowDimensions();
+  const bannerWidth = Math.min(BANNER_MAX_WIDTH, windowWidth - spacing.xl * 2);
+  const bannerHeight = bannerWidth / BANNER_ASPECT_RATIO;
+
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -101,7 +110,12 @@ const AuthScreen = () => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-            <Text style={styles.title}>SleepFactor</Text>
+            <BannerLogoLight
+              width={bannerWidth}
+              height={bannerHeight}
+              style={styles.bannerLogo}
+              accessibilityLabel="SleepFactor"
+            />
             <Text style={styles.subtitle}>
               Track your habits and improve your sleep
             </Text>
@@ -238,35 +252,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 80, // Fixed top padding instead of centering
-    paddingBottom: spacing.xl, // Increased bottom padding instead of relying on safe area
+    paddingTop: spacing.lg, // Tighter top so logo and form sit higher, more above the fold
+    paddingBottom: spacing.xl,
     paddingHorizontal: spacing.xl,
-    flexGrow: 1, // Allow content to grow
+    flexGrow: 1,
   },
   content: {
     width: '100%',
     maxWidth: 400,
     alignSelf: 'center',
   },
-  title: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
+  bannerLogo: {
+    alignSelf: 'center',
+    marginBottom: spacing.xs,
   },
   subtitle: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.regular,
   },
   toggleContainer: {
     flexDirection: 'row',
     backgroundColor: colors.border,
     borderRadius: 8,
     padding: 4,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.regular,
   },
   toggle: {
     flex: 1,
@@ -289,12 +300,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   inputContainer: {
-    marginBottom: spacing.regular,
+    marginBottom: spacing.md,
   },
   hiddenContainer: {
     opacity: 0,
-    height: 76, // Fixed height to match visible input container (label + input + margin)
-    marginBottom: spacing.regular,
+    height: 72, // Fixed height to match visible input (label + input + margin), slightly tighter
+    marginBottom: spacing.md,
     overflow: 'hidden',
   },
   hiddenText: {
@@ -331,7 +342,7 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     minHeight: 20,
-    marginBottom: spacing.regular,
+    marginBottom: spacing.md,
     justifyContent: 'center',
   },
   errorText: {
@@ -340,13 +351,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   submitButton: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.regular,
-    marginBottom: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
   },
   divider: {
     flex: 1,
@@ -359,7 +370,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   oauthButton: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     marginBottom: spacing.regular,
     flexDirection: 'row',
     alignItems: 'center',

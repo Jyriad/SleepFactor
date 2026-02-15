@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.regular,
-    paddingBottom: 20,
+    paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   inputGroup: {
     marginBottom: spacing.regular,

@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: HEADER_BOTTOM_RADIUS,
     borderBottomRightRadius: HEADER_BOTTOM_RADIUS,
     overflow: 'hidden',
-    marginBottom: spacing.xs,
+    marginBottom: 15,
     zIndex: 10,
     elevation: 10,
   },

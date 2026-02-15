@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
-  ActivityIndicator,
   StatusBar,
   Platform,
 } from 'react-native';
@@ -24,6 +23,7 @@ import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
 import CoreSleepInfoModal from '../components/CoreSleepInfoModal';
+import PageLoadingView from '../components/PageLoadingView';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -250,10 +250,7 @@ const InsightsScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>{loadingText}</Text>
-        </View>
+        <PageLoadingView />
       ) : (
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           {/* Header scrolls with content */}
@@ -642,16 +639,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 18,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    marginTop: spacing.regular,
   },
 });
 

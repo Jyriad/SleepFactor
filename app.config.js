@@ -15,13 +15,13 @@ export default {
   scheme: "sleepfactor",
   version: VERSION,
   orientation: "portrait",
-  icon: "./assets/icon.png",
+  icon: "./assets/SquareLogoDark.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
-    image: "./assets/splash-icon.png",
+    image: "./assets/SquareLogoDark.png",
     resizeMode: "contain",
-    backgroundColor: "#ffffff"
+    backgroundColor: "#1E3A8A"
   },
   ios: {
     supportsTablet: true,
@@ -29,8 +29,8 @@ export default {
   },
   android: {
     adaptiveIcon: {
-      foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#ffffff"
+      foregroundImage: "./assets/SquareLogoDark.png",
+      backgroundColor: "#1E3A8A"
     },
     edgeToEdgeEnabled: true,
     package: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
@@ -53,7 +53,7 @@ export default {
     ]
   },
   web: {
-    favicon: "./assets/favicon.png"
+    favicon: "./assets/SquareLogoDark.png"
   },
   plugins: [
     [

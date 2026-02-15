@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
 import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
-import { getEvidenceLabel, getImpactLabel } from '../utils/insightLabels';
+import { getCorrelationLabel, getImpactLabel, getCorrelationTagStyle, getImpactTagStyle } from '../utils/insightLabels';
 
 const BinaryHabitInsight = ({
   insight,
@@ -53,24 +53,30 @@ const BinaryHabitInsight = ({
   const noMedian = noStats?.median || 0;
   const difference = yesMedian - noMedian;
   const percentChange = noMedian !== 0 ? ((difference / noMedian) * 100) : 0;
-  
-  // Determine if impact is positive or negative for sleep
-  // For sleep metrics, higher is usually better, so positive difference = positive impact
-  // But we need to check if the metric is "better" when higher or lower
-  const isPositiveImpact = difference > 0; // Assuming higher sleep values are better
-  
+
+  // For awakenings, fewer is better; for other sleep metrics, more is better
+  const higherIsBetter = sleepMetric?.key !== 'awakenings_count';
+  const isPositiveImpact = higherIsBetter ? (difference > 0) : (difference < 0);
+  // For bar label: show + when good, - when bad (invert for awakenings so fewer = +)
+  const displayPercentForLabel = higherIsBetter ? percentChange : -percentChange;
+  // Scale bar width so impacts are visible and relative: ~20% impact fills the half-bar (50% width)
+  const IMPACT_BAR_REFERENCE_PERCENT = 20;
+  const impactBarWidthPercent = Math.min(50, (Math.abs(percentChange) / IMPACT_BAR_REFERENCE_PERCENT) * 50);
+
   // Generate headline - only show meaningful headline if we have significance
   const headline = hasComparisonData && yesStats && noStats && isSignificantInsight
     ? generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints, isPercentageMode, confidenceLevel)
     : `${habit.name} shows no significant difference in ${sleepMetric.label.toLowerCase()}`;
 
-  // Calculate impact bar percentage (0-100, centered at 50)
-  const impactBarPercentage = Math.min(100, Math.max(0, 50 + (percentChange * 2))); // Scale percentChange to bar width
-  const impactBarDirection = difference > 0 ? 'right' : 'left'; // Right = positive, Left = negative
+  // Calculate impact bar percentage (0-100, centered at 50); for awakenings, flip so "fewer" = good = right
+  const impactBarPercentage = Math.min(100, Math.max(0, higherIsBetter ? 50 + (percentChange * 2) : 50 - (percentChange * 2)));
+  const impactBarDirection = (difference > 0 && higherIsBetter) || (difference < 0 && !higherIsBetter) ? 'right' : 'left';
 
-  // Evidence (confidence) and impact (effect size) labels - standardised across app
-  const evidenceLabel = getEvidenceLabel(confidenceLevel);
-  const impactLabel = getImpactLabel(impactLevel);
+  // Correlation (confidence) and impact (effect size + direction) - standardised across app
+  const correlationLabel = getCorrelationLabel(confidenceLevel);
+  const impactLabel = getImpactLabel(impactLevel, isPositiveImpact);
+  const correlationTagStyle = getCorrelationTagStyle(confidenceLevel);
+  const impactTagStyle = getImpactTagStyle(impactLevel, isPositiveImpact);
   const isStrongOrModerateEvidence = confidenceLevel === 'high' || confidenceLevel === 'medium';
   const evidenceColor = isStrongOrModerateEvidence ? colors.success : colors.warning;
 
@@ -105,9 +111,15 @@ const BinaryHabitInsight = ({
           <Text style={styles.collapsedHabitName}>{habit.name}</Text>
           <Text style={styles.impactHeadline}>{headline}</Text>
           <View style={styles.collapsedFooter}>
-            <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
-              <Ionicons name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} size={12} color={evidenceColor} />
-              <Text style={[styles.stabilityBadgeText, { color: evidenceColor }]}>{evidenceLabel} · {impactLabel}</Text>
+            <View style={styles.badgeRow}>
+              <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
+                <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
+              </View>
+              {confidenceLevel !== 'none' && (
+                <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
+                  <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
+                </View>
+              )}
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
@@ -125,17 +137,23 @@ const BinaryHabitInsight = ({
         >
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
-            <View style={styles.headerRight}>
-              <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
-                <Ionicons name="time-outline" size={14} color={evidenceColor} />
-                <Text style={[styles.stabilityBadgeText, { color: evidenceColor, fontSize: typography.sizes.small }]}>{evidenceLabel} · {impactLabel}</Text>
-              </View>
+            <View style={styles.headerTopRight}>
               <View style={styles.dataBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
                 <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
               </View>
+              <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
             </View>
-            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
+          </View>
+          <View style={styles.expandedTagsRow}>
+            <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
+              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
+            </View>
+            {confidenceLevel !== 'none' && (
+              <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
+                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -187,49 +205,6 @@ const BinaryHabitInsight = ({
             </View>
           </View>
         ) : null}
-
-        <View style={styles.statsContainer}>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Total logged: </Text>
-            <Text style={styles.statValue}>{totalDataPoints} data points</Text>
-          </View>
-          {yesDataPoints > 0 && (
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>"Yes" responses: </Text>
-              <Text style={styles.statValue}>{yesDataPoints} days</Text>
-            </View>
-          )}
-          {noDataPoints > 0 && (
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>"No" responses: </Text>
-              <Text style={styles.statValue}>{noDataPoints} days</Text>
-            </View>
-          )}
-          {yesStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>When done: </Text>
-              <Text style={styles.statValue}>
-                median = {yesStats.median.toFixed(1)} {sleepMetric.unit || 'units'} (n = {yesDataPoints})
-              </Text>
-            </View>
-          )}
-          {noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>When not done: </Text>
-              <Text style={styles.statValue}>
-                median = {noStats.median.toFixed(1)} {sleepMetric.unit || 'units'} (n = {noDataPoints})
-              </Text>
-            </View>
-          )}
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Evidence: </Text>
-            <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{evidenceLabel}</Text>
-          </View>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Impact: </Text>
-            <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{impactLabel}</Text>
-          </View>
-        </View>
       </View>
     );
   }
@@ -278,7 +253,7 @@ const BinaryHabitInsight = ({
         >
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
-            <View style={styles.headerRight}>
+            <View style={styles.headerTopRight}>
               <View style={styles.warningBadge}>
                 <Ionicons name="alert-circle-outline" size={14} color={colors.warning} />
                 <Text style={styles.warningText}>Limited Data</Text>
@@ -348,7 +323,7 @@ const BinaryHabitInsight = ({
                 style={[
                   styles.impactBarFill,
                   {
-                    width: `${Math.abs(percentChange)}%`,
+                    width: `${impactBarWidthPercent}%`,
                     backgroundColor: isPositiveImpact ? colors.success : colors.error,
                     [impactBarDirection === 'right' ? 'left' : 'right']: '50%',
                   }
@@ -358,22 +333,22 @@ const BinaryHabitInsight = ({
           </View>
           {Math.abs(percentChange) > 0 && (
             <Text style={[styles.impactBarLabel, { color: isPositiveImpact ? colors.success : colors.error }]}>
-              {isPositiveImpact ? '+' : ''}{percentChange.toFixed(0)}%
+              {displayPercentForLabel >= 0 ? '+' : ''}{displayPercentForLabel.toFixed(0)}%
             </Text>
           )}
         </View>
 
         {/* Stability Badge - same design as expanded view */}
         <View style={styles.collapsedFooter}>
-          <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
-            <Ionicons 
-              name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
-              size={12} 
-              color={evidenceColor} 
-            />
-            <Text style={[styles.stabilityBadgeText, { color: evidenceColor }]}>
-              {evidenceLabel} · {impactLabel}
-            </Text>
+          <View style={styles.badgeRow}>
+            <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
+              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
+            </View>
+            {confidenceLevel !== 'none' && (
+              <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
+                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
+              </View>
+            )}
           </View>
           <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
         </View>
@@ -393,21 +368,23 @@ const BinaryHabitInsight = ({
       >
         <View style={styles.header}>
           <Text style={styles.habitName}>{habit.name}</Text>
-          <View style={styles.headerRight}>
-            <View style={[styles.stabilityBadge, { backgroundColor: evidenceColor + '20' }]}>
-              <Ionicons 
-                name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
-                size={14} 
-                color={evidenceColor} 
-              />
-              <Text style={[styles.stabilityBadgeText, { color: evidenceColor, fontSize: typography.sizes.small }]}>{evidenceLabel} · {impactLabel}</Text>
-            </View>
+          <View style={styles.headerTopRight}>
             <View style={styles.dataBadge}>
               <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
               <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
             </View>
+            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
           </View>
-          <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
+        </View>
+        <View style={styles.expandedTagsRow}>
+          <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
+            <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
+          </View>
+          {confidenceLevel !== 'none' && (
+            <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
+              <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
+            </View>
+          )}
         </View>
       </TouchableOpacity>
 
@@ -462,54 +439,6 @@ const BinaryHabitInsight = ({
         <Text style={styles.dataMaturityText}>
           You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with {yesDataPoints} "Yes" and {noDataPoints} "No" responses. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
         </Text>
-      </View>
-
-      {/* Simple Stats */}
-      <View style={styles.statsContainer}>
-        <View style={styles.statRow}>
-          <Text style={styles.statLabel}>n = </Text>
-          <Text style={styles.statValue}>{totalDataPoints} data points</Text>
-        </View>
-        {yesStats && yesStats.median !== null && yesStats.median !== undefined && !isNaN(yesStats.median) && (
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>When done: </Text>
-            <Text style={styles.statValue}>
-              median = {yesStats.median.toFixed(1)} {isPercentageMode ? '%' : sleepMetric.unit || 'units'} (n = {yesDataPoints})
-            </Text>
-          </View>
-        )}
-        {noStats && noStats.median !== null && noStats.median !== undefined && !isNaN(noStats.median) && (
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>When not done: </Text>
-            <Text style={styles.statValue}>
-              median = {noStats.median.toFixed(1)} {isPercentageMode ? '%' : sleepMetric.unit || 'units'} (n = {noDataPoints})
-            </Text>
-          </View>
-        )}
-        {(Math.abs(difference) >= 1 || Math.abs(percentChange) >= 0.5) && (
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Difference: </Text>
-            <Text style={styles.statValue}>
-              {`${percentChange > 0 ? '+' : ''}${percentChange.toFixed(1)}%${Math.abs(difference) >= 1 ? ` (${difference > 0 ? '+' : ''}${difference.toFixed(1)} ${isPercentageMode ? '%' : sleepMetric.unit || 'min'})` : ''}`}
-            </Text>
-          </View>
-        )}
-        <View style={styles.statRow}>
-          <Text style={styles.statLabel}>Evidence: </Text>
-          <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{evidenceLabel}</Text>
-        </View>
-        <View style={styles.statRow}>
-          <Text style={styles.statLabel}>Impact: </Text>
-          <Text style={[styles.confidenceValue, { color: evidenceColor }]}>{impactLabel}</Text>
-        </View>
-        {pValue !== null && pValue !== undefined && (
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>P-value: </Text>
-            <Text style={styles.pValue}>
-              {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
-            </Text>
-          </View>
-        )}
       </View>
 
       {/* Pro-Tip Box with Actionable Advice */}
@@ -598,13 +527,20 @@ const styles = StyleSheet.create({
   expandedHeader: {
     marginBottom: spacing.sm,
   },
-  headerRight: {
+  headerTopRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    flexShrink: 1,
     gap: spacing.sm,
-    maxWidth: '60%',
+    flexShrink: 0,
+  },
+  expandedTagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.regular,
+    paddingBottom: spacing.xs,
   },
   collapseIcon: {
     marginLeft: spacing.xs,
@@ -922,6 +858,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: spacing.sm,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   stabilityBadge: {
     flexDirection: 'row',

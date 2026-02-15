@@ -106,17 +106,6 @@ const ScatterPlot = ({
     dataPointText: point.date || 'Unknown date'
   }));
 
-  // Calculate correlation text
-  let correlationText = 'No correlation data';
-  try {
-    if (correlation !== null && correlation !== undefined && !isNaN(correlation) && isFinite(correlation)) {
-      const roundedCorrelation = Math.round(correlation * 100) / 100;
-      correlationText = `r = ${roundedCorrelation} (${correlationStrength || 'weak'})`;
-    }
-  } catch (error) {
-    correlationText = 'Correlation data unavailable';
-  }
-
   // Chart dimensions with proper margins for axes
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
@@ -437,13 +426,6 @@ const ScatterPlot = ({
             })}
           </Svg>
         </TouchableOpacity>
-
-        {/* Statistics */}
-        <View style={styles.statsContainer}>
-          <Text style={styles.statsText}>
-            n={validData.length} | {correlationText}
-          </Text>
-        </View>
       </View>
   );
 };
@@ -469,17 +451,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontStyle: 'italic',
-  },
-  statsContainer: {
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.regular,
-    alignItems: 'center',
-  },
-  statsText: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontFamily: 'monospace',
   },
 });
 

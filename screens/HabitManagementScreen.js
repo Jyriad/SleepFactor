@@ -25,6 +25,7 @@ import sleepSyncService from '../services/sleepSyncService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
+import PageLoadingView from '../components/PageLoadingView';
 
 const PREDEFINED_HABITS = [
   { name: 'Exercise', type: 'binary', unit: null },
@@ -914,9 +915,11 @@ const HabitManagementScreen = () => {
         <SafeAreaView style={styles.container} edges={['bottom']}>
           {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
           <View style={styles.contentWrap}>
+            {loading ? (
+              <PageLoadingView />
+            ) : (
           <View style={styles.manualHabitsSection}>
-            {loading && <Text style={styles.loadingText}>Loading habits...</Text>}
-            {!loading && manualHabits.length === 0 && (
+            {manualHabits.length === 0 && (
               <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.draggableListContent}>
                 <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
                   <View style={styles.header}>
@@ -1008,7 +1011,7 @@ const HabitManagementScreen = () => {
                 </View>
               </ScrollView>
             )}
-            {!loading && manualHabits.length > 0 && (
+            {manualHabits.length > 0 && (
               <DraggableFlatList
                 data={loading ? [] : manualHabits}
                 keyExtractor={(item) => item.id || item.name}
@@ -1151,6 +1154,7 @@ const HabitManagementScreen = () => {
               />
             )}
           </View>
+            )}
           </View>
         </SafeAreaView>
       </View>
@@ -1313,22 +1317,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.regular,
     fontStyle: 'italic',
   },
-  loadingText: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.regular,
-  },
   manualHabitsSection: {
     flex: 1,
   },
   draggableListContent: {
-    paddingBottom: spacing.xl,
+    paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   footerSection: {
     paddingTop: spacing.lg,
-    paddingBottom: 100, // Extra padding to prevent button from being obscured by navigation
+    paddingBottom: spacing.md,
     paddingHorizontal: spacing.regular,
   },
   sectionContainer: {
@@ -1403,8 +1400,8 @@ const styles = StyleSheet.create({
   },
   addCustomHabitContainer: {
     paddingHorizontal: spacing.regular,
-    paddingVertical: spacing.lg,
-    paddingBottom: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: 100, // Space so button area clears the navigation footer
   },
   addCustomHabitButton: {
     flexDirection: 'row',

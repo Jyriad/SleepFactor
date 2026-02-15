@@ -23,6 +23,9 @@ export const colors = {
   border: '#E5E7EB', // Light grey border
   cardBackground: '#FFFFFF',
   white: '#FFFFFF',
+
+  // Accent (logo-aligned)
+  accent: '#E7C8E7', // Light lavender – contrasts with primary dark blue
   
   // Navigation
   tabActive: '#1E3A8A',

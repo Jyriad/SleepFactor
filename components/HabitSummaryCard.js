@@ -11,7 +11,7 @@ const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading 
 
   return (
     <View style={styles.card}>
-      <View style={[styles.header, styles.titleRowFixed]}>
+      <View style={styles.header}>
         <Text style={styles.title} numberOfLines={2}>
           {loading
             ? 'Loading habits...'
@@ -45,11 +45,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   header: {
-    marginBottom: spacing.xs,
-  },
-  titleRowFixed: {
     minHeight: 44,
     justifyContent: 'center',
+    marginBottom: 2,
   },
   title: {
     fontSize: typography.sizes.medium,
@@ -59,7 +57,8 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
-    marginBottom: spacing.regular,
+    marginTop: 2,
+    marginBottom: spacing.sm,
   },
   button: {
     marginTop: spacing.sm,
