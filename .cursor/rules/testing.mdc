@@ -313,6 +313,69 @@ git push origin feature/your-feature-name
 ✅ **Quality Checks**: Code reviewed before going live
 ✅ **Automated Testing**: Computer checks for problems
 ✅ **Clean Releases**: Every release is built fresh from tested code
+
+## Marketing Website Testing (SleepfactorWebsite)
+
+The SleepFactor marketing site lives in a **separate repo** (SleepfactorWebsite). It is static HTML/CSS/JS and is hosted on GitHub Pages (and can be moved to Vercel with sleepfactor.app later).
+
+### **When to Test the Website**
+- After changing copy, layout, or styles in the website repo
+- Before or after pushing to GitHub so the live site looks correct
+- When adding or editing pages (e.g. Privacy, About)
+
+### **Local Testing (Before Pushing)**
+
+1. **Open the website folder**  
+   Use the SleepfactorWebsite folder (in the same workspace as the app, or open it separately).
+
+2. **Serve the site locally** (pick one):
+   ```bash
+   cd /path/to/SleepfactorWebsite
+   # Option A – Python 3
+   python3 -m http.server 8000
+   # Option B – Node
+   npx serve .
+   ```
+
+3. **Open in a browser**  
+   Go to `http://localhost:8000` (or the URL shown by `npx serve`).
+
+4. **Quick checks**
+   - **Favicon**: Tab shows the SleepFactor icon (blue with lavender S).
+   - **Home**: Hero, three-step story, and four app screenshots load; colours follow 60/30/10 (white, blue, lavender).
+   - **Navigation**: Home, About, Privacy links work.
+   - **About / Privacy**: Content and headings render; links and layout look correct.
+   - **Cookie banner**: Appears until “Accept” is clicked; after refresh it stays dismissed.
+   - **Responsiveness**: Resize the window; layout and text remain readable on narrow widths.
+
+### **After Pushing to GitHub**
+
+- **GitHub Pages**: Repo → Settings → Pages → source: main, / (root). After a minute or two, visit the Pages URL (e.g. `https://YOUR_USERNAME.github.io/SleepfactorWebsite/`).
+- **Smoke test on live URL**: Same checks as local (favicon, all pages, nav, cookie banner, basic responsiveness).
+
+### **Website Testing Checklist**
+- [ ] Favicon appears in browser tab
+- [ ] Homepage loads with hero, steps, and screenshots
+- [ ] All nav links (Home, About, Privacy) work
+- [ ] About and Privacy pages render correctly
+- [ ] Cookie banner shows, then hides after Accept and persists on refresh
+- [ ] Colours and layout match design (60/30/10: white, blue, lavender)
+- [ ] Page works on a narrow viewport (e.g. phone width)
+- [ ] After push, live GitHub Pages URL behaves the same as local
+
+### **Pushing Website Changes to GitHub**
+
+From the SleepfactorWebsite folder:
+
+```bash
+cd /path/to/SleepfactorWebsite
+git add .
+git commit -m "Short description of changes"
+git push origin main
+```
+
+No build step is required; GitHub Pages serves the static files as-is.
+
 ---
 alwaysApply: true
 ---
