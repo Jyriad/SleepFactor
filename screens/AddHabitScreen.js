@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -26,6 +27,7 @@ const AddHabitScreen = () => {
   const [habitName, setHabitName] = useState('');
   const [habitType, setHabitType] = useState('binary');
   const [habitUnit, setHabitUnit] = useState('');
+  const [backfillPastDatesAsNo, setBackfillPastDatesAsNo] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -62,6 +64,40 @@ const AddHabitScreen = () => {
         .single();
 
       if (error) throw error;
+
+      const newHabitId = data.id;
+
+      if (habitType === 'binary' && backfillPastDatesAsNo) {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        const { data: sleepRows, error: sleepError } = await supabase
+          .from('sleep_data')
+          .select('date')
+          .eq('user_id', user.id)
+          .lt('date', todayStr);
+
+        if (sleepError) {
+          console.warn('AddHabitScreen: could not fetch past dates for backfill', sleepError);
+        } else if (sleepRows && sleepRows.length > 0) {
+          const pastDates = [...new Set(sleepRows.map((r) => r.date))];
+          const BATCH = 100;
+          for (let i = 0; i < pastDates.length; i += BATCH) {
+            const chunk = pastDates.slice(i, i + BATCH);
+            const entries = chunk.map((date) => ({
+              user_id: user.id,
+              habit_id: newHabitId,
+              date,
+              value: 'no',
+            }));
+            const { error: logsError } = await supabase
+              .from('habit_logs')
+              .upsert(entries, { onConflict: 'user_id,habit_id,date' });
+            if (logsError) {
+              console.warn('AddHabitScreen: backfill batch failed', logsError);
+            }
+          }
+        }
+      }
 
       if (onSuccess) {
         onSuccess();
@@ -147,6 +183,25 @@ const AddHabitScreen = () => {
               onChangeText={setHabitUnit}
               maxLength={20}
             />
+          </View>
+        )}
+
+        {habitType === 'binary' && (
+          <View style={styles.inputGroup}>
+            <View style={styles.backfillRow}>
+              <Text style={styles.backfillLabel}>
+                Record as &quot;No&quot; for all past dates
+              </Text>
+              <Switch
+                value={backfillPastDatesAsNo}
+                onValueChange={setBackfillPastDatesAsNo}
+                trackColor={{ false: colors.border, true: colors.primary + '80' }}
+                thumbColor={backfillPastDatesAsNo ? colors.primary : colors.textLight}
+              />
+            </View>
+            <Text style={styles.backfillHint}>
+              Use this for something you’re starting now (e.g. a new supplement). Past nights will show &quot;No&quot; so you don’t need to tap through old dates.
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -247,6 +302,24 @@ const styles = StyleSheet.create({
   typeButtonTextActive: {
     color: colors.primary,
     fontWeight: typography.weights.semibold,
+  },
+  backfillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  backfillLabel: {
+    flex: 1,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginRight: spacing.sm,
+  },
+  backfillHint: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
   },
   actions: {
     flexDirection: 'row',

@@ -18,6 +18,7 @@ import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
+import homeCacheService from '../services/homeCacheService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
@@ -1017,28 +1018,40 @@ const HomeScreen = () => {
   const fetchHabitCount = async () => {
     if (!user) return;
 
-    // Check cache first
+    const dateString = getCacheKey(selectedDate);
+
+    // 1. In-memory cache: use immediately, refresh in background
     const cachedCount = getCachedHabitCount(selectedDate);
     if (cachedCount !== undefined) {
-      // Fetch fresh data to check if cache is stale
-      const freshCount = await fetchHabitCountForDate(selectedDate);
-
-      // If cache doesn't match fresh data, cache is stale - clear all caches
-      if (cachedCount !== freshCount) {
-        clearAllCaches();
-        setHabitCount(freshCount);
-        updateHabitCountCache(selectedDate, freshCount);
-        return;
-      }
-
       setHabitCount(cachedCount);
+      fetchHabitCountForDate(selectedDate).then((freshCount) => {
+        if (freshCount !== cachedCount) {
+          setHabitCount(freshCount);
+          updateHabitCountCache(selectedDate, freshCount);
+          homeCacheService.setPersistedHabitCount(user.id, selectedDate, freshCount);
+        }
+      });
       return;
     }
 
-    // Fetch from database if not cached
+    // 2. Persisted cache: show immediately on app reopen, then refresh in background
+    const persistedCount = await homeCacheService.getPersistedHabitCount(user.id, selectedDate);
+    if (persistedCount !== undefined) {
+      setHabitCount(persistedCount);
+      updateHabitCountCache(selectedDate, persistedCount);
+      fetchHabitCountForDate(selectedDate).then((freshCount) => {
+        setHabitCount(freshCount);
+        updateHabitCountCache(selectedDate, freshCount);
+        homeCacheService.setPersistedHabitCount(user.id, selectedDate, freshCount);
+      });
+      return;
+    }
+
+    // 3. Fetch from database
     const count = await fetchHabitCountForDate(selectedDate);
     setHabitCount(count);
     updateHabitCountCache(selectedDate, count);
+    homeCacheService.setPersistedHabitCount(user.id, selectedDate, count);
   };
 
   const fetchSleepData = async () => {
@@ -1046,38 +1059,43 @@ const HomeScreen = () => {
       return;
     }
 
-    // Check cache first
+    // 1. In-memory cache (instant when navigating within session)
     const cachedData = getCachedSleepData(selectedDate);
-
     if (cachedData !== undefined) {
       setSleepData(cachedData);
-      // Update exclusion status from cached data
       setIsExcluded(cachedData?.exclude_from_insights || false);
       setExclusionReason(cachedData?.exclusion_reason || null);
-      return; // No loading state needed for cached data
+      return;
     }
 
-    // Fetch from database if not cached
+    // 2. Persisted cache (fast on app reopen – no skeleton)
+    const dateString = selectedDate instanceof Date
+      ? selectedDate.toISOString().split('T')[0]
+      : typeof selectedDate === 'string'
+        ? selectedDate
+        : new Date(selectedDate).toISOString().split('T')[0];
+    const persistedSleep = await homeCacheService.getPersistedSleepData(user.id, dateString);
+    if (persistedSleep !== undefined) {
+      setSleepData(persistedSleep);
+      setIsExcluded(persistedSleep?.exclude_from_insights || false);
+      setExclusionReason(persistedSleep?.exclusion_reason || null);
+      updateSleepDataCache(selectedDate, persistedSleep);
+      return;
+    }
+
+    // 3. Fetch from database
     setSleepDataLoading(true);
-
     try {
-      // Convert Date object to YYYY-MM-DD string format (required for Supabase DATE column)
-      const dateString = selectedDate instanceof Date
-        ? selectedDate.toISOString().split('T')[0]
-        : typeof selectedDate === 'string'
-          ? selectedDate
-          : new Date(selectedDate).toISOString().split('T')[0];
-
       const data = await sleepDataService.getSleepDataForDate(dateString);
-
       setSleepData(data);
-      // Update exclusion status
       setIsExcluded(data?.exclude_from_insights || false);
       setExclusionReason(data?.exclusion_reason || null);
       updateSleepDataCache(selectedDate, data);
+      homeCacheService.setPersistedSleepData(user.id, dateString, data);
     } catch (error) {
       setSleepData(null);
       updateSleepDataCache(selectedDate, null);
+      homeCacheService.setPersistedSleepData(user.id, dateString, null);
     } finally {
       setSleepDataLoading(false);
     }
@@ -1248,11 +1266,19 @@ const HomeScreen = () => {
   const getCacheKey = (date) => typeof date === 'string' ? date : date.toISOString().split('T')[0];
 
   const updateSleepDataCache = (date, data) => {
-    setSleepDataCache(prev => new Map(prev).set(getCacheKey(date), data));
+    const key = getCacheKey(date);
+    setSleepDataCache(prev => new Map(prev).set(key, data));
+    if (user && data !== undefined) {
+      homeCacheService.setPersistedSleepData(user.id, date, data);
+    }
   };
 
   const updateHabitCountCache = (date, count) => {
-    setHabitCountCache(prev => new Map(prev).set(getCacheKey(date), count));
+    const key = getCacheKey(date);
+    setHabitCountCache(prev => new Map(prev).set(key, count));
+    if (user && count !== undefined) {
+      homeCacheService.setPersistedHabitCount(user.id, date, count);
+    }
   };
 
   // Clear all in-memory caches
@@ -1319,6 +1345,9 @@ const HomeScreen = () => {
       });
 
       await Promise.all([...sleepDataPromises, ...habitCountPromises]);
+      if (user) {
+        homeCacheService.cleanupOldEntries(user.id);
+      }
     } catch (error) {
       // Preload failed silently
     } finally {

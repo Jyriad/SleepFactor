@@ -15,11 +15,11 @@ export default {
   scheme: "sleepfactor",
   version: VERSION,
   orientation: "portrait",
-  icon: "./assets/SquareLogoDark.png",
+  icon: "./assets/AppIcon.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
-    image: "./assets/SquareLogoDark.png",
+    image: "./assets/HighResSquareDark.png",
     resizeMode: "contain",
     backgroundColor: "#1E3A8A"
   },
