@@ -40,7 +40,7 @@ const HabitLoggingScreen = () => {
   const [habits, setHabits] = useState([]);
   const [habitLogs, setHabitLogs] = useState({});
   const [loading, setLoading] = useState(true);
-  const [habitLogCounts, setHabitLogCounts] = useState({});
+  const [habitLogCountsByValue, setHabitLogCountsByValue] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
 
   // Sync route param date into shared context so the header shows the correct date
@@ -215,18 +215,21 @@ const HabitLoggingScreen = () => {
 
       setHabitLogs(logsMap);
 
-      // Load log counts for each habit
+      // Load Yes/No log counts per habit (for binary habits: how many times user logged Yes vs No)
       const { data: countsData, error: countsError } = await supabase
         .from('habit_logs')
-        .select('habit_id')
+        .select('habit_id, value')
         .eq('user_id', user.id);
 
       if (!countsError && countsData) {
-        const counts = {};
+        const byValue = {};
         countsData.forEach(log => {
-          counts[log.habit_id] = (counts[log.habit_id] || 0) + 1;
+          if (!byValue[log.habit_id]) byValue[log.habit_id] = { yes: 0, no: 0 };
+          const v = (log.value || '').toString().toLowerCase();
+          if (v === 'yes' || v === 'true') byValue[log.habit_id].yes += 1;
+          else if (v === 'no' || v === 'false') byValue[log.habit_id].no += 1;
         });
-        setHabitLogCounts(counts);
+        setHabitLogCountsByValue(byValue);
       }
 
     } catch (error) {
@@ -563,6 +566,7 @@ const HabitLoggingScreen = () => {
                         selectedDate={selectedDate}
                         userId={user?.id}
                         onConsumptionAdded={refreshConsumptionEvents}
+                        yesNoCounts={habitLogCountsByValue[habit.id]}
                       />
                     </View>
                   </View>

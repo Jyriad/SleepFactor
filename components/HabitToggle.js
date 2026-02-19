@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
-const HabitToggle = ({ value, onChange }) => {
+const HabitToggle = ({ value, onChange, yesCount = 0, noCount = 0 }) => {
   // value can be true, false, or null/undefined (not selected)
   const isYes = value === true;
   const isNo = value === false;
@@ -24,6 +24,12 @@ const HabitToggle = ({ value, onChange }) => {
         ]}>
           No
         </Text>
+        <View style={styles.countBadge}>
+          <Text style={[
+            styles.countText,
+            isNo && styles.countTextActive,
+          ]}>{noCount}</Text>
+        </View>
       </TouchableOpacity>
       <TouchableOpacity
         style={[
@@ -39,6 +45,12 @@ const HabitToggle = ({ value, onChange }) => {
         ]}>
           Yes
         </Text>
+        <View style={styles.countBadge}>
+          <Text style={[
+            styles.countText,
+            isYes && styles.countTextActive,
+          ]}>{yesCount}</Text>
+        </View>
       </TouchableOpacity>
     </View>
   );
@@ -59,6 +71,20 @@ const styles = StyleSheet.create({
     minWidth: 80,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+  },
+  countBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 6,
+  },
+  countText: {
+    fontSize: 8,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  countTextActive: {
+    color: 'rgba(255,255,255,0.9)',
   },
   activeButton: {
     backgroundColor: colors.primary,

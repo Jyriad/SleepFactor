@@ -39,6 +39,7 @@ import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
+import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
 
@@ -73,18 +74,14 @@ const ProfileScreen = () => {
   // Clear user-specific cached data from AsyncStorage
   const clearUserCaches = async (userId) => {
     try {
-      // Get all AsyncStorage keys
       const keys = await AsyncStorage.getAllKeys();
-
-      // Filter for user-specific habit log caches
       const habitLogKeys = keys.filter(key =>
         key.startsWith(`habitLogs_${userId}_`)
       );
-
-      // Remove all user habit log caches
       if (habitLogKeys.length > 0) {
         await AsyncStorage.multiRemove(habitLogKeys);
       }
+      await homeCacheService.clearForUser(userId);
     } catch (error) {
     }
   };
@@ -105,6 +102,7 @@ const ProfileScreen = () => {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            if (user?.id) await clearUserCaches(user.id);
             const { error } = await signOut();
             if (error) {
               Alert.alert('Error', 'Failed to sign out');

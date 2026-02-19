@@ -6,7 +6,7 @@ import HabitToggle from './HabitToggle';
 import DrugHabitInput from './DrugHabitInput';
 import QuickConsumptionInput from './QuickConsumptionInput';
 
-const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded }) => {
+const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded, yesNoCounts }) => {
   const renderInput = () => {
     switch (habit.type) {
       case 'binary':
@@ -29,6 +29,8 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
                 onChange(newBoolValue ? 'yes' : 'no');
               }
             }}
+            yesCount={yesNoCounts?.yes ?? 0}
+            noCount={yesNoCounts?.no ?? 0}
           />
         );
       
