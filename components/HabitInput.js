@@ -10,11 +10,12 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
   const renderInput = () => {
     switch (habit.type) {
       case 'binary':
-        // Convert string values to boolean or null
+        // Convert string/any values to boolean or null (handle DB casing and types)
         let boolValue = null;
-        if (value === 'yes' || value === true) {
+        const v = value != null ? String(value).toLowerCase() : '';
+        if (v === 'yes' || value === true) {
           boolValue = true;
-        } else if (value === 'no' || value === false) {
+        } else if (v === 'no' || value === false) {
           boolValue = false;
         }
         

@@ -371,6 +371,7 @@ import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
 import NavigationCard from '../components/NavigationCard';
+import DrugLevelContainer from '../components/DrugLevelContainer';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
 import dataQualityService from '../services/dataQualityService';
@@ -399,6 +400,7 @@ const HomeScreen = () => {
   const [loggingStreak, setLoggingStreak] = useState(0);
   const [insightsSummary, setInsightsSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [drugHabits, setDrugHabits] = useState([]); // Caffeine & Alcohol habits for level widgets
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
@@ -472,6 +474,7 @@ const HomeScreen = () => {
       checkTodaysHabitsLogged();
       fetchLoggingStreak();
       fetchInsightsSummary();
+      fetchDrugHabits();
     }, [selectedDate, user])
   );
 
@@ -497,6 +500,7 @@ const HomeScreen = () => {
     fetchLoggingStreak(); // Fetch logging streak on mount
     fetchInsightsSummary();
     fetchCoreSleepDuration();
+    fetchDrugHabits();
     // Cleanup old sync attempt records on app startup
     syncAttemptTracker.cleanupOldRecords();
   }, [user]);
@@ -846,7 +850,7 @@ const HomeScreen = () => {
 
       if (consumptionError) {
       } else {
-        // Add quick_consumption habits that have consumption events (including "none" events)
+        // Add quick_consumption habits that have consumption events (including "none" = logged as had none)
         consumptionEvents?.forEach(event => {
           if (event.habits?.type === 'quick_consumption') {
             loggedHabits.add(event.habit_id);
@@ -1012,6 +1016,23 @@ const HomeScreen = () => {
       setInsightsSummary(summary);
     } catch (error) {
       setInsightsSummary(null);
+    }
+  };
+
+  const fetchDrugHabits = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('habits')
+        .select('id, name, unit, half_life_hours')
+        .eq('user_id', user.id)
+        .eq('type', 'quick_consumption')
+        .in('name', ['Caffeine', 'Alcohol'])
+        .eq('is_active', true);
+      if (error) throw error;
+      setDrugHabits(data || []);
+    } catch (error) {
+      setDrugHabits([]);
     }
   };
 
@@ -1603,7 +1624,14 @@ const HomeScreen = () => {
           />
         </View>
 
-
+        {/* Caffeine & Alcohol level widgets - collapsed by default */}
+        {drugHabits.length > 0 && (
+          <View style={styles.section}>
+            {drugHabits.map((habit) => (
+              <DrugLevelContainer key={habit.id} habit={habit} userId={user?.id} selectedDate={selectedDate} />
+            ))}
+          </View>
+        )}
 
         {/* Sleep Data Card - Fixed-height container so size never changes during sync */}
         <View style={styles.section}>
@@ -1817,7 +1845,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   section: {
-    marginBottom: 15,
+    marginBottom: 8,
     marginHorizontal: spacing.regular,
   },
   sectionTitle: {

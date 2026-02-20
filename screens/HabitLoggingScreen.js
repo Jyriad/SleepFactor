@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import { typography, spacing } from '../constants';
 import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
+import DrugLevelContainer from '../components/DrugLevelContainer';
 import PageLoadingView from '../components/PageLoadingView';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -42,6 +43,12 @@ const HabitLoggingScreen = () => {
   const [loading, setLoading] = useState(true);
   const [habitLogCountsByValue, setHabitLogCountsByValue] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
+  const [levelRefreshKey, setLevelRefreshKey] = useState(0);
+  const selectedDateRef = useRef(selectedDate);
+
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
 
   // Sync route param date into shared context so the header shows the correct date
   useEffect(() => {
@@ -103,6 +110,19 @@ const HabitLoggingScreen = () => {
           });
 
         if (logsError) throw logsError;
+      }
+
+      // Remove habit_logs rows for habits the user cleared (un-logged)
+      const clearedHabitIds = Object.entries(habitLogs)
+        .filter(([, value]) => value === '' || value === null || value === undefined)
+        .map(([habitId]) => habitId);
+      if (clearedHabitIds.length > 0) {
+        await supabase
+          .from('habit_logs')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('date', dateString)
+          .in('habit_id', clearedHabitIds);
       }
     } catch (error) {
     }
@@ -212,6 +232,13 @@ const HabitLoggingScreen = () => {
           logsMap[log.habit_id] = log.value;
         });
       }
+
+      // For binary habits with "log as no by default", treat missing log as "no"
+      normalizedHabits
+        .filter(h => h.type === 'binary' && (h.log_as_no_by_default === true || h.log_as_no_by_default === 'true'))
+        .forEach(h => {
+          if (logsMap[h.id] === undefined) logsMap[h.id] = 'no';
+        });
 
       setHabitLogs(logsMap);
 
@@ -341,13 +368,12 @@ const HabitLoggingScreen = () => {
 
 
   const refreshConsumptionEvents = async () => {
+    const dateForFetch = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    const dateForFetchStr = dateForFetch.toISOString().split('T')[0];
     try {
-      // Calculate date range for selected date
-      const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-      const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
-      const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
+      const startOfDay = new Date(dateForFetch.getFullYear(), dateForFetch.getMonth(), dateForFetch.getDate(), 0, 0, 0);
+      const endOfDay = new Date(dateForFetch.getFullYear(), dateForFetch.getMonth(), dateForFetch.getDate(), 23, 59, 59);
 
-      // Load consumption events for drug and quick_consumption habits
       const consumptionHabits = habits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
       const consumptionEventsMap = {};
 
@@ -365,7 +391,6 @@ const HabitLoggingScreen = () => {
 
         if (eventsError) {
         } else {
-          // Group events by habit_id
           if (eventsData) {
             eventsData.forEach(event => {
               if (!consumptionEventsMap[event.habit_id]) {
@@ -377,7 +402,11 @@ const HabitLoggingScreen = () => {
         }
       }
 
-      setConsumptionEvents(consumptionEventsMap);
+      const currentDate = selectedDateRef.current instanceof Date ? selectedDateRef.current : new Date(selectedDateRef.current);
+      const currentDateStr = currentDate.toISOString().split('T')[0];
+      if (currentDateStr === dateForFetchStr) {
+        setConsumptionEvents(consumptionEventsMap);
+      }
     } catch (error) {
     }
   };
@@ -525,6 +554,8 @@ const HabitLoggingScreen = () => {
                 // Drug/quick_consumption habits need full-width layout for buttons
                 const isDrugHabit = habit.type === 'drug' || habit.type === 'quick_consumption';
 
+                const isCaffeineOrAlcohol = isDrugHabit && (habit.name === 'Caffeine' || habit.name === 'Alcohol');
+
                 return (
                   <View key={habit.id} style={[
                     styles.habitRow,
@@ -565,9 +596,21 @@ const HabitLoggingScreen = () => {
                         unit={habit.unit}
                         selectedDate={selectedDate}
                         userId={user?.id}
-                        onConsumptionAdded={refreshConsumptionEvents}
+                        onConsumptionAdded={() => {
+                          setLevelRefreshKey((k) => k + 1);
+                          refreshConsumptionEvents();
+                        }}
                         yesNoCounts={habitLogCountsByValue[habit.id]}
                       />
+                      {isCaffeineOrAlcohol && (
+                        <DrugLevelContainer
+                          habit={habit}
+                          userId={user?.id}
+                          selectedDate={selectedDate}
+                          compact
+                          levelRefreshKey={levelRefreshKey}
+                        />
+                      )}
                     </View>
                   </View>
                 );

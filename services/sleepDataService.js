@@ -81,9 +81,6 @@ class SleepDataService {
           sleepData.sleep_sessions.length > 0) {
         record.sleep_sessions = sleepData.sleep_sessions;
       }
-      // [DEBUG] Multi-session: what we're sending to Supabase
-      console.log('[SleepSync DEBUG] upsertSleepData date=', sleepData.date, 'sleep_sessions in payload:', record.sleep_sessions?.length ?? 0, 'total_sleep_minutes=', record.total_sleep_minutes);
-
       let { data, error } = await supabase
         .from(this.tableName)
         .upsert(record, {
@@ -117,8 +114,6 @@ class SleepDataService {
       if (error) {
         throw error;
       }
-      // [DEBUG] Multi-session: what Supabase returned after upsert
-      console.log('[SleepSync DEBUG] upsertSleepData returned: sleep_sessions=', data?.sleep_sessions?.length ?? 'n/a', 'total_sleep_minutes=', data?.total_sleep_minutes);
 
       this._clearRangeCache();
       return data;
@@ -153,10 +148,6 @@ class SleepDataService {
       }
 
       const result = data && data.length > 0 ? data[0] : null;
-      // [DEBUG] Multi-session: what we return to UI for this date
-      if (result) {
-        console.log('[SleepSync DEBUG] getSleepDataForDate', date, '=> sleep_sessions=', result.sleep_sessions?.length ?? 'missing', 'total_sleep_minutes=', result.total_sleep_minutes);
-      }
       return result;
     } catch (error) {
       throw error;

@@ -77,7 +77,6 @@ const AddHabitScreen = () => {
           .lt('date', todayStr);
 
         if (sleepError) {
-          console.warn('AddHabitScreen: could not fetch past dates for backfill', sleepError);
         } else if (sleepRows && sleepRows.length > 0) {
           const pastDates = [...new Set(sleepRows.map((r) => r.date))];
           const BATCH = 100;
@@ -93,7 +92,6 @@ const AddHabitScreen = () => {
               .from('habit_logs')
               .upsert(entries, { onConflict: 'user_id,habit_id,date' });
             if (logsError) {
-              console.warn('AddHabitScreen: backfill batch failed', logsError);
             }
           }
         }
