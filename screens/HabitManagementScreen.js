@@ -144,6 +144,7 @@ const HabitManagementScreen = () => {
         ...habit,
         is_custom: habit.is_custom === true || habit.is_custom === 'true',
         is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
+        log_as_no_by_default: habit.log_as_no_by_default === true || habit.log_as_no_by_default === 'true',
         priority: habit.priority || 0,
       }));
 
@@ -247,7 +248,18 @@ const HabitManagementScreen = () => {
 
       // Ensure all habits have valid IDs for DraggableFlatList
       const validManual = sortedManual.filter(habit => habit && (habit.id || habit.name));
-      const validAutomatic = automatic.filter(habit => habit && (habit.id || habit.name));
+      let validAutomatic = automatic.filter(habit => habit && (habit.id || habit.name));
+
+      // Only show automatic health-metric habits that the user's device actually provides data for
+      try {
+        const providedMetrics = await healthMetricsService.getMetricsProvidedByDevice();
+        const providedNames = new Set(providedMetrics.map(m => m.name));
+        validAutomatic = validAutomatic.filter(habit =>
+          !healthMetricsService.isHealthMetricHabit(habit) || providedNames.has(habit.name)
+        );
+      } catch (err) {
+        // If check fails (e.g. health not initialized), show all automatic habits
+      }
 
       setManualHabits(validManual); // Now includes both tracked and untracked
       setAutomaticHabits(validAutomatic);
@@ -573,6 +585,31 @@ const HabitManagementScreen = () => {
     }
   };
 
+  const toggleLogAsNoByDefault = async (habit) => {
+    if (!user || !habit.id || habit.id.startsWith('predef-')) return;
+
+    const newValue = !(habit.log_as_no_by_default === true);
+    try {
+      const { error } = await supabase
+        .from('habits')
+        .update({
+          log_as_no_by_default: newValue,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', habit.id);
+
+      if (error) throw error;
+
+      setManualHabits(prev =>
+        prev.map(h =>
+          h.id === habit.id ? { ...h, log_as_no_by_default: newValue } : h
+        )
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update habit setting');
+    }
+  };
+
   const toggleHabitTracking = async (habit) => {
     if (!user) return;
 
@@ -876,10 +913,27 @@ const HabitManagementScreen = () => {
 
           {/* Body section with type and actions */}
           <View style={styles.habitBody}>
-            <Text style={styles.habitType}>
-              {getHabitTypeDescription(habit)}
-              {isPlaceholder && ' (not added yet)'}
-            </Text>
+            <View style={styles.habitBodyLeft}>
+              <Text style={styles.habitType}>
+                {getHabitTypeDescription(habit)}
+                {isPlaceholder && ' (not added yet)'}
+              </Text>
+              {!isPlaceholder && habit.type === 'binary' && (
+                <TouchableOpacity
+                  style={styles.logNoByDefaultRow}
+                  onPress={() => toggleLogAsNoByDefault(habit)}
+                  activeOpacity={0.7}
+                >
+                  <Switch
+                    value={habit.log_as_no_by_default === true}
+                    onValueChange={() => toggleLogAsNoByDefault(habit)}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor={habit.log_as_no_by_default ? '#FFFFFF' : '#FFFFFF'}
+                  />
+                  <Text style={styles.logNoByDefaultLabel}>Log as "no" by default</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             {isPlaceholder && !isAlwaysAvailable ? (
               <TouchableOpacity
@@ -1227,7 +1281,7 @@ const styles = StyleSheet.create({
   },
   cardWrapper: {
     borderRadius: 12,
-    marginVertical: spacing.xs,
+    marginVertical: 4,
     marginHorizontal: spacing.regular,
   },
   cardWrapperDragging: {
@@ -1241,12 +1295,13 @@ const styles = StyleSheet.create({
   },
   habitCard: {
     flexDirection: 'column',
-    padding: spacing.regular,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    minHeight: 80, // Ensure consistent card height
+    minHeight: 56,
     overflow: 'hidden', // Ensure content respects rounded corners
   },
   habitCardDragging: {
@@ -1266,7 +1321,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   habitHeader: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   nameContainer: {
     flexDirection: 'row',
@@ -1277,6 +1332,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  habitBodyLeft: {
+    flex: 1,
+  },
+  logNoByDefaultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  logNoByDefaultLabel: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginLeft: spacing.sm,
   },
   habitActions: {
     flexDirection: 'row',

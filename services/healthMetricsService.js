@@ -421,6 +421,42 @@ class HealthMetricsService {
   }
 
   /**
+   * Get only health metrics that the user's device/tracker actually provides (permission + data in last 7 days).
+   * Used to hide automatic habits like "Walking Distance" when the tracker doesn't write that data.
+   * @returns {Promise<Array>} Array of health metric definitions that have data
+   */
+  async getMetricsProvidedByDevice() {
+    try {
+      if (!this.isInitialized) {
+        const initialized = await this.initialize();
+        if (!initialized) return [];
+      }
+
+      const results = [];
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+
+      for (const metric of this.healthMetrics) {
+        const recordType = this.getRecordTypeForMetric(metric.key);
+        if (!recordType) continue;
+
+        const hasPermission = await healthService.hasPermissionForRecordType(recordType);
+        if (!hasPermission) continue;
+
+        const data = await this.fetchHealthMetricData(metric.key, startDate, endDate);
+        if (data && data.length > 0) {
+          results.push(metric);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Check if a habit is a health metric habit
    * @param {Object} habit - Habit object
    * @returns {boolean} True if it's an automatic health metric habit

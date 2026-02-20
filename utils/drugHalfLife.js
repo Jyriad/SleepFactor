@@ -125,6 +125,23 @@ export const getCurrentDrugLevel = (consumptionEvents, halfLifeHours, thresholdP
 };
 
 /**
+ * Decay a single level value from source time to target time (for carryover from last bedtime).
+ * @param {number} levelAtSource - Level at the source time
+ * @param {Date|string} sourceTime - When that level was measured
+ * @param {Date|string} targetTime - Time to decay to (e.g. now)
+ * @param {number} halfLifeHours - Half-life in hours
+ * @returns {number} Decayed level at target time
+ */
+export const decayLevelToTime = (levelAtSource, sourceTime, targetTime, halfLifeHours) => {
+  if (levelAtSource == null || levelAtSource <= 0 || !halfLifeHours) return 0;
+  const source = sourceTime instanceof Date ? sourceTime : new Date(sourceTime);
+  const target = targetTime instanceof Date ? targetTime : new Date(targetTime);
+  const hoursElapsed = (target.getTime() - source.getTime()) / (1000 * 60 * 60);
+  if (hoursElapsed <= 0) return levelAtSource;
+  return levelAtSource * Math.pow(0.5, hoursElapsed / halfLifeHours);
+};
+
+/**
  * Get the maximum drug level from a set of data points
  * @param {Array} dataPoints - Array of {time, level} data points
  * @returns {number} Maximum drug level

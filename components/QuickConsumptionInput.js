@@ -234,14 +234,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         ? getBedtimeDrugLevel(eventsData, targetBedtime, habit.half_life_hours || 5)
         : 0;
 
-      // Update the drug levels table with the calculated bedtime level
+      // Update the drug levels table with the calculated bedtime level and exact bedtime time for decay-to-now
+      const dateStr = typeof selectedDate === 'string' ? selectedDate : (selectedDate instanceof Date ? selectedDate.toISOString().split('T')[0] : selectedDate);
       const drugLevelEntry = {
         user_id: userId,
         habit_id: habitId,
-        date: selectedDate,
+        date: dateStr,
         level_value: bedtimeLevel,
         unit: habit.unit,
         calculated_at: new Date().toISOString(),
+        bedtime_at: targetBedtime.toISOString(),
       };
 
       const { error: logError } = await supabase
@@ -683,7 +685,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       // Remove from local state
       onChange(consumptionEvents.filter(event => event.id !== eventId));
 
-      // Clear None selection since we're removing consumption
+      // Notify parent so drug level and consumption list refresh
+      if (onConsumptionAdded) onConsumptionAdded();
 
       // Update bedtime drug level
       try {

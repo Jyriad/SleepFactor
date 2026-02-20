@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
   StatusBar,
   Platform,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -41,7 +42,11 @@ import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
+import { supabase } from '../services/supabase';
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
+
+const DEFAULT_CAFFEINE_HALF_LIFE = 5;
+const DEFAULT_ALCOHOL_HALF_LIFE = 5;
 
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
@@ -50,6 +55,56 @@ const ProfileScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
   const { preferences, updatePreference, savePreferences } = useUserPreferences();
+
+  const [caffeineHalfLife, setCaffeineHalfLife] = useState('');
+  const [alcoholHalfLife, setAlcoholHalfLife] = useState('');
+  const [caffeineHabitId, setCaffeineHabitId] = useState(null);
+  const [alcoholHabitId, setAlcoholHabitId] = useState(null);
+  const [halfLifeSaving, setHalfLifeSaving] = useState(false);
+
+  // Fetch Caffeine & Alcohol habits for half-life settings
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('habits')
+        .select('id, name, half_life_hours')
+        .eq('user_id', user.id)
+        .eq('type', 'quick_consumption')
+        .in('name', ['Caffeine', 'Alcohol']);
+      if (error) return;
+      (data || []).forEach((h) => {
+        const val = h.half_life_hours != null ? String(h.half_life_hours) : '';
+        if (h.name === 'Caffeine') {
+          setCaffeineHabitId(h.id);
+          setCaffeineHalfLife(val || String(DEFAULT_CAFFEINE_HALF_LIFE));
+        } else if (h.name === 'Alcohol') {
+          setAlcoholHabitId(h.id);
+          setAlcoholHalfLife(val || String(DEFAULT_ALCOHOL_HALF_LIFE));
+        }
+      });
+    })();
+  }, [user?.id]);
+
+  const saveHalfLife = async (habitId, value, setDisplay) => {
+    if (!habitId || !user?.id) return;
+    const num = parseFloat(value);
+    if (isNaN(num) || num < 0.5 || num > 24) return;
+    setHalfLifeSaving(true);
+    try {
+      const { error } = await supabase
+        .from('habits')
+        .update({ half_life_hours: num })
+        .eq('id', habitId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      setDisplay(String(num));
+    } catch (e) {
+      Alert.alert('Error', 'Could not save half-life. Try again.');
+    } finally {
+      setHalfLifeSaving(false);
+    }
+  };
 
   // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
   useEffect(() => {
@@ -514,6 +569,43 @@ const ProfileScreen = () => {
               </View>
             </View>
             <View style={styles.infoCard}>
+              <Text style={styles.label}>Caffeine & alcohol half-life</Text>
+              <Text style={styles.description}>
+                Half-life in hours (how long until half the amount leaves your system). Used to show your current level. Caffeine is often 4–6 hours, alcohol about 4–5.
+              </Text>
+              {caffeineHabitId != null && (
+                <View style={styles.halfLifeRow}>
+                  <Text style={styles.halfLifeLabel}>Caffeine (hours)</Text>
+                  <TextInput
+                    style={styles.halfLifeInput}
+                    value={caffeineHalfLife}
+                    onChangeText={setCaffeineHalfLife}
+                    onBlur={() => saveHalfLife(caffeineHabitId, caffeineHalfLife, setCaffeineHalfLife)}
+                    keyboardType="decimal-pad"
+                    placeholder={String(DEFAULT_CAFFEINE_HALF_LIFE)}
+                    placeholderTextColor={colors.textLight}
+                  />
+                </View>
+              )}
+              {alcoholHabitId != null && (
+                <View style={styles.halfLifeRow}>
+                  <Text style={styles.halfLifeLabel}>Alcohol (hours)</Text>
+                  <TextInput
+                    style={styles.halfLifeInput}
+                    value={alcoholHalfLife}
+                    onChangeText={setAlcoholHalfLife}
+                    onBlur={() => saveHalfLife(alcoholHabitId, alcoholHalfLife, setAlcoholHalfLife)}
+                    keyboardType="decimal-pad"
+                    placeholder={String(DEFAULT_ALCOHOL_HALF_LIFE)}
+                    placeholderTextColor={colors.textLight}
+                  />
+                </View>
+              )}
+              {halfLifeSaving && (
+                <Text style={styles.halfLifeSavingText}>Saving...</Text>
+              )}
+            </View>
+            <View style={styles.infoCard}>
               <Text style={styles.label}>Time Format</Text>
               <View style={styles.timeFormatContainer}>
                 <TouchableOpacity
@@ -691,6 +783,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  halfLifeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  halfLifeLabel: {
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  halfLifeInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    minWidth: 64,
+    textAlign: 'right',
+  },
+  halfLifeSavingText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
   },
   measurementOption: {
     flex: 1,

@@ -14,8 +14,6 @@ const SleepTimeline = ({ sleepData, coreSleepDurationMinutes }) => {
   const [showCoreSleepInfo, setShowCoreSleepInfo] = useState(false);
 
   if (!sleepData) return null;
-  // [DEBUG] Multi-session: what SleepTimeline received
-  console.log('[SleepSync DEBUG] SleepTimeline sleepData.date=', sleepData.date, 'sleep_sessions=', sleepData.sleep_sessions?.length ?? 'missing', 'total_sleep_minutes=', sleepData.total_sleep_minutes);
 
   // Multiple sessions (e.g. main sleep + nap): show separate bars per session
   const timelineData = useMemo(() => {

@@ -27,7 +27,7 @@ const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading 
         for {dateTitle}
       </Text>
       <Button
-        title={loading ? '...' : (hasHabits ? "View Full Details" : "Log Habits")}
+        title={loading ? '...' : "Log Habits"}
         onPress={onPress}
         style={styles.button}
         disabled={loading}
@@ -40,14 +40,14 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
-    padding: spacing.lg,
+    padding: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
   },
   header: {
-    minHeight: 44,
+    minHeight: 32,
     justifyContent: 'center',
-    marginBottom: 2,
+    marginBottom: 0,
   },
   title: {
     fontSize: typography.sizes.medium,
@@ -58,10 +58,12 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     marginTop: 2,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   button: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
+    paddingVertical: spacing.sm,
+    minHeight: 36,
   },
 });
 

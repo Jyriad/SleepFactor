@@ -45,11 +45,6 @@ class SleepSyncService {
       if (!byDate[r.date]) byDate[r.date] = [];
       byDate[r.date].push(r);
     }
-    // [DEBUG] Multi-session: merge input
-    console.log('[SleepSync DEBUG] _mergeSleepRecordsByDate input:', records.length, 'records, dates:', Object.keys(byDate));
-    Object.keys(byDate).forEach(d => {
-      console.log(`[SleepSync DEBUG]   date ${d}: ${byDate[d].length} session(s)`);
-    });
     const merged = [];
     for (const date of Object.keys(byDate).sort()) {
       const sessions = byDate[date];
@@ -111,8 +106,6 @@ class SleepSyncService {
         sleep_sessions: sleep_sessions.length > 0 ? sleep_sessions : null,
       };
       merged.push(mergedRecord);
-      // [DEBUG] Multi-session: merged record for this date
-      console.log(`[SleepSync DEBUG]   merged date ${date}: totalMin=${mergedRecord.total_sleep_minutes} sleep_sessions.length=${mergedRecord.sleep_sessions?.length ?? 0}`);
     }
     return merged;
   }
@@ -240,19 +233,12 @@ class SleepSyncService {
 
       // Merge multiple sessions per date into one record (combined totals + sleep_sessions for UI)
       const mergedByDate = this._mergeSleepRecordsByDate(rawSleepData);
-      // [DEBUG] Multi-session: after merge
-      console.log('[SleepSync DEBUG] After merge: rawSleepData.length=', rawSleepData.length, 'mergedByDate.length=', mergedByDate.length);
-      mergedByDate.forEach((m, i) => {
-        console.log(`[SleepSync DEBUG]   merged[${i}] date=${m.date} total_sleep_minutes=${m.total_sleep_minutes} sleep_sessions=${m.sleep_sessions?.length ?? 0}`, m.sleep_sessions ? 'has sessions' : 'no sessions');
-      });
 
       // Filter out dates that already exist (unless forcing)
       let recordsToProcess = mergedByDate;
       if (!force && existingDates.size > 0) {
         recordsToProcess = mergedByDate.filter(record => !existingDates.has(record.date));
       }
-
-      console.log('[SleepSync DEBUG] existingDates (skip unless force):', Array.from(existingDates), 'force=', force, 'recordsToProcess.length=', recordsToProcess.length);
 
       if (recordsToProcess.length === 0) {
         return {
