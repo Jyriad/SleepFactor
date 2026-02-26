@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -6,7 +6,12 @@ import HabitToggle from './HabitToggle';
 import DrugHabitInput from './DrugHabitInput';
 import QuickConsumptionInput from './QuickConsumptionInput';
 
-const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded, yesNoCounts }) => {
+const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate, userId, onConsumptionAdded, yesNoCounts }) => {
+  // Stable per-habit callback so parent re-renders don't force consumption modal (and wheel pickers) to re-render and block the custom volume input
+  const effectiveOnChange = onHabitChange != null
+    ? useCallback((v) => onHabitChange(habit.id, v), [onHabitChange, habit.id])
+    : onChange;
+
   const renderInput = () => {
     switch (habit.type) {
       case 'binary':
@@ -25,9 +30,9 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
             onChange={(newBoolValue) => {
               // Convert boolean back to string, or empty string for null
               if (newBoolValue === null) {
-                onChange('');
+                effectiveOnChange('');
               } else {
-                onChange(newBoolValue ? 'yes' : 'no');
+                effectiveOnChange(newBoolValue ? 'yes' : 'no');
               }
             }}
             yesCount={yesNoCounts?.yes ?? 0}
@@ -43,7 +48,7 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
               value={value ? String(value) : ''}
               onChangeText={(text) => {
                 const numValue = text === '' ? '' : parseFloat(text);
-                onChange(String(numValue || ''));
+                effectiveOnChange(String(numValue || ''));
               }}
               keyboardType="numeric"
               placeholder="0"
@@ -60,7 +65,7 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
           <TextInput
             style={styles.textInput}
             value={value || ''}
-            onChangeText={onChange}
+            onChangeText={effectiveOnChange}
             placeholder="Enter time"
             placeholderTextColor={colors.textLight}
           />
@@ -71,7 +76,7 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
           <TextInput
             style={styles.textInput}
             value={value || ''}
-            onChangeText={onChange}
+            onChangeText={effectiveOnChange}
             placeholder="Enter text"
             placeholderTextColor={colors.textLight}
             multiline
@@ -83,7 +88,7 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
           <DrugHabitInput
             habit={habit}
             value={value}
-            onChange={onChange}
+            onChange={effectiveOnChange}
             unit={unit}
           />
         );
@@ -93,7 +98,7 @@ const HabitInput = ({ habit, value, onChange, unit, selectedDate, userId, onCons
           <QuickConsumptionInput
             habit={habit}
             value={value}
-            onChange={onChange}
+            onChange={effectiveOnChange}
             unit={unit}
             selectedDate={selectedDate}
             userId={userId}

@@ -9,6 +9,9 @@ import { AuthProvider } from './contexts/AuthContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import AppNavigator from './navigation/AppNavigator';
 import { supabase } from './services/supabase';
+import sleepSyncService from './services/sleepSyncService';
+import sleepSyncNotifications from './services/sleepSyncNotifications';
+import habitReminderNotifications from './services/habitReminderNotifications';
 import { colors } from './constants/colors';
 
 // Keep native splash visible until we hide it after the first screen has laid out
@@ -111,6 +114,34 @@ export default function App() {
       setPendingDeepLink(null);
     }
   }, [navigationRef.current, pendingDeepLink]);
+
+  // Optional: sync today's sleep in background on launch so data is ready when user opens Home
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const initialized = await sleepSyncService.initialize();
+        if (cancelled || !initialized) return;
+        const hasPermissions = await sleepSyncService.hasPermissions();
+        if (cancelled || !hasPermissions) return;
+        const result = await sleepSyncService.syncSleepData({ daysBack: 1, force: true, silent: true });
+        if (!cancelled && result?.success && result?.syncedRecords > 0) {
+          sleepSyncNotifications.notifyNewSleepDataSynced();
+        }
+      } catch (e) {
+        // Non-blocking; do not break app launch
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, []);
+
+  // Re-register daily habit reminder on app start if user has it enabled
+  useEffect(() => {
+    habitReminderNotifications.rescheduleIfEnabled();
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.primary }}>

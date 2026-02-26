@@ -57,6 +57,15 @@ export default {
   },
   plugins: [
     [
+      "expo-splash-screen",
+      {
+        backgroundColor: "#1E3A8A",
+        image: "./assets/HighResSquareDark.png",
+        resizeMode: "contain",
+        imageWidth: 200
+      }
+    ],
+    [
       "expo-health-connect",
       {
         permissions: [
@@ -95,7 +104,17 @@ export default {
           minSdkVersion: 26
         }
       }
-    ]
+    ],
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/SquareLogoDark.png",
+        color: "#1E3A8A",
+        sounds: [],
+        androidMode: "default"
+      }
+    ],
+    "expo-background-fetch"
   ],
   extra: {
     eas: {

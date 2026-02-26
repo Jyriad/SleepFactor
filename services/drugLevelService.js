@@ -104,7 +104,8 @@ async function fallbackLevelFromEvents(userId, habit, halfLife, unit) {
 
 /**
  * Get timeline data for "level over today" for the line chart.
- * Includes carryover from last bedtime, then today's events.
+ * Uses the same logic as getLevelNow: carryover from last stored bedtime (decayed to each time)
+ * plus level from consumption events. This keeps the graph in sync with the "level right now" number.
  * @param {string} userId - User ID
  * @param {Object} habit - Habit with id, half_life_hours, unit
  * @returns {Promise<{ dataPoints: Array<{ time: Date, level: number }>, unit: string }>}
@@ -113,9 +114,31 @@ export async function getLevelTimelineForToday(userId, habit) {
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
   const unit = habit?.unit || 'units';
   const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
   const todayEnd = new Date(todayStart);
   todayEnd.setDate(todayEnd.getDate() + 1);
+
+  // Fetch most recent drug_levels row (same as getLevelNow) for carryover
+  const { data: lastLevelRows, error: levelError } = await supabase
+    .from('drug_levels')
+    .select('level_value, bedtime_at')
+    .eq('user_id', userId)
+    .eq('habit_id', habit.id)
+    .lte('date', todayStr)
+    .order('date', { ascending: false })
+    .limit(1);
+
+  let carryoverLevel = 0;
+  let carryoverBedtimeAt = null;
+  if (!levelError && lastLevelRows?.length > 0) {
+    const last = lastLevelRows[0];
+    const bedtimeAt = last.bedtime_at ? new Date(last.bedtime_at) : null;
+    if (bedtimeAt && bedtimeAt <= now) {
+      carryoverLevel = Number(last.level_value);
+      carryoverBedtimeAt = bedtimeAt;
+    }
+  }
 
   // Events that can affect today: from (todayStart - historyDays) through now
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
@@ -135,14 +158,34 @@ export async function getLevelTimelineForToday(userId, habit) {
     return { dataPoints: [], unit };
   }
 
-  const dataPoints = generateDrugLevelTimeline(
-    events || [],
-    todayStart,
-    todayEnd,
-    halfLife,
-    THRESHOLD_PERCENT,
-    30
-  );
+  const eventList = events || [];
+  const intervalMinutes = 30;
+  const intervalMs = intervalMinutes * 60 * 1000;
+  const dataPoints = [];
+  let currentTime = new Date(todayStart);
+
+  while (currentTime <= todayEnd) {
+    let carryoverAtTime = 0;
+    if (carryoverBedtimeAt && currentTime >= carryoverBedtimeAt) {
+      carryoverAtTime = decayLevelToTime(
+        carryoverLevel,
+        carryoverBedtimeAt,
+        currentTime,
+        halfLife
+      );
+    }
+    const eventLevelAtTime = calculateTotalDrugLevel(
+      eventList,
+      currentTime,
+      halfLife,
+      THRESHOLD_PERCENT
+    );
+    dataPoints.push({
+      time: new Date(currentTime),
+      level: carryoverAtTime + eventLevelAtTime,
+    });
+    currentTime = new Date(currentTime.getTime() + intervalMs);
+  }
 
   return { dataPoints, unit };
 }

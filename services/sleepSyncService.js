@@ -1,8 +1,13 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import healthService from './healthService';
 import sleepDataService from './sleepDataService';
 import bedtimeHabitsService from './bedtimeHabitsService';
 import syncAttemptTracker from './syncAttemptTracker';
+import backgroundSleepSync from './backgroundSleepSync';
 import { supabase } from './supabase';
+import { formatDateForDB } from '../utils/dateHelpers';
+
+const LAST_SYNC_STORAGE_KEY = 'sleepSyncLastSuccessAt';
 
 /**
  * Sleep sync service that orchestrates data synchronization between health platforms and Supabase
@@ -23,6 +28,15 @@ class SleepSyncService {
     try {
       const healthServiceInitialized = await healthService.initialize();
       this.isInitialized = healthServiceInitialized;
+      // Restore last sync time from storage (survives app kill)
+      try {
+        const stored = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
+        if (stored) {
+          this.lastSyncTimestamp = new Date(stored);
+        }
+      } catch (e) {
+        // Non-blocking; in-memory stays null
+      }
       return healthServiceInitialized;
     } catch (error) {
       this.isInitialized = false;
@@ -197,13 +211,13 @@ class SleepSyncService {
         };
       }
 
-      // Calculate date range for sync
+      // Calculate date range for sync (local time so "today" matches user's timezone)
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(endDate.getDate() - daysBack);
 
-      const startDateString = startDate.toISOString().split('T')[0];
-      const endDateString = endDate.toISOString().split('T')[0];
+      const startDateString = formatDateForDB(startDate);
+      const endDateString = formatDateForDB(endDate);
 
 
       // Check which dates already have sleep data to avoid unnecessary syncing
@@ -218,7 +232,7 @@ class SleepSyncService {
 
       if (!rawSleepData || rawSleepData.length === 0) {
         // Mark that Health Connect has no data for the date range
-        const today = new Date().toISOString().split('T')[0];
+        const today = formatDateForDB(new Date());
         await syncAttemptTracker.markNoData(today);
         
         return {
@@ -280,10 +294,10 @@ class SleepSyncService {
 
           // Always try to ensure bedtime habits are up to date for recent data
           // This handles cases where sync is clicked but no new data exists
-          const today = new Date().toISOString().split('T')[0];
+          const today = formatDateForDB(new Date());
           const weekAgo = new Date();
           weekAgo.setDate(weekAgo.getDate() - 7);
-          const weekAgoString = weekAgo.toISOString().split('T')[0];
+          const weekAgoString = formatDateForDB(weekAgo);
 
           // Get recent sleep data and ensure bedtime habits are populated
           const recentSleepData = await sleepDataService.getSleepDataForRange(weekAgoString, today, user.id);
@@ -295,8 +309,13 @@ class SleepSyncService {
         // Don't fail the sync if bedtime habits update fails
       }
 
-      // Update last sync timestamp
+      // Update last sync timestamp (in-memory and persisted)
       this.lastSyncTimestamp = new Date();
+      try {
+        await AsyncStorage.setItem(LAST_SYNC_STORAGE_KEY, this.lastSyncTimestamp.toISOString());
+      } catch (e) {
+        // Non-blocking
+      }
 
       // Clear "no_data" markers for dates we successfully synced
       for (const record of savedRecords) {
@@ -321,7 +340,7 @@ class SleepSyncService {
 
     } catch (error) {
       // Record error attempt
-      const today = new Date().toISOString().split('T')[0];
+      const today = formatDateForDB(new Date());
       await syncAttemptTracker.recordAttempt({ 
         date: today, 
         outcome: 'error' 
@@ -395,7 +414,16 @@ class SleepSyncService {
         // Clear any stored sync timestamps or cached data
         this.lastSyncTimestamp = null;
         this.isInitialized = false;
-
+        try {
+          await AsyncStorage.removeItem(LAST_SYNC_STORAGE_KEY);
+        } catch (e) {
+          // Non-blocking
+        }
+        try {
+          await backgroundSleepSync.unregisterSleepSyncBackgroundTask();
+        } catch (e) {
+          // Non-blocking
+        }
         return { success: true };
       } else {
         return { success: false, error: 'Permission revocation incomplete' };
@@ -436,10 +464,10 @@ class SleepSyncService {
       }
 
       // Check if we have recent sleep data (last 2 days)
-      const today = new Date().toISOString().split('T')[0];
+      const today = formatDateForDB(new Date());
       const twoDaysAgo = new Date();
       twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-      const twoDaysAgoString = twoDaysAgo.toISOString().split('T')[0];
+      const twoDaysAgoString = formatDateForDB(twoDaysAgo);
 
       const recentSleepData = await sleepDataService.getSleepDataForRange(twoDaysAgoString, today);
       const hasRecentData = recentSleepData && recentSleepData.length > 0;

@@ -1,14 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Alert,
   StatusBar,
   Platform,
   TextInput,
+  Modal,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -40,13 +42,28 @@ import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
+import sleepSyncNotifications from '../services/sleepSyncNotifications';
+import habitReminderNotifications from '../services/habitReminderNotifications';
 import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
+import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
 const DEFAULT_ALCOHOL_HALF_LIFE = 5;
+
+/** Format "HH:mm" to display string using 12 or 24 hour preference. */
+function formatReminderTimeForDisplay(timeStr, use24Hour) {
+  if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || '20:00';
+  const [h, m] = timeStr.split(':').map(Number);
+  if (use24Hour) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const ampm = h < 12 ? 'AM' : 'PM';
+  return `${hour12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
 
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
@@ -61,6 +78,32 @@ const ProfileScreen = () => {
   const [caffeineHabitId, setCaffeineHabitId] = useState(null);
   const [alcoholHabitId, setAlcoholHabitId] = useState(null);
   const [halfLifeSaving, setHalfLifeSaving] = useState(false);
+  const [notifyWhenNewSleepData, setNotifyWhenNewSleepData] = useState(true);
+  const [habitReminderEnabled, setHabitReminderEnabled] = useState(false);
+  const [habitReminderTime, setHabitReminderTime] = useState('20:00');
+  const [showHabitReminderTimePicker, setShowHabitReminderTimePicker] = useState(false);
+  const [reminderPickerHour, setReminderPickerHour] = useState(20);
+  const [reminderPickerMinute, setReminderPickerMinute] = useState(0);
+
+  const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
+    value: i.toString(),
+    label: i.toString().padStart(2, '0'),
+  })), []);
+  const habitReminderMinuteData = useMemo(() => Array.from({ length: 60 }, (_, i) => ({
+    value: i.toString(),
+    label: i.toString().padStart(2, '0'),
+  })), []);
+
+  // Load notify-when-new-sleep preference
+  useEffect(() => {
+    sleepSyncNotifications.getNotifyWhenNewSleepData().then(setNotifyWhenNewSleepData);
+  }, []);
+
+  // Load habit reminder preferences
+  useEffect(() => {
+    habitReminderNotifications.getHabitReminderEnabled().then(setHabitReminderEnabled);
+    habitReminderNotifications.getHabitReminderTime().then(setHabitReminderTime);
+  }, []);
 
   // Fetch Caffeine & Alcohol habits for half-life settings
   useEffect(() => {
@@ -642,10 +685,142 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
-            <View style={[styles.infoCard, styles.notificationsCard]}>
-              <Text style={styles.label}>Notifications</Text>
-              <Text style={styles.value}>Coming soon</Text>
+            <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Notify when new sleep data is synced</Text>
+                  <Text style={styles.description}>
+                    Show a notification when last night&apos;s sleep has been synced (e.g. from your wearable)
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    notifyWhenNewSleepData && styles.toggleSwitchOn,
+                  ]}
+                  onPress={async () => {
+                    const next = !notifyWhenNewSleepData;
+                    setNotifyWhenNewSleepData(next);
+                    await sleepSyncNotifications.setNotifyWhenNewSleepData(next);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      notifyWhenNewSleepData && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
+            <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Remind me to log my habits</Text>
+                  <Text style={styles.description}>
+                    Get a daily notification to log your habits for the day
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    habitReminderEnabled && styles.toggleSwitchOn,
+                  ]}
+                  onPress={async () => {
+                    const next = !habitReminderEnabled;
+                    setHabitReminderEnabled(next);
+                    await habitReminderNotifications.setHabitReminderEnabled(next);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      habitReminderEnabled && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+              {habitReminderEnabled && (
+                <TouchableOpacity
+                  style={styles.habitReminderTimeRow}
+                  onPress={() => {
+                    const [h, m] = (habitReminderTime || '20:00').split(':').map(Number);
+                    setReminderPickerHour(isNaN(h) ? 20 : h);
+                    setReminderPickerMinute(isNaN(m) ? 0 : m);
+                    setShowHabitReminderTimePicker(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.label}>Reminder time</Text>
+                  <Text style={styles.value}>
+                    {formatReminderTimeForDisplay(habitReminderTime, preferences.timeFormat === '24')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <Modal
+              visible={showHabitReminderTimePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowHabitReminderTimePicker(false)}
+            >
+              <TouchableWithoutFeedback onPress={() => setShowHabitReminderTimePicker(false)}>
+                <View style={styles.reminderTimeModalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={styles.reminderTimeModalContent}>
+                      <Text style={styles.reminderTimeModalTitle}>Reminder time</Text>
+                      <View style={styles.reminderTimePickerRow}>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Hour</Text>
+                          <Picker
+                            pickerData={habitReminderHourData}
+                            selectedValue={reminderPickerHour.toString()}
+                            onValueChange={(val) => setReminderPickerHour(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Minute</Text>
+                          <Picker
+                            pickerData={habitReminderMinuteData}
+                            selectedValue={reminderPickerMinute.toString()}
+                            onValueChange={(val) => setReminderPickerMinute(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.reminderTimeModalFooter}>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                          onPress={() => setShowHabitReminderTimePicker(false)}
+                        >
+                          <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                          onPress={() => {
+                            const timeStr = `${reminderPickerHour}:${String(reminderPickerMinute).padStart(2, '0')}`;
+                            setHabitReminderTime(timeStr);
+                            habitReminderNotifications.setHabitReminderTime(timeStr);
+                            setShowHabitReminderTimePicker(false);
+                          }}
+                        >
+                          <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
           </View>
 
           {/* App Info */}
@@ -775,6 +950,86 @@ const styles = StyleSheet.create({
   },
   notificationsCard: {
     marginTop: spacing.md,
+  },
+  habitReminderTimeRow: {
+    marginTop: spacing.regular,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  reminderTimeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reminderTimeModalContent: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    width: '90%',
+    maxWidth: 350,
+    padding: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reminderTimeModalTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.regular,
+  },
+  reminderTimePickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.regular,
+    paddingHorizontal: spacing.md,
+  },
+  reminderPickerGroup: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  reminderTimeLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    fontWeight: typography.weights.semibold,
+  },
+  reminderWheelPicker: {
+    width: '100%',
+    height: 200,
+    backgroundColor: colors.cardBackground,
+  },
+  reminderTimeModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  reminderTimeModalButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reminderTimeCancelButton: {
+    backgroundColor: colors.border,
+  },
+  reminderTimeCancelButtonText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+  },
+  reminderTimeDoneButton: {
+    backgroundColor: colors.primary,
+  },
+  reminderTimeDoneButtonText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.white,
   },
   measurementCard: {
     marginBottom: spacing.md,
