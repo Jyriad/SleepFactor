@@ -196,10 +196,11 @@ class HealthConnectService {
         throw new Error('Health Connect not initialized or permissions not granted');
       }
 
-      const startTime = new Date(startDate).toISOString();
-      const endTime = new Date(endDate);
-      endTime.setHours(23, 59, 59, 999); // End of the end date
-      const endTimeString = endTime.toISOString();
+      // Use local date boundaries so "today" matches user timezone (not UTC)
+      const [startY, startM, startD] = startDate.split('-').map(Number);
+      const [endY, endM, endD] = endDate.split('-').map(Number);
+      const startTime = new Date(startY, startM - 1, startD, 0, 0, 0, 0).toISOString();
+      const endTimeString = new Date(endY, endM - 1, endD, 23, 59, 59, 999).toISOString();
 
       const { records } = await readRecords('SleepSession', {
         timeRangeFilter: {
@@ -382,11 +383,11 @@ class HealthConnectService {
         throw new Error('Health Connect not initialized or permissions not granted');
       }
 
-      const startTime = new Date(startDate).toISOString();
-      const endTime = new Date(endDate);
-      endTime.setHours(23, 59, 59, 999); // End of the end date
-      const endTimeString = endTime.toISOString();
-
+      // Use local date boundaries (startDate/endDate are Date objects from useHealthSync)
+      const startD = startDate instanceof Date ? startDate : new Date(startDate);
+      const endD = endDate instanceof Date ? endDate : new Date(endDate);
+      const startTime = new Date(startD.getFullYear(), startD.getMonth(), startD.getDate(), 0, 0, 0, 0).toISOString();
+      const endTimeString = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate(), 23, 59, 59, 999).toISOString();
 
       const results = {};
 

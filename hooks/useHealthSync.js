@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState } from 'react-native';
 import sleepSyncService from '../services/sleepSyncService';
 import healthMetricsService from '../services/healthMetricsService';
+import sleepDataService from '../services/sleepDataService';
+import backgroundSleepSync from '../services/backgroundSleepSync';
+import { formatDateForDB } from '../utils/dateHelpers';
 
 /**
  * Hook for managing health data synchronization
@@ -20,6 +23,9 @@ export const useHealthSync = ({
   const [error, setError] = useState(null);
   const [hasPermissions, setHasPermissions] = useState(false);
   const [needsPermissions, setNeedsPermissions] = useState(false);
+  const lastSyncTodayWhenMissingRef = useRef(0);
+  const FOREGROUND_SYNC_TODAY_COOLDOWN_MS = 15 * 60 * 1000; // 15 min
+  const backgroundTaskRegisteredRef = useRef(false);
 
   // Initialize sync service
   useEffect(() => {
@@ -31,6 +37,10 @@ export const useHealthSync = ({
         if (initialized) {
           const permissionsGranted = await sleepSyncService.hasPermissions();
           setHasPermissions(permissionsGranted);
+          if (permissionsGranted && !backgroundTaskRegisteredRef.current) {
+            backgroundTaskRegisteredRef.current = true;
+            backgroundSleepSync.registerSleepSyncBackgroundTask().catch(() => {});
+          }
         }
       } catch (err) {
         setError(err.message);
@@ -52,12 +62,27 @@ export const useHealthSync = ({
     if (!autoSyncOnForeground) return;
 
     const handleAppStateChange = (nextAppState) => {
-      if (nextAppState === 'active' && isInitialized && hasPermissions) {
-        // Check if sync is needed (based on time since last sync)
-        if (sleepSyncService.isSyncNeeded()) {
-          performSync();
+      if (nextAppState !== 'active' || !isInitialized || !hasPermissions) return;
+
+      (async () => {
+        try {
+          const today = formatDateForDB(new Date());
+          const hasTodayData = await sleepDataService.getSleepDataForDate(today);
+          const now = Date.now();
+          const cooldownPassed = now - lastSyncTodayWhenMissingRef.current > FOREGROUND_SYNC_TODAY_COOLDOWN_MS;
+
+          if (!hasTodayData && cooldownPassed) {
+            lastSyncTodayWhenMissingRef.current = now;
+            await performSync({ force: true, daysBack: 1 });
+            return;
+          }
+          if (sleepSyncService.isSyncNeeded()) {
+            await performSync();
+          }
+        } catch (e) {
+          // Non-blocking; avoid breaking app state listener
         }
-      }
+      })();
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
@@ -65,7 +90,7 @@ export const useHealthSync = ({
     return () => {
       subscription?.remove();
     };
-  }, [autoSyncOnForeground, isInitialized, hasPermissions]);
+  }, [autoSyncOnForeground, isInitialized, hasPermissions, performSync]);
 
   /**
    * Perform health data synchronization
@@ -169,6 +194,10 @@ export const useHealthSync = ({
       setNeedsPermissions(!granted);
 
       if (granted) {
+        if (!backgroundTaskRegisteredRef.current) {
+          backgroundTaskRegisteredRef.current = true;
+          backgroundSleepSync.registerSleepSyncBackgroundTask().catch(() => {});
+        }
         // Auto-sync after permissions are granted
         await performSync();
       }

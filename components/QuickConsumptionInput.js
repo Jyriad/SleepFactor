@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,36 @@ import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import Button from './Button';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
 import EditConsumptionOptionModal from './EditConsumptionOptionModal';
+
+// Memoized so parent re-renders don't touch the TextInput (avoids dropped keystrokes on Android).
+const CustomVolumeInput = memo(({ initialValue, valueRef, onBlur, placeholder, inputKey }) => (
+  <TextInput
+    key={inputKey}
+    style={styles.customVolumeInput}
+    defaultValue={initialValue}
+    onChangeText={(text) => { valueRef.current = text; }}
+    onBlur={onBlur}
+    placeholder={placeholder}
+    keyboardType="numeric"
+    maxLength={4}
+  />
+));
+
+// Isolated display for "→ X mg" so only this re-renders when the user types (parent and TextInput do not).
+const CustomAmountDisplay = forwardRef(({ initialAmount, unit }, ref) => {
+  const [amount, setAmount] = useState(initialAmount ?? 0);
+  useImperativeHandle(ref, () => ({
+    updateAmount: (value) => setAmount(value),
+  }), []);
+  useEffect(() => {
+    setAmount(initialAmount ?? 0);
+  }, [initialAmount]);
+  return (
+    <Text style={styles.customVolumeResult}>
+      {amount.toFixed(1)} {unit}
+    </Text>
+  );
+});
 
 const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded }) => {
   const { preferences } = useUserPreferences();
@@ -52,6 +82,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [customDrugAmount, setCustomDrugAmount] = useState(0);
   const [quickAddAmount, setQuickAddAmount] = useState('');
   const [editingEvent, setEditingEvent] = useState(null);
+  const customVolumeRef = useRef('');
+  const customAmountDisplayRef = useRef(null);
 
   // Load consumption options from database (filtered by user's region preference)
   useEffect(() => {
@@ -135,7 +167,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           habit_id: habit?.id,
           user_id: userId,
           consumed_at: consumptionTime.toISOString(),
-          amount: defaultAmount,
+          amount,
           drink_type: null, // No specific option for quick add
         });
 
@@ -295,13 +327,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     return Math.round(volumeMl * 10) / 10;
   };
 
-  const handleCustomVolumeChange = (userInput) => {
-    setCustomVolume(userInput);
+  const handleCustomVolumeBlur = useCallback(() => {
     const inputUnit = getVolumeUnitLabel(measurementSystem);
-    const volumeMl = parseVolumeInputToMl(userInput, measurementSystem, inputUnit);
+    const volumeMl = parseVolumeInputToMl(customVolumeRef.current, measurementSystem, inputUnit);
     const calculatedAmount = calculateCustomDrugAmount(volumeMl);
-    setCustomDrugAmount(calculatedAmount);
-  };
+    customAmountDisplayRef.current?.updateAmount(calculatedAmount);
+  }, [measurementSystem, selectedOption?.id]);
+
+  const customVolumePlaceholder = selectedOption?.default_volume
+    ? mlToUserUnit(selectedOption.default_volume, measurementSystem)
+    : '100';
 
   const selectConsumptionOption = (option) => {
     const isNoneOption = option.drug_amount === 0;
@@ -476,16 +511,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     setEditingEvent(null);
   };
 
-  // Generate hour and minute data for the pickers
-  const hourData = Array.from({ length: 24 }, (_, i) => ({
+  // Generate hour and minute data for the pickers (memoized so re-renders don't trigger heavy Picker updates and block the custom volume input)
+  const hourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
     label: i.toString().padStart(2, '0')
-  }));
+  })), []);
 
-  const minuteData = Array.from({ length: 60 }, (_, i) => ({
+  const minuteData = useMemo(() => Array.from({ length: 60 }, (_, i) => ({
     value: i.toString(),
     label: i.toString().padStart(2, '0')
-  }));
+  })), []);
 
   const addConsumptionEvent = async (consumptionType, consumptionTime) => {
     try {
@@ -507,10 +542,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       let servingMultiplier;
       let volumeConsumed;
       if (selectedServing === 'custom') {
-        totalAmount = customDrugAmount;
         const inputUnit = getVolumeUnitLabel(measurementSystem);
-        volumeConsumed = parseVolumeInputToMl(customVolume, measurementSystem, inputUnit)
+        const volumeStr = customVolumeRef.current ?? customVolume;
+        volumeConsumed = parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit)
           || selectedOption?.default_volume || 0;
+        totalAmount = calculateCustomDrugAmount(volumeConsumed);
         servingMultiplier = 'custom';
       } else {
         // Use multiplier calculation
@@ -599,10 +635,11 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       let servingMultiplier;
 
       if (selectedServing === 'custom') {
-        totalAmount = customDrugAmount;
         const inputUnit = getVolumeUnitLabel(measurementSystem);
-        volumeConsumed = parseVolumeInputToMl(customVolume, measurementSystem, inputUnit)
+        const volumeStr = customVolumeRef.current ?? customVolume;
+        volumeConsumed = parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit)
           || resolvedOption?.default_volume || 0;
+        totalAmount = calculateCustomDrugAmount(volumeConsumed);
         servingMultiplier = 'custom';
       } else {
         servingMultiplier = selectedServing || 1;
@@ -714,7 +751,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       if (!volumeMl && event.base_amount && resolvedOption?.default_volume) {
         volumeMl = (event.amount / event.base_amount) * resolvedOption.default_volume;
       }
-      setCustomVolume(volumeMl ? mlToUserUnit(volumeMl, measurementSystem) : '100');
+      const volumeStr = volumeMl ? mlToUserUnit(volumeMl, measurementSystem) : '100';
+      setCustomVolume(volumeStr);
+      customVolumeRef.current = volumeStr;
       setShowCustomVolume(true);
     } else {
       setSelectedServing(event.serving || 1);
@@ -790,8 +829,17 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   const getConsumptionTypeName = (type) => {
     if (type === 'none') return 'None';
+    if (type == null) return 'Quick add'; // null/undefined = one-time quick add
     const option = resolveConsumptionType(type);
     return option?.name || type;
+  };
+
+  // Label for active ingredient in UI (caffeine = mg, alcohol = units)
+  const getActiveIngredientLabel = () => {
+    const name = (habit?.name || '').toLowerCase();
+    if (name.includes('caffeine')) return 'caffeine';
+    if (name.includes('alcohol')) return 'alcohol';
+    return null;
   };
 
 
@@ -863,18 +911,21 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               {consumptionEvents.map((event) => {
             try {
               const resolvedOption = resolveConsumptionType(event.drink_type);
-              // Display volume if available - format based on user's measurement preference (volume is stored in ml)
-              let volumeDisplay;
-              if (event.volume) {
-                volumeDisplay = formatVolume(event.volume, measurementSystem) || `${event.volume} ml`;
-              } else {
-                volumeDisplay = `${event.amount} ${habit?.unit || 'units'}`;
-              }
+              // Volume consumed (drink amount)
+              const volumePart = event.volume
+                ? formatVolume(event.volume, measurementSystem) || `${event.volume} ml`
+                : null;
+              // Active ingredient amount (caffeine mg or alcohol units)
+              const unit = habit?.unit || 'units';
+              const amountPart = `${Number(event.amount) === event.amount ? event.amount.toFixed(event.amount % 1 === 0 ? 0 : 1) : event.amount} ${unit}`;
+              const ingredientLabel = getActiveIngredientLabel();
+              const activeIngredientPart = ingredientLabel ? `${amountPart} ${ingredientLabel}` : amountPart;
 
               return (
                 <View key={event.id} style={styles.loggedItemRow}>
                   <Text style={styles.loggedItemText}>
-                    {formatTime(event.consumed_at)} {getConsumptionTypeName(event.drink_type) || 'Unknown'} {volumeDisplay}
+                    {formatTime(event.consumed_at)} {getConsumptionTypeName(event.drink_type) || 'Unknown'}
+                    {volumePart ? ` ${volumePart}` : ''}{volumePart ? ' · ' : ' '}{activeIngredientPart}
                   </Text>
                   <View style={styles.loggedItemActions}>
                     <TouchableOpacity
@@ -1001,6 +1052,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                           ? mlToUserUnit(selectedOption.default_volume, measurementSystem)
                           : '';
                         setCustomVolume(defaultVolume);
+                        customVolumeRef.current = defaultVolume;
                         setCustomDrugAmount(selectedOption.drug_amount || 0);
                       }}
                     >
@@ -1024,19 +1076,25 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                     <View style={styles.customVolumeSection}>
                       <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
                       <View style={styles.customVolumeInputRow}>
-                        <TextInput
-                          style={styles.customVolumeInput}
-                          value={customVolume}
-                          onChangeText={handleCustomVolumeChange}
-                          placeholder={selectedOption.default_volume ? mlToUserUnit(selectedOption.default_volume, measurementSystem) : '100'}
-                          keyboardType="numeric"
-                          maxLength={4}
+                        <CustomVolumeInput
+                          initialValue={customVolume}
+                          valueRef={customVolumeRef}
+                          onBlur={handleCustomVolumeBlur}
+                          placeholder={customVolumePlaceholder}
+                          inputKey={`custom-volume-${selectedOption?.id ?? 'default'}`}
                         />
                         <Text style={styles.customVolumeUnit}>{getVolumeUnitLabel(measurementSystem)}</Text>
                         <Text style={styles.customVolumeArrow}>→</Text>
-                        <Text style={styles.customVolumeResult}>
-                          {customDrugAmount.toFixed(1)} {selectedOption.drug_unit || habit?.unit}
-                        </Text>
+                        <View style={styles.customAmountWithLabel}>
+                          <CustomAmountDisplay
+                            ref={customAmountDisplayRef}
+                            initialAmount={selectedOption?.drug_amount ?? customDrugAmount ?? 0}
+                            unit={selectedOption?.drug_unit || habit?.unit}
+                          />
+                          {getActiveIngredientLabel() ? (
+                            <Text style={styles.customVolumeIngredientLabel}>({getActiveIngredientLabel()})</Text>
+                          ) : null}
+                        </View>
                       </View>
                     </View>
                   )}
@@ -1168,28 +1226,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   <Ionicons name="time" size={20} color={colors.primary} />
                   <Text style={styles.menuOptionText}>Quick add one-time</Text>
                 </TouchableOpacity>
-
-                {consumptionOptions && consumptionOptions.length > 0 && (
-                  <ScrollView
-                    style={styles.plusMenuOptionsList}
-                    showsVerticalScrollIndicator={true}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    <Text style={styles.plusMenuSectionLabel}>All options</Text>
-                    {consumptionOptions.filter(o => o.drug_amount !== 0).map((option) => (
-                      <TouchableOpacity
-                        key={option.id}
-                        style={styles.plusMenuOptionItem}
-                        onPress={() => {
-                          setShowPlusMenu(false);
-                          selectConsumptionOption(option);
-                        }}
-                      >
-                        <Text style={styles.plusMenuOptionText}>{option.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -1505,6 +1541,15 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     minWidth: 60,
     textAlign: 'center',
+  },
+  customAmountWithLabel: {
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  customVolumeIngredientLabel: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   moreButton: {
     backgroundColor: colors.primary,

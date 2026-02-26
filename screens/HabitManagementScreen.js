@@ -589,6 +589,14 @@ const HabitManagementScreen = () => {
     if (!user || !habit.id || habit.id.startsWith('predef-')) return;
 
     const newValue = !(habit.log_as_no_by_default === true);
+
+    // Update UI immediately so the switch doesn’t flicker
+    setManualHabits(prev =>
+      prev.map(h =>
+        h.id === habit.id ? { ...h, log_as_no_by_default: newValue } : h
+      )
+    );
+
     try {
       const { error } = await supabase
         .from('habits')
@@ -599,13 +607,13 @@ const HabitManagementScreen = () => {
         .eq('id', habit.id);
 
       if (error) throw error;
-
+    } catch (error) {
+      // Revert on failure
       setManualHabits(prev =>
         prev.map(h =>
-          h.id === habit.id ? { ...h, log_as_no_by_default: newValue } : h
+          h.id === habit.id ? { ...h, log_as_no_by_default: !newValue } : h
         )
       );
-    } catch (error) {
       Alert.alert('Error', 'Failed to update habit setting');
     }
   };
@@ -919,11 +927,7 @@ const HabitManagementScreen = () => {
                 {isPlaceholder && ' (not added yet)'}
               </Text>
               {!isPlaceholder && habit.type === 'binary' && (
-                <TouchableOpacity
-                  style={styles.logNoByDefaultRow}
-                  onPress={() => toggleLogAsNoByDefault(habit)}
-                  activeOpacity={0.7}
-                >
+                <View style={styles.logNoByDefaultRow}>
                   <Switch
                     value={habit.log_as_no_by_default === true}
                     onValueChange={() => toggleLogAsNoByDefault(habit)}
@@ -931,7 +935,7 @@ const HabitManagementScreen = () => {
                     thumbColor={habit.log_as_no_by_default ? '#FFFFFF' : '#FFFFFF'}
                   />
                   <Text style={styles.logNoByDefaultLabel}>Log as "no" by default</Text>
-                </TouchableOpacity>
+                </View>
               )}
             </View>
 

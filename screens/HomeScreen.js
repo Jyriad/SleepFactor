@@ -21,6 +21,7 @@ import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
+import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
@@ -420,6 +421,7 @@ const HomeScreen = () => {
   const [habitCountCache, setHabitCountCache] = useState(new Map());
   const [cacheLoading, setCacheLoading] = useState(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
+  const [showNewSleepBanner, setShowNewSleepBanner] = useState(false);
 
   // Ref to track if we just completed a sync to prevent re-triggering
   const justSyncedRef = useRef(false);
@@ -608,10 +610,10 @@ const HomeScreen = () => {
             // Data was synced - clear cache and refresh
             updateSleepDataCache(selectedDate, undefined);
             updateHabitCountCache(selectedDate, undefined);
-            
+            setShowNewSleepBanner(true);
+            sleepSyncNotifications.notifyNewSleepDataSynced();
             // Wait a bit for database to update, then fetch
             await new Promise(resolve => setTimeout(resolve, 500));
-            
             try {
               await fetchSleepData();
             } catch (fetchError) {
@@ -656,6 +658,13 @@ const HomeScreen = () => {
       setAutoSyncLoading(false);
     };
   }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading]);
+
+  // Auto-hide "new sleep data" banner after 4 seconds
+  useEffect(() => {
+    if (!showNewSleepBanner) return;
+    const t = setTimeout(() => setShowNewSleepBanner(false), 4000);
+    return () => clearTimeout(t);
+  }, [showNewSleepBanner]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -1147,6 +1156,8 @@ const HomeScreen = () => {
         if (resultType === 'SUCCESS_WITH_DATA' && result.syncedRecords > 0) {
           // Data was synced - clear cache and refresh
           updateSleepDataCache(selectedDate, undefined);
+          setShowNewSleepBanner(true);
+          sleepSyncNotifications.notifyNewSleepDataSynced();
           await new Promise(resolve => setTimeout(resolve, 500));
           await fetchSleepData();
         } else if (resultType === 'SUCCESS_NO_DATA') {
@@ -1583,6 +1594,14 @@ const HomeScreen = () => {
         contentContainerStyle={styles.scrollContent}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
       >
+        {/* In-app success banner when new sleep data was just synced */}
+        {showNewSleepBanner && (
+          <View style={styles.newSleepBanner}>
+            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+            <Text style={styles.newSleepBannerText}>Last night&apos;s sleep is ready</Text>
+          </View>
+        )}
+
         {/* Today's Habits Reminder - Only when viewing another date (not today) and user hasn't logged today. Nudge: "you're looking at the past but haven't logged today yet." */}
         {!isToday(selectedDate) && (loading || !todaysHabitsLogged) && (
           <View style={styles.todayReminderSlot}>
@@ -1805,6 +1824,24 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
     minHeight: 100,
+  },
+  newSleepBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.success + '18',
+    borderRadius: 12,
+    paddingVertical: spacing.small,
+    paddingHorizontal: spacing.regular,
+    marginHorizontal: spacing.regular,
+    marginBottom: spacing.small,
+    borderWidth: 1,
+    borderColor: colors.success + '40',
+  },
+  newSleepBannerText: {
+    ...typography.body,
+    color: colors.success,
+    fontWeight: '600',
   },
   todayReminder: {
     backgroundColor: colors.cardBackground,

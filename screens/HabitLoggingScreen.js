@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,9 @@ import DrugLevelContainer from '../components/DrugLevelContainer';
 import PageLoadingView from '../components/PageLoadingView';
 
 const { width: screenWidth } = Dimensions.get('window');
+
+// Stable empty array so consumption habits don't get a new [] reference every render (avoids re-renders and custom volume input lag)
+const EMPTY_CONSUMPTION_EVENTS = [];
 
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
@@ -424,7 +427,7 @@ const HabitLoggingScreen = () => {
     }
   };
 
-  const handleHabitChange = (habitId, value) => {
+  const handleHabitChange = useCallback((habitId, value) => {
     const habit = habits.find(h => h.id === habitId);
     if (!habit) return;
 
@@ -441,7 +444,7 @@ const HabitLoggingScreen = () => {
         [habitId]: value,
       }));
     }
-  };
+  }, [habits]);
 
 
   // Calculate bedtime drug level for a given habit and date
@@ -590,9 +593,9 @@ const HabitLoggingScreen = () => {
                       <HabitInput
                         habit={habit}
                         value={(habit.type === 'drug' || habit.type === 'quick_consumption')
-                          ? (consumptionEvents[habit.id] || [])
+                          ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS)
                           : (habitLogs[habit.id] || '')}
-                        onChange={(value) => handleHabitChange(habit.id, value)}
+                        onHabitChange={handleHabitChange}
                         unit={habit.unit}
                         selectedDate={selectedDate}
                         userId={user?.id}
