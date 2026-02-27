@@ -25,7 +25,12 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --omit=dev
+        run: |
+          for i in 1 2 3; do
+            npm ci --legacy-peer-deps && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
 
       - name: Setup EAS
         uses: expo/expo-github-action@v8
