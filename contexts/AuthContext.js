@@ -49,37 +49,42 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let isMounted = true;
 
-    // Initialize auth state
+    // Initialize auth state: optimistic restore for fast app open, then validate in background
     const initializeAuth = async () => {
       try {
-        // First, try to restore session from AsyncStorage
         const storedSession = await loadSessionFromStorage();
 
-        if (storedSession) {
-          // Try to restore the session using Supabase
+        if (storedSession?.user && storedSession?.access_token) {
+          // Optimistic: show main app immediately using stored session (best UX on reopen)
+          initializedRef.current = true;
+          setSession(storedSession);
+          setUser(storedSession.user);
+          setLoading(false);
+
+          // Validate and refresh session in background; if invalid, user will be cleared
           const { data, error } = await supabase.auth.setSession({
             access_token: storedSession.access_token,
             refresh_token: storedSession.refresh_token,
           });
 
-          if (!error && data?.session && isMounted) {
-            // Session restored successfully - set state immediately
-            initializedRef.current = true;
-            setSession(data.session);
-            setUser(data.session.user);
-            setLoading(false);
+          if (!isMounted) return;
+          if (error) {
+            await saveSessionToStorage(null);
+            setSession(null);
+            setUser(null);
             return;
           }
-          // If restoration failed, clear stored session
-          if (isMounted) {
-            await saveSessionToStorage(null);
+          if (data?.session) {
+            setSession(data.session);
+            setUser(data.session.user);
+            await saveSessionToStorage(data.session);
           }
+          return;
         }
 
-        // Fallback to getting current session from Supabase
+        // No stored session: check Supabase for current session (e.g. from another tab)
         const { data } = await getSession();
         if (data?.session && isMounted) {
-          // Session found - set state immediately
           initializedRef.current = true;
           setSession(data.session);
           setUser(data.session.user);
@@ -87,7 +92,6 @@ export const AuthProvider = ({ children }) => {
           return;
         }
 
-        // No session found - set loading to false to show auth screen
         if (isMounted) {
           initializedRef.current = true;
           setLoading(false);

@@ -448,11 +448,11 @@ const HomeScreen = () => {
     React.useCallback(() => {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setTranslucent?.(true);
       }
       return () => {
-        if (Platform.OS === 'android') {
-          StatusBar.setBackgroundColor(colors.background);
-        }
+        // Do not set status bar to white here: navigating to HabitLogging (same tab) would
+        // flash white. Other tabs set their own status bar when they gain focus.
       };
     }, [])
   );
@@ -480,7 +480,32 @@ const HomeScreen = () => {
     }, [selectedDate, user])
   );
 
-  // Track sleepData state changes for debugging
+  // Cache-first bootstrap: show last saved data immediately so the home doesn't feel like it's "loading" on reopen
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const dateString = typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0];
+    Promise.all([
+      homeCacheService.getPersistedSleepData(user.id, dateString),
+      homeCacheService.getPersistedHabitCount(user.id, dateString),
+    ]).then(([persistedSleep, persistedCount]) => {
+      if (cancelled) return;
+      if (persistedSleep !== undefined) {
+        setSleepData(persistedSleep);
+        setIsExcluded(persistedSleep?.exclude_from_insights || false);
+        setExclusionReason(persistedSleep?.exclusion_reason || null);
+        setSleepDataCache(prev => new Map(prev).set(dateString, persistedSleep));
+      }
+      if (persistedCount !== undefined) {
+        setHabitCount(persistedCount);
+        setHabitCountCache(prev => new Map(prev).set(dateString, persistedCount));
+      }
+      setLoading(false);
+    }).catch(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Date-dependent operations (run when date changes)
   useEffect(() => {
@@ -494,28 +519,28 @@ const HomeScreen = () => {
     if (user) fetchLoggedDates();
   }, [user, selectedDate]);
 
-  // Date-independent operations (run once on mount)
+  // Date-independent operations: run lightweight work immediately, defer heavy fetches so first paint is fast
   useEffect(() => {
+    if (!user) return;
     checkTodaysHabitsLogged();
-    calculatePersonalAverages();
-    fetchTotalHabitCount(); // Fetch total habit count once on mount
-    fetchLoggingStreak(); // Fetch logging streak on mount
-    fetchInsightsSummary();
-    fetchCoreSleepDuration();
-    fetchDrugHabits();
-    // Cleanup old sync attempt records on app startup
     syncAttemptTracker.cleanupOldRecords();
+    const deferredTimer = setTimeout(() => {
+      calculatePersonalAverages();
+      fetchTotalHabitCount();
+      fetchLoggingStreak();
+      fetchInsightsSummary();
+      fetchCoreSleepDuration();
+      fetchDrugHabits();
+    }, 450);
+    return () => clearTimeout(deferredTimer);
   }, [user]);
 
-
-  // Preload data for recent dates on app launch
+  // Preload data for recent dates after first paint and initial fetches
   useEffect(() => {
     if (user && !cacheLoading) {
-      // Small delay to not interfere with initial data loading
       const timer = setTimeout(() => {
         preloadRecentData();
-      }, 1000);
-
+      }, 1200);
       return () => clearTimeout(timer);
     }
   }, [user]);
@@ -696,8 +721,6 @@ const HomeScreen = () => {
       setHabitsLogged(data && data.length > 0);
     } catch (error) {
       setHabitsLogged(false);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1133,11 +1156,19 @@ const HomeScreen = () => {
 
 
   const handleLogHabits = () => {
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setTranslucent?.(true);
+    }
     const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
     navigation.navigate('HabitLogging', { date: dateToUse.toISOString() });
   };
 
   const handleLogTodaysHabits = () => {
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setTranslucent?.(true);
+    }
     const today = new Date();
     safeSetSelectedDate(today);
     navigation.navigate('HabitLogging', { date: today.toISOString() });
