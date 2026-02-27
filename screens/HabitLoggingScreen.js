@@ -7,11 +7,12 @@ import {
   TouchableOpacity,
   Dimensions,
   Platform,
+  StatusBar,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useDateHeader } from '../contexts/DateHeaderContext';
@@ -32,6 +33,16 @@ const { width: screenWidth } = Dimensions.get('window');
 // Stable empty array so consumption habits don't get a new [] reference every render (avoids re-renders and custom volume input lag)
 const EMPTY_CONSUMPTION_EVENTS = [];
 
+// Cache keys for instant load (Option A) and cached Yes/No counts
+const getDateString = (date) => {
+  if (!date) return '';
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toISOString().split('T')[0];
+};
+const habitsCacheKey = (uid) => `habits_${uid}`;
+const habitLogsCacheKey = (uid, dateStr) => `habitLogs_${uid}_${dateStr}`;
+const countsCacheKey = (uid) => `habitLogCountsByValue_${uid}`;
+
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -48,6 +59,7 @@ const HabitLoggingScreen = () => {
   const [consumptionEvents, setConsumptionEvents] = useState({});
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const selectedDateRef = useRef(selectedDate);
+  const cleanupDoneRef = useRef(false);
 
   useEffect(() => {
     selectedDateRef.current = selectedDate;
@@ -62,13 +74,62 @@ const HabitLoggingScreen = () => {
     }
   }, [route.params?.date, setSelectedDate]);
 
+  // Keep status bar blue on this screen; set on focus so no white flash after navigation
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setTranslucent?.(true);
+      }
+    }, [])
+  );
+
   // Helper function to check if a habit is an automated bedtime habit
   const isAutomatedBedtimeHabit = (habit) => {
     return habit && habit.name === 'Bedtime Consistency';
   };
 
+  // Cache-first load: show UI from cache immediately, then refresh in background (Option A)
   useEffect(() => {
-    loadHabitsAndLogs();
+    if (!user) return;
+
+    let cancelled = false;
+
+    const loadFromCacheThenRefresh = async () => {
+      const dateStr = getDateString(selectedDate);
+      const keys = [
+        habitsCacheKey(user.id),
+        habitLogsCacheKey(user.id, dateStr),
+        countsCacheKey(user.id),
+      ];
+      let usedCache = false;
+      try {
+        const [cachedHabitsJson, cachedLogsJson, cachedCountsJson] = await AsyncStorage.multiGet(keys);
+        const cachedHabits = cachedHabitsJson[1] ? JSON.parse(cachedHabitsJson[1]) : null;
+        const cachedLogs = cachedLogsJson[1] ? JSON.parse(cachedLogsJson[1]) : null;
+        const cachedCounts = cachedCountsJson[1] ? JSON.parse(cachedCountsJson[1]) : null;
+
+        usedCache = Array.isArray(cachedHabits) && cachedHabits.length > 0;
+        if (!cancelled && usedCache) {
+          setHabits(cachedHabits);
+          setHabitLogs(typeof cachedLogs === 'object' && cachedLogs !== null ? cachedLogs : {});
+          setHabitLogCountsByValue(typeof cachedCounts === 'object' && cachedCounts !== null ? cachedCounts : {});
+          setConsumptionEvents({});
+          setLoading(false);
+        }
+
+        if (!usedCache && !cancelled) {
+          setLoading(true);
+        }
+      } catch (e) {
+        if (!cancelled) setLoading(true);
+      }
+
+      loadHabitsAndLogs(usedCache);
+    };
+
+    loadFromCacheThenRefresh();
+    return () => { cancelled = true; };
   }, [selectedDate, user]);
 
   // Save habitLogs to AsyncStorage whenever they change (debounced)
@@ -131,33 +192,55 @@ const HabitLoggingScreen = () => {
     }
   };
 
-  const loadHabitsAndLogs = async () => {
+  const loadHabitsAndLogs = async (backgroundRefresh = false) => {
     if (!user) return;
 
-    setLoading(true);
+    if (!backgroundRefresh) {
+      setLoading(true);
+    }
+
+    const dateString = getDateString(selectedDate);
+
     try {
-      // Load all active habits (exclude untracked habits)
-      const { data: habitsData, error: habitsError } = await supabase
-        .from('habits')
-        .select('*')
-        .eq('user_id', user.id)
-        .neq('is_active', false) // Exclude explicitly untracked habits
-        .order('is_pinned', { ascending: false })
-        .order('priority', { ascending: true });
+      // Fetch habits, logs for this date, and Yes/No counts in parallel for faster load
+      const [habitsResult, logsResult, countsResult] = await Promise.all([
+        supabase
+          .from('habits')
+          .select('*')
+          .eq('user_id', user.id)
+          .neq('is_active', false)
+          .order('is_pinned', { ascending: false })
+          .order('priority', { ascending: true }),
+        supabase
+          .from('habit_logs')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('date', dateString),
+        supabase
+          .from('habit_logs')
+          .select('habit_id, value')
+          .eq('user_id', user.id),
+      ]);
+
+      const { data: habitsData, error: habitsError } = habitsResult;
+      const { data: logsData, error: logsError } = logsResult;
+      const { data: countsData, error: countsError } = countsResult;
 
       if (habitsError) throw habitsError;
+      if (logsError) throw logsError;
 
       let finalHabits = habitsData || [];
 
-      // Clean up wrong habits and ensure correct ones exist
-      finalHabits = await cleanupAndEnsureHabits(finalHabits);
+      // Option D: run cleanup only once per session so opening the screen is faster
+      if (!backgroundRefresh && !cleanupDoneRef.current) {
+        finalHabits = await cleanupAndEnsureHabits(finalHabits);
+        cleanupDoneRef.current = true;
+      }
 
-
-      // Normalize habits and filter out deprecated ones, automatic health metrics, and automated bedtime habits
       const normalizedHabits = finalHabits
-        .filter(habit => habit.name !== 'Coffee') // Filter out old Coffee habit
-        .filter(habit => !healthMetricsService.isHealthMetricHabit(habit)) // Filter out automatic health metrics
-        .filter(habit => !isAutomatedBedtimeHabit(habit)) // Filter out automated bedtime habits
+        .filter(habit => habit.name !== 'Coffee')
+        .filter(habit => !healthMetricsService.isHealthMetricHabit(habit))
+        .filter(habit => !isAutomatedBedtimeHabit(habit))
         .map(habit => ({
           ...habit,
           is_custom: habit.is_custom === true || habit.is_custom === 'true',
@@ -167,21 +250,9 @@ const HabitLoggingScreen = () => {
 
       setHabits(normalizedHabits);
 
-      // Load existing logs for selected date
-      // Convert Date object to YYYY-MM-DD string format
-      const dateString = selectedDate instanceof Date 
-        ? selectedDate.toISOString().split('T')[0]
-        : typeof selectedDate === 'string' 
-          ? selectedDate 
-          : new Date(selectedDate).toISOString().split('T')[0];
-      
-      const { data: logsData, error: logsError } = await supabase
-        .from('habit_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', dateString);
-
-      if (logsError) throw logsError;
+      try {
+        await AsyncStorage.setItem(habitsCacheKey(user.id), JSON.stringify(normalizedHabits));
+      } catch (e) {}
 
       // Load consumption events for drug and quick_consumption habits
       const consumptionHabits = normalizedHabits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
@@ -191,9 +262,8 @@ const HabitLoggingScreen = () => {
         const habitIds = consumptionHabits.map(h => h.id);
         const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
 
-        // Calculate how far back to look based on longest half-life
         const maxHalfLife = Math.max(...consumptionHabits.map(h => h.half_life_hours || 5));
-        const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24)); // At least 3 days, or 3 half-lives worth
+        const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
         const historyStart = new Date(dateObj);
         historyStart.setDate(historyStart.getDate() - historyDays);
 
@@ -207,15 +277,11 @@ const HabitLoggingScreen = () => {
 
         if (eventsError) throw eventsError;
 
-        // Group events by habit_id, but only include events for the selected date
         if (eventsData) {
-          const selectedDateStr = dateObj.toDateString(); // Compare dates by string for simplicity
-
+          const selectedDateStr = dateObj.toDateString();
           eventsData.forEach(event => {
             const eventDate = new Date(event.consumed_at);
             const eventDateStr = eventDate.toDateString();
-
-            // Only include events that match the selected date
             if (eventDateStr === selectedDateStr) {
               if (!consumptionEventsMap[event.habit_id]) {
                 consumptionEventsMap[event.habit_id] = [];
@@ -228,7 +294,6 @@ const HabitLoggingScreen = () => {
 
       setConsumptionEvents(consumptionEventsMap);
 
-      // Build habit logs map
       const logsMap = {};
       if (logsData) {
         logsData.forEach(log => {
@@ -236,7 +301,6 @@ const HabitLoggingScreen = () => {
         });
       }
 
-      // For binary habits with "log as no by default", treat missing log as "no"
       normalizedHabits
         .filter(h => h.type === 'binary' && (h.log_as_no_by_default === true || h.log_as_no_by_default === 'true'))
         .forEach(h => {
@@ -245,12 +309,7 @@ const HabitLoggingScreen = () => {
 
       setHabitLogs(logsMap);
 
-      // Load Yes/No log counts per habit (for binary habits: how many times user logged Yes vs No)
-      const { data: countsData, error: countsError } = await supabase
-        .from('habit_logs')
-        .select('habit_id, value')
-        .eq('user_id', user.id);
-
+      // Yes/No counts already fetched in parallel above; persist to cache
       if (!countsError && countsData) {
         const byValue = {};
         countsData.forEach(log => {
@@ -260,12 +319,19 @@ const HabitLoggingScreen = () => {
           else if (v === 'no' || v === 'false') byValue[log.habit_id].no += 1;
         });
         setHabitLogCountsByValue(byValue);
+        try {
+          await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(byValue));
+        } catch (e) {}
       }
 
     } catch (error) {
-      Alert.alert('Error', 'Failed to load habits. Please try again.');
+      if (!backgroundRefresh) {
+        Alert.alert('Error', 'Failed to load habits. Please try again.');
+      }
     } finally {
-      setLoading(false);
+      if (!backgroundRefresh) {
+        setLoading(false);
+      }
     }
   };
 
@@ -363,10 +429,17 @@ const HabitLoggingScreen = () => {
   const saveHabitLogsToStorage = async () => {
     if (!user) return;
     try {
-      const storageKey = `habitLogs_${user.id}_${selectedDate}`;
+      const storageKey = habitLogsCacheKey(user.id, getDateString(selectedDate));
       await AsyncStorage.setItem(storageKey, JSON.stringify(habitLogs));
     } catch (error) {
     }
+  };
+
+  const saveCountsToStorage = async (counts) => {
+    if (!user || !counts) return;
+    try {
+      await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(counts));
+    } catch (e) {}
   };
 
 
@@ -432,19 +505,41 @@ const HabitLoggingScreen = () => {
     if (!habit) return;
 
     if (habit.type === 'drug' || habit.type === 'quick_consumption') {
-      // Handle consumption events
       setConsumptionEvents(prev => ({
         ...prev,
         [habitId]: value || [],
       }));
     } else {
-      // Handle regular habit logs
+      const oldValue = habitLogs[habitId];
       setHabitLogs(prev => ({
         ...prev,
         [habitId]: value,
       }));
+
+      // Update cached Yes/No counts when user taps Yes or No (only changes by ±1 per tap)
+      if (habit.type === 'binary') {
+        const v = (value || '').toString().toLowerCase();
+        const isNewYes = v === 'yes' || v === 'true';
+        const isNewNo = v === 'no' || v === 'false';
+        const oldV = (oldValue || '').toString().toLowerCase();
+        const wasYes = oldV === 'yes' || oldV === 'true';
+        const wasNo = oldV === 'no' || oldV === 'false';
+
+        if (isNewYes || isNewNo || wasYes || wasNo) {
+          setHabitLogCountsByValue(prev => {
+            const next = { ...prev };
+            if (!next[habitId]) next[habitId] = { yes: 0, no: 0 };
+            if (wasYes) next[habitId].yes = Math.max(0, (next[habitId].yes || 0) - 1);
+            if (wasNo) next[habitId].no = Math.max(0, (next[habitId].no || 0) - 1);
+            if (isNewYes) next[habitId].yes = (next[habitId].yes || 0) + 1;
+            if (isNewNo) next[habitId].no = (next[habitId].no || 0) + 1;
+            saveCountsToStorage(next);
+            return next;
+          });
+        }
+      }
     }
-  }, [habits]);
+  }, [habits, habitLogs]);
 
 
   // Calculate bedtime drug level for a given habit and date
@@ -527,8 +622,9 @@ const HabitLoggingScreen = () => {
   };
 
   return (
-    <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.rootWrap, { paddingBottom: insets.bottom }]}>
       <ScrollableDateHeaderBar />
+      <View style={styles.bodyWrap}>
       {loading ? (
         <PageLoadingView />
       ) : (
@@ -625,11 +721,16 @@ const HabitLoggingScreen = () => {
 
       </ScrollView>
       )}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  rootWrap: {
+    flex: 1,
+    backgroundColor: colors.primary,
+  },
   bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,

@@ -176,8 +176,12 @@ const ProfileScreen = () => {
       const habitLogKeys = keys.filter(key =>
         key.startsWith(`habitLogs_${userId}_`)
       );
-      if (habitLogKeys.length > 0) {
-        await AsyncStorage.multiRemove(habitLogKeys);
+      const habitLoggingCacheKeys = keys.filter(key =>
+        key === `habits_${userId}` || key === `habitLogCountsByValue_${userId}`
+      );
+      const toRemove = [...habitLogKeys, ...habitLoggingCacheKeys];
+      if (toRemove.length > 0) {
+        await AsyncStorage.multiRemove(toRemove);
       }
       await homeCacheService.clearForUser(userId);
     } catch (error) {

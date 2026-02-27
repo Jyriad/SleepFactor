@@ -8,6 +8,20 @@ const PREF_HABIT_REMINDER_TIME_KEY = 'habitReminderTime';
 const HABIT_REMINDER_NOTIFICATION_ID = 'habit_reminder_daily';
 const DEFAULT_TIME = '20:00'; // 8 PM
 
+/**
+ * Next occurrence of (hour, minute) in local time — today if still in the future, else tomorrow.
+ * Used for one-shot scheduling so Android and iOS both get a single "fire at this time" notification.
+ */
+function getNextTriggerDate(hour, minute) {
+  const next = new Date();
+  next.setHours(hour, minute ?? 0, 0, 0);
+  const now = new Date();
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+}
+
 function hasNotificationsNativeModule() {
   return !!NativeModules?.ExpoPushTokenManager;
 }
@@ -96,8 +110,9 @@ export async function cancelHabitReminder() {
 }
 
 /**
- * Schedule the daily habit reminder at the user's chosen time. Cancels any existing one first.
- * No-op if reminder is disabled or notifications unavailable.
+ * Schedule the habit reminder as a one-shot at the next occurrence of (hour, minute).
+ * Works on both Android and iOS (daily calendar trigger is not supported on Android).
+ * Cancels any existing reminder first, then schedules the next occurrence.
  */
 export async function scheduleHabitReminder() {
   if (Platform.OS === 'web') return;
@@ -114,6 +129,7 @@ export async function scheduleHabitReminder() {
 
     const timeStr = await getHabitReminderTime();
     const [hours, minutes] = timeStr.split(':').map(Number);
+    const nextTriggerDate = getNextTriggerDate(hours, minutes ?? 0);
 
     await Notifications.cancelScheduledNotificationAsync(HABIT_REMINDER_NOTIFICATION_ID);
 
@@ -125,19 +141,21 @@ export async function scheduleHabitReminder() {
         data: { type: 'habit_reminder' },
       },
       trigger: {
-        type: 'daily',
-        hour: hours,
-        minute: minutes ?? 0,
+        type: 'date',
+        date: nextTriggerDate,
       },
     });
   } catch (e) {
-    // Non-blocking
+    // Non-blocking; log in dev to help debug scheduling issues
+    if (__DEV__) {
+      console.warn('[habitReminderNotifications] scheduleHabitReminder failed', e);
+    }
   }
 }
 
 /**
- * If the user has the habit reminder enabled, reschedule it (e.g. on app start).
- * Call this when the app becomes active so the daily notification stays registered.
+ * If the user has the habit reminder enabled, reschedule it (e.g. on app start or when app becomes active).
+ * Schedules the next single occurrence so we never rely on an unsupported daily trigger on Android.
  */
 export async function rescheduleIfEnabled() {
   const enabled = await getHabitReminderEnabled();
@@ -145,6 +163,30 @@ export async function rescheduleIfEnabled() {
     await scheduleHabitReminder();
   } else {
     await cancelHabitReminder();
+  }
+}
+
+let rescheduleListenerSub = null;
+
+/**
+ * Register a listener so when the habit reminder notification is received (e.g. app in foreground),
+ * we immediately schedule the next occurrence. Call once on app load from App.js.
+ */
+export function setupRescheduleListener() {
+  if (Platform.OS === 'web') return;
+  const Notifications = getNotifications();
+  if (!Notifications || rescheduleListenerSub) return;
+  try {
+    rescheduleListenerSub = Notifications.addNotificationReceivedListener((notification) => {
+      const type = notification?.request?.content?.data?.type;
+      if (type === 'habit_reminder') {
+        scheduleHabitReminder();
+      }
+    });
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[habitReminderNotifications] setupRescheduleListener failed', e);
+    }
   }
 }
 
@@ -156,4 +198,5 @@ export default {
   scheduleHabitReminder,
   cancelHabitReminder,
   rescheduleIfEnabled,
+  setupRescheduleListener,
 };

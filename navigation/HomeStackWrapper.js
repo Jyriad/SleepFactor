@@ -21,7 +21,11 @@ const HomeStackWrapper = () => {
           initialRouteName="Home"
         >
           <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="HabitLogging" component={HabitLoggingScreen} />
+          <Stack.Screen
+            name="HabitLogging"
+            component={HabitLoggingScreen}
+            options={{ contentStyle: { backgroundColor: colors.primary } }}
+          />
         </Stack.Navigator>
       </View>
     </DateHeaderProvider>

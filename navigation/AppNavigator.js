@@ -30,7 +30,8 @@ const AppNavigator = ({ navigationRef }) => {
 
   const initialRoute = isAuthenticated && user ? "MainTabs" : "Auth";
 
-  const onRootLayout = useCallback(() => {
+  // Hide native splash as soon as any UI is on screen (loading spinner or main app) for a snappier feel
+  const hideSplashOnce = useCallback(() => {
     if (splashHiddenRef.current) return;
     splashHiddenRef.current = true;
     SplashScreen.hideAsync().catch(() => {});
@@ -79,7 +80,7 @@ const AppNavigator = ({ navigationRef }) => {
   // Keep showing loading screen until we're absolutely sure about auth state
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={styles.loadingContainer} onLayout={hideSplashOnce}>
         <ActivityIndicator size="large" color="#1E3A8A" />
       </View>
     );
@@ -105,7 +106,7 @@ const AppNavigator = ({ navigationRef }) => {
   };
 
   return (
-    <View style={styles.root} onLayout={onRootLayout}>
+    <View style={styles.root} onLayout={hideSplashOnce}>
     <NavigationContainer
       ref={navigationRef}
       onStateChange={onStateChange}

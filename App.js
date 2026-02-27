@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, StatusBar } from 'react-native';
+import { AppState, Platform, StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -138,9 +138,20 @@ export default function App() {
     };
   }, []);
 
-  // Re-register daily habit reminder on app start if user has it enabled
+  // Habit reminder: one-shot at next occurrence; reschedule on app start and when app becomes active
   useEffect(() => {
+    habitReminderNotifications.setupRescheduleListener();
     habitReminderNotifications.rescheduleIfEnabled();
+  }, []);
+
+  // When app returns to foreground, reschedule habit reminder so next occurrence is always set (e.g. after previous one fired)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        habitReminderNotifications.rescheduleIfEnabled();
+      }
+    });
+    return () => sub?.remove();
   }, []);
 
   return (
