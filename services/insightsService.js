@@ -170,6 +170,7 @@ class InsightsService {
       let includeExcludedData = false;
 
       try {
+        // useCoreSleep: reserved for future use (e.g. premium); app never passes true
         useCoreSleep = options && options.useCoreSleep ? true : false;
         useEfficiency = options && options.useEfficiency ? true : false;
         autoExcludeOutliers = options && options.autoExcludeOutliers ? true : false;
@@ -979,11 +980,10 @@ class InsightsService {
   }
 
   /**
-   * Get aggregated insights summary for the homepage across all analysis combinations:
-   * 2 (absolute vs % based) × 2 (core sleep only vs all sleep) = 4 analyses per habit.
-   * Uses a fixed time range (last 30 days). Result is cached for a short period.
+   * Get aggregated insights summary for the homepage.
+   * Uses last 30 days, Total Sleep only, 2 runs (absolute + percentage). No core sleep.
    * @param {string} userId - User ID
-   * @returns {Promise<Object>} { totalFindings, byConfidence: { high, medium, low, none }, habitsWithAtLeastOne }
+   * @returns {Promise<Object>} { totalInsights, byEvidence, byImpact, habitsWithAtLeastOne }
    */
   async getInsightsSummaryForHome(userId) {
     const now = Date.now();
@@ -999,9 +999,7 @@ class InsightsService {
     const metric = 'total_sleep_minutes';
     const runs = [
       { useEfficiency: false, useCoreSleep: false },
-      { useEfficiency: false, useCoreSleep: true },
       { useEfficiency: true, useCoreSleep: false },
-      { useEfficiency: true, useCoreSleep: true },
     ];
 
     const allInsights = [];
@@ -1040,6 +1038,127 @@ class InsightsService {
 
     this._homeSummaryCache = { userId, result, timestamp: now };
     return result;
+  }
+
+  /**
+   * Run all 12 insight combinations (6 metrics × absolute/percentage), no core sleep.
+   * Returns flattened array with each insight tagged with metricKey, metricLabel, analysisType.
+   * @private
+   */
+  async _getAllTaggedInsightsForHome(userId) {
+    const dateRange = this.calculateDateRange('30');
+    const metrics = this.getAvailableSleepMetrics();
+    const runs = [
+      { useEfficiency: false, useCoreSleep: false },
+      { useEfficiency: true, useCoreSleep: false },
+    ];
+    const tagged = [];
+    for (const metricInfo of metrics) {
+      for (const options of runs) {
+        const { validInsights } = await this.getHabitsInsights(
+          userId,
+          metricInfo.key,
+          dateRange.startDate,
+          dateRange.endDate,
+          options
+        );
+        if (validInsights && validInsights.length) {
+          const analysisType = options.useEfficiency ? 'percentage' : 'absolute';
+          for (const insight of validInsights) {
+            const direction = this._getInsightDirection(insight, metricInfo.key);
+            const strengthLabel = this._getStrengthLabel(insight.confidenceLevel);
+            tagged.push({
+              ...insight,
+              metricKey: metricInfo.key,
+              metricLabel: metricInfo.label,
+              analysisType,
+              direction,
+              strengthLabel,
+            });
+          }
+        }
+      }
+    }
+    return tagged;
+  }
+
+  _getInsightDirection(insight, metricKey) {
+    const higherIsBetter = metricKey !== 'awakenings_count';
+    if (insight.type === 'numerical' && insight.trendDirection) {
+      if (insight.trendDirection === 'none') return higherIsBetter ? 'positive' : 'negative';
+      return insight.trendDirection;
+    }
+    if (insight.type === 'binary' && insight.yesStats && insight.noStats) {
+      const difference = (insight.yesStats.median || 0) - (insight.noStats.median || 0);
+      const isPositive = higherIsBetter ? difference > 0 : difference < 0;
+      return isPositive ? 'positive' : 'negative';
+    }
+    return 'positive';
+  }
+
+  _getStrengthLabel(confidenceLevel) {
+    const map = { high: 'Strong correlation', medium: 'Moderate correlation', low: 'Limited correlation', none: 'Not enough data' };
+    return map[confidenceLevel] || map.none;
+  }
+
+  /**
+   * Get top N insights by correlation strength for the homepage.
+   * Uses all 6 metrics × absolute/percentage (12 runs), 30 days, no core sleep.
+   * @param {string} userId - User ID
+   * @param {number} limit - Max number of insights to return (default 10)
+   * @returns {Promise<Array>} Array of { habitId, habitName, metricKey, metricLabel, analysisType, direction, strengthLabel, ... }
+   */
+  async getTopInsightsForHome(userId, limit = 10) {
+    const tagged = await this._getAllTaggedInsightsForHome(userId);
+    const confidenceOrder = { high: 0, medium: 1, low: 2, none: 3 };
+    const impactOrder = { large: 0, moderate: 1, small: 2, minimal: 3 };
+    const sorted = tagged.slice().sort((a, b) => {
+      const confA = confidenceOrder[a.confidenceLevel] ?? 3;
+      const confB = confidenceOrder[b.confidenceLevel] ?? 3;
+      if (confA !== confB) return confA - confB;
+      const impactA = impactOrder[a.impactLevel] ?? 3;
+      const impactB = impactOrder[b.impactLevel] ?? 3;
+      if (impactA !== impactB) return impactA - impactB;
+      const pA = (a.pValue != null && !isNaN(a.pValue)) ? Number(a.pValue) : 1;
+      const pB = (b.pValue != null && !isNaN(b.pValue)) ? Number(b.pValue) : 1;
+      return pA - pB;
+    });
+    return sorted.slice(0, limit).map((insight) => ({
+      habitId: insight.habit?.id,
+      habitName: insight.habit?.name,
+      metricKey: insight.metricKey,
+      metricLabel: insight.metricLabel,
+      analysisType: insight.analysisType,
+      direction: insight.direction,
+      strengthLabel: insight.strengthLabel,
+      confidenceLevel: insight.confidenceLevel,
+      impactLevel: insight.impactLevel,
+      ...insight,
+    }));
+  }
+
+  /**
+   * Get insights grouped by habit, filtered to confidenceLevel !== 'none'.
+   * Same 12 runs as getTopInsightsForHome (6 metrics × absolute/percentage), 30 days, no core sleep.
+   * @param {string} userId - User ID
+   * @returns {Promise<Object>} { groups: Array<{ habitId, habitName, habit, insights: Array<tagged insight> }> }
+   */
+  async getInsightsGroupedByHabit(userId) {
+    const tagged = await this._getAllTaggedInsightsForHome(userId);
+    const correlated = tagged.filter((i) => (i.confidenceLevel || 'none') !== 'none');
+    const byHabit = {};
+    for (const insight of correlated) {
+      const id = insight.habit?.id;
+      const name = insight.habit?.name || 'Unknown';
+      if (!id) continue;
+      if (!byHabit[id]) {
+        byHabit[id] = { habitId: id, habitName: name, habit: insight.habit, insights: [] };
+      }
+      byHabit[id].insights.push(insight);
+    }
+    const groups = Object.values(byHabit);
+    groups.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
+    return { groups };
   }
 
   /**

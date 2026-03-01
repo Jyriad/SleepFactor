@@ -372,6 +372,7 @@ import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
 import NavigationCard from '../components/NavigationCard';
+import SleepInsightsHomeCard from '../components/SleepInsightsHomeCard';
 import DrugLevelContainer from '../components/DrugLevelContainer';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
@@ -399,7 +400,7 @@ const HomeScreen = () => {
   const [habitCount, setHabitCount] = useState(0);
   const [totalHabitCount, setTotalHabitCount] = useState(0);
   const [loggingStreak, setLoggingStreak] = useState(0);
-  const [insightsSummary, setInsightsSummary] = useState(null);
+  const [topInsights, setTopInsights] = useState(null);
   const [loading, setLoading] = useState(true);
   const [drugHabits, setDrugHabits] = useState([]); // Caffeine & Alcohol habits for level widgets
 
@@ -475,7 +476,7 @@ const HomeScreen = () => {
       checkHabitsLogged();
       checkTodaysHabitsLogged();
       fetchLoggingStreak();
-      fetchInsightsSummary();
+      fetchTopInsights();
       fetchDrugHabits();
     }, [selectedDate, user])
   );
@@ -528,7 +529,7 @@ const HomeScreen = () => {
       calculatePersonalAverages();
       fetchTotalHabitCount();
       fetchLoggingStreak();
-      fetchInsightsSummary();
+      fetchTopInsights();
       fetchCoreSleepDuration();
       fetchDrugHabits();
     }, 450);
@@ -1041,13 +1042,13 @@ const HomeScreen = () => {
     }
   };
 
-  const fetchInsightsSummary = async () => {
+  const fetchTopInsights = async () => {
     if (!user) return;
     try {
-      const summary = await insightsService.getInsightsSummaryForHome(user.id);
-      setInsightsSummary(summary);
+      const top = await insightsService.getTopInsightsForHome(user.id, 10);
+      setTopInsights(top);
     } catch (error) {
-      setInsightsSummary(null);
+      setTopInsights([]);
     }
   };
 
@@ -1793,35 +1794,12 @@ const HomeScreen = () => {
             ]}
             onPress={() => navigation.navigate('Habits')}
           />
-          <NavigationCard
-            icon="chatbubbles"
-            title="Sleep Insights"
-            subtitle="Discover what affects your sleep"
-            stats={
-              insightsSummary === null
-                ? [{ icon: 'ellipse-outline', label: 'Loading insights...' }]
-                : insightsSummary.totalInsights > 0
-                  ? [
-                      ...(insightsSummary.habitsWithAtLeastOne > 0
-                        ? [{ icon: 'list-outline', label: `${insightsSummary.habitsWithAtLeastOne} habit${insightsSummary.habitsWithAtLeastOne !== 1 ? 's' : ''} with insights` }]
-                        : []),
-                      { icon: 'analytics-outline', label: `${insightsSummary.totalInsights} insight${insightsSummary.totalInsights !== 1 ? 's' : ''}` },
-                      ...(insightsSummary.byEvidence.strong > 0
-                        ? [{ icon: 'trending-up', label: `${insightsSummary.byEvidence.strong} strong correlation` }]
-                        : []),
-                      ...(insightsSummary.byEvidence.moderate > 0
-                        ? [{ icon: 'pulse-outline', label: `${insightsSummary.byEvidence.moderate} moderate correlation` }]
-                        : []),
-                      ...(insightsSummary.byEvidence.limited > 0
-                        ? [{ icon: 'ellipse-outline', label: `${insightsSummary.byEvidence.limited} limited correlation` }]
-                        : []),
-                      ...(insightsSummary.byImpact && insightsSummary.byImpact.large > 0
-                        ? [{ icon: 'flash-outline', label: `${insightsSummary.byImpact.large} large impact` }]
-                        : []),
-                    ]
-                  : [{ icon: 'analytics-outline', label: 'No insights yet' }]
-            }
+          <SleepInsightsHomeCard
+            topInsights={topInsights}
             onPress={() => navigation.navigate('Insights')}
+            onLinePress={({ habitId, metricKey, analysisType }) =>
+              navigation.navigate('Insights', { focusedHabitId: habitId, metricKey, analysisType })
+            }
           />
         </View>
       </ScrollView>
