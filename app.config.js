@@ -122,9 +122,8 @@ export default {
     }
   },
   owner: "jyriad",
-  runtimeVersion: {
-    policy: "appVersion"
-  },
+  // Use base version only so EAS Configure expo-updates and the build agree (avoids "1.327" vs "1.327 Dev" mismatch).
+  runtimeVersion: BASE_VERSION,
   updates: {
     url: "https://u.expo.dev/430fa5de-f870-4b36-99b7-f5563e95a1f2"
   }

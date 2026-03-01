@@ -1,21 +1,16 @@
-import { NativeModules, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 
 const PREF_NOTIFY_NEW_SLEEP_KEY = 'sleepSyncNotifyWhenNewData';
 let notificationHandlerSet = false;
 
-/** Only use notifications when the native module is present; avoids "Cannot find native module" in Expo Go / older dev builds. */
-function hasNotificationsNativeModule() {
-  return !!NativeModules?.ExpoPushTokenManager;
-}
-
-/**
- * Lazy-load expo-notifications only when the native module exists. Returns the module or null.
- */
+/** expo-notifications requires ExpoPushTokenManager on load; use Expo's registry so we find it in new-arch/bridgeless as well as legacy. */
 function getNotifications() {
-  if (!hasNotificationsNativeModule()) return null;
   try {
+    const pushTokenModule = requireOptionalNativeModule('ExpoPushTokenManager');
+    if (!pushTokenModule) return null;
     return require('expo-notifications');
   } catch (e) {
     return null;

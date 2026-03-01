@@ -8,6 +8,7 @@ import {
   Dimensions,
   Platform,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +43,7 @@ const getDateString = (date) => {
 const habitsCacheKey = (uid) => `habits_${uid}`;
 const habitLogsCacheKey = (uid, dateStr) => `habitLogs_${uid}_${dateStr}`;
 const countsCacheKey = (uid) => `habitLogCountsByValue_${uid}`;
+const consumptionEventsCacheKey = (uid, dateStr) => `consumptionEvents_${uid}_${dateStr}`;
 
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
@@ -57,6 +59,7 @@ const HabitLoggingScreen = () => {
   const [loading, setLoading] = useState(true);
   const [habitLogCountsByValue, setHabitLogCountsByValue] = useState({});
   const [consumptionEvents, setConsumptionEvents] = useState({});
+  const [consumptionEventsLoading, setConsumptionEventsLoading] = useState(false);
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const selectedDateRef = useRef(selectedDate);
   const cleanupDoneRef = useRef(false);
@@ -101,20 +104,24 @@ const HabitLoggingScreen = () => {
         habitsCacheKey(user.id),
         habitLogsCacheKey(user.id, dateStr),
         countsCacheKey(user.id),
+        consumptionEventsCacheKey(user.id, dateStr),
       ];
       let usedCache = false;
       try {
-        const [cachedHabitsJson, cachedLogsJson, cachedCountsJson] = await AsyncStorage.multiGet(keys);
+        const [cachedHabitsJson, cachedLogsJson, cachedCountsJson, cachedConsumptionJson] = await AsyncStorage.multiGet(keys);
         const cachedHabits = cachedHabitsJson[1] ? JSON.parse(cachedHabitsJson[1]) : null;
         const cachedLogs = cachedLogsJson[1] ? JSON.parse(cachedLogsJson[1]) : null;
         const cachedCounts = cachedCountsJson[1] ? JSON.parse(cachedCountsJson[1]) : null;
+        const cachedConsumption = cachedConsumptionJson[1] ? JSON.parse(cachedConsumptionJson[1]) : null;
 
         usedCache = Array.isArray(cachedHabits) && cachedHabits.length > 0;
         if (!cancelled && usedCache) {
           setHabits(cachedHabits);
           setHabitLogs(typeof cachedLogs === 'object' && cachedLogs !== null ? cachedLogs : {});
           setHabitLogCountsByValue(typeof cachedCounts === 'object' && cachedCounts !== null ? cachedCounts : {});
-          setConsumptionEvents({});
+          const hasConsumptionCache = typeof cachedConsumption === 'object' && cachedConsumption !== null;
+          setConsumptionEvents(hasConsumptionCache ? cachedConsumption : {});
+          setConsumptionEventsLoading(!hasConsumptionCache);
           setLoading(false);
         }
 
@@ -192,17 +199,49 @@ const HabitLoggingScreen = () => {
     }
   };
 
+  // Fetches consumption events for given habit IDs and selected date; returns map habitId -> events[].
+  // Used so we can run this in parallel with cleanup and not block the main UI.
+  const fetchConsumptionEventsForDate = useCallback(async (userId, habitIds, dateObj) => {
+    const map = {};
+    if (!habitIds || habitIds.length === 0) return map;
+    const maxHalfLife = 5;
+    const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
+    const historyStart = new Date(dateObj);
+    historyStart.setDate(historyStart.getDate() - historyDays);
+    const { data: eventsData, error: eventsError } = await supabase
+      .from('habit_consumption_events')
+      .select('*')
+      .eq('user_id', userId)
+      .in('habit_id', habitIds)
+      .gte('consumed_at', historyStart.toISOString())
+      .order('consumed_at', { ascending: true });
+    if (eventsError) return map;
+    if (eventsData) {
+      const selectedDateStr = dateObj.toDateString();
+      eventsData.forEach(event => {
+        const eventDate = new Date(event.consumed_at);
+        if (eventDate.toDateString() === selectedDateStr) {
+          if (!map[event.habit_id]) map[event.habit_id] = [];
+          map[event.habit_id].push(event);
+        }
+      });
+    }
+    return map;
+  }, []);
+
   const loadHabitsAndLogs = async (backgroundRefresh = false) => {
     if (!user) return;
 
     if (!backgroundRefresh) {
       setLoading(true);
+      setConsumptionEventsLoading(true);
     }
 
     const dateString = getDateString(selectedDate);
+    const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
 
     try {
-      // Fetch habits, logs for this date, and Yes/No counts in parallel for faster load
+      // Fetch habits, logs for this date, and Yes/No counts in parallel
       const [habitsResult, logsResult, countsResult] = await Promise.all([
         supabase
           .from('habits')
@@ -230,8 +269,13 @@ const HabitLoggingScreen = () => {
       if (logsError) throw logsError;
 
       let finalHabits = habitsData || [];
+      const consumptionHabitIdsPre = (habitsData || [])
+        .filter(h => h.type === 'drug' || h.type === 'quick_consumption')
+        .map(h => h.id);
 
-      // Option D: run cleanup only once per session so opening the screen is faster
+      // Start consumption events fetch in parallel with cleanup so it doesn't block the UI
+      const consumptionPromise = fetchConsumptionEventsForDate(user.id, consumptionHabitIdsPre, dateObj);
+
       if (!backgroundRefresh && !cleanupDoneRef.current) {
         finalHabits = await cleanupAndEnsureHabits(finalHabits);
         cleanupDoneRef.current = true;
@@ -254,46 +298,6 @@ const HabitLoggingScreen = () => {
         await AsyncStorage.setItem(habitsCacheKey(user.id), JSON.stringify(normalizedHabits));
       } catch (e) {}
 
-      // Load consumption events for drug and quick_consumption habits
-      const consumptionHabits = normalizedHabits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
-      const consumptionEventsMap = {};
-
-      if (consumptionHabits.length > 0) {
-        const habitIds = consumptionHabits.map(h => h.id);
-        const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-
-        const maxHalfLife = Math.max(...consumptionHabits.map(h => h.half_life_hours || 5));
-        const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
-        const historyStart = new Date(dateObj);
-        historyStart.setDate(historyStart.getDate() - historyDays);
-
-        const { data: eventsData, error: eventsError } = await supabase
-          .from('habit_consumption_events')
-          .select('*')
-          .eq('user_id', user.id)
-          .in('habit_id', habitIds)
-          .gte('consumed_at', historyStart.toISOString())
-          .order('consumed_at', { ascending: true });
-
-        if (eventsError) throw eventsError;
-
-        if (eventsData) {
-          const selectedDateStr = dateObj.toDateString();
-          eventsData.forEach(event => {
-            const eventDate = new Date(event.consumed_at);
-            const eventDateStr = eventDate.toDateString();
-            if (eventDateStr === selectedDateStr) {
-              if (!consumptionEventsMap[event.habit_id]) {
-                consumptionEventsMap[event.habit_id] = [];
-              }
-              consumptionEventsMap[event.habit_id].push(event);
-            }
-          });
-        }
-      }
-
-      setConsumptionEvents(consumptionEventsMap);
-
       const logsMap = {};
       if (logsData) {
         logsData.forEach(log => {
@@ -309,7 +313,6 @@ const HabitLoggingScreen = () => {
 
       setHabitLogs(logsMap);
 
-      // Yes/No counts already fetched in parallel above; persist to cache
       if (!countsError && countsData) {
         const byValue = {};
         countsData.forEach(log => {
@@ -324,8 +327,31 @@ const HabitLoggingScreen = () => {
         } catch (e) {}
       }
 
+      // Show main content immediately; consumption events will fill in when fetch completes
+      if (!backgroundRefresh) {
+        setLoading(false);
+      }
+
+      // When consumption fetch completes, merge (ensure all consumption habits have an entry), cache, and update UI
+      const consumptionHabitsFinal = normalizedHabits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
+      consumptionPromise
+        .then((eventsMap) => {
+          const merged = {};
+          consumptionHabitsFinal.forEach(h => {
+            merged[h.id] = eventsMap[h.id] || [];
+          });
+          setConsumptionEvents(merged);
+          setConsumptionEventsLoading(false);
+          try {
+            AsyncStorage.setItem(consumptionEventsCacheKey(user.id, dateString), JSON.stringify(merged));
+          } catch (e) {}
+        })
+        .catch(() => {
+          setConsumptionEventsLoading(false);
+        });
     } catch (error) {
       if (!backgroundRefresh) {
+        setConsumptionEventsLoading(false);
         Alert.alert('Error', 'Failed to load habits. Please try again.');
       }
     } finally {
@@ -482,6 +508,14 @@ const HabitLoggingScreen = () => {
       const currentDateStr = currentDate.toISOString().split('T')[0];
       if (currentDateStr === dateForFetchStr) {
         setConsumptionEvents(consumptionEventsMap);
+        try {
+          if (user?.id) {
+            await AsyncStorage.setItem(
+              consumptionEventsCacheKey(user.id, dateForFetchStr),
+              JSON.stringify(consumptionEventsMap)
+            );
+          }
+        } catch (e) {}
       }
     } catch (error) {
     }
@@ -686,29 +720,38 @@ const HabitLoggingScreen = () => {
                           </Text>
                         </View>
                       )}
-                      <HabitInput
-                        habit={habit}
-                        value={(habit.type === 'drug' || habit.type === 'quick_consumption')
-                          ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS)
-                          : (habitLogs[habit.id] || '')}
-                        onHabitChange={handleHabitChange}
-                        unit={habit.unit}
-                        selectedDate={selectedDate}
-                        userId={user?.id}
-                        onConsumptionAdded={() => {
-                          setLevelRefreshKey((k) => k + 1);
-                          refreshConsumptionEvents();
-                        }}
-                        yesNoCounts={habitLogCountsByValue[habit.id]}
-                      />
-                      {isCaffeineOrAlcohol && (
-                        <DrugLevelContainer
+                      {isDrugHabit && consumptionEventsLoading ? (
+                        <View style={styles.consumptionLoadingWrap}>
+                          <ActivityIndicator size="small" color={colors.primary} />
+                          <Text style={styles.consumptionLoadingText}>Loading…</Text>
+                        </View>
+                      ) : (
+                      <>
+                        <HabitInput
                           habit={habit}
-                          userId={user?.id}
+                          value={(habit.type === 'drug' || habit.type === 'quick_consumption')
+                            ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS)
+                            : (habitLogs[habit.id] || '')}
+                          onHabitChange={handleHabitChange}
+                          unit={habit.unit}
                           selectedDate={selectedDate}
-                          compact
-                          levelRefreshKey={levelRefreshKey}
+                          userId={user?.id}
+                          onConsumptionAdded={() => {
+                            setLevelRefreshKey((k) => k + 1);
+                            refreshConsumptionEvents();
+                          }}
+                          yesNoCounts={habitLogCountsByValue[habit.id]}
                         />
+                        {isCaffeineOrAlcohol && (
+                          <DrugLevelContainer
+                            habit={habit}
+                            userId={user?.id}
+                            selectedDate={selectedDate}
+                            compact
+                            levelRefreshKey={levelRefreshKey}
+                          />
+                        )}
+                      </>
                       )}
                     </View>
                   </View>
@@ -799,6 +842,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
+  },
+  consumptionLoadingWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  consumptionLoadingText: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
   },
   emptyContainer: {
     paddingVertical: spacing.xxl,

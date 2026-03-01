@@ -142,6 +142,7 @@ export default function App() {
   useEffect(() => {
     habitReminderNotifications.setupRescheduleListener();
     habitReminderNotifications.rescheduleIfEnabled();
+    habitReminderNotifications.setupNotificationResponseListener(navigationRef);
   }, []);
 
   // When app returns to foreground, reschedule habit reminder so next occurrence is always set (e.g. after previous one fired)
