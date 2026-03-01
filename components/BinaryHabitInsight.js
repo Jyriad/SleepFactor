@@ -14,7 +14,8 @@ const BinaryHabitInsight = ({
   isCoreSleepEnabled = false,
   allowExpandNoSignificance = false,
   isExpanded: controlledIsExpanded,
-  onToggleExpand
+  onToggleExpand,
+  embedded = false,
 }) => {
   // Create a stable key based on insight and filters
   const componentKey = useMemo(() => 
@@ -359,35 +360,8 @@ const BinaryHabitInsight = ({
   // Expanded view - full details with Data Maturity and Pro-Tip
   const actionableAdvice = generateActionableAdvice('binary', habit, null, null, null, yesStats, noStats, sleepMetric);
 
-  return (
-    <View style={[styles.container, { width }]}>
-      <TouchableOpacity 
-        style={styles.expandedHeader}
-        onPress={toggleExpand}
-        activeOpacity={0.7}
-      >
-        <View style={styles.header}>
-          <Text style={styles.habitName}>{habit.name}</Text>
-          <View style={styles.headerTopRight}>
-            <View style={styles.dataBadge}>
-              <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
-              <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
-            </View>
-            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
-          </View>
-        </View>
-        <View style={styles.expandedTagsRow}>
-          <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-            <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
-          </View>
-          {confidenceLevel !== 'none' && (
-            <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
-            </View>
-          )}
-        </View>
-      </TouchableOpacity>
-
+  const expandedContent = (
+    <>
       {/* Impact Headline */}
       <View style={styles.expandedHeadlineContainer}>
         <Text style={styles.expandedHeadline}>{headline}</Text>
@@ -451,6 +425,42 @@ const BinaryHabitInsight = ({
           <Text style={styles.proTipText}>{actionableAdvice}</Text>
         </View>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <View style={{ width }}>{expandedContent}</View>;
+  }
+
+  return (
+    <View style={[styles.container, { width }]}>
+      <TouchableOpacity 
+        style={styles.expandedHeader}
+        onPress={toggleExpand}
+        activeOpacity={0.7}
+      >
+        <View style={styles.header}>
+          <Text style={styles.habitName}>{habit.name}</Text>
+          <View style={styles.headerTopRight}>
+            <View style={styles.dataBadge}>
+              <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
+              <Text style={styles.dataBadgeText}>{totalDataPoints} days</Text>
+            </View>
+            <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
+          </View>
+        </View>
+        <View style={styles.expandedTagsRow}>
+          <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
+            <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
+          </View>
+          {confidenceLevel !== 'none' && (
+            <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
+              <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+      {expandedContent}
     </View>
   );
 };

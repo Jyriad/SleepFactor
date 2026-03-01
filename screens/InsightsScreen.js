@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
   StatusBar,
   Platform,
+  ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -16,26 +17,53 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
-import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import insightsService from '../services/insightsService';
-import sleepSyncService from '../services/sleepSyncService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
-import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
-import CoreSleepInfoModal from '../components/CoreSleepInfoModal';
-import PageLoadingView from '../components/PageLoadingView';
+import {
+  getCorrelationLabel,
+  getImpactLabel,
+  getCorrelationTagStyle,
+  getImpactTagStyle,
+} from '../utils/insightLabels';
 
 const { width: screenWidth } = Dimensions.get('window');
+const availableMetrics = insightsService.getAvailableSleepMetrics();
+const embeddedCardWidth = screenWidth - (spacing.regular * 4);
 
-const InsightsScreen = () => {
+const METRIC_KEY_TO_STAGE = {
+  total_sleep_minutes: 'primary',
+  deep_sleep_minutes: 'deep',
+  light_sleep_minutes: 'light',
+  rem_sleep_minutes: 'rem',
+  awake_minutes: 'awake',
+  awakenings_count: 'awake',
+};
+
+const getSleepMetricColor = (metricKey) => {
+  const stage = METRIC_KEY_TO_STAGE[metricKey];
+  if (stage === 'primary') return colors.primary;
+  return colors.sleepStages?.[stage] ?? colors.textPrimary;
+};
+
+const InsightsScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const { user } = useAuth();
-  const { preferences } = useUserPreferences();
+
+  const [loading, setLoading] = useState(true);
+  const [grouped, setGrouped] = useState({ groups: [] });
+  const [analysisMode, setAnalysisMode] = useState('absolute'); // 'absolute' | 'percentage'
+  const [expandedRowKey, setExpandedRowKey] = useState(null); // `${habitId}-${metricKey}`
+  const scrollViewRef = useRef(null);
+  const habitYRef = useRef({});
+  const headerHeightRef = useRef(100);
+
+  const focusedHabitId = route.params?.focusedHabitId;
 
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor(colors.primary);
       }
@@ -47,448 +75,215 @@ const InsightsScreen = () => {
     }, [])
   );
 
-  // State for insights data
-  const [loading, setLoading] = useState(true);
-  const [loadingText, setLoadingText] = useState('Loading insights...');
-  const [insights, setInsights] = useState({ validInsights: [] });
-  const lastLoadTimeRef = useRef(0);
-  const isFirstFocusRef = useRef(true);
-  const FOCUS_REFRESH_STALE_MS = 30000;
-
-  // State for selectors
-  const [selectedMetric, setSelectedMetric] = useState('total_sleep_minutes');
-  const [selectedTimeRange, setSelectedTimeRange] = useState('all');
-  const [selectedAnalysisType, setSelectedAnalysisType] = useState('absolute'); // 'absolute' or 'percentage'
-  const [useCoreSleep, setUseCoreSleep] = useState(false);
-  const [showMetricPicker, setShowMetricPicker] = useState(false);
-  const [showTimeRangePicker, setShowTimeRangePicker] = useState(false);
-  const [showAnalysisTypePicker, setShowAnalysisTypePicker] = useState(false);
-  const [showCoreSleepPicker, setShowCoreSleepPicker] = useState(false);
-  const [showCoreSleepInfo, setShowCoreSleepInfo] = useState(false);
-  
-  // Handler to toggle filter pickers with accordion behavior - only one open at a time
-  const togglePicker = (pickerName) => {
-    setShowMetricPicker(pickerName === 'metric' ? prev => !prev : false);
-    setShowTimeRangePicker(pickerName === 'timeRange' ? prev => !prev : false);
-    setShowAnalysisTypePicker(pickerName === 'analysisType' ? prev => !prev : false);
-    setShowCoreSleepPicker(pickerName === 'coreSleep' ? prev => !prev : false);
-  };
-  
-  // Track which insight card is currently expanded (accordion behavior - only one at a time)
-  const [expandedInsightId, setExpandedInsightId] = useState(null);
-  
-  // Handler to toggle insight expansion - closes others when opening one
-  const handleInsightToggle = (insightId) => {
-    setExpandedInsightId(currentId => currentId === insightId ? null : insightId);
-  };
-
-  // Get available options from insights service
-  const availableMetrics = insightsService.getAvailableSleepMetrics();
-  const availableTimeRanges = insightsService.getAvailableTimeRanges();
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const result = await insightsService.getInsightsGroupedByHabit(user.id);
+        if (!cancelled) setGrouped(result);
+      } catch (error) {
+        if (!cancelled) setGrouped({ groups: [] });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [user]);
 
   useEffect(() => {
-    loadInsights({ backgroundRefresh: false });
-  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits]);
-
-  // Refresh insights when screen comes into focus: show cached data immediately, refresh in background if stale
-  useFocusEffect(
-    useCallback(() => {
-      if (isFirstFocusRef.current) {
-        isFirstFocusRef.current = false;
-        return;
-      }
-      const hasCached = insights.validInsights && insights.validInsights.length > 0;
-      const now = Date.now();
-      if (hasCached && (now - lastLoadTimeRef.current) < FOCUS_REFRESH_STALE_MS) {
-        return;
-      }
-      loadInsights({ backgroundRefresh: true });
-    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, useCoreSleep, preferences.showNoSignificanceHabits, insights.validInsights])
-  );
-
-  const loadInsights = async (options = {}) => {
-    const { backgroundRefresh = false } = options;
-    if (!user) return;
-
-    const hasCached = insights.validInsights && insights.validInsights.length > 0;
-    if (!backgroundRefresh || !hasCached) {
-      setLoading(true);
-      setLoadingText('Loading insights...');
+    if (loading || !focusedHabitId || !grouped.groups.length) return;
+    const y = habitYRef.current[focusedHabitId];
+    if (y != null && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current.scrollTo({
+          y: headerHeightRef.current + y - 24,
+          animated: true
+        });
+      }, 400);
     }
+  }, [loading, focusedHabitId, grouped.groups.length]);
 
-    try {
-      if (!backgroundRefresh || !hasCached) {
-        setLoadingText('Checking sleep data sync...');
-      }
-      const needsSync = await sleepSyncService.needsSync();
+  const groups = grouped.groups || [];
 
-      if (needsSync) {
-        if (!backgroundRefresh || !hasCached) {
-          setLoadingText('Syncing sleep data...');
-        }
-        const syncResult = await sleepSyncService.syncSleepData({ silent: true });
-        if (!syncResult.success) {
-          // Continue with insights calculation even if sync fails
-        }
-      }
+  const filteredGroups = groups.map((group) => ({
+    ...group,
+    insights: (group.insights || []).filter((i) => i.analysisType === analysisMode),
+  })).filter((g) => g.insights.length > 0);
 
-      if (!backgroundRefresh || !hasCached) {
-        setLoadingText('Calculating insights...');
-      }
-      const dateRange = insightsService.calculateDateRange(selectedTimeRange);
-      const insightsData = await insightsService.getHabitsInsights(
-        user.id,
-        selectedMetric,
-        dateRange.startDate,
-        dateRange.endDate,
-        {
-          useCoreSleep,
-          useEfficiency: selectedAnalysisType === 'percentage'
-        }
-      );
+  const getMetricInfo = (metricKey) =>
+    availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0];
 
-      let filteredInsights = [...insightsData.validInsights];
-      const sortedInsights = {
-        validInsights: filteredInsights.sort((a, b) => {
-          const aP = (a.pValue !== null && a.pValue !== undefined) ? Number(a.pValue) : 1;
-          const bP = (b.pValue !== null && b.pValue !== undefined) ? Number(b.pValue) : 1;
+  const renderInsightRow = (insight, habitId) => {
+    const rowKey = `${habitId}-${insight.metricKey}`;
+    const isExpanded = expandedRowKey === rowKey;
+    const isPositive = insight.direction === 'positive';
+    const correlationLabel = getCorrelationLabel(insight.confidenceLevel);
+    const impactLabel = getImpactLabel(insight.impactLevel || 'minimal', isPositive);
+    const correlationStyle = getCorrelationTagStyle(insight.confidenceLevel);
+    const impactStyle = getImpactTagStyle(insight.impactLevel || 'minimal', isPositive);
+    const metricColor = getSleepMetricColor(insight.metricKey);
+    const sleepMetricInfo = getMetricInfo(insight.metricKey);
 
-          if (aP !== bP) {
-            return aP - bP;
-          }
-
-          const confidencePriority = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
-          const aPriority = confidencePriority[a.confidenceLevel] || 3;
-          const bPriority = confidencePriority[b.confidenceLevel] || 3;
-
-          return aPriority - bPriority;
-        })
-      };
-
-      setInsights(sortedInsights);
-      lastLoadTimeRef.current = Date.now();
-    } catch (error) {
-      setInsights({ validInsights: [] });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getSelectedMetricInfo = () => {
-    return availableMetrics.find(m => m.key === selectedMetric) || availableMetrics[0];
-  };
-
-  const getSelectedTimeRangeInfo = () => {
-    return availableTimeRanges.find(tr => tr.key === selectedTimeRange) || availableTimeRanges[0];
-  };
-
-  const renderInsightCard = (insight) => {
-    const metricInfo = getSelectedMetricInfo();
-    // Use screen width minus padding for responsive cards
-    const cardWidth = screenWidth - (spacing.regular * 2);
-    const insightId = `${insight.habit.id}-${selectedMetric}-${selectedAnalysisType}-${useCoreSleep}`;
-    const isExpanded = expandedInsightId === insightId;
-
-    if (insight.type === 'binary') {
-      return (
-        <BinaryHabitInsight
-          key={insightId}
-          insight={insight}
-          sleepMetric={metricInfo}
-          width={cardWidth}
-          isPercentageMode={selectedAnalysisType === 'percentage'}
-          isCoreSleepEnabled={useCoreSleep}
-          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
-          isExpanded={isExpanded}
-          onToggleExpand={() => handleInsightToggle(insightId)}
-        />
-      );
-    } else if (insight.type === 'numerical') {
-      return (
-        <NumericalHabitInsight
-          key={insightId}
-          insight={insight}
-          sleepMetric={metricInfo}
-          width={cardWidth}
-          isPercentageMode={selectedAnalysisType === 'percentage'}
-          isCoreSleepEnabled={useCoreSleep}
-          onRefresh={loadInsights}
-          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
-          isExpanded={isExpanded}
-          onToggleExpand={() => handleInsightToggle(insightId)}
-        />
-      );
-    } else if (insight.type === 'placeholder') {
-      return (
-        <PlaceholderHabitInsight
-          key={insight.habit.id}
-          insight={insight}
-          width={cardWidth}
-        />
-      );
-    }
-
-    return null;
+    return (
+      <View key={insight.metricKey}>
+        <TouchableOpacity
+          style={[styles.tableRow, { borderLeftColor: metricColor, borderLeftWidth: 4 }]}
+          onPress={() => setExpandedRowKey((prev) => (prev === rowKey ? null : rowKey))}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.tableCellMetric} numberOfLines={1}>
+            {insight.metricLabel}
+          </Text>
+          <View style={[styles.tag, { backgroundColor: correlationStyle.backgroundColor }]}>
+            <Text style={[styles.tagTextSmall, { color: correlationStyle.color }]} numberOfLines={1}>
+              {correlationLabel}
+            </Text>
+          </View>
+          <View style={[styles.tag, { backgroundColor: impactStyle.backgroundColor }]}>
+            <Text style={[styles.tagTextSmall, { color: impactStyle.color }]} numberOfLines={1}>
+              {impactLabel}
+            </Text>
+          </View>
+          <Ionicons
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={colors.textSecondary}
+            style={styles.rowChevron}
+          />
+        </TouchableOpacity>
+        {isExpanded && (
+          <View style={styles.expandedContentWrap}>
+            {insight.type === 'binary' ? (
+              <BinaryHabitInsight
+                insight={insight}
+                sleepMetric={sleepMetricInfo}
+                width={embeddedCardWidth}
+                isPercentageMode={analysisMode === 'percentage'}
+                allowExpandNoSignificance={false}
+                isExpanded={true}
+                embedded={true}
+              />
+            ) : (
+              <NumericalHabitInsight
+                insight={insight}
+                sleepMetric={sleepMetricInfo}
+                width={embeddedCardWidth}
+                isPercentageMode={analysisMode === 'percentage'}
+                onRefresh={() => {}}
+                allowExpandNoSignificance={false}
+                isExpanded={true}
+                embedded={true}
+              />
+            )}
+          </View>
+        )}
+      </View>
+    );
   };
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
       <Ionicons name="analytics-outline" size={64} color={colors.textSecondary} />
-      <Text style={styles.emptyStateTitle}>No insights yet</Text>
+      <Text style={styles.emptyStateTitle}>No correlations found</Text>
       <Text style={styles.emptyStateText}>
-        Create habits and log them regularly to see how they affect your sleep.
+        Keep logging habits and sleep to see which habits affect your sleep.
       </Text>
       <Text style={styles.emptyStateSubtext}>
-        We need at least 10 days of data to generate insights. Keep logging to unlock them.
+        We need at least 10 days of paired data per habit to detect correlations.
       </Text>
     </View>
   );
 
-  const metricInfo = getSelectedMetricInfo();
-  const timeRangeInfo = getSelectedTimeRangeInfo();
-
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {loading ? (
-        <PageLoadingView />
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading insights...</Text>
+        </View>
       ) : (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          {/* Header scrolls with content */}
-          <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+        >
+          <View
+            style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
+            onLayout={(e) => { headerHeightRef.current = e.nativeEvent.layout.height; }}
+          >
             <View style={styles.header}>
               <Text style={styles.title}>Sleep Insights</Text>
             </View>
           </View>
 
-          <View style={styles.contentArea}>
-      {/* Selectors */}
-      {/* First Row: Primary Filters */}
-      <View style={styles.selectorsRow}>
-        {/* Metric Selector */}
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('metric')}
-        >
-          <Text style={styles.selectorValue}>{metricInfo.label}</Text>
-          <Ionicons
-            name={showMetricPicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
+          <View style={styles.content}>
+            {groups.length === 0 ? (
+              renderEmptyState()
+            ) : (
+              <>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>View by</Text>
+                  <View style={styles.switchSegments}>
+                    <TouchableOpacity
+                      style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
+                      onPress={() => setAnalysisMode('absolute')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.switchSegmentText, analysisMode === 'absolute' && styles.switchSegmentTextActive]}>
+                        Absolute
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.switchSegment, analysisMode === 'percentage' && styles.switchSegmentActive]}
+                      onPress={() => setAnalysisMode('percentage')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.switchSegmentText, analysisMode === 'percentage' && styles.switchSegmentTextActive]}>
+                        Percentage
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-        {/* Analysis Type Selector */}
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('analysisType')}
-        >
-          <Text style={styles.selectorValue}>
-            {selectedAnalysisType === 'absolute' ? 'Absolute' : 'Percentage'}
-          </Text>
-          <Ionicons
-            name={showAnalysisTypePicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
-      </View>
+                {filteredGroups.length === 0 && groups.length > 0 && (
+                  <Text style={styles.switchEmptyHint}>
+                    No correlations for {analysisMode === 'percentage' ? 'Percentage' : 'Absolute'} view. Try the other option.
+                  </Text>
+                )}
+                {filteredGroups.map((group) => (
+                  <View
+                    key={group.habitId}
+                    onLayout={(e) => { habitYRef.current[group.habitId] = e.nativeEvent.layout.y; }}
+                    style={[
+                      styles.habitContainer,
+                      focusedHabitId === group.habitId && styles.habitContainerFocused
+                    ]}
+                  >
+                    <Text style={styles.habitName}>{group.habitName}</Text>
+                    <View style={styles.tableHeader}>
+                      <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
+                      <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
+                      <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
+                      <View style={styles.headerChevronPlaceholder} />
+                    </View>
+                    {group.insights.map((insight) => renderInsightRow(insight, group.habitId))}
+                  </View>
+                ))}
 
-      {/* Second Row: Time & Advanced Filters */}
-      <View style={styles.selectorsRow}>
-        {/* Time Range Selector */}
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('timeRange')}
-        >
-          <Text style={styles.selectorValue}>{timeRangeInfo.label}</Text>
-          <Ionicons
-            name={showTimeRangePicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
-
-        {/* Core Sleep Selector */}
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('coreSleep')}
-        >
-          <Text style={styles.selectorValue}>
-            Core Sleep: {useCoreSleep ? 'On' : 'Off'}
-          </Text>
-          <Ionicons
-            name={showCoreSleepPicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
-      </View>
-
-      <CoreSleepInfoModal visible={showCoreSleepInfo} onClose={() => setShowCoreSleepInfo(false)} />
-
-      {/* Metric Picker Options */}
-      {showMetricPicker && (
-        <View style={styles.pickerContainer}>
-          {availableMetrics.map((metric) => (
-            <TouchableOpacity
-              key={metric.key}
-              style={[
-                styles.pickerOption,
-                selectedMetric === metric.key && styles.pickerOptionSelected
-              ]}
-              onPress={() => {
-                setSelectedMetric(metric.key);
-                setShowMetricPicker(false);
-              }}
-            >
-              <Text style={[
-                styles.pickerOptionText,
-                selectedMetric === metric.key && styles.pickerOptionTextSelected
-              ]}>
-                {metric.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Time Range Picker Options */}
-      {showTimeRangePicker && (
-        <View style={styles.pickerContainer}>
-          {availableTimeRanges.map((timeRange) => (
-            <TouchableOpacity
-              key={timeRange.key}
-              style={[
-                styles.pickerOption,
-                selectedTimeRange === timeRange.key && styles.pickerOptionSelected
-              ]}
-              onPress={() => {
-                setSelectedTimeRange(timeRange.key);
-                setShowTimeRangePicker(false);
-              }}
-            >
-              <Text style={[
-                styles.pickerOptionText,
-                selectedTimeRange === timeRange.key && styles.pickerOptionTextSelected
-              ]}>
-                {timeRange.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Analysis Type Picker Options */}
-      {showAnalysisTypePicker && (
-        <View style={styles.pickerContainer}>
-          <TouchableOpacity
-            style={[
-              styles.pickerOption,
-              selectedAnalysisType === 'absolute' && styles.pickerOptionSelected
-            ]}
-            onPress={() => {
-              setSelectedAnalysisType('absolute');
-              setShowAnalysisTypePicker(false);
-            }}
-          >
-            <Text style={[
-              styles.pickerOptionText,
-              selectedAnalysisType === 'absolute' && styles.pickerOptionTextSelected
-            ]}>
-              Absolute Amount
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.pickerOption,
-              selectedAnalysisType === 'percentage' && styles.pickerOptionSelected
-            ]}
-            onPress={() => {
-              setSelectedAnalysisType('percentage');
-              setShowAnalysisTypePicker(false);
-            }}
-          >
-            <Text style={[
-              styles.pickerOptionText,
-              selectedAnalysisType === 'percentage' && styles.pickerOptionTextSelected
-            ]}>
-              Percentage of Sleep
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Core Sleep Picker Options */}
-      {showCoreSleepPicker && (
-        <View style={styles.pickerContainer}>
-          <TouchableOpacity
-            style={[
-              styles.pickerOption,
-              !useCoreSleep && styles.pickerOptionSelected
-            ]}
-            onPress={() => {
-              setUseCoreSleep(false);
-              setShowCoreSleepPicker(false);
-            }}
-          >
-            <Text style={[
-              styles.pickerOptionText,
-              !useCoreSleep && styles.pickerOptionTextSelected
-            ]}>
-              Off - Use Full Night
-            </Text>
-          </TouchableOpacity>
-          <View
-            style={[
-              styles.pickerOption,
-              styles.pickerOptionRow,
-              useCoreSleep && styles.pickerOptionSelected
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.pickerOptionTouchable}
-              onPress={() => {
-                setUseCoreSleep(true);
-                setShowCoreSleepPicker(false);
-              }}
-            >
-              <Text style={[
-                styles.pickerOptionText,
-                useCoreSleep && styles.pickerOptionTextSelected
-              ]}>
-                On - Core Sleep Analysis
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setShowCoreSleepInfo(true)}
-              style={styles.pickerOptionHelpButton}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="help-circle-outline" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      <View style={styles.content}>
-          <Text style={styles.subtitle}>
-            Discover how your habits impact {metricInfo.label.toLowerCase()}
-            {selectedAnalysisType === 'percentage' ? ' (as percentage of total sleep)' : ''}
-            {useCoreSleep ? ' during your core sleep period' : ''}
-          </Text>
-
-          {/* All Insights Section - sorted by p-value */}
-          {insights?.validInsights?.length > 0 && (
-            <View style={styles.insightsSection}>
-              {insights.validInsights.map(renderInsightCard)}
-            </View>
-          )}
-
-          {/* Empty State - only show if no insights or placeholders */}
-          {(!insights?.validInsights?.length && !insights?.placeholders?.length) && (
-            renderEmptyState()
-          )}
-        </View>
+                <TouchableOpacity
+                  style={styles.detailedCta}
+                  onPress={() => navigation.navigate('DetailedInsights')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="options-outline" size={22} color={colors.primary} />
+                  <Text style={styles.detailedCtaText}>View every correlation (all metrics & options)</Text>
+                  <Ionicons name="chevron-forward" size={22} color={colors.textLight} />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </ScrollView>
       )}
@@ -501,16 +296,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  contentArea: {
+  loadingWrap: {
     flex: 1,
-    backgroundColor: colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.regular,
+  },
+  loadingText: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+  },
+  scrollView: {
+    flex: 1,
   },
   headerWrap: {
     backgroundColor: colors.primary,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   header: {
     paddingHorizontal: spacing.regular,
@@ -522,99 +326,147 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.white,
   },
-  selectorsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.regular,
-    marginBottom: spacing.sm,
-    gap: spacing.sm,
-  },
-  selector: {
-    flex: 1,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.regular,
-    borderWidth: 1,
-    borderColor: colors.border,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  selectorValue: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  pickerContainer: {
-    backgroundColor: colors.cardBackground,
-    marginHorizontal: spacing.regular,
-    marginBottom: spacing.sm,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  pickerOption: {
-    padding: spacing.regular,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  pickerOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  pickerOptionTouchable: {
-    flex: 1,
-  },
-  pickerOptionHelpButton: {
-    paddingLeft: spacing.sm,
-  },
-  pickerOptionSelected: {
-    backgroundColor: colors.primary + '20',
-  },
-  pickerOptionText: {
-    fontSize: typography.sizes.body,
-    color: colors.textPrimary,
-  },
-  pickerOptionTextSelected: {
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
-  },
-  scrollView: {
-    flex: 1,
-  },
   content: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: 112, // Increased from spacing.xl to account for navigation footer bar
+    paddingBottom: 112,
   },
-  insightsSection: {
-    marginBottom: spacing.xl,
-  },
-  sectionHeader: {
+  switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.regular,
-    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+  },
+  switchLabel: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+  },
+  switchSegments: {
+    flexDirection: 'row',
+    backgroundColor: colors.border,
+    borderRadius: 10,
+    padding: 2,
+  },
+  switchSegment: {
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.regular,
+    borderRadius: 8,
+  },
+  switchSegmentActive: {
+    backgroundColor: colors.background,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  switchSegmentText: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+  },
+  switchSegmentTextActive: {
+    color: colors.primary,
+    fontWeight: typography.weights.bold,
+  },
+  switchEmptyHint: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.regular,
+    fontStyle: 'italic',
+  },
+  habitContainer: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    padding: spacing.regular,
+    marginBottom: spacing.regular,
   },
-  sectionHeaderText: {
+  habitContainerFocused: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+  },
+  habitName: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingLeft: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginBottom: spacing.xs,
+    gap: spacing.sm,
+  },
+  tableHeaderText: {
     fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
     color: colors.textSecondary,
-    marginLeft: spacing.sm,
-    lineHeight: 18,
+  },
+  tableHeaderMetric: {
+    flex: 2,
+  },
+  tableHeaderTag: {
     flex: 1,
   },
-  subtitle: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    marginBottom: spacing.xl,
+  headerChevronPlaceholder: {
+    width: 28,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingLeft: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  tableCellMetric: {
+    flex: 2,
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+  },
+  tag: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    flex: 1,
+  },
+  tagTextSmall: {
+    fontSize: 10,
+    fontWeight: typography.weights.medium,
+  },
+  rowChevron: {
+    width: 28,
     textAlign: 'center',
+  },
+  expandedContentWrap: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  detailedCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.regular,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  detailedCtaText: {
+    flex: 1,
+    marginLeft: spacing.sm,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
   },
   emptyState: {
     alignItems: 'center',

@@ -4,7 +4,7 @@ import { DefaultTheme } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import HomeStackWrapper from './HomeStackWrapper';
-import InsightsScreen from '../screens/InsightsScreen';
+import InsightsStack from './InsightsStack';
 import HabitManagementScreen from '../screens/HabitManagementScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
@@ -69,7 +69,7 @@ const TabNavigator = () => {
       })}
     >
       <Tab.Screen name="Home" component={HomeStackWrapper} />
-      <Tab.Screen name="Insights" component={InsightsScreen} />
+      <Tab.Screen name="Insights" component={InsightsStack} />
       <Tab.Screen name="Habits" component={HabitManagementScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
