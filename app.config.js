@@ -15,7 +15,7 @@ export default {
   scheme: "sleepfactor",
   version: VERSION,
   orientation: "portrait",
-  icon: "./assets/AppIcon.png",
+  icon: "./assets/AppLogo.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
@@ -29,7 +29,7 @@ export default {
   },
   android: {
     adaptiveIcon: {
-      foregroundImage: "./assets/SquareLogoDark.png",
+      foregroundImage: "./assets/AppLogo.png",
       backgroundColor: "#1E3A8A"
     },
     edgeToEdgeEnabled: true,
@@ -65,6 +65,7 @@ export default {
         imageWidth: 200
       }
     ],
+    "./plugins/withAndroidSplashIconBackground.js",
     [
       "expo-health-connect",
       {

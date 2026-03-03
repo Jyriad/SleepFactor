@@ -426,6 +426,34 @@ class HealthKitService {
   }
 
   /**
+   * Get for each day the time when heart rate was highest (used for "exercise time before bed" inferred habit).
+   * @param {Date} startTime - Start date
+   * @param {Date} endTime - End date
+   * @returns {Promise<Array<{ date: string, timeOfMax: string }>>} One entry per day with date (YYYY-MM-DD) and timeOfMax (ISO string)
+   */
+  async getTimeOfMaxHeartRatePerDay(startTime, endTime) {
+    try {
+      const samples = await queryQuantitySamples(HKQuantityTypeIdentifier.heartRate, {
+        from: startTime,
+        to: endTime,
+      });
+      const byDay = {};
+      samples.forEach(sample => {
+        const recordDate = new Date(sample.startDate).toISOString().split('T')[0];
+        const bpm = sample.quantity || 0;
+        if (bpm <= 0) return;
+        const timeOfMax = new Date(sample.startDate).toISOString();
+        if (!byDay[recordDate] || bpm > (byDay[recordDate].bpm || 0)) {
+          byDay[recordDate] = { bpm, timeOfMax };
+        }
+      });
+      return Object.entries(byDay).map(([date, { timeOfMax }]) => ({ date, timeOfMax }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Get user-friendly error message for HealthKit errors
    * @param {Error} error - The error object
    * @returns {string} User-friendly error message

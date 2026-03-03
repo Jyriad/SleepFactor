@@ -159,6 +159,11 @@ export async function getLevelTimelineForToday(userId, habit) {
   }
 
   const eventList = events || [];
+  // When we have carryover from last bedtime, only add level from events after that time;
+  // otherwise we double-count (carryover already includes decay from earlier events).
+  const eventsForIncrement = carryoverBedtimeAt
+    ? eventList.filter((e) => new Date(e.consumed_at) > carryoverBedtimeAt)
+    : eventList;
   const intervalMinutes = 30;
   const intervalMs = intervalMinutes * 60 * 1000;
   const dataPoints = [];
@@ -175,7 +180,7 @@ export async function getLevelTimelineForToday(userId, habit) {
       );
     }
     const eventLevelAtTime = calculateTotalDrugLevel(
-      eventList,
+      eventsForIncrement,
       currentTime,
       halfLife,
       THRESHOLD_PERCENT

@@ -527,6 +527,55 @@ class HealthConnectService {
   }
 
   /**
+   * Get for each day the time when heart rate was highest (used for "exercise time before bed" inferred habit).
+   * Requests in 7-day chunks to avoid Health Connect per-request limits returning only ~6–7 days.
+   * @param {string} startTime - ISO start time
+   * @param {string} endTime - ISO end time
+   * @returns {Promise<Array<{ date: string, timeOfMax: string }>>} One entry per day with date (YYYY-MM-DD) and timeOfMax (ISO string)
+   */
+  async getTimeOfMaxHeartRatePerDay(startTime, endTime) {
+    try {
+      if (!this.isInitialized || !(await this.hasPermissions())) {
+        return [];
+      }
+      const byDay = {};
+      const start = new Date(startTime);
+      const end = new Date(endTime);
+      const chunkDays = 7;
+      let chunkStart = new Date(start);
+
+      while (chunkStart <= end) {
+        const chunkEnd = new Date(chunkStart);
+        chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+        chunkEnd.setHours(23, 59, 59, 999);
+        if (chunkEnd > end) chunkEnd.setTime(end.getTime());
+        const chunkStartIso = chunkStart.toISOString();
+        const chunkEndIso = chunkEnd.toISOString();
+        const { records } = await readRecords('HeartRate', {
+          timeRangeFilter: { operator: 'between', startTime: chunkStartIso, endTime: chunkEndIso },
+        });
+        records.forEach(record => {
+          const recordDate = (record.startTime || record.time || '').split('T')[0];
+          if (!recordDate) return;
+          const bpm = record.samples?.length
+            ? Math.max(...record.samples.map(s => s.beatsPerMinute || 0))
+            : 0;
+          if (bpm <= 0) return;
+          const t = record.startTime || record.time;
+          if (!byDay[recordDate] || bpm > byDay[recordDate].bpm) {
+            byDay[recordDate] = { bpm, timeOfMax: t };
+          }
+        });
+        chunkStart.setDate(chunkStart.getDate() + chunkDays);
+      }
+
+      return Object.entries(byDay).map(([date, { timeOfMax }]) => ({ date, timeOfMax }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Get user-friendly error message for Health Connect errors
    * @param {Error} error - The error object
    * @returns {string} User-friendly error message

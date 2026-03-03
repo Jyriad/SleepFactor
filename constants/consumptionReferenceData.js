@@ -109,6 +109,7 @@ export const CONSUMPTION_REFERENCE = {
       { name: 'Green Tea', drug_amount: 29, default_volume: 237, serving_unit: 'ml', drug_unit: 'mg', icon: 'leaf' },
       { name: 'Energy Drink', drug_amount: 150, default_volume: 473, serving_unit: 'ml', drug_unit: 'mg', icon: 'flash' },
       { name: 'Cola', drug_amount: 34, default_volume: 355, serving_unit: 'ml', drug_unit: 'mg', icon: 'water' },
+      { name: 'Soft Drink', drug_amount: 34, default_volume: 355, serving_unit: 'ml', drug_unit: 'mg', icon: 'water' },
     ],
     [MEASUREMENT_REGIONS.UK]: [
       { name: 'Espresso', drug_amount: 64, default_volume: 30, serving_unit: 'ml', drug_unit: 'mg', icon: 'cafe' },
@@ -118,6 +119,7 @@ export const CONSUMPTION_REFERENCE = {
       { name: 'Green Tea', drug_amount: 29, default_volume: 250, serving_unit: 'ml', drug_unit: 'mg', icon: 'leaf' },
       { name: 'Energy Drink', drug_amount: 150, default_volume: 500, serving_unit: 'ml', drug_unit: 'mg', icon: 'flash' },
       { name: 'Cola', drug_amount: 34, default_volume: 330, serving_unit: 'ml', drug_unit: 'mg', icon: 'water' },
+      { name: 'Soft Drink', drug_amount: 34, default_volume: 330, serving_unit: 'ml', drug_unit: 'mg', icon: 'water' },
     ],
     [MEASUREMENT_REGIONS.METRIC]: [
       { name: 'Espresso', drug_amount: 64, default_volume: 30, serving_unit: 'ml', drug_unit: 'mg', icon: 'cafe' },
@@ -127,6 +129,7 @@ export const CONSUMPTION_REFERENCE = {
       { name: 'Green Tea', drug_amount: 29, default_volume: 250, serving_unit: 'ml', drug_unit: 'mg', icon: 'leaf' },
       { name: 'Energy Drink', drug_amount: 150, default_volume: 500, serving_unit: 'ml', drug_unit: 'mg', icon: 'flash' },
       { name: 'Cola', drug_amount: 34, default_volume: 330, serving_unit: 'ml', drug_unit: 'mg', icon: 'water' },
+      { name: 'Soft Drink', drug_amount: 34, default_volume: 330, serving_unit: 'ml', drug_unit: 'mg', icon: 'water' },
     ],
   },
   alcohol: {
@@ -160,4 +163,18 @@ export function getReferenceOptionsForHabit(habitName, region) {
   if (!ref) return [];
   const options = ref[region] || ref[MEASUREMENT_REGIONS.METRIC];
   return options || [];
+}
+
+/**
+ * Get the default serving volume (ml) for an option in the user's measurement region.
+ * Used when DB has one canonical option per drink; app applies region for serving size.
+ * @param {string} optionName - e.g. 'Instant Coffee', 'Beer'
+ * @param {string} habitName - e.g. 'Caffeine', 'Alcohol'
+ * @param {string} measurementRegion - 'US', 'UK', or 'metric'
+ * @returns {number|null} Volume in ml for one serving in that region, or null to use option.default_volume
+ */
+export function getDefaultVolumeForOptionInRegion(optionName, habitName, measurementRegion) {
+  const options = getReferenceOptionsForHabit(habitName, measurementRegion);
+  const match = options.find((o) => o.name === optionName);
+  return match?.default_volume ?? null;
 }

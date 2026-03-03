@@ -2,24 +2,54 @@ import { supabase } from './supabase';
 
 /**
  * Service for managing consumption options (Beer, Wine, Espresso, etc.)
- * Handles CRUD operations for system defaults and user custom options
+ * Handles CRUD operations for system defaults and user custom options.
+ * Caches options per habit so the habit logging page and modals load quickly.
  */
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes – options change rarely
+
 class ConsumptionOptionsService {
+  constructor() {
+    this._cache = new Map(); // habitId -> { data, timestamp }
+  }
+
+  _getCached(habitId) {
+    const entry = this._cache.get(habitId);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+      this._cache.delete(habitId);
+      return null;
+    }
+    return entry.data;
+  }
+
+  _setCache(habitId, data) {
+    this._cache.set(habitId, { data, timestamp: Date.now() });
+  }
+
+  _invalidate(habitId) {
+    if (habitId) this._cache.delete(habitId);
+  }
+
   /**
-   * Get all active options for a specific habit
-   * Returns system options for the given region + user's custom options
+   * Get all active options for a specific habit.
+   * Returns cached data when available to avoid lag on the habit logging page.
    * @param {string} habitId - Habit UUID
-   * @param {string} region - 'US', 'UK', or 'metric' - which preset set to use. Default 'metric'
+   * @param {string} _region - Deprecated; kept for API compatibility. No longer filters DB.
    */
-  async getOptionsForHabit(habitId, region = 'metric') {
+  async getOptionsForHabit(habitId, _region = 'metric') {
     try {
+      const cached = this._getCached(habitId);
+      if (cached) {
+        return { success: true, data: cached };
+      }
+
       const { data, error } = await supabase
         .from('consumption_options')
         .select('*')
         .eq('habit_id', habitId)
         .eq('is_active', true)
-        .or(`region.eq.${region},region.eq.custom`)
+        .or('user_id.is.null,region.eq.custom')
         .order('is_custom', { ascending: false }) // Custom options first
         .order('name', { ascending: true });
 
@@ -32,6 +62,7 @@ class ConsumptionOptionsService {
         return (a.name || '').localeCompare(b.name || '');
       });
 
+      this._setCache(habitId, sorted);
       return { success: true, data: sorted };
     } catch (error) {
       return { success: false, error: error.message };
@@ -134,6 +165,7 @@ class ConsumptionOptionsService {
         .single();
 
       if (error) throw error;
+      this._invalidate(habitId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: error.message };
@@ -178,9 +210,19 @@ class ConsumptionOptionsService {
         .single();
 
       if (error) throw error;
+      this._invalidateByOptionId(optionId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: error.message };
+    }
+  }
+
+  _invalidateByOptionId(optionId) {
+    for (const [habitId, entry] of this._cache.entries()) {
+      if (entry.data && entry.data.some(o => o.id === optionId)) {
+        this._cache.delete(habitId);
+        break;
+      }
     }
   }
 
@@ -205,6 +247,7 @@ class ConsumptionOptionsService {
         .single();
 
       if (error) throw error;
+      this._invalidateByOptionId(optionId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: error.message };

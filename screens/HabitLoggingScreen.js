@@ -20,6 +20,7 @@ import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
+import consumptionOptionsService from '../services/consumptionOptionsService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -44,6 +45,7 @@ const habitsCacheKey = (uid) => `habits_${uid}`;
 const habitLogsCacheKey = (uid, dateStr) => `habitLogs_${uid}_${dateStr}`;
 const countsCacheKey = (uid) => `habitLogCountsByValue_${uid}`;
 const consumptionEventsCacheKey = (uid, dateStr) => `consumptionEvents_${uid}_${dateStr}`;
+const collapsedConsumptionKey = (uid) => `habit_logging_collapsed_${uid}`;
 
 const HabitLoggingScreen = () => {
   const navigation = useNavigation();
@@ -61,8 +63,31 @@ const HabitLoggingScreen = () => {
   const [consumptionEvents, setConsumptionEvents] = useState({});
   const [consumptionEventsLoading, setConsumptionEventsLoading] = useState(false);
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
+  const [collapsedConsumption, setCollapsedConsumption] = useState({});
   const selectedDateRef = useRef(selectedDate);
   const cleanupDoneRef = useRef(false);
+
+  // Load persisted collapse state for Caffeine/Alcohol sections
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    AsyncStorage.getItem(collapsedConsumptionKey(user.id))
+      .then((raw) => {
+        if (cancelled) return;
+        try {
+          const parsed = raw ? JSON.parse(raw) : {};
+          if (typeof parsed === 'object' && parsed !== null) {
+            setCollapsedConsumption(parsed);
+          }
+        } catch (e) {
+          console.warn('HabitLogging: failed to parse collapsed state', e);
+        }
+      })
+      .catch((err) => {
+        console.warn('HabitLogging: failed to load collapsed state', err);
+      });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   useEffect(() => {
     selectedDateRef.current = selectedDate;
@@ -196,6 +221,8 @@ const HabitLoggingScreen = () => {
           .in('habit_id', clearedHabitIds);
       }
     } catch (error) {
+      console.warn('HabitLogging: save habit logs to server failed', error);
+      Alert.alert('Error', 'Failed to save habit log. Please try again.');
     }
   };
 
@@ -239,6 +266,7 @@ const HabitLoggingScreen = () => {
 
     const dateString = getDateString(selectedDate);
     const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    const loadForDateString = dateString;
 
     try {
       // Fetch habits, logs for this date, and Yes/No counts in parallel
@@ -292,11 +320,21 @@ const HabitLoggingScreen = () => {
           priority: habit.priority || 0,
         }));
 
+      if (getDateString(selectedDateRef.current) !== loadForDateString) {
+        if (!backgroundRefresh) {
+          setLoading(false);
+          setConsumptionEventsLoading(false);
+        }
+        return;
+      }
+
       setHabits(normalizedHabits);
 
       try {
         await AsyncStorage.setItem(habitsCacheKey(user.id), JSON.stringify(normalizedHabits));
-      } catch (e) {}
+      } catch (e) {
+        console.warn('HabitLogging: cache write habits failed', e);
+      }
 
       const logsMap = {};
       if (logsData) {
@@ -324,7 +362,9 @@ const HabitLoggingScreen = () => {
         setHabitLogCountsByValue(byValue);
         try {
           await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(byValue));
-        } catch (e) {}
+        } catch (e) {
+          console.warn('HabitLogging: cache write counts failed', e);
+        }
       }
 
       // Show main content immediately; consumption events will fill in when fetch completes
@@ -332,10 +372,17 @@ const HabitLoggingScreen = () => {
         setLoading(false);
       }
 
-      // When consumption fetch completes, merge (ensure all consumption habits have an entry), cache, and update UI
+      // Preload consumption options for all caffeine/alcohol habits so dropdowns open instantly
       const consumptionHabitsFinal = normalizedHabits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
+      consumptionHabitsFinal.forEach((h) => {
+        consumptionOptionsService.getOptionsForHabit(h.id).catch((err) => {
+          console.warn('HabitLogging: preload options failed for habit', h.id, err);
+        });
+      });
+
       consumptionPromise
         .then((eventsMap) => {
+          if (getDateString(selectedDateRef.current) !== loadForDateString) return;
           const merged = {};
           consumptionHabitsFinal.forEach(h => {
             merged[h.id] = eventsMap[h.id] || [];
@@ -344,9 +391,12 @@ const HabitLoggingScreen = () => {
           setConsumptionEventsLoading(false);
           try {
             AsyncStorage.setItem(consumptionEventsCacheKey(user.id, dateString), JSON.stringify(merged));
-          } catch (e) {}
+          } catch (e) {
+            console.warn('HabitLogging: cache write consumption events failed', e);
+          }
         })
-        .catch(() => {
+        .catch((err) => {
+          console.warn('HabitLogging: consumption events fetch failed', err);
           setConsumptionEventsLoading(false);
         });
     } catch (error) {
@@ -379,6 +429,7 @@ const HabitLoggingScreen = () => {
           await supabase.from('habits').delete().eq('id', wrongHabit.id);
           cleanedHabits = cleanedHabits.filter(h => h.id !== wrongHabit.id);
         } catch (error) {
+          console.warn('HabitLogging: cleanup delete deprecated habit failed', wrongHabit.name, error);
         }
       }
     }
@@ -414,6 +465,7 @@ const HabitLoggingScreen = () => {
             habit = newHabit;
           }
         } catch (error) {
+          console.warn('HabitLogging: ensure habit insert failed', requiredHabit.name, error);
         }
       } else {
         // Update if exists but properties are wrong
@@ -444,6 +496,7 @@ const HabitLoggingScreen = () => {
               }
             }
           } catch (error) {
+            console.warn('HabitLogging: ensure habit update failed', habit.name, error);
           }
         }
       }
@@ -458,6 +511,7 @@ const HabitLoggingScreen = () => {
       const storageKey = habitLogsCacheKey(user.id, getDateString(selectedDate));
       await AsyncStorage.setItem(storageKey, JSON.stringify(habitLogs));
     } catch (error) {
+      console.warn('HabitLogging: save habit logs cache failed', error);
     }
   };
 
@@ -465,7 +519,9 @@ const HabitLoggingScreen = () => {
     if (!user || !counts) return;
     try {
       await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(counts));
-    } catch (e) {}
+    } catch (e) {
+      console.warn('HabitLogging: save counts cache failed', e);
+    }
   };
 
 
@@ -492,6 +548,7 @@ const HabitLoggingScreen = () => {
           .order('consumed_at', { ascending: true });
 
         if (eventsError) {
+          console.warn('HabitLogging: refreshConsumptionEvents fetch error', eventsError);
         } else {
           if (eventsData) {
             eventsData.forEach(event => {
@@ -506,7 +563,7 @@ const HabitLoggingScreen = () => {
 
       const currentDate = selectedDateRef.current instanceof Date ? selectedDateRef.current : new Date(selectedDateRef.current);
       const currentDateStr = currentDate.toISOString().split('T')[0];
-      if (currentDateStr === dateForFetchStr) {
+        if (currentDateStr === dateForFetchStr) {
         setConsumptionEvents(consumptionEventsMap);
         try {
           if (user?.id) {
@@ -515,11 +572,27 @@ const HabitLoggingScreen = () => {
               JSON.stringify(consumptionEventsMap)
             );
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn('HabitLogging: refreshConsumptionEvents cache write failed', e);
+        }
       }
     } catch (error) {
+      console.warn('HabitLogging: refreshConsumptionEvents failed', error);
+      Alert.alert('Error', 'Failed to refresh consumption data. Please try again.');
     }
   };
+
+  const toggleConsumptionCollapsed = useCallback((habitId) => {
+    setCollapsedConsumption((prev) => {
+      const next = { ...prev, [habitId]: !prev[habitId] };
+      if (user?.id) {
+        AsyncStorage.setItem(collapsedConsumptionKey(user.id), JSON.stringify(next)).catch((err) => {
+          console.warn('HabitLogging: save collapsed state failed', err);
+        });
+      }
+      return next;
+    });
+  }, [user?.id]);
 
   // Check if a habit is logged for the selected date
   const isHabitLoggedToday = (habit) => {
@@ -689,10 +762,13 @@ const HabitLoggingScreen = () => {
 
                 const isCaffeineOrAlcohol = isDrugHabit && (habit.name === 'Caffeine' || habit.name === 'Alcohol');
 
+                const isCollapsed = isCaffeineOrAlcohol && collapsedConsumption[habit.id];
+
                 return (
                   <View key={habit.id} style={[
                     styles.habitRow,
-                    isDrugHabit && styles.habitRowFullWidth
+                    isDrugHabit && styles.habitRowFullWidth,
+                    isCollapsed && styles.habitRowCollapsed
                   ]}>
                     {!isDrugHabit && (
                       <View style={styles.habitInfo}>
@@ -710,22 +786,36 @@ const HabitLoggingScreen = () => {
                       isDrugHabit && styles.habitInputFullWidth
                     ]}>
                       {isDrugHabit && (
-                        <View style={styles.drugHabitHeader}>
-                          <Text style={styles.habitName}>{habit.name}</Text>
-                          <Text style={[
-                            styles.habitStats,
-                            isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
-                          ]}>
-                            {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
-                          </Text>
-                        </View>
+                        <TouchableOpacity
+                          style={[styles.drugHabitHeader, isCollapsed && styles.drugHabitHeaderCollapsed]}
+                          onPress={isCaffeineOrAlcohol ? () => toggleConsumptionCollapsed(habit.id) : undefined}
+                          activeOpacity={isCaffeineOrAlcohol ? 0.7 : 1}
+                          disabled={!isCaffeineOrAlcohol}
+                        >
+                          <View style={styles.drugHabitHeaderLeft}>
+                            <Text style={styles.habitName}>{habit.name}</Text>
+                            <Text style={[
+                              styles.habitStats,
+                              isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
+                            ]}>
+                              {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
+                            </Text>
+                          </View>
+                          {isCaffeineOrAlcohol && (
+                            <Ionicons
+                              name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                              size={22}
+                              color={colors.textSecondary}
+                            />
+                          )}
+                        </TouchableOpacity>
                       )}
-                      {isDrugHabit && consumptionEventsLoading ? (
+                      {isDrugHabit && !isCollapsed && consumptionEventsLoading ? (
                         <View style={styles.consumptionLoadingWrap}>
                           <ActivityIndicator size="small" color={colors.primary} />
                           <Text style={styles.consumptionLoadingText}>Loading…</Text>
                         </View>
-                      ) : (
+                      ) : (!isDrugHabit || !isCollapsed) ? (
                       <>
                         <HabitInput
                           habit={habit}
@@ -752,7 +842,7 @@ const HabitLoggingScreen = () => {
                           />
                         )}
                       </>
-                      )}
+                      ) : null}
                     </View>
                   </View>
                 );
@@ -797,11 +887,11 @@ const styles = StyleSheet.create({
   habitRow: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.md, // Reduced from regular
-    marginBottom: spacing.sm, // Reduced from regular
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    minHeight: 70, // Reduced from previous larger size
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -810,13 +900,13 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
   },
   habitName: {
-    fontSize: typography.sizes.body, // Reduced from large
-    fontWeight: typography.weights.medium, // Reduced from semibold
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
     color: colors.textPrimary,
-    marginBottom: 2, // Reduced from spacing.xs
+    marginBottom: 2,
   },
   habitStats: {
-    fontSize: typography.sizes.xs, // Reduced from small
+    fontSize: typography.sizes.xs,
     color: colors.textSecondary,
   },
   habitStatsLogged: {
@@ -831,17 +921,26 @@ const styles = StyleSheet.create({
     minWidth: 120, // Ensure consistent width for input controls
   },
   habitRowFullWidth: {
-    flexDirection: 'column', // Stack vertically for drug habits
-    alignItems: 'stretch', // Full width
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  habitRowCollapsed: {
+    minHeight: 56,
   },
   habitInputFullWidth: {
-    width: '100%', // Full width for drug habit inputs
+    width: '100%',
   },
   drugHabitHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
+  },
+  drugHabitHeaderLeft: {
+    flex: 1,
+  },
+  drugHabitHeaderCollapsed: {
+    marginBottom: 0,
   },
   consumptionLoadingWrap: {
     flexDirection: 'row',

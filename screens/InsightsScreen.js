@@ -21,8 +21,8 @@ import insightsService from '../services/insightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import {
-  getCorrelationLabel,
-  getImpactLabel,
+  getCorrelationLabelShort,
+  getImpactLabelShort,
   getCorrelationTagStyle,
   getImpactTagStyle,
 } from '../utils/insightLabels';
@@ -67,31 +67,28 @@ const InsightsScreen = ({ navigation, route }) => {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor(colors.primary);
       }
+      let cancelled = false;
+      if (user) {
+        (async () => {
+          setLoading(true);
+          try {
+            const result = await insightsService.getInsightsGroupedByHabit(user.id);
+            if (!cancelled) setGrouped(result);
+          } catch (error) {
+            if (!cancelled) setGrouped({ groups: [] });
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
+      }
       return () => {
+        cancelled = true;
         if (Platform.OS === 'android') {
           StatusBar.setBackgroundColor(colors.background);
         }
       };
-    }, [])
+    }, [user])
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!user) return;
-      setLoading(true);
-      try {
-        const result = await insightsService.getInsightsGroupedByHabit(user.id);
-        if (!cancelled) setGrouped(result);
-      } catch (error) {
-        if (!cancelled) setGrouped({ groups: [] });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [user]);
 
   useEffect(() => {
     if (loading || !focusedHabitId || !grouped.groups.length) return;
@@ -120,8 +117,8 @@ const InsightsScreen = ({ navigation, route }) => {
     const rowKey = `${habitId}-${insight.metricKey}`;
     const isExpanded = expandedRowKey === rowKey;
     const isPositive = insight.direction === 'positive';
-    const correlationLabel = getCorrelationLabel(insight.confidenceLevel);
-    const impactLabel = getImpactLabel(insight.impactLevel || 'minimal', isPositive);
+    const correlationLabel = getCorrelationLabelShort(insight.confidenceLevel);
+    const impactLabel = getImpactLabelShort(insight.impactLevel || 'minimal', isPositive);
     const correlationStyle = getCorrelationTagStyle(insight.confidenceLevel);
     const impactStyle = getImpactTagStyle(insight.impactLevel || 'minimal', isPositive);
     const metricColor = getSleepMetricColor(insight.metricKey);
@@ -404,7 +401,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   tableHeaderText: {
-    fontSize: typography.sizes.small,
+    fontSize: 10,
     fontWeight: typography.weights.bold,
     color: colors.textSecondary,
   },

@@ -17,6 +17,8 @@ function getNotifications() {
   }
 }
 
+const SLEEP_SYNC_CHANNEL_ID = 'sleep_sync';
+
 function ensureNotificationHandler(Notifications) {
   if (!notificationHandlerSet) {
     Notifications.setNotificationHandler({
@@ -31,8 +33,23 @@ function ensureNotificationHandler(Notifications) {
   }
 }
 
+/** Create Android notification channel so "Sleep data synced" notifications are not dropped. Call from foreground. */
+async function ensureSleepSyncChannel(Notifications) {
+  if (Platform.OS !== 'android' || !Notifications?.setNotificationChannelAsync) return;
+  try {
+    await Notifications.setNotificationChannelAsync(SLEEP_SYNC_CHANNEL_ID, {
+      name: 'Sleep sync',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      sound: true,
+    });
+  } catch (e) {
+    // Non-blocking
+  }
+}
+
 /**
- * Request notification permission. Call when user has granted Health Connect and we may want to notify on sync.
+ * Request notification permission. Call when user has granted Health Connect so background sync can notify.
+ * Also ensures Android channel exists. Call from foreground (e.g. when registering background task).
  * @returns {Promise<boolean>} True if permission granted or already granted
  */
 export async function requestNotificationPermission() {
@@ -41,6 +58,7 @@ export async function requestNotificationPermission() {
   if (!Notifications) return false;
   try {
     ensureNotificationHandler(Notifications);
+    await ensureSleepSyncChannel(Notifications);
     const { status: existing } = await Notifications.getPermissionsAsync();
     if (existing === 'granted') return true;
     const { status } = await Notifications.requestPermissionsAsync();
@@ -77,7 +95,8 @@ export async function setNotifyWhenNewSleepData(value) {
 
 /**
  * If app is not in foreground and user has opted in, show a local notification that new sleep data was synced.
- * Call this when a sync completes with syncedRecords > 0.
+ * Call this when a sync completes with syncedRecords > 0 (e.g. from background task).
+ * Only checks existing permission (does not request), so permission must be granted in-app first.
  * No-op if app is active (caller should show in-app message instead) or if user disabled the setting.
  */
 export async function notifyNewSleepDataSynced() {
@@ -89,15 +108,17 @@ export async function notifyNewSleepDataSynced() {
     if (!enabled) return;
     if (AppState.currentState === 'active') return;
 
-    const granted = await requestNotificationPermission();
-    if (!granted) return;
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
 
     ensureNotificationHandler(Notifications);
+    await ensureSleepSyncChannel(Notifications);
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Sleep data synced',
         body: "Last night's sleep is ready.",
         data: { type: 'sleep_sync_success' },
+        channelId: Platform.OS === 'android' ? SLEEP_SYNC_CHANNEL_ID : undefined,
       },
       trigger: null, // show immediately
     });

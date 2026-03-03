@@ -80,6 +80,9 @@ const BinaryHabitInsight = ({
   const impactTagStyle = getImpactTagStyle(impactLevel, isPositiveImpact);
   const isStrongOrModerateEvidence = confidenceLevel === 'high' || confidenceLevel === 'medium';
   const evidenceColor = isStrongOrModerateEvidence ? colors.success : colors.warning;
+  // In percentage mode, awakenings uses "per hour" not "%"
+  const efficiencySuffix = isPercentageMode ? (sleepMetric?.key === 'awakenings_count' ? ' (per hr)' : ' (%)') : '';
+  const efficiencyUnit = isPercentageMode ? (sleepMetric?.key === 'awakenings_count' ? 'per hr' : '%') : (sleepMetric?.unit || 'units');
 
   // Non-significant insights show compact card (but allow expansion if preference is enabled)
   if (!isSignificantInsight && !allowExpandNoSignificance) {
@@ -160,7 +163,7 @@ const BinaryHabitInsight = ({
 
         <View style={styles.metricLabelContainer}>
           <Text style={styles.metricLabel}>
-            Impact on {sleepMetric.label.toLowerCase()}{isPercentageMode ? ' (%)' : ''}
+            Impact on {sleepMetric.label.toLowerCase()}{efficiencySuffix}
           </Text>
         </View>
 
@@ -186,7 +189,7 @@ const BinaryHabitInsight = ({
                   }]} />
                 </View>
                 <Text style={styles.barValue}>
-                  {yesStats.median.toFixed(1)} {isPercentageMode ? '%' : sleepMetric.unit || 'units'}
+                  {yesStats.median.toFixed(1)} {efficiencyUnit}
                 </Text>
               </View>
             </View>
@@ -200,7 +203,7 @@ const BinaryHabitInsight = ({
                   }]} />
                 </View>
                 <Text style={styles.barValue}>
-                  {noStats.median.toFixed(1)} {isPercentageMode ? '%' : sleepMetric.unit || 'units'}
+                  {noStats.median.toFixed(1)} {efficiencyUnit}
                 </Text>
               </View>
             </View>
@@ -266,7 +269,7 @@ const BinaryHabitInsight = ({
 
         <View style={styles.metricLabelContainer}>
           <Text style={styles.metricLabel}>
-            Impact on {sleepMetric.label.toLowerCase()}{isPercentageMode ? ' (%)' : ''}
+            Impact on {sleepMetric.label.toLowerCase()}{efficiencySuffix}
           </Text>
         </View>
 
@@ -381,7 +384,7 @@ const BinaryHabitInsight = ({
                   <View style={[styles.barFill, { width: `${yesWidth}%`, backgroundColor: colors.primary }]} />
                 </View>
                 <Text style={styles.barValue}>
-                  {yesStats.median.toFixed(1)} {isPercentageMode ? '%' : sleepMetric.unit || 'units'}
+                  {yesStats.median.toFixed(1)} {efficiencyUnit}
                 </Text>
               </View>
             </View>
@@ -392,7 +395,7 @@ const BinaryHabitInsight = ({
                   <View style={[styles.barFill, { width: `${noWidth}%`, backgroundColor: colors.secondary }]} />
                 </View>
                 <Text style={styles.barValue}>
-                  {noStats.median.toFixed(1)} {isPercentageMode ? '%' : sleepMetric.unit || 'units'}
+                  {noStats.median.toFixed(1)} {efficiencyUnit}
                 </Text>
               </View>
             </View>

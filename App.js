@@ -65,7 +65,7 @@ export default function App() {
             // Exchange the authorization code for a session
             const { data, error } = await supabase.auth.exchangeCodeForSession(code);
             if (error) {
-            } else {
+              console.warn('App: OAuth exchangeCodeForSession failed', error);
             }
           } else if (accessToken) {
             // If we have tokens directly, set the session
@@ -74,11 +74,11 @@ export default function App() {
               refresh_token: refreshToken,
             });
             if (error) {
-            } else {
+              console.warn('App: OAuth setSession failed', error);
             }
-          } else {
           }
         } catch (error) {
+          console.warn('App: deep link OAuth handling failed', error);
         }
       } else {
       }
@@ -91,6 +91,7 @@ export default function App() {
         handleDeepLink({ url });
       }
     }).catch((error) => {
+      console.warn('App: getInitialURL failed', error);
     });
 
     // Listen for future deep link events
@@ -129,7 +130,7 @@ export default function App() {
           sleepSyncNotifications.notifyNewSleepDataSynced();
         }
       } catch (e) {
-        // Non-blocking; do not break app launch
+        console.warn('App: launch sleep sync failed', e);
       }
     }, 2000);
     return () => {

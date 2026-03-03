@@ -21,7 +21,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
+import insightsService from '../services/insightsService';
 import sleepSyncService from '../services/sleepSyncService';
+import exerciseTimeBeforeBedService from '../services/exerciseTimeBeforeBedService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
@@ -34,11 +36,30 @@ const PREDEFINED_HABITS = [
   { name: 'Zinc Supplement', type: 'binary', unit: null },
 ];
 
-// Always available habits that are automatically created for all users
+// Always available habits (manual section only; excludes inferred)
 const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
   { name: 'Alcohol', type: 'quick_consumption', unit: 'units', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
-  { name: 'Bedtime Consistency', type: 'numeric', unit: 'minutes', is_automated: true },
+];
+
+// Inferred habits: derived from automatic/health data (Bedtime from sleep; Exercise Time from HR + sleep)
+const INFERRED_HABITS = [
+  {
+    name: 'Bedtime Consistency',
+    type: 'numeric',
+    unit: 'minutes',
+    description: 'How consistent your bedtime is over the last 5 nights (from sleep data)',
+    infoTitle: 'What is Bedtime Consistency?',
+    infoBody: 'This is calculated from your synced sleep data. For each night we estimate when you went to bed (using your sleep start time). We then look at the last 5 nights and work out how far that night’s bedtime was from your average. The value is the difference in minutes—so a lower number means a more consistent bedtime.',
+  },
+  {
+    name: 'Exercise Time Before Bed',
+    type: 'numeric',
+    unit: 'minutes before bed',
+    description: 'How many minutes before bed your peak heart rate occurred (from heart rate + sleep)',
+    infoTitle: 'What is Exercise Time Before Bed?',
+    infoBody: 'We use your heart rate from your phone or wearable to find the time of day when your heart rate was highest (usually when you were most active or exercising). We then compare that time to your bedtime from your sleep data. The value is how many minutes before bed that peak occurred—e.g. 240 means your peak activity was about 4 hours before you went to sleep. This helps you see whether exercising close to bedtime is linked to your sleep quality.',
+  },
 ];
 
 
@@ -70,6 +91,7 @@ const HabitManagementScreen = () => {
   const { user } = useAuth();
   const [manualHabits, setManualHabits] = useState([]);
   const [automaticHabits, setAutomaticHabits] = useState([]);
+  const [inferredHabits, setInferredHabits] = useState([]);
   const [untrackedHabits, setUntrackedHabits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -148,6 +170,8 @@ const HabitManagementScreen = () => {
         priority: habit.priority || 0,
       }));
 
+      const inferredNames = new Set(INFERRED_HABITS.map(h => h.name));
+
       // Ensure always available habits exist in database (optimized batch approach)
       const alwaysAvailableHabits = [];
       const habitsToCreate = [];
@@ -190,8 +214,42 @@ const HabitManagementScreen = () => {
         }
       }
 
+      // Ensure inferred habits exist
+      const inferredHabitsFromDb = [];
+      const inferredToCreate = [];
+      for (const habit of INFERRED_HABITS) {
+        const existing = normalizedData.find(h => h.name === habit.name && !h.is_custom);
+        if (existing) {
+          inferredHabitsFromDb.push(existing);
+        } else {
+          inferredToCreate.push({
+            user_id: user.id,
+            name: habit.name,
+            type: habit.type,
+            unit: habit.unit,
+            is_custom: false,
+            is_active: true,
+            is_pinned: false,
+            priority: 1000 + INFERRED_HABITS.findIndex(h => h.name === habit.name),
+          });
+        }
+      }
+      if (inferredToCreate.length > 0) {
+        try {
+          const { data: createdInferred, error: createInferredError } = await supabase
+            .from('habits')
+            .upsert(inferredToCreate, { onConflict: 'user_id,name', ignoreDuplicates: false })
+            .select();
+          if (!createInferredError && createdInferred) {
+            inferredHabitsFromDb.push(...createdInferred);
+          }
+        } catch (error) {
+        }
+      }
+
       // Create a set of existing habit names for faster lookups
       const existingHabitNames = new Set(normalizedData.filter(h => !h.is_custom).map(h => h.name));
+      INFERRED_HABITS.forEach(h => existingHabitNames.add(h.name));
       const customHabits = normalizedData.filter(h => h.is_custom);
 
       // Add regular predefined habits that user hasn't created yet (optimized)
@@ -202,7 +260,7 @@ const HabitManagementScreen = () => {
           id: `predef-${predef.name}`,
           user_id: user.id,
           is_custom: false,
-          is_active: true, // Default to tracked
+          is_active: true,
           priority: index + ALWAYS_AVAILABLE_HABITS.length,
         }));
 
@@ -211,46 +269,33 @@ const HabitManagementScreen = () => {
         !h.is_custom && PREDEFINED_HABITS.some(p => p.name === h.name)
       );
 
-      // Get health metric habits (automatic tracking habits)
+      // Get health metric habits (automatic tracking only)
       const healthMetricHabits = normalizedData.filter(h =>
         !h.is_custom && healthMetricsService.isHealthMetricHabit(h)
       );
 
+      const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits, ...healthMetricHabits, ...inferredHabitsFromDb];
 
-      const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits, ...healthMetricHabits];
-
-      // Helper function to check if a habit is an automated bedtime habit
-      const isAutomatedBedtimeHabit = (habit) => {
-        return habit && habit.name === 'Bedtime Consistency';
-      };
-
-      // Separate habits into manual and automatic categories
+      // Partition: Your habits (manual), Automatic habits (health metrics only), Inferred habits
       const manual = allHabits.filter(habit =>
-        !healthMetricsService.isHealthMetricHabit(habit) && !isAutomatedBedtimeHabit(habit)
+        !healthMetricsService.isHealthMetricHabit(habit) && !inferredNames.has(habit.name)
       );
-      const automatic = allHabits.filter(habit =>
-        healthMetricsService.isHealthMetricHabit(habit) || isAutomatedBedtimeHabit(habit)
-      );
+      const automatic = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
+      const inferred = allHabits.filter(habit => inferredNames.has(habit.name));
 
       // Sort manual habits by: pinned (true first), active (true first), priority (ascending)
-      const sortedManual = manual.sort((a, b) => {
-        // First sort by pinned status (pinned first)
+      const sortedManual = [...manual].sort((a, b) => {
         if (a.is_pinned && !b.is_pinned) return -1;
         if (!a.is_pinned && b.is_pinned) return 1;
-
-        // Then sort by active status (active first)
         if (a.is_active && !b.is_active) return -1;
         if (!a.is_active && b.is_active) return 1;
-
-        // Finally sort by priority (ascending)
         return (a.priority || 0) - (b.priority || 0);
       });
 
-      // Ensure all habits have valid IDs for DraggableFlatList
       const validManual = sortedManual.filter(habit => habit && (habit.id || habit.name));
       let validAutomatic = automatic.filter(habit => habit && (habit.id || habit.name));
+      const validInferred = inferred.filter(habit => habit && (habit.id || habit.name));
 
-      // Only show automatic health-metric habits that the user's device actually provides data for
       try {
         const providedMetrics = await healthMetricsService.getMetricsProvidedByDevice();
         const providedNames = new Set(providedMetrics.map(m => m.name));
@@ -258,12 +303,12 @@ const HabitManagementScreen = () => {
           !healthMetricsService.isHealthMetricHabit(habit) || providedNames.has(habit.name)
         );
       } catch (err) {
-        // If check fails (e.g. health not initialized), show all automatic habits
       }
 
-      setManualHabits(validManual); // Now includes both tracked and untracked
+      setManualHabits(validManual);
       setAutomaticHabits(validAutomatic);
-      setUntrackedHabits([]); // Clear untracked habits since they're now in manualHabits
+      setInferredHabits(validInferred);
+      setUntrackedHabits([]);
       setDataLoaded(true);
     } catch (error) {
       Alert.alert('Error', 'Failed to load habits');
@@ -571,6 +616,8 @@ const HabitManagementScreen = () => {
 
       if (error) throw error;
 
+      insightsService.invalidateHomeSummaryCache();
+
       // Update local state
       setAutomaticHabits(prev =>
         prev.map(h =>
@@ -580,6 +627,31 @@ const HabitManagementScreen = () => {
         )
       );
 
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update habit tracking');
+    }
+  };
+
+  const toggleInferredHabit = async (habit) => {
+    if (!user) return;
+
+    try {
+      const newActiveState = habit.is_active === false;
+
+      const { error } = await supabase
+        .from('habits')
+        .update({ is_active: newActiveState })
+        .eq('id', habit.id);
+
+      if (error) throw error;
+
+      insightsService.invalidateHomeSummaryCache();
+
+      setInferredHabits(prev =>
+        prev.map(h =>
+          h.id === habit.id ? { ...h, is_active: newActiveState } : h
+        )
+      );
     } catch (error) {
       Alert.alert('Error', 'Failed to update habit tracking');
     }
@@ -654,6 +726,7 @@ const HabitManagementScreen = () => {
         .eq('id', habit.id);
 
       if (error) throw error;
+      insightsService.invalidateHomeSummaryCache();
       loadHabits(true); // Force refresh
     } catch (error) {
       Alert.alert('Error', 'Failed to update habit');
@@ -994,7 +1067,6 @@ const HabitManagementScreen = () => {
                 <Text style={styles.emptyText}>
                   No custom habits yet. Add your first habit below.
                 </Text>
-                {/* Automatic habits section and Add button when no manual habits - reusing same structure as list footer below */}
                 {automaticHabits.length > 0 && (
                   <View style={styles.footerSection}>
                     <View style={styles.sectionHeader}>
@@ -1012,46 +1084,100 @@ const HabitManagementScreen = () => {
                     {automaticHabits.map((habit) => {
                       const healthMetric = healthMetricsService.getAvailableMetrics().find(m => m.name === habit.name);
                       const isEnabled = habit.is_active !== false;
-                      if (healthMetric) {
-                        return (
-                          <View key={healthMetric.key} style={styles.automaticHabitItem}>
-                            <View style={styles.automaticHabitInfo}>
-                              <Ionicons name="fitness-outline" size={24} color={colors.primary} />
-                              <View style={styles.automaticHabitText}>
-                                <Text style={styles.automaticHabitName}>{healthMetric.name}</Text>
-                                <Text style={styles.automaticHabitDescription}>{healthMetric.description}</Text>
-                              </View>
-                            </View>
-                            <Switch
-                              value={isEnabled}
-                              onValueChange={(value) => toggleHealthMetric(healthMetric, value)}
-                              trackColor={{ false: colors.border, true: colors.primary }}
-                              thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                            />
-                          </View>
-                        );
-                      }
                       return (
-                        <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
+                        <View key={habit.id || healthMetric?.key || habit.name} style={styles.automaticHabitItem}>
                           <View style={styles.automaticHabitInfo}>
-                            <Ionicons name="moon-outline" size={24} color={colors.primary} />
+                            <Ionicons name="fitness-outline" size={24} color={colors.primary} />
                             <View style={styles.automaticHabitText}>
-                              <Text style={styles.automaticHabitName}>{habit.name}</Text>
+                              <Text style={styles.automaticHabitName}>{healthMetric ? healthMetric.name : habit.name}</Text>
                               <Text style={styles.automaticHabitDescription}>
-                                {habit.name === 'Bedtime Consistency' ? 'Tracks how consistent your bedtime is over the last 5 nights' : 'Automatically tracked habit'}
+                                {healthMetric ? healthMetric.description : 'Automatically tracked from health data'}
                               </Text>
                             </View>
                           </View>
                           <Switch
                             value={isEnabled}
-                            onValueChange={async (value) => {
-                              await toggleAutomaticHabit(habit);
-                              if (value && habit.name === 'Bedtime Consistency') {
+                            onValueChange={(value) => toggleHealthMetric(healthMetric, value)}
+                            trackColor={{ false: colors.border, true: colors.primary }}
+                            thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+                {inferredHabits.length > 0 && (
+                  <View style={styles.footerSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionTitle}>Inferred Habits</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        Values derived from your automatic habits (e.g. bedtime from sleep, exercise time from heart rate)
+                      </Text>
+                    </View>
+                    {inferredHabits.map((habit) => {
+                      const config = INFERRED_HABITS.find(h => h.name === habit.name);
+                      const isEnabled = habit.is_active !== false;
+                      return (
+                        <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
+                          <View style={styles.automaticHabitInfo}>
+                            <Ionicons name="analytics-outline" size={24} color={colors.primary} />
+                            <View style={styles.automaticHabitText}>
+                              <View style={styles.inferredHabitNameRow}>
+                                <Text style={styles.automaticHabitName}>{habit.name}</Text>
+                                {config?.infoTitle && (
+                                  <TouchableOpacity
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    onPress={() => Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])}
+                                  >
+                                    <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                              <Text style={styles.automaticHabitDescription}>
+                                {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
+                              </Text>
+                            </View>
+                          </View>
+                          <Switch
+                            value={isEnabled}
+                            onValueChange={(value) => {
+                              const newActive = value;
+                              setInferredHabits(prev =>
+                                prev.map(h =>
+                                  h.id === habit.id ? { ...h, is_active: newActive } : h
+                                )
+                              );
+                              (async () => {
                                 try {
-                                  const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
-                                  await bedtimeHabitsService.backfillBedtimeHabits(user.id);
-                                } catch (error) {}
-                              }
+                                  const { error } = await supabase
+                                    .from('habits')
+                                    .update({ is_active: newActive })
+                                    .eq('id', habit.id);
+                                  if (error) throw error;
+                                  insightsService.invalidateHomeSummaryCache();
+                                  if (newActive && habit.name === 'Bedtime Consistency') {
+                                    const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
+                                    await bedtimeHabitsService.backfillBedtimeHabits(user.id);
+                                  }
+                                  if (newActive && habit.name === 'Exercise Time Before Bed') {
+                                    const result = await exerciseTimeBeforeBedService.backfill(user.id, 30);
+                                    if (result.success && result.synced !== undefined) {
+                                      Alert.alert('Sync Complete', result.synced > 0
+                                        ? `Filled in ${result.synced} days of exercise time before bed from your health data.`
+                                        : (result.message || 'No data to sync for this period.'));
+                                    } else if (!result.success && result.message) {
+                                      Alert.alert('Sync Incomplete', result.message);
+                                    }
+                                  }
+                                } catch (err) {
+                                  setInferredHabits(prev =>
+                                    prev.map(h =>
+                                      h.id === habit.id ? { ...h, is_active: !newActive } : h
+                                    )
+                                  );
+                                  Alert.alert('Error', 'Failed to update habit tracking');
+                                }
+                              })();
                             }}
                             trackColor={{ false: colors.border, true: colors.primary }}
                             thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
@@ -1118,7 +1244,6 @@ const HabitManagementScreen = () => {
                     Habits automatically tracked from your sleep and health data
                   </Text>
                 </View>
-
                 {!loading && (
                   <View style={styles.instructionContainer}>
                     <Ionicons name="fitness-outline" size={20} color={colors.primary} />
@@ -1127,71 +1252,111 @@ const HabitManagementScreen = () => {
                     </Text>
                   </View>
                 )}
-
                 {!loading && automaticHabits.map((habit) => {
-                  // Check if this is a health metric or a general automatic habit
                   const healthMetric = healthMetricsService.getAvailableMetrics().find(m => m.name === habit.name);
                   const isEnabled = habit.is_active !== false;
-
-                  if (healthMetric) {
-                    // Render health metric
-                    return (
-                      <View key={healthMetric.key} style={styles.automaticHabitItem}>
-                        <View style={styles.automaticHabitInfo}>
-                          <Ionicons name="fitness-outline" size={24} color={colors.primary} />
-                          <View style={styles.automaticHabitText}>
-                            <Text style={styles.automaticHabitName}>{healthMetric.name}</Text>
-                            <Text style={styles.automaticHabitDescription}>
-                              {healthMetric.description}
-                            </Text>
-                          </View>
+                  return (
+                    <View key={habit.id || healthMetric?.key || habit.name} style={styles.automaticHabitItem}>
+                      <View style={styles.automaticHabitInfo}>
+                        <Ionicons name="fitness-outline" size={24} color={colors.primary} />
+                        <View style={styles.automaticHabitText}>
+                          <Text style={styles.automaticHabitName}>{healthMetric ? healthMetric.name : habit.name}</Text>
+                          <Text style={styles.automaticHabitDescription}>
+                            {healthMetric ? healthMetric.description : 'Automatically tracked from health data'}
+                          </Text>
                         </View>
-                        <Switch
-                          value={isEnabled}
-                          onValueChange={(value) => {
-                            toggleHealthMetric(healthMetric, value);
-                          }}
-                          trackColor={{ false: colors.border, true: colors.primary }}
-                          thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                        />
                       </View>
-                    );
-                  } else {
-                    // Render general automatic habit (like bedtime habits)
-                    return (
-                      <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
-                        <View style={styles.automaticHabitInfo}>
-                          <Ionicons name="moon-outline" size={24} color={colors.primary} />
-                          <View style={styles.automaticHabitText}>
-                            <Text style={styles.automaticHabitName}>{habit.name}</Text>
-                            <Text style={styles.automaticHabitDescription}>
-                              {habit.name === 'Bedtime Consistency'
-                                ? 'Tracks how consistent your bedtime is over the last 5 nights'
-                                : 'Automatically tracked habit'
-                              }
-                            </Text>
-                          </View>
-                        </View>
-                        <Switch
-                          value={isEnabled}
-                          onValueChange={async (value) => {
-                            await toggleAutomaticHabit(habit);
+                      <Switch
+                        value={isEnabled}
+                        onValueChange={(value) => toggleHealthMetric(healthMetric, value)}
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+            )}
 
-                            // If enabling bedtime habits, backfill historical data
-                            if (value && habit.name === 'Bedtime Consistency') {
-                              try {
+                    {/* Inferred Habits Section */}
+            {inferredHabits.length > 0 && (
+              <View style={styles.footerSection}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Inferred Habits</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    Values derived from your automatic habits (e.g. bedtime from sleep, exercise time from heart rate)
+                  </Text>
+                </View>
+                {inferredHabits.map((habit) => {
+                  const config = INFERRED_HABITS.find(h => h.name === habit.name);
+                  const isEnabled = habit.is_active !== false;
+                  return (
+                    <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
+                      <View style={styles.automaticHabitInfo}>
+                        <Ionicons name="analytics-outline" size={24} color={colors.primary} />
+                        <View style={styles.automaticHabitText}>
+                          <View style={styles.inferredHabitNameRow}>
+                            <Text style={styles.automaticHabitName}>{habit.name}</Text>
+                            {config?.infoTitle && (
+                              <TouchableOpacity
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                onPress={() => Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])}
+                              >
+                                <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          <Text style={styles.automaticHabitDescription}>
+                            {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
+                          </Text>
+                        </View>
+                      </View>
+                      <Switch
+                        value={isEnabled}
+                        onValueChange={(value) => {
+                          const newActive = value;
+                          setInferredHabits(prev =>
+                            prev.map(h =>
+                              h.id === habit.id ? { ...h, is_active: newActive } : h
+                            )
+                          );
+                          (async () => {
+                            try {
+                              const { error } = await supabase
+                                .from('habits')
+                                .update({ is_active: newActive })
+                                .eq('id', habit.id);
+                              if (error) throw error;
+                              insightsService.invalidateHomeSummaryCache();
+                              if (newActive && habit.name === 'Bedtime Consistency') {
                                 const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
                                 await bedtimeHabitsService.backfillBedtimeHabits(user.id);
-                              } catch (error) {
                               }
+                              if (newActive && habit.name === 'Exercise Time Before Bed') {
+                                const result = await exerciseTimeBeforeBedService.backfill(user.id, 30);
+                                if (result.success && result.synced !== undefined) {
+                                  Alert.alert('Sync Complete', result.synced > 0
+                                    ? `Filled in ${result.synced} days of exercise time before bed from your health data.`
+                                    : (result.message || 'No data to sync for this period.'));
+                                } else if (!result.success && result.message) {
+                                  Alert.alert('Sync Incomplete', result.message);
+                                }
+                              }
+                            } catch (err) {
+                              setInferredHabits(prev =>
+                                prev.map(h =>
+                                  h.id === habit.id ? { ...h, is_active: !newActive } : h
+                                )
+                              );
+                              Alert.alert('Error', 'Failed to update habit tracking');
                             }
-                          }}
-                          trackColor={{ false: colors.border, true: colors.primary }}
-                          thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                        />
-                      </View>
-                    );
-                  }
+                          })();
+                        }}
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
+                      />
+                    </View>
+                  );
                 })}
               </View>
             )}
@@ -1214,6 +1379,7 @@ const HabitManagementScreen = () => {
           </View>
             )}
           </View>
+
         </SafeAreaView>
       </View>
     </GestureHandlerRootView>
@@ -1449,6 +1615,11 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     lineHeight: 16,
+  },
+  inferredHabitNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   untrackedHabitItem: {
     flexDirection: 'column',

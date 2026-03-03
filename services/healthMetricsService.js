@@ -40,10 +40,10 @@ class HealthMetricsService {
       },
       {
         key: 'exercise_minutes',
-        name: 'Exercise Time',
+        name: 'Exercise Duration',
         unit: 'minutes',
         type: 'numeric',
-        description: 'Time spent exercising'
+        description: 'Duration of exercise'
       },
       {
         key: 'distance_walking',
@@ -506,7 +506,7 @@ class HealthMetricsService {
       'Active Energy': 'Calories burned through physical activity',
       'Resting Heart Rate': 'Your heart rate while at rest',
       'Max Heart Rate': 'Your highest heart rate during activity',
-      'Exercise Time': 'Minutes spent exercising',
+      'Exercise Duration': 'Minutes spent exercising',
       'Distance Walking': 'Distance traveled by walking/running'
     };
 

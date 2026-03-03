@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PREFIX_SLEEP = 'home_sleep_';
 const PREFIX_HABIT_COUNT = 'home_habit_count_';
+const PREFIX_TOTAL_HABIT_COUNT = 'home_total_habit_count_';
 const MAX_CACHED_DAYS = 7;
 
 function dateStringToKey(dateString) {
@@ -79,6 +80,37 @@ async function setPersistedHabitCount(userId, date, count) {
 }
 
 /**
+ * Get persisted total habit count (number of habits user has). Same for all dates; used for "x out of y" display.
+ * @param {string} userId
+ * @returns {Promise<number|undefined>} undefined = not in cache
+ */
+async function getPersistedTotalHabitCount(userId) {
+  try {
+    const key = `${PREFIX_TOTAL_HABIT_COUNT}${userId}`;
+    const raw = await AsyncStorage.getItem(key);
+    if (raw === null) return undefined;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? undefined : n;
+  } catch (error) {
+    return undefined;
+  }
+}
+
+/**
+ * Persist total habit count for the user. Call after fetching from API.
+ * @param {string} userId
+ * @param {number} count
+ */
+async function setPersistedTotalHabitCount(userId, count) {
+  try {
+    const key = `${PREFIX_TOTAL_HABIT_COUNT}${userId}`;
+    await AsyncStorage.setItem(key, String(count));
+  } catch (error) {
+    // ignore
+  }
+}
+
+/**
  * Remove home cache entries older than MAX_CACHED_DAYS for this user.
  * Keeps storage bounded.
  */
@@ -110,7 +142,7 @@ async function clearForUser(userId) {
   try {
     const keys = await AsyncStorage.getAllKeys();
     const toRemove = keys.filter(
-      k => k.startsWith(PREFIX_SLEEP + userId + '_') || k.startsWith(PREFIX_HABIT_COUNT + userId + '_')
+      k => k.startsWith(PREFIX_SLEEP + userId + '_') || k.startsWith(PREFIX_HABIT_COUNT + userId + '_') || k === PREFIX_TOTAL_HABIT_COUNT + userId
     );
     if (toRemove.length > 0) await AsyncStorage.multiRemove(toRemove);
   } catch (error) {
@@ -123,6 +155,8 @@ export default {
   setPersistedSleepData,
   getPersistedHabitCount,
   setPersistedHabitCount,
+  getPersistedTotalHabitCount,
+  setPersistedTotalHabitCount,
   cleanupOldEntries,
   clearForUser,
 };
