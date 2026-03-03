@@ -140,6 +140,7 @@ const NumericalHabitInsight = ({
           point={selectedPoint}
           habit={habit}
           sleepMetric={sleepMetric}
+          isPercentageMode={isPercentageMode}
           onExclusionComplete={() => {
             setShowDetailModal(false);
             setSelectedPoint(null);
@@ -227,6 +228,7 @@ const NumericalHabitInsight = ({
             point={selectedPoint}
             habit={habit}
             sleepMetric={sleepMetric}
+            isPercentageMode={isPercentageMode}
             onExclusionComplete={() => {
               setShowDetailModal(false);
               setSelectedPoint(null);
@@ -300,6 +302,7 @@ const NumericalHabitInsight = ({
           point={selectedPoint}
           habit={habit}
           sleepMetric={sleepMetric}
+          isPercentageMode={isPercentageMode}
           onExclusionComplete={() => {
             setShowDetailModal(false);
             setSelectedPoint(null);
@@ -329,7 +332,7 @@ const NumericalHabitInsight = ({
           width={width - 40}
           height={240}
           xLabel={`${habit.name}${habitUnit}`}
-          yLabel={`${sleepMetric.label}${isPercentageMode ? ' (%)' : ''}`}
+          yLabel={`${sleepMetric.label}${isPercentageMode ? (sleepMetric?.key === 'awakenings_count' ? ' (per hr)' : ' (%)') : ''}`}
           title=""
           showTrendLine={true}
           color={colors.primary}
@@ -413,6 +416,7 @@ const NumericalHabitInsight = ({
           point={selectedPoint}
           habit={habit}
           sleepMetric={sleepMetric}
+          isPercentageMode={isPercentageMode}
           onExclusionComplete={() => {
             setShowDetailModal(false);
             setSelectedPoint(null);
@@ -465,7 +469,8 @@ const NumericalHabitInsight = ({
         point={selectedPoint}
         habit={habit}
         sleepMetric={sleepMetric}
-          onExclusionComplete={() => {
+        isPercentageMode={isPercentageMode}
+        onExclusionComplete={() => {
             setShowDetailModal(false);
           setSelectedPoint(null);
           // Refresh the insights data

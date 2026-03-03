@@ -4,6 +4,7 @@ import sleepSyncService from '../services/sleepSyncService';
 import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
 import backgroundSleepSync from '../services/backgroundSleepSync';
+import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import { formatDateForDB } from '../utils/dateHelpers';
 
 /**
@@ -39,7 +40,11 @@ export const useHealthSync = ({
           setHasPermissions(permissionsGranted);
           if (permissionsGranted && !backgroundTaskRegisteredRef.current) {
             backgroundTaskRegisteredRef.current = true;
-            backgroundSleepSync.registerSleepSyncBackgroundTask().catch(() => {});
+            backgroundSleepSync.registerSleepSyncBackgroundTask()
+              .then((registered) => {
+                if (registered) sleepSyncNotifications.requestNotificationPermission();
+              })
+              .catch(() => {});
           }
         }
       } catch (err) {
@@ -196,7 +201,8 @@ export const useHealthSync = ({
       if (granted) {
         if (!backgroundTaskRegisteredRef.current) {
           backgroundTaskRegisteredRef.current = true;
-          backgroundSleepSync.registerSleepSyncBackgroundTask().catch(() => {});
+          const registered = await backgroundSleepSync.registerSleepSyncBackgroundTask();
+          if (registered) await sleepSyncNotifications.requestNotificationPermission();
         }
         // Auto-sync after permissions are granted
         await performSync();

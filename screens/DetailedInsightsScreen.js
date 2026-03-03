@@ -26,7 +26,7 @@ import PageLoadingView from '../components/PageLoadingView';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-const DetailedInsightsScreen = () => {
+const DetailedInsightsScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
   const headerTopPadding = Math.max(spacing.regular, topInset);
@@ -239,6 +239,14 @@ const DetailedInsightsScreen = () => {
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
             <View style={styles.header}>
+              <TouchableOpacity
+                style={styles.headerBackButton}
+                onPress={() => navigation?.goBack()}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-back" size={28} color={colors.white} />
+              </TouchableOpacity>
               <Text style={styles.title}>Detailed Sleep Insights</Text>
             </View>
           </View>
@@ -416,11 +424,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.regular,
     paddingBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  headerBackButton: {
+    padding: spacing.xs,
+    marginLeft: -spacing.xs,
   },
   title: {
+    flex: 1,
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
     color: colors.white,

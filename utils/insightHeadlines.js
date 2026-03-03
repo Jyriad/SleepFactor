@@ -54,7 +54,9 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
     } else if (correlationStrength === 'moderate') {
       return `Your ${habitName} tends to affect your ${sleepMetricName} (${directionText} ${sleepMetricName} with higher ${habitName})`;
     } else {
-      return `Your ${habitName} shows a ${directionText === 'more' ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
+      // For awakenings, more = bad (negative), fewer = good (positive)
+      const positiveRelationship = isAwakenings ? (directionText === 'fewer') : (directionText === 'more');
+      return `Your ${habitName} shows a ${positiveRelationship ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
     }
   }
 
@@ -63,7 +65,10 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
       const thresholdText = `${threshold.toFixed(1)} ${habit.unit}`;
       return `You get significantly ${direction} ${sleepMetricName} when ${habitName} exceeds ${thresholdText}`;
     } else {
-      const correlationWord = trendDirection === 'positive' ? 'positive' : 'negative';
+      // For awakenings, positive correlation (more habit → more awakenings) is bad for sleep
+      const correlationWord = isAwakenings
+        ? (trendDirection === 'negative' ? 'positive' : 'negative')
+        : (trendDirection === 'positive' ? 'positive' : 'negative');
       return `Your ${habitName} strongly impacts ${sleepMetricName} (${correlationWord} correlation)`;
     }
   } else if (correlationStrength === 'moderate') {

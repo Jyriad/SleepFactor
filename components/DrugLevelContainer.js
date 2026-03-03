@@ -98,7 +98,7 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
       cancelled = true;
       console.log('[DrugLevel] timeline effect cleanup', { thisRequestId });
     };
-  }, [expanded, userId, habit?.id, habit?.unit, isViewingToday, dateStr, todayStr, selectedDate]);
+  }, [expanded, userId, habit?.id, habit?.unit, isViewingToday, dateStr, todayStr, selectedDate, levelRefreshKey]);
 
   const displayLevel = levelNow != null
     ? formatDrugLevel(levelNow.level, levelNow.unit, 1)

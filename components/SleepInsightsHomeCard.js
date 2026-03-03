@@ -5,35 +5,12 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
 /**
- * Home card for Sleep Insights: shows top 10 correlation lines.
- * Each line is tappable to open Insights with that habit/metric in focus.
- * Whole card (or chevron) opens Insights without params.
+ * Home card for Sleep Insights: shows, for each sleep metric, how many habits
+ * positively vs negatively impact it. Tapping the card opens full Insights.
  */
-const SleepInsightsHomeCard = ({ topInsights, onPress, onLinePress }) => {
+const SleepInsightsHomeCard = ({ topInsights, summaryByMetric, onPress }) => {
   const isLoading = topInsights === null;
-  const hasLines = Array.isArray(topInsights) && topInsights.length > 0;
-
-  const renderLine = (item, index) => {
-    const directionText = item.direction === 'positive' ? 'positively' : 'negatively';
-    const label = `${item.habitName} ${directionText} impacts ${item.metricLabel} (${item.strengthLabel})`;
-    return (
-      <TouchableOpacity
-        key={`${item.habitId}-${item.metricKey}-${item.analysisType}-${index}`}
-        style={styles.lineRow}
-        onPress={() => {
-          if (onLinePress && item.habitId) {
-            onLinePress({ habitId: item.habitId, metricKey: item.metricKey, analysisType: item.analysisType });
-          }
-        }}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.lineText} numberOfLines={2}>
-          {label}
-        </Text>
-        <Ionicons name="chevron-forward" size={16} color={colors.textLight} />
-      </TouchableOpacity>
-    );
-  };
+  const hasSummary = Array.isArray(summaryByMetric) && summaryByMetric.length > 0;
 
   return (
     <View style={styles.card}>
@@ -45,19 +22,35 @@ const SleepInsightsHomeCard = ({ topInsights, onPress, onLinePress }) => {
         </View>
         <Ionicons name="chevron-forward" size={24} color={colors.textLight} />
       </TouchableOpacity>
-      <View style={styles.linesWrapper}>
-        {isLoading && (
-          <View style={styles.lineRow}>
-            <Text style={styles.lineTextSecondary}>Loading insights...</Text>
-          </View>
-        )}
-        {!isLoading && !hasLines && (
-          <View style={styles.lineRow}>
-            <Text style={styles.lineTextSecondary}>No insights yet</Text>
-          </View>
-        )}
-        {!isLoading && hasLines && topInsights.map(renderLine)}
-      </View>
+      {hasSummary && (
+        <View style={styles.summarySection}>
+          <Text style={styles.summaryHeading}>Habit impact by sleep metric</Text>
+          {summaryByMetric.map((row) => (
+            <View key={row.metricKey} style={styles.summaryRow}>
+              <Text style={styles.summaryMetricLabel}>{row.metricLabel}</Text>
+              <View style={styles.summaryCounts}>
+                <Text style={[styles.summaryCount, styles.summaryCountPositive]}>
+                  {row.positiveCount} help
+                </Text>
+                <Text style={styles.summaryCountSeparator}> · </Text>
+                <Text style={[styles.summaryCount, styles.summaryCountNegative]}>
+                  {row.negativeCount} hurt
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+      {isLoading && (
+        <View style={styles.statusWrapper}>
+          <Text style={styles.lineTextSecondary}>Loading insights...</Text>
+        </View>
+      )}
+      {!isLoading && !hasSummary && (
+        <View style={styles.statusWrapper}>
+          <Text style={styles.lineTextSecondary}>No insights yet</Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -89,22 +82,50 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
   },
-  linesWrapper: {
+  summarySection: {
     marginTop: spacing.sm,
-    marginLeft: 24 + spacing.regular,
+    paddingVertical: spacing.sm,
+    paddingLeft: 24 + spacing.regular,
   },
-  lineRow: {
+  summaryHeading: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: spacing.xs,
-    paddingRight: spacing.xs,
   },
-  lineText: {
+  summaryMetricLabel: {
     fontSize: typography.sizes.small,
     color: colors.textPrimary,
     fontWeight: typography.weights.medium,
-    flex: 1,
+  },
+  summaryCounts: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  summaryCount: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+  },
+  summaryCountPositive: {
+    color: colors.success,
+  },
+  summaryCountNegative: {
+    color: colors.error,
+  },
+  summaryCountSeparator: {
+    fontSize: typography.sizes.small,
+    color: colors.textLight,
+  },
+  statusWrapper: {
+    marginTop: spacing.sm,
+    marginLeft: 24 + spacing.regular,
+    paddingVertical: spacing.xs,
   },
   lineTextSecondary: {
     fontSize: typography.sizes.small,

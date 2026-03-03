@@ -197,6 +197,34 @@ class HealthService {
   }
 
   /**
+   * Get for each day the time when heart rate was highest (for inferred "exercise time before bed" habit).
+   * @param {string|Date} startDate - Start date (YYYY-MM-DD or Date)
+   * @param {string|Date} endDate - End date (YYYY-MM-DD or Date)
+   * @returns {Promise<Array<{ date: string, timeOfMax: string }>>}
+   */
+  async getTimeOfMaxHeartRatePerDay(startDate, endDate) {
+    try {
+      if (!this.isInitialized) await this.initialize();
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      const startTime = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0);
+      const endTime = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+      if (this.platform === 'android' && healthConnectService) {
+        return await healthConnectService.getTimeOfMaxHeartRatePerDay(
+          startTime.toISOString(),
+          endTime.toISOString()
+        );
+      }
+      if (this.platform === 'ios' && healthKitService) {
+        return await healthKitService.getTimeOfMaxHeartRatePerDay(startTime, endTime);
+      }
+      return [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Check if we have permission for a specific record type
    * @param {string} recordType - The record type to check
    * @returns {Promise<boolean>} True if permission granted

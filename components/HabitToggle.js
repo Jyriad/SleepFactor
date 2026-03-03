@@ -60,24 +60,24 @@ const HabitToggle = ({ value, onChange, yesCount = 0, noCount = 0 }) => {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   button: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.background,
-    minWidth: 80,
+    minWidth: 72,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
   countBadge: {
     position: 'absolute',
-    top: 4,
-    right: 6,
+    top: 2,
+    right: 4,
   },
   countText: {
     fontSize: 8,
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   buttonText: {
-    fontSize: typography.sizes.body,
+    fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
     color: colors.textSecondary,
   },

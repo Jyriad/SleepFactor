@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { getPresetById } from '../constants/drugPresets';
+import { getDefaultVolumeForOptionInRegion } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
@@ -319,12 +320,20 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     if (!selectedOption || !selectedOption.drug_amount) return 0;
     if (volumeMl == null || volumeMl <= 0) return 0;
 
-    // default_volume is always in ml - use ratio calculation
-    if (selectedOption.default_volume) {
-      const calculated = (volumeMl / selectedOption.default_volume) * selectedOption.drug_amount;
+    // Canonical default_volume (ml) - use ratio calculation
+    const refVolume = selectedOption.default_volume;
+    if (refVolume) {
+      const calculated = (volumeMl / refVolume) * selectedOption.drug_amount;
       return Math.round(calculated * 10) / 10;
     }
     return Math.round(volumeMl * 10) / 10;
+  };
+
+  /** Default volume (ml) for one serving in the user's region; falls back to option.default_volume. */
+  const getEffectiveDefaultVolume = (option) => {
+    if (!option) return null;
+    const regionVol = getDefaultVolumeForOptionInRegion(option.name, habit?.name, measurementRegion);
+    return regionVol ?? option.default_volume ?? null;
   };
 
   const handleCustomVolumeBlur = useCallback(() => {
@@ -334,8 +343,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     customAmountDisplayRef.current?.updateAmount(calculatedAmount);
   }, [measurementSystem, selectedOption?.id]);
 
-  const customVolumePlaceholder = selectedOption?.default_volume
-    ? mlToUserUnit(selectedOption.default_volume, measurementSystem)
+  const effectiveDefaultVolForDisplay = selectedOption ? getEffectiveDefaultVolume(selectedOption) : null;
+  const customVolumePlaceholder = effectiveDefaultVolForDisplay
+    ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem)
     : '100';
 
   const selectConsumptionOption = (option) => {
@@ -549,10 +559,12 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         totalAmount = calculateCustomDrugAmount(volumeConsumed);
         servingMultiplier = 'custom';
       } else {
-        // Use multiplier calculation
+        // Use region-specific serving size (canonical option, app applies region)
         servingMultiplier = selectedServing || 1;
-        totalAmount = baseAmount * servingMultiplier;
-        volumeConsumed = selectedOption?.default_volume ? selectedOption.default_volume * servingMultiplier : 0;
+        const effectiveDefaultVol = selectedOption ? getEffectiveDefaultVolume(selectedOption) : resolvedOption?.default_volume;
+        const refVolume = effectiveDefaultVol || selectedOption?.default_volume || resolvedOption?.default_volume || 1;
+        volumeConsumed = effectiveDefaultVol ? effectiveDefaultVol * servingMultiplier : 0;
+        totalAmount = refVolume ? (baseAmount * (volumeConsumed / refVolume)) : baseAmount * servingMultiplier;
       }
 
       // First, delete any existing "none" events for this habit and date
@@ -643,8 +655,10 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         servingMultiplier = 'custom';
       } else {
         servingMultiplier = selectedServing || 1;
-        totalAmount = baseAmount * servingMultiplier;
-        volumeConsumed = resolvedOption?.default_volume ? resolvedOption.default_volume * servingMultiplier : 0;
+        const effectiveDefaultVol = resolvedOption ? getDefaultVolumeForOptionInRegion(resolvedOption.name, habit?.name, measurementRegion) ?? resolvedOption.default_volume : null;
+        const refVolume = effectiveDefaultVol || resolvedOption?.default_volume || 1;
+        volumeConsumed = effectiveDefaultVol ? effectiveDefaultVol * servingMultiplier : 0;
+        totalAmount = refVolume ? (baseAmount * (volumeConsumed / refVolume)) : baseAmount * servingMultiplier;
       }
 
       // Find the event to update
@@ -743,20 +757,45 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       setSelectedConsumptionType(event.drink_type);
     }
 
-    // Set the serving based on the event data
-    if (event.serving === 'custom') {
-      setSelectedServing('custom');
-      setCustomDrugAmount(event.amount);
-      let volumeMl = event.volume;
-      if (!volumeMl && event.base_amount && resolvedOption?.default_volume) {
-        volumeMl = (event.amount / event.base_amount) * resolvedOption.default_volume;
+    // Event from DB has volume but not serving (we don't persist serving). Infer custom vs preset from volume.
+    const volumeMl = event.volume != null ? Number(event.volume) : null;
+    const effectiveDefaultVol = resolvedOption
+      ? (getDefaultVolumeForOptionInRegion(resolvedOption.name, habit?.name, measurementRegion) ?? resolvedOption.default_volume)
+      : null;
+
+    let useCustom = event.serving === 'custom';
+    let presetServing = event.serving && event.serving !== 'custom' ? event.serving : 1;
+
+    if (volumeMl != null && volumeMl > 0 && effectiveDefaultVol) {
+      const tolerance = 2;
+      let matched = false;
+      for (let n = 1; n <= 10; n++) {
+        const expected = effectiveDefaultVol * n;
+        if (Math.abs(volumeMl - expected) <= tolerance) {
+          presetServing = n;
+          matched = true;
+          break;
+        }
       }
-      const volumeStr = volumeMl ? mlToUserUnit(volumeMl, measurementSystem) : '100';
+      if (!matched) {
+        useCustom = true;
+      }
+    } else if (volumeMl != null && volumeMl > 0) {
+      useCustom = true;
+    }
+
+    if (useCustom) {
+      setSelectedServing('custom');
+      setCustomDrugAmount(event.amount ?? 0);
+      const vol = volumeMl ?? (event.base_amount && resolvedOption?.default_volume
+        ? (event.amount / event.base_amount) * resolvedOption.default_volume
+        : null);
+      const volumeStr = vol ? mlToUserUnit(vol, measurementSystem) : '100';
       setCustomVolume(volumeStr);
       customVolumeRef.current = volumeStr;
       setShowCustomVolume(true);
     } else {
-      setSelectedServing(event.serving || 1);
+      setSelectedServing(presetServing);
       setShowCustomVolume(false);
       setCustomVolume('');
       setCustomDrugAmount(0);
@@ -998,15 +1037,15 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 <View style={styles.modalServingSection}>
                   <Text style={styles.servingLabel}>
                     {selectedOption.name}
-                    {selectedOption.default_volume ? ` ${formatVolume(selectedOption.default_volume, measurementSystem)}` : ''}
-                    {selectedOption.drug_amount ? `${selectedOption.default_volume ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}` : ''}
-                    {(selectedOption.default_volume || selectedOption.drug_amount) ? ' per serving' : ''}
+                    {effectiveDefaultVolForDisplay ? ` ${formatVolume(effectiveDefaultVolForDisplay, measurementSystem)}` : ''}
+                    {selectedOption.drug_amount ? `${effectiveDefaultVolForDisplay ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}` : ''}
+                    {(effectiveDefaultVolForDisplay || selectedOption.drug_amount) ? ' per serving' : ''}
                   </Text>
                   <View style={styles.modalServingButtons}>
                     {/* Standard serving buttons */}
                     {[0.5, 1, 2].map((serving) => {
                       const totalDrugAmount = selectedOption.drug_amount * serving;
-                      const totalVolume = selectedOption.default_volume ? Math.round(selectedOption.default_volume * serving) : null;
+                      const totalVolume = effectiveDefaultVolForDisplay ? Math.round(effectiveDefaultVolForDisplay * serving) : null;
                       return (
                         <TouchableOpacity
                           key={serving}
@@ -1048,8 +1087,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                       onPress={() => {
                         setSelectedServing('custom');
                         setShowCustomVolume(true);
-                        const defaultVolume = selectedOption.default_volume
-                          ? mlToUserUnit(selectedOption.default_volume, measurementSystem)
+                        const defaultVolume = effectiveDefaultVolForDisplay
+                          ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem)
                           : '';
                         setCustomVolume(defaultVolume);
                         customVolumeRef.current = defaultVolume;
@@ -1081,7 +1120,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                           valueRef={customVolumeRef}
                           onBlur={handleCustomVolumeBlur}
                           placeholder={customVolumePlaceholder}
-                          inputKey={`custom-volume-${selectedOption?.id ?? 'default'}`}
+                          inputKey={`custom-volume-${selectedOption?.id ?? 'default'}-${editingEvent?.id ?? 'new'}`}
                         />
                         <Text style={styles.customVolumeUnit}>{getVolumeUnitLabel(measurementSystem)}</Text>
                         <Text style={styles.customVolumeArrow}>→</Text>

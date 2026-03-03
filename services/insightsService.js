@@ -129,10 +129,11 @@ class InsightsService {
   }
 
   /**
-   * Transform sleep data for efficiency analysis by converting metrics to percentages
+   * Transform sleep data for efficiency analysis: duration metrics → % of total sleep;
+   * awakenings (count) → awakenings per hour of total sleep.
    * @param {Object} sleepData - Sleep data object
    * @param {string} metricKey - The sleep metric key to transform
-   * @returns {number} Percentage value (0-100) or original value if invalid
+   * @returns {number} Percentage (0-100), awakenings per hour, or 0 if invalid
    */
   transformSleepDataForEfficiency(sleepData, metricKey) {
     if (!sleepData || !sleepData.total_sleep_minutes || sleepData.total_sleep_minutes <= 0) {
@@ -144,10 +145,14 @@ class InsightsService {
       return 0;
     }
 
-    // Convert to percentage of total sleep time
-    const percentage = (metricValue / sleepData.total_sleep_minutes) * 100;
+    // Awakenings is a count: use per-hour rate (awakenings per hour of sleep)
+    if (metricKey === 'awakenings_count') {
+      const perHour = (metricValue / sleepData.total_sleep_minutes) * 60;
+      return Math.max(0, Math.min(60, perHour)); // cap at 60/hr
+    }
 
-    // Ensure result is valid and reasonable
+    // Duration metrics: percentage of total sleep time
+    const percentage = (metricValue / sleepData.total_sleep_minutes) * 100;
     return Math.max(0, Math.min(100, percentage));
   }
 
@@ -180,11 +185,14 @@ class InsightsService {
         // Use defaults on parse error
       }
 
-      // Load habits and their logs
-      const habits = await this.getActiveHabits(userId);
-      const habitLogs = await this.getHabitLogs(userId, startDate, endDate, includeExcludedData);
-      const drugLevels = await this.getDrugLevels(userId, startDate, endDate);
-      let sleepData = await this.getSleepData(userId, startDate, endDate, includeExcludedData);
+      // Load habits, logs, drug levels, and sleep data in parallel
+      const [habits, habitLogs, drugLevels, sleepDataFetched] = await Promise.all([
+        this.getActiveHabits(userId),
+        this.getHabitLogs(userId, startDate, endDate, includeExcludedData),
+        this.getDrugLevels(userId, startDate, endDate),
+        this.getSleepData(userId, startDate, endDate, includeExcludedData)
+      ]);
+      let sleepData = sleepDataFetched;
 
       // Calculate core sleep duration if needed
       let coreSleepDuration = null;
@@ -227,64 +235,63 @@ class InsightsService {
         }
       }
 
-      // Group logs by habit
-      const logsByHabit = this.groupLogsByHabit(habitLogs);
-
-      // Group drug levels by habit for quick_consumption habits
-      const drugLevelsByHabit = this.groupDrugLevelsByHabit(drugLevels);
-
-      // Create sleep data lookup by date (after transformation)
-      const sleepByDate = {};
-      sleepData.forEach(sleep => {
-        sleepByDate[sleep.date] = sleep;
-      });
-
-      // Separate valid insights from placeholders
-      const validInsights = [];
-      const placeholders = [];
-
-      // Ensure sleepData is an array
-      if (!Array.isArray(sleepData)) {
-        sleepData = [];
-      }
-
-      // Calculate insights for each habit
-      for (const habit of habits) {
-        // Use different data sources based on habit type
-        let habitData;
-        if (habit.type === 'quick_consumption') {
-          // For quick_consumption habits (alcohol/caffeine), use drug levels
-          habitData = drugLevelsByHabit[habit.id] || [];
-        } else {
-          // For other habit types, use habit logs
-          habitData = logsByHabit[habit.id] || [];
-        }
-
-        const insight = await this.calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency);
-        if (insight) {
-          if (insight.type === 'binary_placeholder') {
-            // Special case: binary habits that don't meet criteria go to placeholders
-            placeholders.push(insight);
-          } else {
-            validInsights.push(insight);
-          }
-        } else {
-          // Create placeholder insight with tracking statistics
-          const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
-          placeholders.push(placeholderInsight);
-        }
-      }
-
-      return {
-        validInsights: validInsights || [],
-        placeholders: placeholders || []
-      };
+      return this._computeInsightsFromData(habits, habitLogs, drugLevels, sleepData, sleepMetric, useEfficiency);
     } catch (error) {
       return {
         validInsights: [],
         placeholders: []
       };
     }
+  }
+
+  /**
+   * Compute insights from already-fetched habits, logs, drug levels, and sleep data.
+   * Used by getHabitsInsights (after fetches and transforms) and by home screen (fetch once, run 12x).
+   * @param {Array} habits - Active habits
+   * @param {Array} habitLogs - Habit logs in range
+   * @param {Array} drugLevels - Drug levels in range
+   * @param {Array} sleepData - Sleep data in range (possibly transformed)
+   * @param {string} sleepMetric - Sleep metric key
+   * @param {boolean} useEfficiency - Whether to use efficiency normalization
+   * @returns {Object} { validInsights, placeholders }
+   */
+  _computeInsightsFromData(habits, habitLogs, drugLevels, sleepData, sleepMetric, useEfficiency) {
+    const logsByHabit = this.groupLogsByHabit(habitLogs);
+    const drugLevelsByHabit = this.groupDrugLevelsByHabit(drugLevels);
+
+    const sleepByDate = {};
+    if (Array.isArray(sleepData)) {
+      sleepData.forEach(sleep => {
+        sleepByDate[sleep.date] = sleep;
+      });
+    }
+    const sleepDataArray = Array.isArray(sleepData) ? sleepData : [];
+
+    const validInsights = [];
+    const placeholders = [];
+
+    for (const habit of habits) {
+      const habitData = habit.type === 'quick_consumption'
+        ? (drugLevelsByHabit[habit.id] || [])
+        : (logsByHabit[habit.id] || []);
+
+      const insight = this.calculateHabitInsight(habit, habitData, sleepDataArray, sleepMetric, useEfficiency);
+      if (insight) {
+        if (insight.type === 'binary_placeholder') {
+          placeholders.push(insight);
+        } else {
+          validInsights.push(insight);
+        }
+      } else {
+        const placeholderInsight = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepDataArray);
+        placeholders.push(placeholderInsight);
+      }
+    }
+
+    return {
+      validInsights,
+      placeholders
+    };
   }
 
   /**
@@ -1041,26 +1048,44 @@ class InsightsService {
   }
 
   /**
+   * Clear the home insights summary cache. Call this when the user toggles habit
+   * tracking so that Insights and Home show up-to-date habit lists on next load.
+   */
+  invalidateHomeSummaryCache() {
+    this._homeSummaryCache = null;
+  }
+
+  /**
    * Run all 12 insight combinations (6 metrics × absolute/percentage), no core sleep.
    * Returns flattened array with each insight tagged with metricKey, metricLabel, analysisType.
    * @private
    */
   async _getAllTaggedInsightsForHome(userId) {
-    const dateRange = this.calculateDateRange('30');
+    const dateRange = this.calculateDateRange('all');
     const metrics = this.getAvailableSleepMetrics();
     const runs = [
       { useEfficiency: false, useCoreSleep: false },
       { useEfficiency: true, useCoreSleep: false },
     ];
+
+    // Fetch raw data once; home uses 30 days, no core sleep, no outlier exclusion
+    const [habits, habitLogs, drugLevels, sleepData] = await Promise.all([
+      this.getActiveHabits(userId),
+      this.getHabitLogs(userId, dateRange.startDate, dateRange.endDate, false),
+      this.getDrugLevels(userId, dateRange.startDate, dateRange.endDate),
+      this.getSleepData(userId, dateRange.startDate, dateRange.endDate, false)
+    ]);
+
     const tagged = [];
     for (const metricInfo of metrics) {
       for (const options of runs) {
-        const { validInsights } = await this.getHabitsInsights(
-          userId,
+        const { validInsights } = this._computeInsightsFromData(
+          habits,
+          habitLogs,
+          drugLevels,
+          sleepData,
           metricInfo.key,
-          dateRange.startDate,
-          dateRange.endDate,
-          options
+          options.useEfficiency
         );
         if (validInsights && validInsights.length) {
           const analysisType = options.useEfficiency ? 'percentage' : 'absolute';
@@ -1086,6 +1111,10 @@ class InsightsService {
     const higherIsBetter = metricKey !== 'awakenings_count';
     if (insight.type === 'numerical' && insight.trendDirection) {
       if (insight.trendDirection === 'none') return higherIsBetter ? 'positive' : 'negative';
+      // For awakenings, more is worse: flip so "positive correlation" (more habit → more awakenings) → negative impact
+      if (metricKey === 'awakenings_count') {
+        return insight.trendDirection === 'positive' ? 'negative' : 'positive';
+      }
       return insight.trendDirection;
     }
     if (insight.type === 'binary' && insight.yesStats && insight.noStats) {
@@ -1109,6 +1138,18 @@ class InsightsService {
    * @returns {Promise<Array>} Array of { habitId, habitName, metricKey, metricLabel, analysisType, direction, strengthLabel, ... }
    */
   async getTopInsightsForHome(userId, limit = 10) {
+    const { topInsights } = await this.getHomeInsightsWithSummary(userId, limit);
+    return topInsights;
+  }
+
+  /**
+   * Get homepage insights plus per-metric counts of habits that help or hurt each sleep metric.
+   * One shared run of insight computation; returns top insights and summary by metric.
+   * @param {string} userId - User ID
+   * @param {number} limit - Max number of top insights (default 10)
+   * @returns {Promise<{ topInsights: Array, summaryByMetric: Array<{ metricKey, metricLabel, positiveCount, negativeCount }> }>}
+   */
+  async getHomeInsightsWithSummary(userId, limit = 10) {
     const tagged = await this._getAllTaggedInsightsForHome(userId);
     const confidenceOrder = { high: 0, medium: 1, low: 2, none: 3 };
     const impactOrder = { large: 0, moderate: 1, small: 2, minimal: 3 };
@@ -1123,7 +1164,7 @@ class InsightsService {
       const pB = (b.pValue != null && !isNaN(b.pValue)) ? Number(b.pValue) : 1;
       return pA - pB;
     });
-    return sorted.slice(0, limit).map((insight) => ({
+    const topInsights = sorted.slice(0, limit).map((insight) => ({
       habitId: insight.habit?.id,
       habitName: insight.habit?.name,
       metricKey: insight.metricKey,
@@ -1135,6 +1176,32 @@ class InsightsService {
       impactLevel: insight.impactLevel,
       ...insight,
     }));
+
+    const correlated = tagged.filter((i) => (i.confidenceLevel || 'none') !== 'none');
+    const metricLabels = {};
+    const byMetric = {};
+    for (const insight of correlated) {
+      const key = insight.metricKey;
+      const habitId = insight.habit?.id;
+      if (!key || !habitId) continue;
+      if (!byMetric[key]) {
+        byMetric[key] = { positive: new Set(), negative: new Set() };
+        metricLabels[key] = insight.metricLabel || key;
+      }
+      if (insight.direction === 'positive') byMetric[key].positive.add(habitId);
+      if (insight.direction === 'negative') byMetric[key].negative.add(habitId);
+    }
+    const metricsOrder = this.getAvailableSleepMetrics();
+    const summaryByMetric = metricsOrder
+      .map((m) => ({
+        metricKey: m.key,
+        metricLabel: m.label,
+        positiveCount: (byMetric[m.key]?.positive?.size ?? 0),
+        negativeCount: (byMetric[m.key]?.negative?.size ?? 0),
+      }))
+      .filter((row) => row.positiveCount > 0 || row.negativeCount > 0);
+
+    return { topInsights, summaryByMetric };
   }
 
   /**

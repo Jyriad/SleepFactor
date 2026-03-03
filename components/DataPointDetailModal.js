@@ -128,6 +128,7 @@ const DataPointDetailModal = ({
   point,
   habit,
   sleepMetric,
+  isPercentageMode = false,
   onExclusionComplete,
 }) => {
   const { user } = useAuth();
@@ -516,7 +517,7 @@ const DataPointDetailModal = ({
                 {sleepMetric.label}
               </Text>
               <Text style={styles.sectionValue}>
-                {formatValue(point.y, 'numeric', sleepMetric.unit)}
+                {formatValue(point.y, 'numeric', isPercentageMode && sleepMetric?.key === 'awakenings_count' ? 'per hr' : sleepMetric.unit)}
               </Text>
             </View>
 

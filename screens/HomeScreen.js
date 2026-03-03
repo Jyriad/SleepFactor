@@ -373,7 +373,6 @@ import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
 import NavigationCard from '../components/NavigationCard';
 import SleepInsightsHomeCard from '../components/SleepInsightsHomeCard';
-import DrugLevelContainer from '../components/DrugLevelContainer';
 import HealthConnectPrompt from '../components/HealthConnectPrompt';
 import SleepTimeline from '../components/SleepTimeline';
 import dataQualityService from '../services/dataQualityService';
@@ -401,8 +400,8 @@ const HomeScreen = () => {
   const [totalHabitCount, setTotalHabitCount] = useState(0);
   const [loggingStreak, setLoggingStreak] = useState(0);
   const [topInsights, setTopInsights] = useState(null);
+  const [insightsSummaryByMetric, setInsightsSummaryByMetric] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [drugHabits, setDrugHabits] = useState([]); // Caffeine & Alcohol habits for level widgets
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
@@ -477,7 +476,6 @@ const HomeScreen = () => {
       checkTodaysHabitsLogged();
       fetchLoggingStreak();
       fetchTopInsights();
-      fetchDrugHabits();
     }, [selectedDate, user])
   );
 
@@ -489,7 +487,8 @@ const HomeScreen = () => {
     Promise.all([
       homeCacheService.getPersistedSleepData(user.id, dateString),
       homeCacheService.getPersistedHabitCount(user.id, dateString),
-    ]).then(([persistedSleep, persistedCount]) => {
+      homeCacheService.getPersistedTotalHabitCount(user.id),
+    ]).then(([persistedSleep, persistedCount, persistedTotalCount]) => {
       if (cancelled) return;
       if (persistedSleep !== undefined) {
         setSleepData(persistedSleep);
@@ -500,6 +499,9 @@ const HomeScreen = () => {
       if (persistedCount !== undefined) {
         setHabitCount(persistedCount);
         setHabitCountCache(prev => new Map(prev).set(dateString, persistedCount));
+      }
+      if (persistedTotalCount !== undefined) {
+        setTotalHabitCount(persistedTotalCount);
       }
       setLoading(false);
     }).catch(() => {
@@ -531,7 +533,6 @@ const HomeScreen = () => {
       fetchLoggingStreak();
       fetchTopInsights();
       fetchCoreSleepDuration();
-      fetchDrugHabits();
     }, 450);
     return () => clearTimeout(deferredTimer);
   }, [user]);
@@ -920,7 +921,9 @@ const HomeScreen = () => {
         habit.is_active !== false
       );
 
-      setTotalHabitCount(manualHabits.length);
+      const count = manualHabits.length;
+      setTotalHabitCount(count);
+      homeCacheService.setPersistedTotalHabitCount(user.id, count);
     } catch (error) {
       setTotalHabitCount(0);
     }
@@ -1045,27 +1048,12 @@ const HomeScreen = () => {
   const fetchTopInsights = async () => {
     if (!user) return;
     try {
-      const top = await insightsService.getTopInsightsForHome(user.id, 10);
+      const { topInsights: top, summaryByMetric } = await insightsService.getHomeInsightsWithSummary(user.id, 10);
       setTopInsights(top);
+      setInsightsSummaryByMetric(summaryByMetric);
     } catch (error) {
       setTopInsights([]);
-    }
-  };
-
-  const fetchDrugHabits = async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from('habits')
-        .select('id, name, unit, half_life_hours')
-        .eq('user_id', user.id)
-        .eq('type', 'quick_consumption')
-        .in('name', ['Caffeine', 'Alcohol'])
-        .eq('is_active', true);
-      if (error) throw error;
-      setDrugHabits(data || []);
-    } catch (error) {
-      setDrugHabits([]);
+      setInsightsSummaryByMetric([]);
     }
   };
 
@@ -1675,15 +1663,6 @@ const HomeScreen = () => {
           />
         </View>
 
-        {/* Caffeine & Alcohol level widgets - collapsed by default */}
-        {drugHabits.length > 0 && (
-          <View style={styles.section}>
-            {drugHabits.map((habit) => (
-              <DrugLevelContainer key={habit.id} habit={habit} userId={user?.id} selectedDate={selectedDate} />
-            ))}
-          </View>
-        )}
-
         {/* Sleep Data Card - Fixed-height container so size never changes during sync */}
         <View style={styles.section}>
           <View style={styles.sleepSectionStable}>
@@ -1796,10 +1775,8 @@ const HomeScreen = () => {
           />
           <SleepInsightsHomeCard
             topInsights={topInsights}
+            summaryByMetric={insightsSummaryByMetric}
             onPress={() => navigation.navigate('Insights')}
-            onLinePress={({ habitId, metricKey, analysisType }) =>
-              navigation.navigate('Insights', { focusedHabitId: habitId, metricKey, analysisType })
-            }
           />
         </View>
       </ScrollView>

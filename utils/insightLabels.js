@@ -42,6 +42,37 @@ export function getImpactLabel(impactLevel, isPositive = true) {
   return `${size} ${direction} impact`;
 }
 
+/** Short correlation labels for compact tables (e.g. Insights screen pills). */
+const CORRELATION_LABELS_SHORT = {
+  high: 'Strong',
+  medium: 'Moderate',
+  low: 'Limited',
+  none: 'Not enough',
+};
+
+/**
+ * Short correlation label for compact UI (pills, table cells).
+ * @param {string} confidenceLevel
+ * @returns {string}
+ */
+export function getCorrelationLabelShort(confidenceLevel) {
+  if (!confidenceLevel) return CORRELATION_LABELS_SHORT.none;
+  return CORRELATION_LABELS_SHORT[confidenceLevel] ?? CORRELATION_LABELS_SHORT.none;
+}
+
+/**
+ * Short impact label for compact UI: e.g. "Minimal +", "Small −".
+ * @param {string} impactLevel - large | moderate | small | minimal
+ * @param {boolean} isPositive - true for positive impact on sleep
+ * @returns {string}
+ */
+export function getImpactLabelShort(impactLevel, isPositive = true) {
+  if (!impactLevel) impactLevel = 'minimal';
+  const size = IMPACT_SIZE_LABELS[impactLevel] ?? IMPACT_SIZE_LABELS.minimal;
+  const symbol = isPositive ? '+' : '−';
+  return `${size} ${symbol}`;
+}
+
 /**
  * Tag style for correlation: greyscale — strong = dark, progressively lighter grey for lower correlation.
  * @param {string} confidenceLevel
