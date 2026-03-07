@@ -15,11 +15,11 @@ export default {
   scheme: "sleepfactor",
   version: VERSION,
   orientation: "portrait",
-  icon: "./assets/applogo.png",
+  icon: "./assets/AppLogo.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
-    image: "./assets/applogo.png",
+    image: "./assets/AppLogo.png",
     resizeMode: "contain",
     backgroundColor: "#FFFFFF"
   },
@@ -29,7 +29,7 @@ export default {
   },
   android: {
     adaptiveIcon: {
-      foregroundImage: "./assets/applogo.png",
+      foregroundImage: "./assets/AppLogo.png",
       backgroundColor: "#1E3A8A"
     },
     edgeToEdgeEnabled: true,
@@ -53,14 +53,14 @@ export default {
     ]
   },
   web: {
-    favicon: "./assets/applogo.png"
+    favicon: "./assets/AppLogo.png"
   },
   plugins: [
     [
       "expo-splash-screen",
       {
         backgroundColor: "#FFFFFF",
-        image: "./assets/applogo.png",
+        image: "./assets/AppLogo.png",
         resizeMode: "contain",
         imageWidth: 200
       }
@@ -109,7 +109,7 @@ export default {
     [
       "expo-notifications",
       {
-        icon: "./assets/applogo.png",
+        icon: "./assets/AppLogo.png",
         color: "#1E3A8A",
         sounds: [],
         androidMode: "default"
