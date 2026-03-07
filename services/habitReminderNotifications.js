@@ -56,7 +56,6 @@ export async function getHabitReminderEnabled() {
  * @param {boolean} value
  */
 export async function setHabitReminderEnabled(value) {
-  console.log(LOG_TAG, 'setHabitReminderEnabled:', value);
   try {
     await AsyncStorage.setItem(PREF_HABIT_REMINDER_ENABLED_KEY, value ? 'true' : 'false');
     if (value) {
@@ -88,11 +87,9 @@ export async function getHabitReminderTime() {
  */
 export async function setHabitReminderTime(time) {
   const normalized = typeof time === 'string' && /^\d{1,2}:\d{2}$/.test(time) ? time : DEFAULT_TIME;
-  console.log(LOG_TAG, 'setHabitReminderTime:', normalized);
   try {
     await AsyncStorage.setItem(PREF_HABIT_REMINDER_TIME_KEY, normalized);
     const enabled = await getHabitReminderEnabled();
-    console.log(LOG_TAG, 'reminder enabled after setTime:', enabled, enabled ? '- will schedule' : '- will not schedule');
     if (enabled) {
       await scheduleHabitReminder();
     }
@@ -121,11 +118,7 @@ export async function cancelHabitReminder() {
  * Cancels any existing reminder first, then schedules the next occurrence.
  */
 export async function scheduleHabitReminder() {
-  console.log(LOG_TAG, 'scheduleHabitReminder called');
-  if (Platform.OS === 'web') {
-    console.log(LOG_TAG, 'skipped (web)');
-    return;
-  }
+  if (Platform.OS === 'web') return;
   const Notifications = getNotifications();
   if (!Notifications) {
     console.warn(LOG_TAG, 'skipped: native notifications not available (rebuild dev/prod APK with expo-notifications)');
@@ -134,7 +127,6 @@ export async function scheduleHabitReminder() {
   try {
     const enabled = await getHabitReminderEnabled();
     if (!enabled) {
-      console.log(LOG_TAG, 'skipped: reminder disabled');
       await cancelHabitReminder();
       return;
     }
@@ -147,7 +139,6 @@ export async function scheduleHabitReminder() {
     const timeStr = await getHabitReminderTime();
     const [hours, minutes] = timeStr.split(':').map(Number);
     const nextTriggerDate = getNextTriggerDate(hours, minutes ?? 0);
-    console.log(LOG_TAG, 'scheduling for time', timeStr, '-> next trigger:', nextTriggerDate.toISOString());
 
     await Notifications.cancelScheduledNotificationAsync(HABIT_REMINDER_NOTIFICATION_ID);
 
@@ -163,7 +154,6 @@ export async function scheduleHabitReminder() {
         date: nextTriggerDate,
       },
     });
-    console.log(LOG_TAG, 'habit reminder scheduled successfully');
   } catch (e) {
     console.warn(LOG_TAG, 'scheduleHabitReminder failed', e?.message || e, e);
   }
@@ -175,7 +165,6 @@ export async function scheduleHabitReminder() {
  */
 export async function rescheduleIfEnabled() {
   const enabled = await getHabitReminderEnabled();
-  console.log(LOG_TAG, 'rescheduleIfEnabled: enabled=', enabled);
   if (enabled) {
     await scheduleHabitReminder();
   } else {
@@ -238,23 +227,12 @@ export function setupNotificationResponseListener(navigationRef) {
 export function setupRescheduleListener() {
   if (Platform.OS === 'web') return;
   const Notifications = getNotifications();
-  if (!Notifications) {
-    console.log(LOG_TAG, 'setupRescheduleListener: skipped (native notifications not available)');
-    return;
-  }
-  if (rescheduleListenerSub) {
-    console.log(LOG_TAG, 'setupRescheduleListener: already subscribed');
-    return;
-  }
+  if (!Notifications || rescheduleListenerSub) return;
   try {
     rescheduleListenerSub = Notifications.addNotificationReceivedListener((notification) => {
       const type = notification?.request?.content?.data?.type;
-      if (type === 'habit_reminder') {
-        console.log(LOG_TAG, 'habit_reminder received, rescheduling next');
-        scheduleHabitReminder();
-      }
+      if (type === 'habit_reminder') scheduleHabitReminder();
     });
-    console.log(LOG_TAG, 'setupRescheduleListener: listener registered');
   } catch (e) {
     console.warn(LOG_TAG, 'setupRescheduleListener failed', e?.message || e);
   }

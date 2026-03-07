@@ -24,11 +24,13 @@ import consumptionOptionsService from '../services/consumptionOptionsService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { formatDateRange, formatDateTitle } from '../utils/dateHelpers';
+import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
+import { formatDateRange, formatDateTitle, getYesterday } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
 import PageLoadingView from '../components/PageLoadingView';
+import ScoreSlider from '../components/ScoreSlider';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -66,6 +68,14 @@ const HabitLoggingScreen = () => {
   const [collapsedConsumption, setCollapsedConsumption] = useState({});
   const selectedDateRef = useRef(selectedDate);
   const cleanupDoneRef = useRef(false);
+  // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
+  const habitLogsForDateRef = useRef(null);
+  // Subjective sleep scores (tiredness, dream vividness) for the selected date
+  const [trackTiredness, setTrackTiredness] = useState(false);
+  const [trackDreamVividness, setTrackDreamVividness] = useState(false);
+  const [tirednessScore, setTirednessScore] = useState(null);
+  const [dreamVividnessScore, setDreamVividnessScore] = useState(null);
+  const [subjectiveSaving, setSubjectiveSaving] = useState(false);
 
   // Load persisted collapse state for Caffeine/Alcohol sections
   useEffect(() => {
@@ -93,6 +103,45 @@ const HabitLoggingScreen = () => {
     selectedDateRef.current = selectedDate;
   }, [selectedDate]);
 
+  const fetchSubjectivePrefs = useCallback(() => {
+    if (!user?.id) return;
+    supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single().then(({ data, error }) => {
+      if (error) {
+        console.warn('[HabitLogging] users prefs error:', error.message, error.code);
+        return;
+      }
+      const tired = data?.track_tiredness === true || data?.track_tiredness === 'true';
+      const dream = data?.track_dream_vividness === true || data?.track_dream_vividness === 'true';
+      setTrackTiredness(tired);
+      setTrackDreamVividness(dream);
+    });
+  }, [user?.id]);
+
+  // Load user prefs for subjective score toggles (on mount and when screen gains focus so we pick up Profile changes)
+  useEffect(() => {
+    fetchSubjectivePrefs();
+  }, [fetchSubjectivePrefs]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchSubjectivePrefs();
+    }, [fetchSubjectivePrefs])
+  );
+
+  // Load existing tiredness/dream vividness for the selected date when date or user changes
+  useEffect(() => {
+    if (!user?.id) return;
+    const dateStr = getDateString(selectedDate);
+    if (!dateStr) return;
+    let cancelled = false;
+    sleepDataService.getSleepDataForDate(dateStr).then((row) => {
+      if (cancelled) return;
+      setTirednessScore(row?.tiredness_score ?? null);
+      setDreamVividnessScore(row?.dream_vividness_score ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, selectedDate]);
+
   // Sync route param date into shared context so the header shows the correct date
   useEffect(() => {
     const paramDate = route.params?.date;
@@ -111,11 +160,6 @@ const HabitLoggingScreen = () => {
       }
     }, [])
   );
-
-  // Helper function to check if a habit is an automated bedtime habit
-  const isAutomatedBedtimeHabit = (habit) => {
-    return habit && habit.name === 'Bedtime Consistency';
-  };
 
   // Cache-first load: show UI from cache immediately, then refresh in background (Option A)
   useEffect(() => {
@@ -140,9 +184,13 @@ const HabitLoggingScreen = () => {
         const cachedConsumption = cachedConsumptionJson[1] ? JSON.parse(cachedConsumptionJson[1]) : null;
 
         usedCache = Array.isArray(cachedHabits) && cachedHabits.length > 0;
-        if (!cancelled && usedCache) {
+        // Only apply cache if we're still loading for this date (user may have switched dates)
+        const stillSelectedDate = !cancelled && getDateString(selectedDateRef.current) === dateStr;
+        if (stillSelectedDate && usedCache) {
           setHabits(cachedHabits);
-          setHabitLogs(typeof cachedLogs === 'object' && cachedLogs !== null ? cachedLogs : {});
+          const logsToApply = typeof cachedLogs === 'object' && cachedLogs !== null ? cachedLogs : {};
+          setHabitLogs(logsToApply);
+          habitLogsForDateRef.current = dateStr;
           setHabitLogCountsByValue(typeof cachedCounts === 'object' && cachedCounts !== null ? cachedCounts : {});
           const hasConsumptionCache = typeof cachedConsumption === 'object' && cachedConsumption !== null;
           setConsumptionEvents(hasConsumptionCache ? cachedConsumption : {});
@@ -164,9 +212,11 @@ const HabitLoggingScreen = () => {
     return () => { cancelled = true; };
   }, [selectedDate, user]);
 
-  // Save habitLogs to AsyncStorage whenever they change (debounced)
+  // Save habitLogs to AsyncStorage whenever they change (debounced). Only save when current habitLogs state is for the selected date (avoids writing wrong date when user switches dates).
   useEffect(() => {
     const timeoutId = setTimeout(() => {
+      const selectedStr = getDateString(selectedDate);
+      if (habitLogsForDateRef.current !== selectedStr) return;
       if (Object.keys(habitLogs).length > 0) {
         saveHabitLogsToStorage();
         // Also save to database immediately for regular habits
@@ -312,7 +362,7 @@ const HabitLoggingScreen = () => {
       const normalizedHabits = finalHabits
         .filter(habit => habit.name !== 'Coffee')
         .filter(habit => !healthMetricsService.isHealthMetricHabit(habit))
-        .filter(habit => !isAutomatedBedtimeHabit(habit))
+        .filter(habit => !INFERRED_HABIT_NAMES.includes(habit.name))
         .map(habit => ({
           ...habit,
           is_custom: habit.is_custom === true || habit.is_custom === 'true',
@@ -349,6 +399,7 @@ const HabitLoggingScreen = () => {
           if (logsMap[h.id] === undefined) logsMap[h.id] = 'no';
         });
 
+      habitLogsForDateRef.current = loadForDateString;
       setHabitLogs(logsMap);
 
       if (!countsError && countsData) {
@@ -618,6 +669,7 @@ const HabitLoggingScreen = () => {
       }));
     } else {
       const oldValue = habitLogs[habitId];
+      habitLogsForDateRef.current = getDateString(selectedDateRef.current);
       setHabitLogs(prev => ({
         ...prev,
         [habitId]: value,
@@ -654,14 +706,16 @@ const HabitLoggingScreen = () => {
     if (!user || habit.type !== 'quick_consumption') return null;
 
     try {
-      // First, try to get actual sleep start time from sleep data
+      // Sleep is stored by wake-up date; for "bedtime after day D" we need the sleep that follows D (date D+1).
       const dateString = date instanceof Date ? date.toISOString().split('T')[0] : date;
-      const sleepData = await sleepDataService.getSleepDataForDate(dateString);
+      const [y, mo, day] = dateString.split('-').map(Number);
+      const nextDay = new Date(y, mo - 1, day + 1);
+      const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+      const sleepData = await sleepDataService.getSleepDataForDate(nextDayStr);
 
       let targetBedtime;
 
       if (sleepData && sleepData.sleep_start_time) {
-        // Use actual sleep start time if available
         targetBedtime = new Date(sleepData.sleep_start_time);
       } else {
         // Fall back to user's notification time from profile
@@ -672,18 +726,8 @@ const HabitLoggingScreen = () => {
           .single();
 
         const notificationTime = userData?.notification_time || '22:00:00';
-
-        // Create bedtime Date object for the selected date
-        targetBedtime = new Date(date);
         const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
-        targetBedtime.setHours(hours, minutes, seconds || 0, 0);
-
-        // If bedtime is in the past (user already slept), it should be the next day
-        // But for habit logging, we want the bedtime for the night following the logged day
-        const now = new Date();
-        if (targetBedtime <= now) {
-          targetBedtime.setDate(targetBedtime.getDate() + 1);
-        }
+        targetBedtime = new Date(y, mo - 1, day, hours, minutes, seconds || 0, 0);
       }
 
       // Get all consumption events for this habit across the relevant time period for this habit across the relevant time period
@@ -849,6 +893,58 @@ const HabitLoggingScreen = () => {
               })}
             </>
           )}
+
+          {/* How did you feel? – Tiredness & Dream vividness (when enabled in Profile). Only for last night (yesterday). */}
+          {(trackTiredness || trackDreamVividness) && getDateString(selectedDate) === getYesterday() && (
+            <View style={styles.subjectiveSection}>
+              <Text style={styles.subjectiveSectionTitle}>How did you feel?</Text>
+              <Text style={styles.subjectiveSectionSubtitle}>Last night</Text>
+              {trackTiredness && (
+                <ScoreSlider
+                  label="Tiredness"
+                  hint="1 = very tired, 10 = not tired"
+                  value={tirednessScore}
+                  onValueChange={setTirednessScore}
+                  leftLabel="Very tired"
+                  rightLabel="Not tired"
+                />
+              )}
+              {trackDreamVividness && (
+                <ScoreSlider
+                  label="Dream vividness"
+                  hint="1 = no memory, 10 = very vivid"
+                  value={dreamVividnessScore}
+                  onValueChange={setDreamVividnessScore}
+                  leftLabel="No memory"
+                  rightLabel="Very vivid"
+                />
+              )}
+              <TouchableOpacity
+                style={[styles.subjectiveSaveButton, subjectiveSaving && styles.subjectiveSaveButtonDisabled]}
+                onPress={async () => {
+                  const dateStr = getDateString(selectedDate);
+                  if (!user?.id || !dateStr || subjectiveSaving) return;
+                  const scores = {};
+                  if (trackTiredness && tirednessScore != null) scores.tiredness_score = tirednessScore;
+                  if (trackDreamVividness && dreamVividnessScore != null) scores.dream_vividness_score = dreamVividnessScore;
+                  if (Object.keys(scores).length === 0) return;
+                  setSubjectiveSaving(true);
+                  try {
+                    await sleepDataService.updateSubjectiveScores(user.id, dateStr, scores);
+                  } catch (e) {
+                    Alert.alert('Error', 'Could not save. Please try again.');
+                  } finally {
+                    setSubjectiveSaving(false);
+                  }
+                }}
+                disabled={subjectiveSaving}
+              >
+                <Text style={styles.subjectiveSaveButtonText}>
+                  {subjectiveSaving ? 'Saving…' : 'Save how you felt'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
 
@@ -967,6 +1063,39 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
+  },
+  subjectiveSection: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.regular,
+    marginTop: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  subjectiveSectionTitle: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  subjectiveSectionSubtitle: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  subjectiveSaveButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  subjectiveSaveButtonDisabled: {
+    opacity: 0.6,
+  },
+  subjectiveSaveButtonText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.white,
   },
 });
 

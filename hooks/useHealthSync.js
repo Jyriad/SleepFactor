@@ -5,6 +5,7 @@ import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
 import backgroundSleepSync from '../services/backgroundSleepSync';
 import sleepSyncNotifications from '../services/sleepSyncNotifications';
+import launchSyncCoordinator from '../services/launchSyncCoordinator';
 import { formatDateForDB } from '../utils/dateHelpers';
 
 /**
@@ -55,11 +56,34 @@ export const useHealthSync = ({
     initialize();
   }, []);
 
-  // Auto-sync on mount if enabled
+  // Auto-sync on mount: reuse launch sync if App.js already started it, otherwise run sync
   useEffect(() => {
-    if (autoSyncOnMount && isInitialized && hasPermissions && !isLoading) {
+    if (!autoSyncOnMount || !isInitialized || !hasPermissions || isLoading) return;
+
+    const runMountSync = async () => {
+      const launchPromise = launchSyncCoordinator.getLaunchSyncPromise();
+      if (launchPromise) {
+        try {
+          const result = await launchPromise;
+          launchSyncCoordinator.clearLaunchSyncPromise();
+          if (result?.success) {
+            setLastSyncResult(result);
+            setHasPermissions(true);
+          } else if (result?.needsPermissions) {
+            setNeedsPermissions(true);
+          } else if (result?.error) {
+            setError(result.error);
+          }
+        } catch (e) {
+          launchSyncCoordinator.clearLaunchSyncPromise();
+          setError(sleepSyncService.getErrorMessage(e));
+        }
+        return;
+      }
       performSync();
-    }
+    };
+
+    runMountSync();
   }, [autoSyncOnMount, isInitialized, hasPermissions]);
 
   // Handle app state changes for foreground sync

@@ -67,7 +67,6 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
     const targetDateStr = dateStr || todayStr;
     timelineRequestIdRef.current += 1;
     const thisRequestId = timelineRequestIdRef.current;
-    console.log('[DrugLevel] timeline effect run', { dateStr, todayStr, targetDateStr, isViewingToday, thisRequestId });
     setTimeline(null);
     setTimelineForDate(null);
     setTimelineLoading(true);
@@ -78,16 +77,12 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
     fetchTimeline.then((result) => {
       const firstTime = result?.dataPoints?.[0]?.time;
       const lastTime = result?.dataPoints?.[result.dataPoints.length - 1]?.time;
-      console.log('[DrugLevel] timeline fetch resolved', { thisRequestId, cancelled, targetDateStr, points: result?.dataPoints?.length, firstTime: firstTime?.toISOString?.(), lastTime: lastTime?.toISOString?.() });
       if (!cancelled && thisRequestId === timelineRequestIdRef.current) {
         setTimeline(result);
         setTimelineForDate(targetDateStr);
         setTimelineLoading(false);
-      } else {
-        console.log('[DrugLevel] timeline result discarded (stale or cancelled)', { thisRequestId, currentId: timelineRequestIdRef.current });
       }
     }).catch((err) => {
-      console.log('[DrugLevel] timeline fetch error', { thisRequestId, err: err?.message });
       if (!cancelled && thisRequestId === timelineRequestIdRef.current) {
         setTimeline({ dataPoints: [], unit: habit?.unit });
         setTimelineForDate(targetDateStr);
@@ -96,7 +91,6 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
     });
     return () => {
       cancelled = true;
-      console.log('[DrugLevel] timeline effect cleanup', { thisRequestId });
     };
   }, [expanded, userId, habit?.id, habit?.unit, isViewingToday, dateStr, todayStr, selectedDate, levelRefreshKey]);
 

@@ -26,6 +26,7 @@ import sleepSyncService from '../services/sleepSyncService';
 import exerciseTimeBeforeBedService from '../services/exerciseTimeBeforeBedService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import PageLoadingView from '../components/PageLoadingView';
 
@@ -42,7 +43,8 @@ const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Alcohol', type: 'quick_consumption', unit: 'units', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
 ];
 
-// Inferred habits: derived from automatic/health data (Bedtime from sleep; Exercise Time from HR + sleep)
+// Inferred habits: derived from automatic/health data (Bedtime from sleep; Exercise Time from HR + sleep).
+// Keep habit names in sync with constants/inferredHabits.js INFERRED_HABIT_NAMES (used to hide these from habit logging).
 const INFERRED_HABITS = [
   {
     name: 'Bedtime Consistency',
@@ -170,7 +172,7 @@ const HabitManagementScreen = () => {
         priority: habit.priority || 0,
       }));
 
-      const inferredNames = new Set(INFERRED_HABITS.map(h => h.name));
+      const inferredNames = new Set(INFERRED_HABIT_NAMES);
 
       // Ensure always available habits exist in database (optimized batch approach)
       const alwaysAvailableHabits = [];

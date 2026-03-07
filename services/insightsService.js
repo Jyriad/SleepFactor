@@ -136,6 +136,9 @@ class InsightsService {
    * @returns {number} Percentage (0-100), awakenings per hour, or 0 if invalid
    */
   transformSleepDataForEfficiency(sleepData, metricKey) {
+    if (metricKey === 'tiredness_score' || metricKey === 'dream_vividness_score') {
+      return sleepData?.[metricKey] ?? 0;
+    }
     if (!sleepData || !sleepData.total_sleep_minutes || sleepData.total_sleep_minutes <= 0) {
       return sleepData?.[metricKey] || 0;
     }
@@ -1062,13 +1065,11 @@ class InsightsService {
    */
   async _getAllTaggedInsightsForHome(userId) {
     const dateRange = this.calculateDateRange('all');
-    const metrics = this.getAvailableSleepMetrics();
-    const runs = [
-      { useEfficiency: false, useCoreSleep: false },
-      { useEfficiency: true, useCoreSleep: false },
-    ];
+    const metrics = await this.getAvailableSleepMetricsForUser(userId);
+    const runsAbsolute = { useEfficiency: false, useCoreSleep: false };
+    const runsPercentage = { useEfficiency: true, useCoreSleep: false };
+    const isSubjectiveMetric = (key) => key === 'tiredness_score' || key === 'dream_vividness_score';
 
-    // Fetch raw data once; home uses 30 days, no core sleep, no outlier exclusion
     const [habits, habitLogs, drugLevels, sleepData] = await Promise.all([
       this.getActiveHabits(userId),
       this.getHabitLogs(userId, dateRange.startDate, dateRange.endDate, false),
@@ -1078,7 +1079,8 @@ class InsightsService {
 
     const tagged = [];
     for (const metricInfo of metrics) {
-      for (const options of runs) {
+      const runOpts = isSubjectiveMetric(metricInfo.key) ? [runsAbsolute] : [runsAbsolute, runsPercentage];
+      for (const options of runOpts) {
         const { validInsights } = this._computeInsightsFromData(
           habits,
           habitLogs,
@@ -1108,7 +1110,7 @@ class InsightsService {
   }
 
   _getInsightDirection(insight, metricKey) {
-    const higherIsBetter = metricKey !== 'awakenings_count';
+    const higherIsBetter = metricKey !== 'awakenings_count' || metricKey === 'tiredness_score' || metricKey === 'dream_vividness_score';
     if (insight.type === 'numerical' && insight.trendDirection) {
       if (insight.trendDirection === 'none') return higherIsBetter ? 'positive' : 'negative';
       // For awakenings, more is worse: flip so "positive correlation" (more habit → more awakenings) → negative impact
@@ -1191,7 +1193,7 @@ class InsightsService {
       if (insight.direction === 'positive') byMetric[key].positive.add(habitId);
       if (insight.direction === 'negative') byMetric[key].negative.add(habitId);
     }
-    const metricsOrder = this.getAvailableSleepMetrics();
+    const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
     const summaryByMetric = metricsOrder
       .map((m) => ({
         metricKey: m.key,
@@ -1229,7 +1231,7 @@ class InsightsService {
   }
 
   /**
-   * Get available sleep metrics for the metric selector
+   * Get available sleep metrics (static list, no user prefs). Use getAvailableSleepMetricsForUser when building UI that includes subjective metrics.
    * @returns {Array} Array of metric objects with label and key
    */
   getAvailableSleepMetrics() {
@@ -1241,6 +1243,29 @@ class InsightsService {
       { key: 'awake_minutes', label: 'Awake Time', unit: 'minutes' },
       { key: 'awakenings_count', label: 'Awakenings', unit: 'count' }
     ];
+  }
+
+  /**
+   * Get available sleep metrics including subjective (Tiredness, Dream vividness) when user has them enabled.
+   * @param {string} userId - User ID
+   * @returns {Promise<Array>} Array of metric objects with label, key, unit; subjective metrics only if toggles on
+   */
+  async getAvailableSleepMetricsForUser(userId) {
+    const base = this.getAvailableSleepMetrics();
+    if (!userId) return base;
+    try {
+      const { data } = await supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', userId).single();
+      const list = [...base];
+      if (data?.track_tiredness === true) {
+        list.push({ key: 'tiredness_score', label: 'Tiredness', unit: 'score', higherIsBetter: true });
+      }
+      if (data?.track_dream_vividness === true) {
+        list.push({ key: 'dream_vividness_score', label: 'Dream vividness', unit: 'score', higherIsBetter: true });
+      }
+      return list;
+    } catch (e) {
+      return base;
+    }
   }
 
   /**

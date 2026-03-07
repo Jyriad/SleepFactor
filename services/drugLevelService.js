@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import sleepDataService from './sleepDataService';
 import {
   getBedtimeDrugLevel,
   getCurrentDrugLevel,
@@ -209,7 +210,6 @@ export async function getLevelTimelineForDate(userId, habit, dateStr) {
   const dayStart = new Date(y, m - 1, d, 0, 0, 0);
   const dayEnd = new Date(y, m - 1, d + 1, 0, 0, 0);
 
-  console.log('[drugLevelService] getLevelTimelineForDate called', { dateStr, dayStart: dayStart.toISOString(), dayEnd: dayEnd.toISOString() });
 
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
   const fetchStart = new Date(dayStart);
@@ -225,7 +225,6 @@ export async function getLevelTimelineForDate(userId, habit, dateStr) {
     .order('consumed_at', { ascending: true });
 
   if (error) {
-    console.log('[drugLevelService] getLevelTimelineForDate error', { dateStr, error: error.message });
     return { dataPoints: [], unit };
   }
 
@@ -240,34 +239,68 @@ export async function getLevelTimelineForDate(userId, habit, dateStr) {
 
   const firstTime = dataPoints?.[0]?.time;
   const lastTime = dataPoints?.length ? dataPoints[dataPoints.length - 1]?.time : null;
-  console.log('[drugLevelService] getLevelTimelineForDate result', { dateStr, eventCount: (events || []).length, dataPointCount: (dataPoints || []).length, firstTime: firstTime?.toISOString?.(), lastTime: lastTime?.toISOString?.() });
 
   return { dataPoints, unit };
 }
 
 /**
- * Get level at bedtime for a specific date (from drug_levels, same value used for insight analysis).
+ * Get level at bedtime for a specific date. Recalculates from consumption events so past dates
+ * always show the correct value (avoids stale/wrong drug_levels from the old bedtime bug).
  * @param {string} userId - User ID
- * @param {Object} habit - Habit with id, unit
+ * @param {Object} habit - Habit with id, unit, half_life_hours
  * @param {string} dateStr - Date in YYYY-MM-DD
  * @returns {Promise<{ level: number, unit: string }>}
  */
 export async function getLevelAtBedtime(userId, habit, dateStr) {
   const unit = habit?.unit || 'units';
-  const { data, error } = await supabase
-    .from('drug_levels')
-    .select('level_value, unit')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .eq('date', dateStr)
-    .maybeSingle();
-  if (error || !data) {
+  const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
+
+  let targetBedtime;
+  try {
+    // Sleep is stored by wake-up date (morning you woke). For "bedtime after day D" we need the sleep that *follows* D (night D→D+1), stored as date D+1.
+    const [y, mo, day] = dateStr.split('-').map(Number);
+    const nextDay = new Date(y, mo - 1, day + 1);
+    const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+    const sleepData = await sleepDataService.getSleepDataForDate(nextDayStr);
+    if (sleepData?.sleep_start_time) {
+      targetBedtime = new Date(sleepData.sleep_start_time);
+    } else {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('notification_time')
+        .eq('id', userId)
+        .single();
+      const notificationTime = userError || !userData ? '22:00:00' : (userData.notification_time || '22:00:00');
+      const [y, mo, day] = dateStr.split('-').map(Number);
+      const [h, m, s] = notificationTime.split(':').map(Number);
+      targetBedtime = new Date(y, mo - 1, day, h, m, s || 0, 0);
+    }
+  } catch (e) {
     return { level: 0, unit };
   }
-  return {
-    level: Number(data.level_value) || 0,
-    unit: data.unit || unit,
-  };
+
+  const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
+  const historyStart = new Date(targetBedtime);
+  historyStart.setDate(historyStart.getDate() - historyDays);
+
+  const { data: events, error } = await supabase
+    .from('habit_consumption_events')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('habit_id', habit.id)
+    .gte('consumed_at', historyStart.toISOString())
+    .lte('consumed_at', targetBedtime.toISOString())
+    .order('consumed_at', { ascending: true });
+
+  if (error) {
+    return { level: 0, unit };
+  }
+
+  const level = events?.length > 0
+    ? getBedtimeDrugLevel(events, targetBedtime, halfLife, THRESHOLD_PERCENT)
+    : 0;
+
+  return { level, unit };
 }
 
 export default {

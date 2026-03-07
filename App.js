@@ -9,9 +9,10 @@ import { AuthProvider } from './contexts/AuthContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import AppNavigator from './navigation/AppNavigator';
 import { supabase } from './services/supabase';
-import sleepSyncService from './services/sleepSyncService';
-import sleepSyncNotifications from './services/sleepSyncNotifications';
+import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
+import morningCheckinNotifications from './services/morningCheckinNotifications';
+import sleepSyncNotifications from './services/sleepSyncNotifications';
 import { colors } from './constants/colors';
 
 // Keep native splash visible until we hide it after the first screen has laid out
@@ -116,23 +117,13 @@ export default function App() {
     }
   }, [navigationRef.current, pendingDeepLink]);
 
-  // Optional: sync today's sleep in background on launch so data is ready when user opens Home
+  // Start today-only sleep sync as soon as app is ready so data is in flight before user opens Home
   useEffect(() => {
     let cancelled = false;
-    const t = setTimeout(async () => {
-      try {
-        const initialized = await sleepSyncService.initialize();
-        if (cancelled || !initialized) return;
-        const hasPermissions = await sleepSyncService.hasPermissions();
-        if (cancelled || !hasPermissions) return;
-        const result = await sleepSyncService.syncSleepData({ daysBack: 1, force: true, silent: true });
-        if (!cancelled && result?.success && result?.syncedRecords > 0) {
-          sleepSyncNotifications.notifyNewSleepDataSynced();
-        }
-      } catch (e) {
-        console.warn('App: launch sleep sync failed', e);
-      }
-    }, 2000);
+    const t = setTimeout(() => {
+      if (cancelled) return;
+      launchSyncCoordinator.startLaunchSync();
+    }, 300);
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -144,13 +135,18 @@ export default function App() {
     habitReminderNotifications.setupRescheduleListener();
     habitReminderNotifications.rescheduleIfEnabled();
     habitReminderNotifications.setupNotificationResponseListener(navigationRef);
+    morningCheckinNotifications.setupRescheduleListener();
+    morningCheckinNotifications.rescheduleIfEnabled();
+    morningCheckinNotifications.setupNotificationResponseListener(navigationRef);
+    sleepSyncNotifications.setupSyncNotificationResponseListener(navigationRef);
   }, []);
 
-  // When app returns to foreground, reschedule habit reminder so next occurrence is always set (e.g. after previous one fired)
+  // When app returns to foreground, reschedule habit reminder and morning check-in
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         habitReminderNotifications.rescheduleIfEnabled();
+        morningCheckinNotifications.rescheduleIfEnabled();
       }
     });
     return () => sub?.remove();

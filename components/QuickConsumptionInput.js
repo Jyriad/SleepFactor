@@ -213,14 +213,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         return; // Not a drug habit we care about
       }
 
-      // First, try to get actual sleep start time from sleep data
+      // Sleep is stored by wake-up date; for "bedtime after day D" we need the sleep that follows D (date D+1).
       const dateString = selectedDate instanceof Date ? selectedDate.toISOString().split('T')[0] : selectedDate;
-      const sleepData = await sleepDataService.getSleepDataForDate(dateString);
+      const [y, mo, day] = dateString.split('-').map(Number);
+      const nextDay = new Date(y, mo - 1, day + 1);
+      const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+      const sleepData = await sleepDataService.getSleepDataForDate(nextDayStr);
 
       let targetBedtime;
 
       if (sleepData && sleepData.sleep_start_time) {
-        // Use actual sleep start time if available
         targetBedtime = new Date(sleepData.sleep_start_time);
       } else {
         // Fall back to user's notification time from profile
@@ -232,16 +234,13 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
         const notificationTime = userData?.notification_time || '22:00:00'; // Default 10 PM
 
-        // Create bedtime Date object for the selected date
+        // Create bedtime Date object for the selected date (evening of that day = night that follows)
         targetBedtime = new Date(selectedDate);
         const [hours, minutes, seconds] = notificationTime.split(':').map(Number);
         targetBedtime.setHours(hours, minutes, seconds || 0, 0);
 
-        // If bedtime is in the past, it should be the next day
-        const now = new Date();
-        if (targetBedtime <= now) {
-          targetBedtime.setDate(targetBedtime.getDate() + 1);
-        }
+        // Do not add a day for past dates: "yesterday at 10 PM" is the correct bedtime for yesterday's row.
+        // Adding a day would wrongly use today's bedtime and mix in today's consumption.
       }
 
       // Get all consumption events for this habit across the relevant time period

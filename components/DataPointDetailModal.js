@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import dataQualityService from '../services/dataQualityService';
 import sleepDataService from '../services/sleepDataService';
 import { supabase } from '../services/supabase';
+import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import SleepTimeline from './SleepTimeline';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -233,17 +234,70 @@ const DataPointDetailModal = ({
         // Continue without consumption events
       }
 
+      // For past dates, recalculate bedtime level from events so we don't show stale/wrong stored values
+      const recalculatedLevels = {};
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (drugLevels?.length > 0 && point.date < todayStr) {
+        try {
+          // Sleep is stored by wake-up date; for "bedtime after day D" use sleep that follows D (date D+1).
+          const [y, mo, day] = point.date.split('-').map(Number);
+          const nextDay = new Date(y, mo - 1, day + 1);
+          const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+          const sleepData = await sleepDataService.getSleepDataForDate(nextDayStr);
+          let targetBedtime;
+          if (sleepData?.sleep_start_time) {
+            targetBedtime = new Date(sleepData.sleep_start_time);
+          } else {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('notification_time')
+              .eq('id', user.id)
+              .single();
+            const notificationTime = userData?.notification_time || '22:00:00';
+            const [h, m, s] = notificationTime.split(':').map(Number);
+            targetBedtime = new Date(y, mo - 1, day, h, m, s || 0, 0);
+          }
+          const maxHalfLife = Math.max(...drugLevels.map(l => l.habits?.half_life_hours || 5), 5);
+          const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
+          const historyStart = new Date(targetBedtime);
+          historyStart.setDate(historyStart.getDate() - historyDays);
+
+          const habitIds = drugLevels.map(l => l.habit_id);
+          const { data: rangeEvents } = await supabase
+            .from('habit_consumption_events')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('habit_id', habitIds)
+            .gte('consumed_at', historyStart.toISOString())
+            .lte('consumed_at', targetBedtime.toISOString())
+            .order('consumed_at', { ascending: true });
+
+          drugLevels.forEach(level => {
+            const events = (rangeEvents || []).filter(e => e.habit_id === level.habit_id);
+            const halfLife = level.habits?.half_life_hours ?? 5;
+            const levelValue = events.length > 0
+              ? getBedtimeDrugLevel(events, targetBedtime, halfLife)
+              : 0;
+            recalculatedLevels[level.habit_id] = levelValue;
+          });
+        } catch (e) {
+          // Keep stored values if recalc fails
+        }
+      }
+
       // Combine all habits data with proper prioritization
       const allHabitsData = [];
 
       // Add drug levels first (quick_consumption habits) - these show bedtime levels
       if (drugLevels) {
         drugLevels.forEach(level => {
+          const numeric_value = recalculatedLevels[level.habit_id] ?? level.level_value;
+          const value = `${numeric_value?.toFixed(1) ?? '0'} ${level.unit || ''}`.trim();
           allHabitsData.push({
             ...level,
             source: 'drug_level',
-            value: `${level.level_value?.toFixed(1) || '0'} ${level.unit || ''}`.trim(),
-            numeric_value: level.level_value,
+            value,
+            numeric_value,
             displayType: 'bedtime_level',
             consumptionEvents: consumptionEvents?.filter(event =>
               event.habit_id === level.habit_id
