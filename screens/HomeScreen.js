@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import useHealthSync from '../hooks/useHealthSync';
 import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 
 // Sleep Data Rendering Components
 const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
@@ -34,8 +35,10 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   />
 );
 
-const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle }) => {
+const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, trackTiredness, trackDreamVividness, onOpenSleepQualityLog, lastNightSubjectiveData }) => {
   const viewingToday = isToday(selectedDate);
+  const dateStr = selectedDate && (typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0]);
+  const hasSubjectiveScores = viewingToday && lastNightSubjectiveData && ((trackTiredness && lastNightSubjectiveData.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData.dream_vividness_score != null));
 
   return (
     <View style={[styles.sleepCard, containerStyle]}>
@@ -75,18 +78,34 @@ const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermis
       <Text style={styles.placeholderText}>
         {hasPermissions ? 'No sleep data available for this date' : 'Connect your health app to view sleep data'}
       </Text>
+      {syncError && viewingToday ? (
+        <Text style={[styles.placeholderSubtext, { color: colors.error, marginTop: 4 }]}>
+          Sync failed. Tap Sync to try again.
+        </Text>
+      ) : (
       <Text style={styles.placeholderSubtext}>
         {hasPermissions
           ? 'Data may not be available yet or tracking failed'
           : 'Grant permissions to sync sleep data from your device'
         }
       </Text>
+      )}
         {viewingToday && !hasPermissions && (
           <TouchableOpacity
             style={styles.connectButton}
             onPress={() => setShowPermissionPrompt(true)}
           >
             <Text style={styles.connectButtonText}>Connect Health App</Text>
+          </TouchableOpacity>
+        )}
+        {(trackTiredness || trackDreamVividness) && isToday(selectedDate) && onOpenSleepQualityLog && (
+          <TouchableOpacity
+            style={styles.howDidYouFeelCTA}
+            onPress={() => onOpenSleepQualityLog(getYesterday())}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="happy-outline" size={18} color={colors.primary} />
+            <Text style={styles.howDidYouFeelCTAText}>{hasSubjectiveScores ? 'Edit how you felt +' : 'Add how you felt +'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -116,8 +135,16 @@ const SleepDataCard = ({
   onExclude,
   onInclude,
   containerStyle,
+  trackTiredness,
+  trackDreamVividness,
+  onOpenSleepQualityLog,
+  lastNightSubjectiveData,
 }) => {
   const viewingToday = isToday(selectedDate);
+  const sleepDateStr = sleepData?.date || (selectedDate && (typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0]));
+  // When viewing today, "how you felt" is stored on yesterday's row (last night)
+  const subjectiveSource = viewingToday && lastNightSubjectiveData ? lastNightSubjectiveData : sleepData;
+  const hasSubjectiveScores = (trackTiredness && subjectiveSource?.tiredness_score != null) || (trackDreamVividness && subjectiveSource?.dream_vividness_score != null);
 
   return (
     <View style={[styles.sleepCard, containerStyle]}>
@@ -220,6 +247,26 @@ const SleepDataCard = ({
             {sleepData.sleep_score && (
               renderSleepMetricRow('Sleep Score', `${sleepData.sleep_score}/100`, null, null, null, null, 'sleep-score')
             )}
+
+            {trackTiredness && subjectiveSource?.tiredness_score != null && (
+              renderSleepMetricRow('Tiredness', `${subjectiveSource.tiredness_score}/10`, null, null, null, null, 'tiredness')
+            )}
+            {trackDreamVividness && subjectiveSource?.dream_vividness_score != null && (
+              renderSleepMetricRow('Dream vividness', `${subjectiveSource.dream_vividness_score}/10`, null, null, null, null, 'dream-vividness')
+            )}
+
+            {(trackTiredness || trackDreamVividness) && viewingToday && onOpenSleepQualityLog && (
+              <TouchableOpacity
+                style={styles.howDidYouFeelCTA}
+                onPress={() => onOpenSleepQualityLog(getYesterday())}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="happy-outline" size={18} color={colors.primary} />
+                <Text style={styles.howDidYouFeelCTAText}>
+                  {hasSubjectiveScores ? 'Edit how you felt +' : 'Add how you felt +'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </>
         );
       })()}
@@ -266,7 +313,9 @@ const SleepDataSimpleLoading = () => (
   </View>
 );
 
-const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, containerStyle }) => (
+const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, containerStyle, message }) => {
+  const displayMessage = message || 'Syncing...';
+  return (
   <View style={[styles.sleepCard, styles.skeletonCard, containerStyle]}>
     <View style={styles.sleepCardHeader}>
       <View style={styles.sleepCardTitleRow}>
@@ -277,12 +326,12 @@ const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, cont
         <View style={styles.cardSyncButton}>
           <Ionicons name="sync" size={20} color={colors.textSecondary} />
           <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]}>
-            Syncing...
+            {displayMessage}
           </Text>
         </View>
       </View>
       <Text style={[styles.dataSourceInfo, styles.skeletonText]}>
-        Syncing...
+        {displayMessage}
       </Text>
     </View>
 
@@ -339,11 +388,12 @@ const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, cont
     <View style={styles.syncStatus}>
       <Ionicons name="sync" size={16} color={colors.primary} />
       <Text style={[styles.syncStatusText, { color: colors.primary }]}>
-        Syncing...
+        {displayMessage}
       </Text>
     </View>
   </View>
-);
+  );
+};
 
 // Sleep stage display names and their corresponding colors
 const SLEEP_METRIC_CONFIG = {
@@ -367,7 +417,7 @@ const AVERAGE_SLEEP_PERCENTAGES = {
   awakenings_count: 1.5, // Average number of awakenings per night
 };
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getToday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo } from '../utils/dateHelpers';
+import { getToday, getYesterday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo } from '../utils/dateHelpers';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
@@ -422,12 +472,18 @@ const HomeScreen = () => {
   const [cacheLoading, setCacheLoading] = useState(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [showNewSleepBanner, setShowNewSleepBanner] = useState(false);
+  const [trackTiredness, setTrackTiredness] = useState(false);
+  const [trackDreamVividness, setTrackDreamVividness] = useState(false);
+  // When viewing "today", subjective scores live on yesterday's sleep row (last night)
+  const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
 
   // Ref to track if we just completed a sync to prevent re-triggering
   const justSyncedRef = useRef(false);
   // Cooldown: don't start another auto-sync for the same date within this many ms
   const AUTO_SYNC_COOLDOWN_MS = 2 * 60 * 1000;
   const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
+  // Don't show "No sleep data" for today until we've completed at least one sync attempt
+  const todaySyncAttemptedRef = useRef(false);
 
   // Health sync hook
   const {
@@ -509,6 +565,37 @@ const HomeScreen = () => {
     });
     return () => { cancelled = true; };
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single().then(({ data }) => {
+      setTrackTiredness(data?.track_tiredness === true);
+      setTrackDreamVividness(data?.track_dream_vividness === true);
+    });
+  }, [user?.id]);
+
+  // Fetch yesterday's sleep for "how you felt" when viewing today (subjective scores live on last night's row)
+  const fetchLastNightSubjectiveData = useCallback(() => {
+    if (!user?.id || !isToday(selectedDate)) {
+      setLastNightSubjectiveData(null);
+      return;
+    }
+    const yesterdayStr = getYesterday();
+    sleepDataService.getSleepDataForDate(yesterdayStr).then((data) => {
+      setLastNightSubjectiveData(data && (data.tiredness_score != null || data.dream_vividness_score != null) ? data : null);
+    }).catch(() => setLastNightSubjectiveData(null));
+  }, [user?.id, selectedDate]);
+
+  useEffect(() => {
+    fetchLastNightSubjectiveData();
+  }, [fetchLastNightSubjectiveData]);
+
+  // Refetch when returning to home (e.g. after removing scores on Sleep Quality screen)
+  useFocusEffect(
+    useCallback(() => {
+      if (isToday(selectedDate)) fetchLastNightSubjectiveData();
+    }, [selectedDate, fetchLastNightSubjectiveData])
+  );
 
   // Date-dependent operations (run when date changes)
   useEffect(() => {
@@ -693,6 +780,18 @@ const HomeScreen = () => {
     return () => clearTimeout(t);
   }, [showNewSleepBanner]);
 
+  // Mark that we've completed a sync attempt for today when lastSyncResult is set while viewing today
+  useEffect(() => {
+    if (!lastSyncResult || !isToday(selectedDate)) return;
+    todaySyncAttemptedRef.current = true;
+  }, [lastSyncResult, selectedDate]);
+
+  // When sync completes (e.g. launch sync or manual), refetch sleep data so the card updates
+  useEffect(() => {
+    if (!lastSyncResult?.success || !user) return;
+    fetchSleepData();
+  }, [lastSyncResult?.success, lastSyncResult?.syncedRecords]);
+
   // Check permissions and show prompt if needed
   useEffect(() => {
     if (healthSyncInitialized && needsPermissions && !hasPermissions) {
@@ -771,10 +870,9 @@ const HomeScreen = () => {
         .in('date', dateStrings);
 
       if (!habitLogsError && habitLogs) {
-        // Filter to only include manually logged habits (exclude health metrics and automated bedtime)
+        // Filter to only include manually logged habits (exclude health metrics and inferred habits)
         habitLogs.forEach(log => {
-          if (!healthMetricsService.isHealthMetricHabit(log.habits) && 
-              !(log.habits && log.habits.name === 'Bedtime Consistency')) {
+          if (!healthMetricsService.isHealthMetricHabit(log.habits) && !isInferredHabit(log.habits)) {
             loggedDateSet.add(log.date);
           }
         });
@@ -836,10 +934,8 @@ const HomeScreen = () => {
     }
   };
 
-  // Helper function to check if a habit is an automated bedtime habit
-  const isAutomatedBedtimeHabit = (habit) => {
-    return habit && habit.name === 'Bedtime Consistency';
-  };
+  // Exclude inferred habits (from health data) from manual counts — same list as habit logging screen
+  const isInferredHabit = (habit) => habit && INFERRED_HABIT_NAMES.includes(habit.name);
 
   const fetchHabitCountForDate = async (date) => {
     if (!user) return 0;
@@ -862,9 +958,9 @@ const HomeScreen = () => {
 
       if (habitLogsError) {
       } else {
-        // Add regular habits (excluding health metrics and automated bedtime habits)
+        // Add regular habits (excluding health metrics and inferred habits)
         habitLogs?.forEach(log => {
-          if (!healthMetricsService.isHealthMetricHabit(log.habits) && !isAutomatedBedtimeHabit(log.habits)) {
+          if (!healthMetricsService.isHealthMetricHabit(log.habits) && !isInferredHabit(log.habits)) {
             loggedHabits.add(log.habit_id);
           }
         });
@@ -911,13 +1007,11 @@ const HomeScreen = () => {
 
       if (error) throw error;
 
-      // Filter out health metric habits, automated bedtime habits, and untracked habits
+      // Filter out health metric habits, inferred habits, and untracked — same as habit logging screen
       const allHabits = data || [];
-      const healthMetrics = allHabits.filter(habit => healthMetricsService.isHealthMetricHabit(habit));
-      const untracked = allHabits.filter(habit => habit.is_active === false);
       const manualHabits = allHabits.filter(habit =>
-        !healthMetricsService.isHealthMetricHabit(habit) && 
-        !isAutomatedBedtimeHabit(habit) && 
+        !healthMetricsService.isHealthMetricHabit(habit) &&
+        !isInferredHabit(habit) &&
         habit.is_active !== false
       );
 
@@ -944,9 +1038,9 @@ const HomeScreen = () => {
       if (habitsError) throw habitsError;
 
       const manualHabits = (habitsData || [])
-        .filter(habit => 
-          !healthMetricsService.isHealthMetricHabit(habit) && 
-          !isAutomatedBedtimeHabit(habit)
+        .filter(habit =>
+          !healthMetricsService.isHealthMetricHabit(habit) &&
+          !isInferredHabit(habit)
         );
       
       const manualHabitIds = manualHabits.map(habit => habit.id);
@@ -1687,6 +1781,7 @@ const HomeScreen = () => {
                       isToday={isToday}
                       formatDateTitle={formatDateTitle}
                       containerStyle={styles.sleepCardFillCard}
+                      message={isToday(selectedDate) ? "Syncing last night's sleep…" : undefined}
                     />
                   </View>
                 </View>
@@ -1700,6 +1795,21 @@ const HomeScreen = () => {
                       isToday={isToday}
                       formatDateTitle={formatDateTitle}
                       containerStyle={styles.sleepCardFillCard}
+                      message={isToday(selectedDate) ? "Syncing last night's sleep…" : undefined}
+                    />
+                  </View>
+                </View>
+              );
+            } else if (!sleepData && isToday(selectedDate) && !todaySyncAttemptedRef.current) {
+              return (
+                <View style={styles.sleepSectionInner}>
+                  <View style={styles.sleepCardFill}>
+                    <SleepDataLoadingSkeleton
+                      selectedDate={selectedDate}
+                      isToday={isToday}
+                      formatDateTitle={formatDateTitle}
+                      containerStyle={styles.sleepCardFillCard}
+                      message="Syncing last night's sleep…"
                     />
                   </View>
                 </View>
@@ -1720,6 +1830,11 @@ const HomeScreen = () => {
                       setShowPermissionPrompt={setShowPermissionPrompt}
                       getDataSourceDisplay={getDataSourceDisplay}
                       containerStyle={styles.sleepCardFillCard}
+                      syncError={syncError}
+                      trackTiredness={trackTiredness}
+                      trackDreamVividness={trackDreamVividness}
+                      onOpenSleepQualityLog={(dateStr) => navigation.navigate('SleepQualityLog', { date: dateStr })}
+                      lastNightSubjectiveData={lastNightSubjectiveData}
                     />
                   </View>
                 </View>
@@ -1750,6 +1865,10 @@ const HomeScreen = () => {
                       onExclude={handleExcludeSleepData}
                       onInclude={handleIncludeSleepData}
                       containerStyle={styles.sleepCardFillCard}
+                      trackTiredness={trackTiredness}
+                      trackDreamVividness={trackDreamVividness}
+                      onOpenSleepQualityLog={(dateStr) => navigation.navigate('SleepQualityLog', { date: dateStr })}
+                      lastNightSubjectiveData={lastNightSubjectiveData}
                     />
                   </View>
                 </View>
@@ -2007,6 +2126,37 @@ const styles = StyleSheet.create({
   },
   sleepMetrics: {
     gap: 2, // Reduced from spacing.xs (4px) to 2px
+  },
+  howDidYouFeelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  howDidYouFeelText: {
+    fontSize: typography.sizes.body,
+    color: colors.primary,
+    fontWeight: typography.weights.medium,
+  },
+  howDidYouFeelCTA: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.regular,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  howDidYouFeelCTAText: {
+    fontSize: typography.sizes.body,
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
   },
   metricRow: {
     flexDirection: 'row',

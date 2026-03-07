@@ -71,8 +71,13 @@ const DetailedInsightsScreen = ({ navigation }) => {
     setExpandedInsightId(currentId => currentId === insightId ? null : insightId);
   };
 
-  const availableMetrics = insightsService.getAvailableSleepMetrics();
+  const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const availableTimeRanges = insightsService.getAvailableTimeRanges();
+
+  useEffect(() => {
+    if (!user?.id) return;
+    insightsService.getAvailableSleepMetricsForUser(user.id).then(setAvailableMetrics);
+  }, [user?.id]);
 
   useEffect(() => {
     loadInsights({ backgroundRefresh: false });
@@ -123,6 +128,8 @@ const DetailedInsightsScreen = ({ navigation }) => {
         setLoadingText('Calculating insights...');
       }
       const dateRange = insightsService.calculateDateRange(selectedTimeRange);
+      const isSubjectiveMetric = selectedMetric === 'tiredness_score' || selectedMetric === 'dream_vividness_score';
+      const useEfficiency = selectedAnalysisType === 'percentage' && !isSubjectiveMetric;
       const insightsData = await insightsService.getHabitsInsights(
         user.id,
         selectedMetric,
@@ -130,7 +137,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
         dateRange.endDate,
         {
           useCoreSleep: false,
-          useEfficiency: selectedAnalysisType === 'percentage'
+          useEfficiency
         }
       );
 

@@ -11,6 +11,7 @@ import {
   Platform,
   TextInput,
   Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -44,6 +45,7 @@ import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
 import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import habitReminderNotifications from '../services/habitReminderNotifications';
+import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
@@ -84,6 +86,12 @@ const ProfileScreen = () => {
   const [showHabitReminderTimePicker, setShowHabitReminderTimePicker] = useState(false);
   const [reminderPickerHour, setReminderPickerHour] = useState(20);
   const [reminderPickerMinute, setReminderPickerMinute] = useState(0);
+  const [trackTiredness, setTrackTiredness] = useState(false);
+  const [trackDreamVividness, setTrackDreamVividness] = useState(false);
+  const [morningCheckinTime, setMorningCheckinTime] = useState(null);
+  const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
+  const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
+  const [morningCheckinPickerMinute, setMorningCheckinPickerMinute] = useState(0);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -104,6 +112,28 @@ const ProfileScreen = () => {
     habitReminderNotifications.getHabitReminderEnabled().then(setHabitReminderEnabled);
     habitReminderNotifications.getHabitReminderTime().then(setHabitReminderTime);
   }, []);
+
+  // Load subjective sleep score toggles and morning check-in time from users table
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('track_tiredness, track_dream_vividness, morning_checkin_time')
+        .eq('id', user.id)
+        .single();
+      if (error) return;
+      setTrackTiredness(data?.track_tiredness === true);
+      setTrackDreamVividness(data?.track_dream_vividness === true);
+      const t = data?.morning_checkin_time;
+      if (t && typeof t === 'string') {
+        const [h, m] = t.split(':').map(Number);
+        setMorningCheckinTime(isNaN(h) ? null : `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`);
+      } else {
+        setMorningCheckinTime(null);
+      }
+    })();
+  }, [user?.id]);
 
   // Fetch Caffeine & Alcohol habits for half-life settings
   useEffect(() => {
@@ -720,6 +750,21 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
+            {Platform.OS === 'android' && (
+              <View style={[styles.infoCard, styles.notificationsCard]}>
+                <Text style={styles.label}>Allow background sync</Text>
+                <Text style={styles.description}>
+                  To get &quot;Sleep data synced&quot; notifications in the morning, allow SleepFactor to run in the background. In Settings, open Battery and set SleepFactor to Unrestricted (or turn off battery optimization for this app).
+                </Text>
+                <TouchableOpacity
+                  style={[styles.openSettingsButton, { marginTop: spacing.sm }]}
+                  onPress={() => Linking.openSettings()}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.openSettingsButtonText}>Open app settings</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
@@ -761,6 +806,86 @@ const ProfileScreen = () => {
                   <Text style={styles.label}>Reminder time</Text>
                   <Text style={styles.value}>
                     {formatReminderTimeForDisplay(habitReminderTime, preferences.timeFormat === '24')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Track tiredness each morning</Text>
+                  <Text style={styles.description}>
+                    Get a morning prompt to rate how tired you felt (1–10, 10 = least tired)
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.toggleSwitch, trackTiredness && styles.toggleSwitchOn]}
+                  onPress={async () => {
+                    const next = !trackTiredness;
+                    setTrackTiredness(next);
+                    if (!user?.id) return;
+                    const updates = { track_tiredness: next };
+                    if (next && morningCheckinTime == null) {
+                      updates.morning_checkin_time = '08:00:00';
+                      setMorningCheckinTime('08:00');
+                    }
+                    const { error } = await supabase.from('users').update(updates).eq('id', user.id);
+                    if (error) {
+                      setTrackTiredness(!next);
+                      return;
+                    }
+                    await morningCheckinNotifications.rescheduleIfEnabled();
+                  }}
+                >
+                  <View style={[styles.toggleKnob, trackTiredness && styles.toggleKnobOn]} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Track dream vividness each morning</Text>
+                  <Text style={styles.description}>
+                    Get a morning prompt to rate how vivid your dreams were (1–10, 10 = most vivid)
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.toggleSwitch, trackDreamVividness && styles.toggleSwitchOn]}
+                  onPress={async () => {
+                    const next = !trackDreamVividness;
+                    setTrackDreamVividness(next);
+                    if (!user?.id) return;
+                    const updates = { track_dream_vividness: next };
+                    if (next && morningCheckinTime == null) {
+                      updates.morning_checkin_time = '08:00:00';
+                      setMorningCheckinTime('08:00');
+                    }
+                    const { error } = await supabase.from('users').update(updates).eq('id', user.id);
+                    if (error) {
+                      setTrackDreamVividness(!next);
+                      return;
+                    }
+                    await morningCheckinNotifications.rescheduleIfEnabled();
+                  }}
+                >
+                  <View style={[styles.toggleKnob, trackDreamVividness && styles.toggleKnobOn]} />
+                </TouchableOpacity>
+              </View>
+              {(trackTiredness || trackDreamVividness) && (
+                <TouchableOpacity
+                  style={styles.habitReminderTimeRow}
+                  onPress={() => {
+                    const t = morningCheckinTime || '08:00';
+                    const [h, m] = t.split(':').map(Number);
+                    setMorningCheckinPickerHour(isNaN(h) ? 8 : h);
+                    setMorningCheckinPickerMinute(isNaN(m) ? 0 : m);
+                    setShowMorningCheckinTimePicker(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.label}>Morning check-in time</Text>
+                  <Text style={styles.value}>
+                    {morningCheckinTime ? formatReminderTimeForDisplay(morningCheckinTime, preferences.timeFormat === '24') : 'Not set'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -818,6 +943,73 @@ const ProfileScreen = () => {
                             setHabitReminderTime(timeStr);
                             habitReminderNotifications.setHabitReminderTime(timeStr);
                             setShowHabitReminderTimePicker(false);
+                          }}
+                        >
+                          <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
+            <Modal
+              visible={showMorningCheckinTimePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowMorningCheckinTimePicker(false)}
+            >
+              <TouchableWithoutFeedback onPress={() => setShowMorningCheckinTimePicker(false)}>
+                <View style={styles.reminderTimeModalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={styles.reminderTimeModalContent}>
+                      <Text style={styles.reminderTimeModalTitle}>Morning check-in time</Text>
+                      <View style={styles.reminderTimePickerRow}>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Hour</Text>
+                          <Picker
+                            pickerData={habitReminderHourData}
+                            selectedValue={morningCheckinPickerHour.toString()}
+                            onValueChange={(val) => setMorningCheckinPickerHour(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Minute</Text>
+                          <Picker
+                            pickerData={habitReminderMinuteData}
+                            selectedValue={morningCheckinPickerMinute.toString()}
+                            onValueChange={(val) => setMorningCheckinPickerMinute(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.reminderTimeModalFooter}>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                          onPress={() => setShowMorningCheckinTimePicker(false)}
+                        >
+                          <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                          onPress={async () => {
+                            const timeStr = `${morningCheckinPickerHour}:${String(morningCheckinPickerMinute).padStart(2, '0')}`;
+                            setMorningCheckinTime(timeStr);
+                            setShowMorningCheckinTimePicker(false);
+                            if (user?.id) {
+                              const { error } = await supabase.from('users').update({ morning_checkin_time: `${timeStr}:00` }).eq('id', user.id);
+                              if (error) return;
+                              await morningCheckinNotifications.rescheduleIfEnabled();
+                            }
                           }}
                         >
                           <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
@@ -1200,6 +1392,18 @@ const styles = StyleSheet.create({
   },
   toggleKnobOn: {
     transform: [{ translateX: 22 }],
+  },
+  openSettingsButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+    backgroundColor: colors.primary + '20',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  openSettingsButtonText: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.primary,
   },
   versionContainer: {
     flexDirection: 'row',

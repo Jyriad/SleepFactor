@@ -28,7 +28,6 @@ import {
 } from '../utils/insightLabels';
 
 const { width: screenWidth } = Dimensions.get('window');
-const availableMetrics = insightsService.getAvailableSleepMetrics();
 const embeddedCardWidth = screenWidth - (spacing.regular * 4);
 
 const METRIC_KEY_TO_STAGE = {
@@ -38,6 +37,8 @@ const METRIC_KEY_TO_STAGE = {
   rem_sleep_minutes: 'rem',
   awake_minutes: 'awake',
   awakenings_count: 'awake',
+  tiredness_score: 'primary',
+  dream_vividness_score: 'rem',
 };
 
 const getSleepMetricColor = (metricKey) => {
@@ -54,6 +55,7 @@ const InsightsScreen = ({ navigation, route }) => {
 
   const [loading, setLoading] = useState(true);
   const [grouped, setGrouped] = useState({ groups: [] });
+  const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const [analysisMode, setAnalysisMode] = useState('absolute'); // 'absolute' | 'percentage'
   const [expandedRowKey, setExpandedRowKey] = useState(null); // `${habitId}-${metricKey}`
   const scrollViewRef = useRef(null);
@@ -61,6 +63,11 @@ const InsightsScreen = ({ navigation, route }) => {
   const headerHeightRef = useRef(100);
 
   const focusedHabitId = route.params?.focusedHabitId;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    insightsService.getAvailableSleepMetricsForUser(user.id).then(setAvailableMetrics);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {

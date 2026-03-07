@@ -2,6 +2,8 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
+import { supabase } from './supabase';
+import sleepDataService from './sleepDataService';
 
 const PREF_NOTIFY_NEW_SLEEP_KEY = 'sleepSyncNotifyWhenNewData';
 let notificationHandlerSet = false;
@@ -127,9 +129,61 @@ export async function notifyNewSleepDataSynced() {
   }
 }
 
+/**
+ * When user taps "Sleep data synced", optionally open SleepQualityLog for that night if they have
+ * subjective score toggles on and haven't logged scores yet. Call from App.js with navigationRef.
+ */
+export function setupSyncNotificationResponseListener(navigationRef) {
+  if (Platform.OS === 'web') return;
+  const Notifications = getNotifications();
+  if (!Notifications) return;
+  try {
+    const handleResponse = async (response) => {
+      const type = response?.notification?.request?.content?.data?.type;
+      if (type !== 'sleep_sync_success') return;
+      const root = navigationRef?.current;
+      if (!root) return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user?.id) return;
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0];
+        const { data: userRow } = await supabase
+          .from('users')
+          .select('track_tiredness, track_dream_vividness')
+          .eq('id', user.id)
+          .single();
+        const anyOn = userRow?.track_tiredness === true || userRow?.track_dream_vividness === true;
+        if (!anyOn) return;
+        const sleepRow = await sleepDataService.getSleepDataForDate(dateStr);
+        const hasScores = sleepRow && (sleepRow.tiredness_score != null || sleepRow.dream_vividness_score != null);
+        if (hasScores) return;
+        setTimeout(() => {
+          root.navigate('MainTabs', {
+            screen: 'Home',
+            params: { screen: 'SleepQualityLog', params: { date: dateStr } },
+          });
+        }, 300);
+      } catch (e) {
+        // Non-blocking
+      }
+    };
+    Notifications.addNotificationResponseReceivedListener(handleResponse);
+    Notifications.getLastNotificationResponseAsync?.().then((response) => {
+      if (!response) return;
+      if (response?.notification?.request?.content?.data?.type === 'sleep_sync_success') {
+        handleResponse(response);
+      }
+    }).catch(() => {});
+  } catch (e) {
+    // Non-blocking
+  }
+}
+
 export default {
   requestNotificationPermission,
   getNotifyWhenNewSleepData,
   setNotifyWhenNewSleepData,
   notifyNewSleepDataSynced,
+  setupSyncNotificationResponseListener,
 };

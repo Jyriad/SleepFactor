@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { DateHeaderProvider } from '../contexts/DateHeaderContext';
 import HomeScreen from '../screens/HomeScreen';
 import HabitLoggingScreen from '../screens/HabitLoggingScreen';
+import SleepQualityLogScreen from '../screens/SleepQualityLogScreen';
 import { colors } from '../constants/colors';
 
 const Stack = createNativeStackNavigator();
@@ -25,6 +26,11 @@ const HomeStackWrapper = () => {
             name="HabitLogging"
             component={HabitLoggingScreen}
             options={{ contentStyle: { backgroundColor: colors.primary } }}
+          />
+          <Stack.Screen
+            name="SleepQualityLog"
+            component={SleepQualityLogScreen}
+            options={{ contentStyle: { backgroundColor: colors.background } }}
           />
         </Stack.Navigator>
       </View>

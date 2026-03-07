@@ -1,5 +1,12 @@
 import { supabase } from './supabase';
 
+function clampScore(value) {
+  const n = Number(value);
+  if (Number.isNaN(n)) return null;
+  const c = Math.round(n);
+  return c >= 1 && c <= 10 ? c : null;
+}
+
 /**
  * Sleep data service for Supabase operations
  */
@@ -120,6 +127,68 @@ class SleepDataService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Update or create subjective scores for a sleep date. Does not overwrite existing sync data.
+   * Pass both as null (or omit) to clear existing scores for that date.
+   * @param {string} userId - User ID
+   * @param {string} date - Date in YYYY-MM-DD format (sleep date = morning after that night)
+   * @param {Object} scores - { tiredness_score?: number|null, dream_vividness_score?: number|null } (1-10 each; null = clear)
+   * @returns {Promise<Object>} The updated or inserted sleep_data record
+   */
+  async updateSubjectiveScores(userId, date, scores) {
+    const tiredness = scores.tiredness_score != null ? clampScore(scores.tiredness_score) : null;
+    const dreamVividness = scores.dream_vividness_score != null ? clampScore(scores.dream_vividness_score) : null;
+
+    const existing = await supabase
+      .from(this.tableName)
+      .select('id, user_id, date, source')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle();
+
+    if (existing.error) throw existing.error;
+
+    const payload = { updated_at: new Date().toISOString() };
+    payload.tiredness_score = tiredness;
+    payload.dream_vividness_score = dreamVividness;
+
+    if (existing.data) {
+      const { data, error } = await supabase
+        .from(this.tableName)
+        .update(payload)
+        .eq('user_id', userId)
+        .eq('date', date)
+        .select()
+        .single();
+      if (error) throw error;
+      this._clearRangeCache();
+      return data;
+    }
+
+    if (tiredness === null && dreamVividness === null) return null;
+
+    const insertRecord = {
+      user_id: userId,
+      date,
+      source: 'manual',
+      ...payload,
+      total_sleep_minutes: null,
+      deep_sleep_minutes: null,
+      light_sleep_minutes: null,
+      rem_sleep_minutes: null,
+      awake_minutes: null,
+      awakenings_count: 0,
+    };
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .insert(insertRecord)
+      .select()
+      .single();
+    if (error) throw error;
+    this._clearRangeCache();
+    return data;
   }
 
   /**
