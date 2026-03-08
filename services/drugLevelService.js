@@ -10,6 +10,27 @@ import {
 
 const DEFAULT_HALF_LIFE_HOURS = 5;
 const THRESHOLD_PERCENT = 5;
+const LEVEL_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes – so prefetch from Home is still valid when opening Habit Logging
+
+const _levelNowCache = new Map(); // key: `${userId}:${habitId}` -> { result, timestamp }
+
+function levelNowCacheKey(userId, habitId) {
+  return `${userId}:${habitId}`;
+}
+
+function getCachedLevelNow(userId, habitId) {
+  const key = levelNowCacheKey(userId, habitId);
+  const entry = _levelNowCache.get(key);
+  if (!entry || Date.now() - entry.timestamp > LEVEL_CACHE_TTL_MS) {
+    if (entry) _levelNowCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCachedLevelNow(userId, habitId, result) {
+  _levelNowCache.set(levelNowCacheKey(userId, habitId), { result, timestamp: Date.now() });
+}
 
 /**
  * Get current drug level using last stored bedtime level (decayed to now) + today's consumption.
@@ -19,6 +40,10 @@ const THRESHOLD_PERCENT = 5;
  * @returns {Promise<{ level: number, unit: string }>}
  */
 export async function getLevelNow(userId, habit) {
+  const cached = getCachedLevelNow(userId, habit?.id);
+  if (cached != null) {
+    return cached;
+  }
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
   const unit = habit?.unit || 'units';
   const now = new Date();
@@ -73,8 +98,9 @@ export async function getLevelNow(userId, habit) {
     ? calculateTotalDrugLevel(todayEvents, now, halfLife, THRESHOLD_PERCENT)
     : 0;
 
-  const level = carryover + fromToday;
-  return { level, unit };
+  const result = { level: carryover + fromToday, unit };
+  setCachedLevelNow(userId, habit.id, result);
+  return result;
 }
 
 /**
@@ -96,11 +122,14 @@ async function fallbackLevelFromEvents(userId, habit, halfLife, unit) {
     .order('consumed_at', { ascending: true });
 
   if (error || !events || events.length === 0) {
-    return { level: 0, unit };
+    const result = { level: 0, unit };
+    setCachedLevelNow(userId, habit.id, result);
+    return result;
   }
 
-  const level = getCurrentDrugLevel(events, halfLife, THRESHOLD_PERCENT);
-  return { level, unit };
+  const result = { level: getCurrentDrugLevel(events, halfLife, THRESHOLD_PERCENT), unit };
+  setCachedLevelNow(userId, habit.id, result);
+  return result;
 }
 
 /**

@@ -70,8 +70,17 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
   const [selectedHour, setSelectedHour] = useState(new Date().getHours());
   const [selectedMinute, setSelectedMinute] = useState(new Date().getMinutes());
-  const [consumptionOptions, setConsumptionOptions] = useState([]);
-  const [loadingOptions, setLoadingOptions] = useState(true);
+  // Initialize from cache so first paint shows options when cache is warm (no "Loading options..." flash)
+  const [consumptionOptions, setConsumptionOptions] = useState(() => {
+    if (!habit?.id) return [];
+    const cached = consumptionOptionsService.getCachedOptions(habit.id);
+    return (cached && Array.isArray(cached)) ? cached : [];
+  });
+  const [loadingOptions, setLoadingOptions] = useState(() => {
+    if (!habit?.id) return true;
+    const cached = consumptionOptionsService.getCachedOptions(habit.id);
+    return !(cached && Array.isArray(cached));
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -86,11 +95,18 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const customVolumeRef = useRef('');
   const customAmountDisplayRef = useRef(null);
 
-  // Load consumption options from database (filtered by user's region preference)
+  // Fetch options when not in cache (initial state already used cache for first paint)
   useEffect(() => {
-    const loadConsumptionOptions = async () => {
-      if (!habit?.id) return;
+    if (!habit?.id) return;
 
+    const cached = consumptionOptionsService.getCachedOptions(habit.id);
+    if (cached && Array.isArray(cached)) {
+      setConsumptionOptions(cached);
+      setLoadingOptions(false);
+      return;
+    }
+
+    const loadConsumptionOptions = async () => {
       setLoadingOptions(true);
       try {
         const result = await consumptionOptionsService.getOptionsForHabit(habit.id, measurementRegion);

@@ -9,6 +9,7 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
+  InteractionManager,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,13 +19,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
-import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import {
+  habitLoggingStateKey,
+  habitLogsCacheKey,
+  countsCacheKey,
+  consumptionEventsCacheKey,
+  habitsCacheKey,
+  setHabitLoggingState as writeHabitLoggingCache,
+  getInMemoryState,
+  setInMemoryState,
+  getDateStr,
+} from '../services/habitLoggingCacheService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { formatDateRange, formatDateTitle, getYesterday } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
@@ -37,16 +47,8 @@ const { width: screenWidth } = Dimensions.get('window');
 // Stable empty array so consumption habits don't get a new [] reference every render (avoids re-renders and custom volume input lag)
 const EMPTY_CONSUMPTION_EVENTS = [];
 
-// Cache keys for instant load (Option A) and cached Yes/No counts
-const getDateString = (date) => {
-  if (!date) return '';
-  const d = date instanceof Date ? date : new Date(date);
-  return d.toISOString().split('T')[0];
-};
-const habitsCacheKey = (uid) => `habits_${uid}`;
-const habitLogsCacheKey = (uid, dateStr) => `habitLogs_${uid}_${dateStr}`;
-const countsCacheKey = (uid) => `habitLogCountsByValue_${uid}`;
-const consumptionEventsCacheKey = (uid, dateStr) => `consumptionEvents_${uid}_${dateStr}`;
+// getDateString used across the screen; same logic as cache service for consistency
+const getDateString = (date) => getDateStr(date);
 const collapsedConsumptionKey = (uid) => `habit_logging_collapsed_${uid}`;
 
 const HabitLoggingScreen = () => {
@@ -67,7 +69,6 @@ const HabitLoggingScreen = () => {
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const [collapsedConsumption, setCollapsedConsumption] = useState({});
   const selectedDateRef = useRef(selectedDate);
-  const cleanupDoneRef = useRef(false);
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
   const habitLogsForDateRef = useRef(null);
   // Subjective sleep scores (tiredness, dream vividness) for the selected date
@@ -103,45 +104,6 @@ const HabitLoggingScreen = () => {
     selectedDateRef.current = selectedDate;
   }, [selectedDate]);
 
-  const fetchSubjectivePrefs = useCallback(() => {
-    if (!user?.id) return;
-    supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single().then(({ data, error }) => {
-      if (error) {
-        console.warn('[HabitLogging] users prefs error:', error.message, error.code);
-        return;
-      }
-      const tired = data?.track_tiredness === true || data?.track_tiredness === 'true';
-      const dream = data?.track_dream_vividness === true || data?.track_dream_vividness === 'true';
-      setTrackTiredness(tired);
-      setTrackDreamVividness(dream);
-    });
-  }, [user?.id]);
-
-  // Load user prefs for subjective score toggles (on mount and when screen gains focus so we pick up Profile changes)
-  useEffect(() => {
-    fetchSubjectivePrefs();
-  }, [fetchSubjectivePrefs]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchSubjectivePrefs();
-    }, [fetchSubjectivePrefs])
-  );
-
-  // Load existing tiredness/dream vividness for the selected date when date or user changes
-  useEffect(() => {
-    if (!user?.id) return;
-    const dateStr = getDateString(selectedDate);
-    if (!dateStr) return;
-    let cancelled = false;
-    sleepDataService.getSleepDataForDate(dateStr).then((row) => {
-      if (cancelled) return;
-      setTirednessScore(row?.tiredness_score ?? null);
-      setDreamVividnessScore(row?.dream_vividness_score ?? null);
-    });
-    return () => { cancelled = true; };
-  }, [user?.id, selectedDate]);
-
   // Sync route param date into shared context so the header shows the correct date
   useEffect(() => {
     const paramDate = route.params?.date;
@@ -161,56 +123,112 @@ const HabitLoggingScreen = () => {
     }, [])
   );
 
-  // Cache-first load: show UI from cache immediately, then refresh in background (Option A)
+  const normalizeHabit = (h) => ({
+    ...h,
+    is_custom: h.is_custom === true || h.is_custom === 'true',
+    is_pinned: h.is_pinned === true || h.is_pinned === 'true',
+    priority: h.priority ?? 0,
+  });
+
+  const applyHabitLoggingPayload = useCallback((payload, dateStr) => {
+    if (!payload || payload.error) return;
+    const habitsList = Array.isArray(payload.habits) ? payload.habits : [];
+    const normalized = habitsList.map(normalizeHabit);
+    setHabits(normalized);
+    const logsMap = typeof payload.logs === 'object' && payload.logs !== null ? { ...payload.logs } : {};
+    normalized
+      .filter(h => h.type === 'binary' && (h.log_as_no_by_default === true || h.log_as_no_by_default === 'true'))
+      .forEach(h => {
+        if (logsMap[h.id] === undefined) logsMap[h.id] = 'no';
+      });
+    habitLogsForDateRef.current = dateStr;
+    setHabitLogs(logsMap);
+    setHabitLogCountsByValue(typeof payload.habit_log_counts_by_value === 'object' && payload.habit_log_counts_by_value !== null ? payload.habit_log_counts_by_value : {});
+    setConsumptionEvents(typeof payload.consumption_events === 'object' && payload.consumption_events !== null ? payload.consumption_events : {});
+    setConsumptionEventsLoading(false);
+    if (payload.subjective_scores) {
+      setTirednessScore(payload.subjective_scores.tiredness_score ?? null);
+      setDreamVividnessScore(payload.subjective_scores.dream_vividness_score ?? null);
+    }
+    if (payload.user_prefs) {
+      setTrackTiredness(payload.user_prefs.track_tiredness === true);
+      setTrackDreamVividness(payload.user_prefs.track_dream_vividness === true);
+    }
+  }, []);
+
+  // First paint is always loading shell so navigation transition is fast. Then apply in-memory/cache/RPC after.
   useEffect(() => {
     if (!user) return;
 
+    const dateStr = getDateString(selectedDate);
+    setLoading(true);
+    setConsumptionEventsLoading(true);
+
     let cancelled = false;
-
-    const loadFromCacheThenRefresh = async () => {
-      const dateStr = getDateString(selectedDate);
-      const keys = [
-        habitsCacheKey(user.id),
-        habitLogsCacheKey(user.id, dateStr),
-        countsCacheKey(user.id),
-        consumptionEventsCacheKey(user.id, dateStr),
-      ];
-      let usedCache = false;
-      try {
-        const [cachedHabitsJson, cachedLogsJson, cachedCountsJson, cachedConsumptionJson] = await AsyncStorage.multiGet(keys);
-        const cachedHabits = cachedHabitsJson[1] ? JSON.parse(cachedHabitsJson[1]) : null;
-        const cachedLogs = cachedLogsJson[1] ? JSON.parse(cachedLogsJson[1]) : null;
-        const cachedCounts = cachedCountsJson[1] ? JSON.parse(cachedCountsJson[1]) : null;
-        const cachedConsumption = cachedConsumptionJson[1] ? JSON.parse(cachedConsumptionJson[1]) : null;
-
-        usedCache = Array.isArray(cachedHabits) && cachedHabits.length > 0;
-        // Only apply cache if we're still loading for this date (user may have switched dates)
-        const stillSelectedDate = !cancelled && getDateString(selectedDateRef.current) === dateStr;
-        if (stillSelectedDate && usedCache) {
-          setHabits(cachedHabits);
-          const logsToApply = typeof cachedLogs === 'object' && cachedLogs !== null ? cachedLogs : {};
-          setHabitLogs(logsToApply);
-          habitLogsForDateRef.current = dateStr;
-          setHabitLogCountsByValue(typeof cachedCounts === 'object' && cachedCounts !== null ? cachedCounts : {});
-          const hasConsumptionCache = typeof cachedConsumption === 'object' && cachedConsumption !== null;
-          setConsumptionEvents(hasConsumptionCache ? cachedConsumption : {});
-          setConsumptionEventsLoading(!hasConsumptionCache);
-          setLoading(false);
-        }
-
-        if (!usedCache && !cancelled) {
-          setLoading(true);
-        }
-      } catch (e) {
-        if (!cancelled) setLoading(true);
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      // Apply in-memory state so content appears right after first frame (no AsyncStorage wait)
+      const inMemory = getInMemoryState(user.id, dateStr);
+      if (inMemory && !inMemory.error) {
+        applyHabitLoggingPayload(inMemory, dateStr);
+        setLoading(false);
+        setConsumptionEventsLoading(false);
       }
 
-      loadHabitsAndLogs(usedCache);
-    };
+      const load = async () => {
+        try {
+          if (cancelled) return;
 
-    loadFromCacheThenRefresh();
-    return () => { cancelled = true; };
-  }, [selectedDate, user]);
+          const cachedRaw = await AsyncStorage.getItem(habitLoggingStateKey(user.id, dateStr));
+          const cached = cachedRaw ? JSON.parse(cachedRaw) : null;
+          const stillForDate = !cancelled && getDateString(selectedDateRef.current) === dateStr;
+          if (stillForDate && cached && !cached.error) {
+            applyHabitLoggingPayload(cached, dateStr);
+            setInMemoryState(user.id, dateStr, cached);
+            setLoading(false);
+          }
+
+          if (cancelled) return;
+
+          const { data, error } = await supabase.rpc('get_habit_logging_state', {
+            p_user_id: user.id,
+            p_date: dateStr,
+          });
+          if (cancelled) return;
+          if (error) throw error;
+          if (data?.error) return;
+
+          applyHabitLoggingPayload(data, dateStr);
+          setInMemoryState(user.id, dateStr, data);
+          setLoading(false);
+
+          try {
+            await writeHabitLoggingCache(user.id, dateStr, data);
+          } catch (e) {
+            console.warn('HabitLogging: cache write failed', e);
+          }
+
+          const consumptionHabits = (data.habits || []).filter(h => h.type === 'drug' || h.type === 'quick_consumption');
+          consumptionHabits.forEach((h) => {
+            consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {});
+          });
+        } catch (err) {
+          if (!cancelled) {
+            setLoading(false);
+            setConsumptionEventsLoading(false);
+            Alert.alert('Error', 'Failed to load habits. Please try again.');
+          }
+        }
+      };
+
+      load();
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [selectedDate, user, applyHabitLoggingPayload]);
 
   // Save habitLogs to AsyncStorage whenever they change (debounced). Only save when current habitLogs state is for the selected date (avoids writing wrong date when user switches dates).
   useEffect(() => {
@@ -274,286 +292,6 @@ const HabitLoggingScreen = () => {
       console.warn('HabitLogging: save habit logs to server failed', error);
       Alert.alert('Error', 'Failed to save habit log. Please try again.');
     }
-  };
-
-  // Fetches consumption events for given habit IDs and selected date; returns map habitId -> events[].
-  // Used so we can run this in parallel with cleanup and not block the main UI.
-  const fetchConsumptionEventsForDate = useCallback(async (userId, habitIds, dateObj) => {
-    const map = {};
-    if (!habitIds || habitIds.length === 0) return map;
-    const maxHalfLife = 5;
-    const historyDays = Math.max(3, Math.ceil((maxHalfLife * 3) / 24));
-    const historyStart = new Date(dateObj);
-    historyStart.setDate(historyStart.getDate() - historyDays);
-    const { data: eventsData, error: eventsError } = await supabase
-      .from('habit_consumption_events')
-      .select('*')
-      .eq('user_id', userId)
-      .in('habit_id', habitIds)
-      .gte('consumed_at', historyStart.toISOString())
-      .order('consumed_at', { ascending: true });
-    if (eventsError) return map;
-    if (eventsData) {
-      const selectedDateStr = dateObj.toDateString();
-      eventsData.forEach(event => {
-        const eventDate = new Date(event.consumed_at);
-        if (eventDate.toDateString() === selectedDateStr) {
-          if (!map[event.habit_id]) map[event.habit_id] = [];
-          map[event.habit_id].push(event);
-        }
-      });
-    }
-    return map;
-  }, []);
-
-  const loadHabitsAndLogs = async (backgroundRefresh = false) => {
-    if (!user) return;
-
-    if (!backgroundRefresh) {
-      setLoading(true);
-      setConsumptionEventsLoading(true);
-    }
-
-    const dateString = getDateString(selectedDate);
-    const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-    const loadForDateString = dateString;
-
-    try {
-      // Fetch habits, logs for this date, and Yes/No counts in parallel
-      const [habitsResult, logsResult, countsResult] = await Promise.all([
-        supabase
-          .from('habits')
-          .select('*')
-          .eq('user_id', user.id)
-          .neq('is_active', false)
-          .order('is_pinned', { ascending: false })
-          .order('priority', { ascending: true }),
-        supabase
-          .from('habit_logs')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('date', dateString),
-        supabase
-          .from('habit_logs')
-          .select('habit_id, value')
-          .eq('user_id', user.id),
-      ]);
-
-      const { data: habitsData, error: habitsError } = habitsResult;
-      const { data: logsData, error: logsError } = logsResult;
-      const { data: countsData, error: countsError } = countsResult;
-
-      if (habitsError) throw habitsError;
-      if (logsError) throw logsError;
-
-      let finalHabits = habitsData || [];
-      const consumptionHabitIdsPre = (habitsData || [])
-        .filter(h => h.type === 'drug' || h.type === 'quick_consumption')
-        .map(h => h.id);
-
-      // Start consumption events fetch in parallel with cleanup so it doesn't block the UI
-      const consumptionPromise = fetchConsumptionEventsForDate(user.id, consumptionHabitIdsPre, dateObj);
-
-      if (!backgroundRefresh && !cleanupDoneRef.current) {
-        finalHabits = await cleanupAndEnsureHabits(finalHabits);
-        cleanupDoneRef.current = true;
-      }
-
-      const normalizedHabits = finalHabits
-        .filter(habit => habit.name !== 'Coffee')
-        .filter(habit => !healthMetricsService.isHealthMetricHabit(habit))
-        .filter(habit => !INFERRED_HABIT_NAMES.includes(habit.name))
-        .map(habit => ({
-          ...habit,
-          is_custom: habit.is_custom === true || habit.is_custom === 'true',
-          is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
-          priority: habit.priority || 0,
-        }));
-
-      if (getDateString(selectedDateRef.current) !== loadForDateString) {
-        if (!backgroundRefresh) {
-          setLoading(false);
-          setConsumptionEventsLoading(false);
-        }
-        return;
-      }
-
-      setHabits(normalizedHabits);
-
-      try {
-        await AsyncStorage.setItem(habitsCacheKey(user.id), JSON.stringify(normalizedHabits));
-      } catch (e) {
-        console.warn('HabitLogging: cache write habits failed', e);
-      }
-
-      const logsMap = {};
-      if (logsData) {
-        logsData.forEach(log => {
-          logsMap[log.habit_id] = log.value;
-        });
-      }
-
-      normalizedHabits
-        .filter(h => h.type === 'binary' && (h.log_as_no_by_default === true || h.log_as_no_by_default === 'true'))
-        .forEach(h => {
-          if (logsMap[h.id] === undefined) logsMap[h.id] = 'no';
-        });
-
-      habitLogsForDateRef.current = loadForDateString;
-      setHabitLogs(logsMap);
-
-      if (!countsError && countsData) {
-        const byValue = {};
-        countsData.forEach(log => {
-          if (!byValue[log.habit_id]) byValue[log.habit_id] = { yes: 0, no: 0 };
-          const v = (log.value || '').toString().toLowerCase();
-          if (v === 'yes' || v === 'true') byValue[log.habit_id].yes += 1;
-          else if (v === 'no' || v === 'false') byValue[log.habit_id].no += 1;
-        });
-        setHabitLogCountsByValue(byValue);
-        try {
-          await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(byValue));
-        } catch (e) {
-          console.warn('HabitLogging: cache write counts failed', e);
-        }
-      }
-
-      // Show main content immediately; consumption events will fill in when fetch completes
-      if (!backgroundRefresh) {
-        setLoading(false);
-      }
-
-      // Preload consumption options for all caffeine/alcohol habits so dropdowns open instantly
-      const consumptionHabitsFinal = normalizedHabits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
-      consumptionHabitsFinal.forEach((h) => {
-        consumptionOptionsService.getOptionsForHabit(h.id).catch((err) => {
-          console.warn('HabitLogging: preload options failed for habit', h.id, err);
-        });
-      });
-
-      consumptionPromise
-        .then((eventsMap) => {
-          if (getDateString(selectedDateRef.current) !== loadForDateString) return;
-          const merged = {};
-          consumptionHabitsFinal.forEach(h => {
-            merged[h.id] = eventsMap[h.id] || [];
-          });
-          setConsumptionEvents(merged);
-          setConsumptionEventsLoading(false);
-          try {
-            AsyncStorage.setItem(consumptionEventsCacheKey(user.id, dateString), JSON.stringify(merged));
-          } catch (e) {
-            console.warn('HabitLogging: cache write consumption events failed', e);
-          }
-        })
-        .catch((err) => {
-          console.warn('HabitLogging: consumption events fetch failed', err);
-          setConsumptionEventsLoading(false);
-        });
-    } catch (error) {
-      if (!backgroundRefresh) {
-        setConsumptionEventsLoading(false);
-        Alert.alert('Error', 'Failed to load habits. Please try again.');
-      }
-    } finally {
-      if (!backgroundRefresh) {
-        setLoading(false);
-      }
-    }
-  };
-
-  const cleanupAndEnsureHabits = async (existingHabits) => {
-    const alwaysAvailableHabits = [
-      { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
-      { name: 'Alcohol', type: 'quick_consumption', unit: 'units', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
-    ];
-
-    // Old/deprecated habits to remove (replaced by Caffeine/Alcohol)
-    const wrongHabitNames = ['Alcoholic units', 'Alcoholic Units', 'Caffeine Units', 'Coffee'];
-    let cleanedHabits = [...existingHabits];
-
-    // Remove wrong/deprecated habits
-    for (const wrongName of wrongHabitNames) {
-      const wrongHabit = cleanedHabits.find(h => h.name === wrongName);
-      if (wrongHabit) {
-        try {
-          await supabase.from('habits').delete().eq('id', wrongHabit.id);
-          cleanedHabits = cleanedHabits.filter(h => h.id !== wrongHabit.id);
-        } catch (error) {
-          console.warn('HabitLogging: cleanup delete deprecated habit failed', wrongHabit.name, error);
-        }
-      }
-    }
-
-    // Ensure always available habits exist with correct properties
-    for (const requiredHabit of alwaysAvailableHabits) {
-      let habit = cleanedHabits.find(h => h.name === requiredHabit.name);
-      
-      if (!habit) {
-        // Create if doesn't exist
-        try {
-          const { data: newHabit, error } = await supabase
-            .from('habits')
-            .upsert({
-              user_id: user.id,
-              name: requiredHabit.name,
-              type: requiredHabit.type,
-              unit: requiredHabit.unit,
-              consumption_types: requiredHabit.consumption_types,
-              is_active: true,
-              is_pinned: false,
-              priority: 0,
-              half_life_hours: requiredHabit.name === 'Caffeine' ? 5 : null,
-              drug_threshold_percent: 5,
-            }, {
-              onConflict: 'user_id,name'
-            })
-            .select()
-            .single();
-
-          if (!error && newHabit) {
-            cleanedHabits.push(newHabit);
-            habit = newHabit;
-          }
-        } catch (error) {
-          console.warn('HabitLogging: ensure habit insert failed', requiredHabit.name, error);
-        }
-      } else {
-        // Update if exists but properties are wrong
-        const needsUpdate = 
-          habit.type !== requiredHabit.type ||
-          habit.unit !== requiredHabit.unit ||
-          JSON.stringify(habit.consumption_types) !== JSON.stringify(requiredHabit.consumption_types);
-
-        if (needsUpdate) {
-          try {
-            const { data: updatedHabit, error } = await supabase
-              .from('habits')
-              .update({
-                type: requiredHabit.type,
-                unit: requiredHabit.unit,
-                consumption_types: requiredHabit.consumption_types,
-                half_life_hours: requiredHabit.name === 'Caffeine' ? 5 : null,
-                drug_threshold_percent: 5,
-              })
-              .eq('id', habit.id)
-              .select()
-              .single();
-
-            if (!error && updatedHabit) {
-              const index = cleanedHabits.findIndex(h => h.id === habit.id);
-              if (index !== -1) {
-                cleanedHabits[index] = updatedHabit;
-              }
-            }
-          } catch (error) {
-            console.warn('HabitLogging: ensure habit update failed', habit.name, error);
-          }
-        }
-      }
-    }
-
-    return cleanedHabits;
   };
 
   const saveHabitLogsToStorage = async () => {
@@ -773,9 +511,8 @@ const HabitLoggingScreen = () => {
   };
 
   return (
-    <View style={[styles.rootWrap, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
       <ScrollableDateHeaderBar />
-      <View style={styles.bodyWrap}>
       {loading ? (
         <PageLoadingView />
       ) : (
@@ -950,16 +687,11 @@ const HabitLoggingScreen = () => {
 
       </ScrollView>
       )}
-      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  rootWrap: {
-    flex: 1,
-    backgroundColor: colors.primary,
-  },
   bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,

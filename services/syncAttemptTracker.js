@@ -108,6 +108,21 @@ export const getAttemptsForDate = async (date) => {
 };
 
 /**
+ * Get the most recent sync attempt for a date (for UI status: "Last checked", outcome).
+ * @param {string|Date} date - Date in YYYY-MM-DD or Date
+ * @returns {Promise<{ timestamp: string, outcome: 'success'|'no_data'|'error' }|null>}
+ */
+export const getLastAttemptForDate = async (date) => {
+  const attempts = await getAttemptsForDate(date);
+  if (!attempts || attempts.length === 0) return null;
+  const last = attempts[attempts.length - 1];
+  return {
+    timestamp: last.timestamp,
+    outcome: last.outcome,
+  };
+};
+
+/**
  * Get all dates that have been marked as having no data
  */
 export const getRecentNoDataDates = async () => {
@@ -119,28 +134,17 @@ export const getRecentNoDataDates = async () => {
 
 /**
  * Check if we should attempt a sync for this date
- * Returns false if we've already determined there's no data today
+ * Returns false if we've already determined there's no data for past dates.
+ * For today we always allow retries (no long back-off) so opening the app again or tapping Sync can find data.
  */
 export const shouldAttemptSync = async (date) => {
   const dateKey = normalizeDate(date);
   const today = formatDateForDB(new Date());
-  
-  // Always allow sync attempts for today (data might have appeared)
-  // But respect "no_data" for past dates
+
   if (dateKey === today) {
-    // For today, check if we've tried recently (within last hour)
-    const attempts = await getAttemptsForDate(date);
-    const recentAttempts = attempts.filter(attempt => {
-      const attemptTime = new Date(attempt.timestamp);
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      return attemptTime > oneHourAgo;
-    });
-    
-    // If we've tried in the last hour and got no_data, don't retry yet
-    const recentNoData = recentAttempts.some(a => a.outcome === 'no_data');
-    return !recentNoData;
+    return true;
   }
-  
+
   // For past dates, respect the no_data marker
   return !(await hasNoData(date));
 };
@@ -181,6 +185,7 @@ export default {
   clearNoData,
   hasNoData,
   getAttemptsForDate,
+  getLastAttemptForDate,
   getRecentNoDataDates,
   shouldAttemptSync,
   cleanupOldRecords,

@@ -56,31 +56,27 @@ export const useHealthSync = ({
     initialize();
   }, []);
 
-  // Auto-sync on mount: reuse launch sync if App.js already started it, otherwise run sync
+  // Auto-sync on mount: always use launch sync (start if not started) so one sync runs on open and result is applied
   useEffect(() => {
     if (!autoSyncOnMount || !isInitialized || !hasPermissions || isLoading) return;
 
     const runMountSync = async () => {
-      const launchPromise = launchSyncCoordinator.getLaunchSyncPromise();
-      if (launchPromise) {
-        try {
-          const result = await launchPromise;
-          launchSyncCoordinator.clearLaunchSyncPromise();
-          if (result?.success) {
-            setLastSyncResult(result);
-            setHasPermissions(true);
-          } else if (result?.needsPermissions) {
-            setNeedsPermissions(true);
-          } else if (result?.error) {
-            setError(result.error);
-          }
-        } catch (e) {
-          launchSyncCoordinator.clearLaunchSyncPromise();
-          setError(sleepSyncService.getErrorMessage(e));
+      const launchPromise = launchSyncCoordinator.getLaunchSyncPromise() || launchSyncCoordinator.startLaunchSync();
+      try {
+        const result = await launchPromise;
+        launchSyncCoordinator.clearLaunchSyncPromise();
+        if (result?.success) {
+          setLastSyncResult(result);
+          setHasPermissions(true);
+        } else if (result?.needsPermissions) {
+          setNeedsPermissions(true);
+        } else if (result?.error) {
+          setError(result.error);
         }
-        return;
+      } catch (e) {
+        launchSyncCoordinator.clearLaunchSyncPromise();
+        setError(sleepSyncService.getErrorMessage(e));
       }
-      performSync();
     };
 
     runMountSync();

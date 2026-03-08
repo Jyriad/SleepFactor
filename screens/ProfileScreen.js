@@ -92,6 +92,7 @@ const ProfileScreen = () => {
   const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
   const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
   const [morningCheckinPickerMinute, setMorningCheckinPickerMinute] = useState(0);
+  const [showDeleteDataModal, setShowDeleteDataModal] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -443,103 +444,16 @@ const ProfileScreen = () => {
             )}
           </View>
 
-          {/* Data Management */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Data Management</Text>
-            <Text style={styles.sectionDescription}>
-              Permanently delete your data from our servers
-            </Text>
-            <View style={styles.dataManagementContainer}>
-              <Button
-                title="Delete Sleep Data"
-                onPress={handleDeleteSleepData}
-                variant="secondary"
-                style={styles.dataButton}
-              />
-              <Button
-                title="Delete Habit Logs"
-                onPress={handleDeleteHabitLogs}
-                variant="secondary"
-                style={styles.dataButton}
-              />
-              <Button
-                title="Delete All Data"
-                onPress={handleDeleteAllData}
-                variant="secondary"
-                style={styles.dataButton}
-              />
-            </View>
-          </View>
-
           {/* Data Quality */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Data Quality</Text>
             <Text style={styles.sectionDescription}>
               Control how your data is used for insights calculation
             </Text>
-            <View style={styles.infoCard}>
-              <Text style={styles.label}>Outlier Detection Sensitivity</Text>
-              <Text style={styles.description}>
-                How aggressively to detect and exclude anomalous data points
-              </Text>
-              <View style={styles.sensitivityContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.sensitivityOption,
-                    preferences.outlierSensitivity === 'conservative' && styles.sensitivityOptionSelected,
-                  ]}
-                  onPress={() => updatePreference('outlierSensitivity', 'conservative')}
-                >
-                  <Text
-                    style={[
-                      styles.sensitivityText,
-                      preferences.outlierSensitivity === 'conservative' && styles.sensitivityTextSelected,
-                    ]}
-                  >
-                    Conservative
-                  </Text>
-                  <Text style={styles.sensitivityDescription}>Exclude less data</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.sensitivityOption,
-                    preferences.outlierSensitivity === 'standard' && styles.sensitivityOptionSelected,
-                  ]}
-                  onPress={() => updatePreference('outlierSensitivity', 'standard')}
-                >
-                  <Text
-                    style={[
-                      styles.sensitivityText,
-                      preferences.outlierSensitivity === 'standard' && styles.sensitivityTextSelected,
-                    ]}
-                  >
-                    Standard
-                  </Text>
-                  <Text style={styles.sensitivityDescription}>Balanced approach</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.sensitivityOption,
-                    preferences.outlierSensitivity === 'aggressive' && styles.sensitivityOptionSelected,
-                  ]}
-                  onPress={() => updatePreference('outlierSensitivity', 'aggressive')}
-                >
-                  <Text
-                    style={[
-                      styles.sensitivityText,
-                      preferences.outlierSensitivity === 'aggressive' && styles.sensitivityTextSelected,
-                    ]}
-                  >
-                    Aggressive
-                  </Text>
-                  <Text style={styles.sensitivityDescription}>Exclude more data</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
             <View style={[styles.infoCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Auto-Exclude Outliers</Text>
+                  <Text style={styles.label}>Auto-exclude outliers</Text>
                   <Text style={styles.description}>
                     Automatically exclude detected outliers from insights
                   </Text>
@@ -560,10 +474,72 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
+            {preferences.autoExcludeOutliers && (
+              <View style={[styles.infoCard, styles.toggleCard]}>
+                <Text style={styles.label}>Outlier detection sensitivity</Text>
+                <Text style={styles.description}>
+                  How aggressively to detect and exclude anomalous data points
+                </Text>
+                <View style={styles.sensitivityContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.sensitivityOption,
+                      preferences.outlierSensitivity === 'conservative' && styles.sensitivityOptionSelected,
+                    ]}
+                    onPress={() => updatePreference('outlierSensitivity', 'conservative')}
+                  >
+                    <Text
+                      style={[
+                        styles.sensitivityText,
+                        preferences.outlierSensitivity === 'conservative' && styles.sensitivityTextSelected,
+                      ]}
+                    >
+                      Conservative
+                    </Text>
+                    <Text style={styles.sensitivityDescription}>Exclude less data</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.sensitivityOption,
+                      preferences.outlierSensitivity === 'standard' && styles.sensitivityOptionSelected,
+                    ]}
+                    onPress={() => updatePreference('outlierSensitivity', 'standard')}
+                  >
+                    <Text
+                      style={[
+                        styles.sensitivityText,
+                        preferences.outlierSensitivity === 'standard' && styles.sensitivityTextSelected,
+                      ]}
+                    >
+                      Standard
+                    </Text>
+                    <Text style={styles.sensitivityDescription}>Balanced approach</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.sensitivityOption,
+                      preferences.outlierSensitivity === 'aggressive' && styles.sensitivityOptionSelected,
+                    ]}
+                    onPress={() => updatePreference('outlierSensitivity', 'aggressive')}
+                  >
+                    <Text
+                      style={[
+                        styles.sensitivityText,
+                        preferences.outlierSensitivity === 'aggressive' && styles.sensitivityTextSelected,
+                      ]}
+                    >
+                      Aggressive
+                    </Text>
+                    <Text style={styles.sensitivityDescription}>Exclude more data</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            <Text style={[styles.sectionSubTitle, { marginTop: spacing.lg }]}>Advanced</Text>
             <View style={[styles.infoCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Show Habits Without Significance</Text>
+                  <Text style={styles.label}>Show habits without significance</Text>
                   <Text style={styles.description}>
                     Show habits with "no statistical significance yet" to help debug data issues
                   </Text>
@@ -589,8 +565,9 @@ const ProfileScreen = () => {
           {/* Settings */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
+            <Text style={[styles.sectionSubTitle, { marginTop: 0 }]}>Display</Text>
             <View style={[styles.infoCard, styles.measurementCard]}>
-              <Text style={styles.label}>Units for Drinks</Text>
+              <Text style={styles.label}>Units for drinks</Text>
               <Text style={styles.description}>
                 Affects how serving sizes are displayed (e.g. 12 fl oz vs 355 ml). Your existing data stays the same when you switch.
               </Text>
@@ -608,26 +585,9 @@ const ProfileScreen = () => {
                       preferences.measurementRegion === 'US' && styles.measurementTextSelected,
                     ]}
                   >
-                    US
+                    Imperial
                   </Text>
                   <Text style={styles.measurementSubtext}>fl oz, oz</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.measurementOption,
-                    preferences.measurementRegion === 'UK' && styles.measurementOptionSelected,
-                  ]}
-                  onPress={() => savePreferences({ measurementRegion: 'UK', measurementSystem: 'metric' })}
-                >
-                  <Text
-                    style={[
-                      styles.measurementText,
-                      preferences.measurementRegion === 'UK' && styles.measurementTextSelected,
-                    ]}
-                  >
-                    UK
-                  </Text>
-                  <Text style={styles.measurementSubtext}>ml, pint</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
@@ -649,44 +609,7 @@ const ProfileScreen = () => {
               </View>
             </View>
             <View style={styles.infoCard}>
-              <Text style={styles.label}>Caffeine & alcohol half-life</Text>
-              <Text style={styles.description}>
-                Half-life in hours (how long until half the amount leaves your system). Used to show your current level. Caffeine is often 4–6 hours, alcohol about 4–5.
-              </Text>
-              {caffeineHabitId != null && (
-                <View style={styles.halfLifeRow}>
-                  <Text style={styles.halfLifeLabel}>Caffeine (hours)</Text>
-                  <TextInput
-                    style={styles.halfLifeInput}
-                    value={caffeineHalfLife}
-                    onChangeText={setCaffeineHalfLife}
-                    onBlur={() => saveHalfLife(caffeineHabitId, caffeineHalfLife, setCaffeineHalfLife)}
-                    keyboardType="decimal-pad"
-                    placeholder={String(DEFAULT_CAFFEINE_HALF_LIFE)}
-                    placeholderTextColor={colors.textLight}
-                  />
-                </View>
-              )}
-              {alcoholHabitId != null && (
-                <View style={styles.halfLifeRow}>
-                  <Text style={styles.halfLifeLabel}>Alcohol (hours)</Text>
-                  <TextInput
-                    style={styles.halfLifeInput}
-                    value={alcoholHalfLife}
-                    onChangeText={setAlcoholHalfLife}
-                    onBlur={() => saveHalfLife(alcoholHabitId, alcoholHalfLife, setAlcoholHalfLife)}
-                    keyboardType="decimal-pad"
-                    placeholder={String(DEFAULT_ALCOHOL_HALF_LIFE)}
-                    placeholderTextColor={colors.textLight}
-                  />
-                </View>
-              )}
-              {halfLifeSaving && (
-                <Text style={styles.halfLifeSavingText}>Saving...</Text>
-              )}
-            </View>
-            <View style={styles.infoCard}>
-              <Text style={styles.label}>Time Format</Text>
+              <Text style={styles.label}>Time format</Text>
               <View style={styles.timeFormatContainer}>
                 <TouchableOpacity
                   style={[
@@ -722,6 +645,45 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
+            <Text style={styles.sectionSubTitle}>Caffeine & alcohol</Text>
+            <View style={[styles.infoCard, styles.cardWithTopMargin]}>
+              <Text style={styles.label}>Half-life (hours)</Text>
+              <Text style={styles.description}>
+                Half-life in hours (how long until half the amount leaves your system). Used to show your current level. Caffeine is often 4–6 hours, alcohol about 4–5.
+              </Text>
+              {caffeineHabitId != null && (
+                <View style={styles.halfLifeRow}>
+                  <Text style={styles.halfLifeLabel}>Caffeine (hours)</Text>
+                  <TextInput
+                    style={styles.halfLifeInput}
+                    value={caffeineHalfLife}
+                    onChangeText={setCaffeineHalfLife}
+                    onBlur={() => saveHalfLife(caffeineHabitId, caffeineHalfLife, setCaffeineHalfLife)}
+                    keyboardType="decimal-pad"
+                    placeholder={String(DEFAULT_CAFFEINE_HALF_LIFE)}
+                    placeholderTextColor={colors.textLight}
+                  />
+                </View>
+              )}
+              {alcoholHabitId != null && (
+                <View style={styles.halfLifeRow}>
+                  <Text style={styles.halfLifeLabel}>Alcohol (hours)</Text>
+                  <TextInput
+                    style={styles.halfLifeInput}
+                    value={alcoholHalfLife}
+                    onChangeText={setAlcoholHalfLife}
+                    onBlur={() => saveHalfLife(alcoholHabitId, alcoholHalfLife, setAlcoholHalfLife)}
+                    keyboardType="decimal-pad"
+                    placeholder={String(DEFAULT_ALCOHOL_HALF_LIFE)}
+                    placeholderTextColor={colors.textLight}
+                  />
+                </View>
+              )}
+              {halfLifeSaving && (
+                <Text style={styles.halfLifeSavingText}>Saving...</Text>
+              )}
+            </View>
+            <Text style={styles.sectionSubTitle}>Notifications</Text>
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
@@ -754,7 +716,7 @@ const ProfileScreen = () => {
               <View style={[styles.infoCard, styles.notificationsCard]}>
                 <Text style={styles.label}>Allow background sync</Text>
                 <Text style={styles.description}>
-                  To get &quot;Sleep data synced&quot; notifications in the morning, allow SleepFactor to run in the background. In Settings, open Battery and set SleepFactor to Unrestricted (or turn off battery optimization for this app).
+                  To get &quot;Sleep data synced&quot; notifications in the morning, allow SleepFactor to run in the background. In Settings, open Battery and set SleepFactor to Unrestricted (or turn off battery optimization). Opening the app also syncs your sleep data if background sync hasn&apos;t run yet.
                 </Text>
                 <TouchableOpacity
                   style={[styles.openSettingsButton, { marginTop: spacing.sm }]}
@@ -810,12 +772,16 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               )}
             </View>
+            <Text style={styles.sectionSubTitle}>Morning check-in</Text>
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
+              <Text style={styles.morningCheckinIntro}>
+                Optional daily prompts. The time below is when you’ll be asked for both.
+              </Text>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
                   <Text style={styles.label}>Track tiredness each morning</Text>
                   <Text style={styles.description}>
-                    Get a morning prompt to rate how tired you felt (1–10, 10 = least tired)
+                    Rate how tired you felt (1–10, 10 = least tired)
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -840,13 +806,11 @@ const ProfileScreen = () => {
                   <View style={[styles.toggleKnob, trackTiredness && styles.toggleKnobOn]} />
                 </TouchableOpacity>
               </View>
-            </View>
-            <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
-              <View style={styles.toggleRow}>
+              <View style={[styles.toggleRow, styles.toggleRowSpaced]}>
                 <View style={styles.toggleLabelContainer}>
                   <Text style={styles.label}>Track dream vividness each morning</Text>
                   <Text style={styles.description}>
-                    Get a morning prompt to rate how vivid your dreams were (1–10, 10 = most vivid)
+                    Rate how vivid your dreams were (1–10, 10 = most vivid)
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1040,8 +1004,82 @@ const ProfileScreen = () => {
             variant="secondary"
             style={styles.logoutButton}
           />
+
+          {/* Data Management - at bottom to reduce accidental taps */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Data Management</Text>
+            <Text style={styles.sectionDescription}>
+              Permanently delete your data from our servers. You can choose what to delete (sleep data, habit logs, or everything). This cannot be undone.
+            </Text>
+            <Button
+              title="Delete data"
+              onPress={() => setShowDeleteDataModal(true)}
+              variant="destructive"
+              style={styles.deleteDataButton}
+            />
+          </View>
         </View>
       </ScrollView>
+
+      {/* Delete data modal */}
+      <Modal
+        visible={showDeleteDataModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteDataModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowDeleteDataModal(false)}>
+          <View style={styles.reminderTimeModalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.deleteDataModalContent}>
+                <Text style={styles.deleteDataModalTitle}>What do you want to delete?</Text>
+                <Text style={styles.deleteDataModalDescription}>
+                  All options permanently remove data and cannot be undone.
+                </Text>
+                <TouchableOpacity
+                  style={styles.deleteDataOption}
+                  onPress={() => {
+                    setShowDeleteDataModal(false);
+                    handleDeleteSleepData();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.deleteDataOptionText}>Sleep data only</Text>
+                  <Text style={styles.deleteDataOptionSubtext}>All synced sleep records</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteDataOption}
+                  onPress={() => {
+                    setShowDeleteDataModal(false);
+                    handleDeleteHabitLogs();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.deleteDataOptionText}>Habit logs only</Text>
+                  <Text style={styles.deleteDataOptionSubtext}>All habit tracking data</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteDataOption}
+                  onPress={() => {
+                    setShowDeleteDataModal(false);
+                    handleDeleteAllData();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.deleteDataOptionText}>All data</Text>
+                  <Text style={styles.deleteDataOptionSubtext}>Sleep records and habit logs</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton, { marginTop: spacing.regular }]}
+                  onPress={() => setShowDeleteDataModal(false)}
+                >
+                  <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1095,6 +1133,13 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.regular,
   },
+  sectionSubTitle: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
   infoCard: {
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
@@ -1131,11 +1176,8 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.regular,
   },
-  dataManagementContainer: {
-    gap: spacing.sm,
-  },
-  dataButton: {
-    marginBottom: spacing.sm,
+  deleteDataButton: {
+    marginTop: spacing.xs,
   },
   syncButton: {
     marginTop: spacing.regular,
@@ -1144,11 +1186,22 @@ const styles = StyleSheet.create({
     marginTop: spacing.regular,
   },
   logoutButton: {
-    marginTop: spacing.xxl,
+    marginTop: spacing.xxl + spacing.xl,
     marginBottom: spacing.xl,
   },
   notificationsCard: {
     marginTop: spacing.md,
+  },
+  cardWithTopMargin: {
+    marginTop: spacing.md,
+  },
+  morningCheckinIntro: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.regular,
+  },
+  toggleRowSpaced: {
+    marginTop: spacing.regular,
   },
   habitReminderTimeRow: {
     marginTop: spacing.regular,
@@ -1170,6 +1223,46 @@ const styles = StyleSheet.create({
     padding: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  deleteDataModalContent: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    width: '90%',
+    maxWidth: 350,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  deleteDataModalTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  deleteDataModalDescription: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.regular,
+  },
+  deleteDataOption: {
+    paddingVertical: spacing.regular,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.error,
+    marginBottom: spacing.sm,
+  },
+  deleteDataOptionText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.error,
+  },
+  deleteDataOptionSubtext: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   reminderTimeModalTitle: {
     fontSize: typography.sizes.large,
