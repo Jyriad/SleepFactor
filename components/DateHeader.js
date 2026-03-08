@@ -36,6 +36,10 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const STRIP_DAYS = 7;
 const HANDLE_HEIGHT = 14;
 const STRIP_ROW_HEIGHT = 58;
+const STRIP_LABEL_HEIGHT = 20;
+/** Strip (7-day row + label) lives inside the drawer. Collapsed = label + strip + handle so no layout jump on close. */
+const COLLAPSED_DRAWER_HEIGHT = STRIP_LABEL_HEIGHT + STRIP_ROW_HEIGHT + HANDLE_HEIGHT;
+const CLOSE_ANIMATION_DURATION_MS = 220;
 const TOP_ROW_HEIGHT = 36;
 const DAY_CELL_SIZE = 36;
 const DAY_CELL_PADDING = 4;
@@ -47,7 +51,7 @@ const CALENDAR_ROW_H = 36 + 12;
 const CALENDAR_ROWS = 6;
 const CALENDAR_CONTENT_HEIGHT =
   CALENDAR_HEADER_H + CALENDAR_DAY_NAMES_H + CALENDAR_ROWS * CALENDAR_ROW_H + 24;
-const EXPANDED_DRAWER_HEIGHT = HANDLE_HEIGHT + CALENDAR_CONTENT_HEIGHT;
+const EXPANDED_DRAWER_HEIGHT = COLLAPSED_DRAWER_HEIGHT + CALENDAR_CONTENT_HEIGHT;
 
 const SPRING_CONFIG = { damping: 24, stiffness: 280 };
 
@@ -66,8 +70,8 @@ const DateHeader = ({
     selectedDate ? new Date(selectedDate) : new Date()
   );
 
-  const expandHeight = useSharedValue(HANDLE_HEIGHT);
-  const startHeight = useSharedValue(HANDLE_HEIGHT);
+  const expandHeight = useSharedValue(COLLAPSED_DRAWER_HEIGHT);
+  const startHeight = useSharedValue(COLLAPSED_DRAWER_HEIGHT);
 
   const selectedDateStr =
     typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate);
@@ -119,8 +123,8 @@ const DateHeader = ({
   }, [notifyOpened]);
 
   const closeDrawer = useCallback(() => {
-    expandHeight.value = withTiming(HANDLE_HEIGHT, { duration: 220 });
     notifyClosed();
+    expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, { duration: CLOSE_ANIMATION_DURATION_MS });
   }, [notifyClosed]);
 
   const handleDateSelectFromCalendar = useCallback(
@@ -161,7 +165,7 @@ const DateHeader = ({
     .onUpdate((e) => {
       const next = startHeight.value + e.translationY;
       expandHeight.value = Math.max(
-        HANDLE_HEIGHT,
+        COLLAPSED_DRAWER_HEIGHT,
         Math.min(EXPANDED_DRAWER_HEIGHT, next)
       );
     })
@@ -176,7 +180,7 @@ const DateHeader = ({
         expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
         runOnJS(notifyOpened)();
       } else {
-        expandHeight.value = withTiming(HANDLE_HEIGHT, { duration: 220 });
+        expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, { duration: CLOSE_ANIMATION_DURATION_MS });
         runOnJS(notifyClosed)();
       }
     });
@@ -184,8 +188,8 @@ const DateHeader = ({
   const handleTapGesture = Gesture.Tap()
     .maxDistance(12)
     .onEnd(() => {
-      if (expandHeight.value > HANDLE_HEIGHT + 20) {
-        expandHeight.value = withTiming(HANDLE_HEIGHT, { duration: 220 });
+      if (expandHeight.value > COLLAPSED_DRAWER_HEIGHT + 20) {
+        expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, { duration: CLOSE_ANIMATION_DURATION_MS });
         runOnJS(notifyClosed)();
       } else {
         expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
@@ -215,7 +219,7 @@ const DateHeader = ({
   }));
 
   const calendarWrapStyle = useAnimatedStyle(() => ({
-    height: Math.max(0, expandHeight.value - HANDLE_HEIGHT),
+    height: Math.max(0, expandHeight.value - COLLAPSED_DRAWER_HEIGHT),
     overflow: 'hidden',
   }));
 
@@ -244,59 +248,59 @@ const DateHeader = ({
           <View style={styles.rightSlot}>{rightElement}</View>
         </View>
 
-        {!isExpanded && (
-          <View style={styles.stripRow}>
-            {stripDates.map((dateItem) => {
-              const isSelected = dateItem.date === selectedDateStr;
-              const isToday = dateItem.date === todayStr;
-              const isLogged = loggedDates.includes(dateItem.date);
-              const hasSleep = stripSleepDates.includes(dateItem.date);
-              return (
-                <TouchableOpacity
-                  key={dateItem.date}
-                  style={styles.stripItem}
-                  onPress={() => onDateChange(new Date(dateItem.date + 'T12:00:00'))}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.stripDayName,
-                      isSelected && styles.stripDayNameSelected,
-                    ]}
-                  >
-                    {dateItem.dayName}
-                  </Text>
-                  <View
-                    style={[
-                      styles.datePill,
-                      isSelected && styles.datePillSelected,
-                      isToday && styles.datePillToday,
-                    ]}
+        <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
+          <View style={styles.stripSection}>
+            <Text style={styles.stripSectionLabel}>This week</Text>
+            <View style={styles.stripRow}>
+              {stripDates.map((dateItem) => {
+                const isSelected = dateItem.date === selectedDateStr;
+                const isToday = dateItem.date === todayStr;
+                const isLogged = loggedDates.includes(dateItem.date);
+                const hasSleep = stripSleepDates.includes(dateItem.date);
+                return (
+                  <TouchableOpacity
+                    key={dateItem.date}
+                    style={styles.stripItem}
+                    onPress={() => onDateChange(new Date(dateItem.date + 'T12:00:00'))}
+                    activeOpacity={0.7}
                   >
                     <Text
                       style={[
-                        styles.datePillNumber,
-                        isSelected && styles.datePillNumberSelected,
+                        styles.stripDayName,
+                        isSelected && styles.stripDayNameSelected,
                       ]}
                     >
-                      {dateItem.dayNumber}
+                      {dateItem.dayName}
                     </Text>
-                    {isLogged && (
-                      <View style={styles.datePillIndicatorLeft} pointerEvents="none">
-                        <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
-                      </View>
-                    )}
-                    {hasSleep && (
-                      <Text style={[styles.datePillZzz, isSelected && styles.datePillZzzSelected]} pointerEvents="none">Zzz</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                    <View
+                      style={[
+                        styles.datePill,
+                        isSelected && styles.datePillSelected,
+                        isToday && styles.datePillToday,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.datePillNumber,
+                          isSelected && styles.datePillNumberSelected,
+                        ]}
+                      >
+                        {dateItem.dayNumber}
+                      </Text>
+                      {isLogged && (
+                        <View style={styles.datePillIndicatorLeft} pointerEvents="none">
+                          <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
+                        </View>
+                      )}
+                      {hasSleep && (
+                        <Text style={[styles.datePillZzz, isSelected && styles.datePillZzzSelected]} pointerEvents="none">Zzz</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        )}
-
-        <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
           <GestureDetector gesture={horizontalMonthPanGesture}>
             <Animated.View style={[styles.calendarWrap, calendarWrapStyle]}>
               <DatePickerCalendar
@@ -310,7 +314,6 @@ const DateHeader = ({
           <GestureDetector gesture={composedHandleGesture}>
             <View style={styles.dragHandleBarWrap}>
               <View style={styles.dragHandleBar} />
-              <Ionicons name="chevron-down" size={20} color="rgba(255,255,255,0.95)" style={styles.handleChevron} />
             </View>
           </GestureDetector>
         </Animated.View>
@@ -375,12 +378,22 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.white,
   },
+  stripSection: {
+    minHeight: STRIP_LABEL_HEIGHT + STRIP_ROW_HEIGHT,
+  },
+  stripSectionLabel: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.semibold,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 2,
+    paddingHorizontal: DAY_CELL_PADDING / 2,
+  },
   stripRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingHorizontal: DAY_CELL_PADDING / 2,
-    paddingTop: 8,
+    paddingTop: 4,
     paddingBottom: DAY_CELL_PADDING / 2,
     minHeight: STRIP_ROW_HEIGHT,
   },
@@ -398,20 +411,16 @@ const styles = StyleSheet.create({
   },
   dragHandleBarWrap: {
     alignSelf: 'stretch',
-    minHeight: HANDLE_HEIGHT + 16,
+    minHeight: HANDLE_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingBottom: 4,
+    paddingVertical: 4,
   },
   dragHandleBar: {
     width: 36,
     height: 3,
     borderRadius: 2,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-  },
-  handleChevron: {
-    marginTop: 4,
   },
   stripDayName: {
     fontSize: typography.sizes.xs,

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const PREFIX_SLEEP = 'home_sleep_';
 const PREFIX_HABIT_COUNT = 'home_habit_count_';
 const PREFIX_TOTAL_HABIT_COUNT = 'home_total_habit_count_';
+const PREFIX_DASHBOARD = 'home_dashboard_';
 const MAX_CACHED_DAYS = 7;
 
 function dateStringToKey(dateString) {
@@ -111,6 +112,40 @@ async function setPersistedTotalHabitCount(userId, count) {
 }
 
 /**
+ * Get persisted full dashboard payload for a date (from get_home_dashboard_data RPC).
+ * @param {string} userId
+ * @param {string|Date} date
+ * @returns {Promise<object|undefined>} undefined = not in cache
+ */
+async function getPersistedDashboardPayload(userId, date) {
+  try {
+    const dateStr = dateStringToKey(date);
+    const key = `${PREFIX_DASHBOARD}${userId}_${dateStr}`;
+    const raw = await AsyncStorage.getItem(key);
+    if (raw === null) return undefined;
+    return JSON.parse(raw);
+  } catch (error) {
+    return undefined;
+  }
+}
+
+/**
+ * Persist full dashboard payload for a date. Call after successful get_home_dashboard_data RPC.
+ * @param {string} userId
+ * @param {string|Date} date
+ * @param {object} payload
+ */
+async function setPersistedDashboardPayload(userId, date, payload) {
+  try {
+    const dateStr = dateStringToKey(date);
+    const key = `${PREFIX_DASHBOARD}${userId}_${dateStr}`;
+    await AsyncStorage.setItem(key, JSON.stringify(payload));
+  } catch (error) {
+    // ignore
+  }
+}
+
+/**
  * Remove home cache entries older than MAX_CACHED_DAYS for this user.
  * Keeps storage bounded.
  */
@@ -119,12 +154,13 @@ async function cleanupOldEntries(userId) {
     const keys = await AsyncStorage.getAllKeys();
     const sleepKeys = keys.filter(k => k.startsWith(PREFIX_SLEEP + userId + '_'));
     const habitKeys = keys.filter(k => k.startsWith(PREFIX_HABIT_COUNT + userId + '_'));
+    const dashboardKeys = keys.filter(k => k.startsWith(PREFIX_DASHBOARD + userId + '_'));
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - MAX_CACHED_DAYS);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
     const toRemove = [];
-    for (const k of [...sleepKeys, ...habitKeys]) {
+    for (const k of [...sleepKeys, ...habitKeys, ...dashboardKeys]) {
       const part = k.split('_').pop();
       if (part && part < cutoffStr) toRemove.push(k);
     }
@@ -142,7 +178,10 @@ async function clearForUser(userId) {
   try {
     const keys = await AsyncStorage.getAllKeys();
     const toRemove = keys.filter(
-      k => k.startsWith(PREFIX_SLEEP + userId + '_') || k.startsWith(PREFIX_HABIT_COUNT + userId + '_') || k === PREFIX_TOTAL_HABIT_COUNT + userId
+      k => k.startsWith(PREFIX_SLEEP + userId + '_') ||
+        k.startsWith(PREFIX_HABIT_COUNT + userId + '_') ||
+        k.startsWith(PREFIX_DASHBOARD + userId + '_') ||
+        k === PREFIX_TOTAL_HABIT_COUNT + userId
     );
     if (toRemove.length > 0) await AsyncStorage.multiRemove(toRemove);
   } catch (error) {
@@ -157,6 +196,8 @@ export default {
   setPersistedHabitCount,
   getPersistedTotalHabitCount,
   setPersistedTotalHabitCount,
+  getPersistedDashboardPayload,
+  setPersistedDashboardPayload,
   cleanupOldEntries,
   clearForUser,
 };

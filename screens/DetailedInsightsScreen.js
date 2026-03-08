@@ -128,8 +128,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
         setLoadingText('Calculating insights...');
       }
       const dateRange = insightsService.calculateDateRange(selectedTimeRange);
-      const isSubjectiveMetric = selectedMetric === 'tiredness_score' || selectedMetric === 'dream_vividness_score';
-      const useEfficiency = selectedAnalysisType === 'percentage' && !isSubjectiveMetric;
+      const useEfficiency = selectedAnalysisType === 'percentage';
       const insightsData = await insightsService.getHabitsInsights(
         user.id,
         selectedMetric,
@@ -394,7 +393,11 @@ const DetailedInsightsScreen = ({ navigation }) => {
       <View style={styles.content}>
           <Text style={styles.subtitle}>
             Discover how your habits impact {metricInfo.label.toLowerCase()}
-            {selectedAnalysisType === 'percentage' ? ' (as percentage of total sleep)' : ''}
+            {selectedAnalysisType === 'percentage'
+              ? (selectedMetric === 'tiredness_score' || selectedMetric === 'dream_vividness_score'
+                  ? ' (0–100%)'
+                  : ' (as percentage of total sleep)')
+              : ''}
           </Text>
 
           {insights?.validInsights?.length > 0 && (

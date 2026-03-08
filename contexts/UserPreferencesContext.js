@@ -30,6 +30,11 @@ export const UserPreferencesProvider = ({ children }) => {
       const stored = await AsyncStorage.getItem(PREFERENCES_STORAGE_KEY);
       if (stored) {
         const parsedPreferences = JSON.parse(stored);
+        // UK option removed from UI: migrate existing UK users to metric
+        if (parsedPreferences.measurementRegion === 'UK') {
+          parsedPreferences.measurementRegion = 'metric';
+          parsedPreferences.measurementSystem = 'metric';
+        }
         // Merge with defaults to handle new preferences
         setPreferences({ ...DEFAULT_PREFERENCES, ...parsedPreferences });
       }

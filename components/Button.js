@@ -5,12 +5,15 @@ import { typography, spacing } from '../constants';
 
 const Button = ({ title, onPress, variant = 'primary', disabled = false, loading = false, style, icon }) => {
   const isPrimary = variant === 'primary';
-  
+  const isDestructive = variant === 'destructive';
+
   return (
     <TouchableOpacity
       style={[
         styles.button,
-        isPrimary ? styles.primaryButton : styles.secondaryButton,
+        isPrimary && styles.primaryButton,
+        variant === 'secondary' && styles.secondaryButton,
+        isDestructive && styles.destructiveButton,
         disabled && styles.disabledButton,
         icon && styles.buttonWithIcon,
         style,
@@ -20,13 +23,15 @@ const Button = ({ title, onPress, variant = 'primary', disabled = false, loading
       activeOpacity={0.7}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? '#FFFFFF' : colors.primary} />
+        <ActivityIndicator color={isPrimary || isDestructive ? '#FFFFFF' : colors.primary} />
       ) : (
         <>
           {icon}
           <Text style={[
             styles.buttonText,
-            isPrimary ? styles.primaryText : styles.secondaryText,
+            isPrimary && styles.primaryText,
+            variant === 'secondary' && styles.secondaryText,
+            isDestructive && styles.destructiveText,
             disabled && styles.disabledText,
             icon && styles.buttonTextWithIcon,
           ]}>
@@ -59,6 +64,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary,
   },
+  destructiveButton: {
+    backgroundColor: colors.error,
+    borderWidth: 1,
+    borderColor: colors.error,
+  },
   disabledButton: {
     opacity: 0.5,
   },
@@ -74,6 +84,9 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     color: colors.primary,
+  },
+  destructiveText: {
+    color: '#FFFFFF',
   },
   disabledText: {
     opacity: 0.6,

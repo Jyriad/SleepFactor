@@ -137,7 +137,9 @@ class InsightsService {
    */
   transformSleepDataForEfficiency(sleepData, metricKey) {
     if (metricKey === 'tiredness_score' || metricKey === 'dream_vividness_score') {
-      return sleepData?.[metricKey] ?? 0;
+      const raw = sleepData?.[metricKey];
+      if (raw === null || raw === undefined || isNaN(raw)) return 0;
+      return Math.max(0, Math.min(100, (Number(raw) / 10) * 100));
     }
     if (!sleepData || !sleepData.total_sleep_minutes || sleepData.total_sleep_minutes <= 0) {
       return sleepData?.[metricKey] || 0;
@@ -1068,7 +1070,6 @@ class InsightsService {
     const metrics = await this.getAvailableSleepMetricsForUser(userId);
     const runsAbsolute = { useEfficiency: false, useCoreSleep: false };
     const runsPercentage = { useEfficiency: true, useCoreSleep: false };
-    const isSubjectiveMetric = (key) => key === 'tiredness_score' || key === 'dream_vividness_score';
 
     const [habits, habitLogs, drugLevels, sleepData] = await Promise.all([
       this.getActiveHabits(userId),
@@ -1079,7 +1080,7 @@ class InsightsService {
 
     const tagged = [];
     for (const metricInfo of metrics) {
-      const runOpts = isSubjectiveMetric(metricInfo.key) ? [runsAbsolute] : [runsAbsolute, runsPercentage];
+      const runOpts = [runsAbsolute, runsPercentage];
       for (const options of runOpts) {
         const { validInsights } = this._computeInsightsFromData(
           habits,

@@ -32,6 +32,16 @@ class ConsumptionOptionsService {
   }
 
   /**
+   * Return cached options for a habit if available (sync). Use so components can show options
+   * immediately when cache was prefetched (e.g. from Home or Habit Logging load).
+   * @param {string} habitId - Habit UUID
+   * @returns {Array|null} Cached options array or null if not cached / expired
+   */
+  getCachedOptions(habitId) {
+    return this._getCached(habitId);
+  }
+
+  /**
    * Get all active options for a specific habit.
    * Returns cached data when available to avoid lag on the habit logging page.
    * @param {string} habitId - Habit UUID

@@ -255,6 +255,8 @@ class SleepSyncService {
       }
 
       if (recordsToProcess.length === 0) {
+        const today = formatDateForDB(new Date());
+        await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
         return {
           success: true,
           data: [],
@@ -318,12 +320,18 @@ class SleepSyncService {
       }
 
       // Clear "no_data" markers for dates we successfully synced
+      const today = formatDateForDB(new Date());
       for (const record of savedRecords) {
         await syncAttemptTracker.clearNoData(record.date);
-        await syncAttemptTracker.recordAttempt({ 
-          date: record.date, 
-          outcome: 'success' 
+        await syncAttemptTracker.recordAttempt({
+          date: record.date,
+          outcome: 'success'
         });
+      }
+      // Ensure today is recorded when sync ran (in case today was not in savedRecords but was in range)
+      const todayInSaved = savedRecords.some(r => r.date === today);
+      if (!todayInSaved) {
+        await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
       }
 
       const result = {

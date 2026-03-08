@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Alert,
   Dimensions,
   StatusBar,
   Platform,
+  Animated,
 } from 'react-native';
-import { ScrollView } from 'react-native-gesture-handler';
+import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -19,13 +19,14 @@ import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
+import { setHabitLoggingState as setHabitLoggingCache, setInMemoryState as setHabitLoggingMemory } from '../services/habitLoggingCacheService';
+import consumptionOptionsService from '../services/consumptionOptionsService';
+import drugLevelService from '../services/drugLevelService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
-
 // Sleep Data Rendering Components
 const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   <HealthConnectPrompt
@@ -35,10 +36,15 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   />
 );
 
-const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, trackTiredness, trackDreamVividness, onOpenSleepQualityLog, lastNightSubjectiveData }) => {
+const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo, trackTiredness, trackDreamVividness, onOpenSleepQualityLog, lastNightSubjectiveData }) => {
   const viewingToday = isToday(selectedDate);
   const dateStr = selectedDate && (typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0]);
   const hasSubjectiveScores = viewingToday && lastNightSubjectiveData && ((trackTiredness && lastNightSubjectiveData.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData.dream_vividness_score != null));
+
+  const syncedTodayNoData = viewingToday && hasPermissions && lastSyncResult?.success && lastSyncResult?.resultType === 'SUCCESS_NO_DATA';
+  const persistedNoData = viewingToday && hasPermissions && lastAttemptForToday?.outcome === 'no_data';
+  const lastCheckedTime = syncedTodayNoData ? (formatTimeAgo ? formatTimeAgo(new Date()) : 'just now') : (lastAttemptForToday?.timestamp && formatTimeAgo ? formatTimeAgo(lastAttemptForToday.timestamp) : null);
+  const showLastCheckedNoData = (syncedTodayNoData || (persistedNoData && lastCheckedTime)) && !syncError;
 
   return (
     <View style={[styles.sleepCard, containerStyle]}>
@@ -82,10 +88,14 @@ const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermis
         <Text style={[styles.placeholderSubtext, { color: colors.error, marginTop: 4 }]}>
           Sync failed. Tap Sync to try again.
         </Text>
+      ) : showLastCheckedNoData ? (
+        <Text style={[styles.placeholderSubtext, { marginTop: 4 }]}>
+          Last checked: {lastCheckedTime || 'just now'} • We checked; nothing from your device yet.
+        </Text>
       ) : (
       <Text style={styles.placeholderSubtext}>
         {hasPermissions
-          ? 'Data may not be available yet or tracking failed'
+          ? 'Checking for sleep data…'
           : 'Grant permissions to sync sleep data from your device'
         }
       </Text>
@@ -315,17 +325,60 @@ const SleepDataSimpleLoading = () => (
 
 const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, containerStyle, message }) => {
   const displayMessage = message || 'Syncing...';
+  const spinValue = useRef(new Animated.Value(0)).current;
+  const pulseValue = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const spinLoop = Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+      })
+    );
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseValue, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseValue, {
+          toValue: 0.5,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    spinLoop.start();
+    pulseLoop.start();
+    return () => {
+      spinLoop.stop();
+      pulseLoop.stop();
+    };
+  }, [spinValue, pulseValue]);
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+  const pulseOpacity = pulseValue;
+
   return (
   <View style={[styles.sleepCard, styles.skeletonCard, containerStyle]}>
     <View style={styles.sleepCardHeader}>
       <View style={styles.sleepCardTitleRow}>
         <Ionicons name="moon-outline" size={24} color={colors.primary} />
-        <Text style={styles.sleepCardTitle}>
-          {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-        </Text>
-        <View style={styles.cardSyncButton}>
-          <Ionicons name="sync" size={20} color={colors.textSecondary} />
-          <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]}>
+        <View style={styles.sleepCardTitleWrap}>
+          <Text style={[styles.sleepCardTitle, { marginLeft: 0 }]} numberOfLines={1} ellipsizeMode="tail">
+            {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
+          </Text>
+        </View>
+        <View style={[styles.cardSyncButton, styles.skeletonSyncButtonShrink]}>
+          <Animated.View style={{ transform: [{ rotate: spin }] }}>
+            <Ionicons name="sync" size={20} color={colors.textSecondary} />
+          </Animated.View>
+          <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="tail">
             {displayMessage}
           </Text>
         </View>
@@ -337,7 +390,7 @@ const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, cont
 
     {/* Skeleton Timeline */}
     <View style={styles.timelineContainer}>
-      <View style={[styles.timelineBar, styles.skeletonBar]} />
+      <Animated.View style={[styles.timelineBar, styles.skeletonBar, { opacity: pulseOpacity }]} />
       <View style={styles.timeLabels}>
         <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
         <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
@@ -384,13 +437,15 @@ const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, cont
       </View>
     </View>
 
-    {/* Sync Status during loading */}
-    <View style={styles.syncStatus}>
-      <Ionicons name="sync" size={16} color={colors.primary} />
+    {/* Sync Status during loading - spinning icon + pulse */}
+    <Animated.View style={[styles.syncStatus, { opacity: pulseOpacity }]}>
+      <Animated.View style={{ transform: [{ rotate: spin }] }}>
+        <Ionicons name="sync" size={16} color={colors.primary} />
+      </Animated.View>
       <Text style={[styles.syncStatusText, { color: colors.primary }]}>
         {displayMessage}
       </Text>
-    </View>
+    </Animated.View>
   </View>
   );
 };
@@ -476,9 +531,15 @@ const HomeScreen = () => {
   const [trackDreamVividness, setTrackDreamVividness] = useState(false);
   // When viewing "today", subjective scores live on yesterday's sleep row (last night)
   const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
+  // Minimal habits list from dashboard RPC for passing to Habit Logging (instant names/icons)
+  const [dashboardHabits, setDashboardHabits] = useState([]);
+  // Last sync attempt for today (persisted) so no-data card can show "Last checked: ..."
+  const [lastAttemptForToday, setLastAttemptForToday] = useState(null);
 
-  // Ref to track if we just completed a sync to prevent re-triggering
   const justSyncedRef = useRef(false);
+  const lastSyncResultRef = useRef(null);
+  const lastDashboardPayloadRef = useRef(null);
+  const sleepCardOpacity = useRef(new Animated.Value(0)).current;
   // Cooldown: don't start another auto-sync for the same date within this many ms
   const AUTO_SYNC_COOLDOWN_MS = 2 * 60 * 1000;
   const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
@@ -500,6 +561,119 @@ const HomeScreen = () => {
     resetNeedsPermissions,
   } = useHealthSync();
 
+  const getDateString = useCallback((date) => {
+    if (!date) return null;
+    return typeof date === 'string' ? date : date.toISOString().split('T')[0];
+  }, []);
+
+  const applyDashboardPayload = useCallback((payload, dateStr) => {
+    if (!payload || payload.error) return;
+    try {
+      const serialized = JSON.stringify(payload);
+      if (lastDashboardPayloadRef.current === serialized) return;
+      lastDashboardPayloadRef.current = serialized;
+    } catch (_) {}
+    const sleepRecord = payload.sleep_record && typeof payload.sleep_record === 'object' && payload.sleep_record.id != null ? payload.sleep_record : null;
+    setSleepData(sleepRecord);
+    setIsExcluded(sleepRecord?.exclude_from_insights || false);
+    setExclusionReason(sleepRecord?.exclusion_reason || null);
+    if (dateStr) {
+      setSleepDataCache(prev => new Map(prev).set(dateStr, sleepRecord));
+      setHabitCountCache(prev => new Map(prev).set(dateStr, payload.habit_counts?.logged_count ?? 0));
+    }
+    setHabitCount(payload.habit_counts?.logged_count ?? 0);
+    setTotalHabitCount(payload.habit_counts?.total_active_count ?? 0);
+    setLoggingStreak(payload.streak ?? 0);
+    setTrackTiredness(payload.user_prefs?.track_tiredness === true);
+    setTrackDreamVividness(payload.user_prefs?.track_dream_vividness === true);
+    const lastNight = payload.last_night_subjective;
+    setLastNightSubjectiveData(lastNight && (lastNight.tiredness_score != null || lastNight.dream_vividness_score != null) ? lastNight : null);
+    const loggedDatesRaw = payload.logged_dates;
+    const loggedDatesArray = Array.isArray(loggedDatesRaw)
+      ? loggedDatesRaw
+      : (loggedDatesRaw && typeof loggedDatesRaw === 'object')
+        ? Object.values(loggedDatesRaw).filter((d) => typeof d === 'string')
+        : [];
+    setLoggedDates(loggedDatesArray);
+    setHabitsLogged(payload.habits_logged === true);
+    setTodaysHabitsLogged(payload.todays_habits_logged === true);
+    setDashboardHabits(Array.isArray(payload.habits) ? payload.habits : []);
+  }, []);
+
+  const fetchDashboard = useCallback(async (opts = {}) => {
+    const { background = false } = opts;
+    if (!user?.id) return;
+    const dateStr = getDateString(selectedDate);
+    if (!dateStr) return;
+    if (!background) setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_home_dashboard_data', {
+        p_user_id: user.id,
+        p_date: dateStr,
+      });
+      if (error) {
+        console.warn('[Home] Dashboard RPC error:', error?.message || error);
+        throw error;
+      }
+      if (data?.error) {
+        console.warn('[Home] Dashboard RPC returned error:', data.error);
+        return;
+      }
+      try {
+        const serialized = JSON.stringify(data);
+        if (lastDashboardPayloadRef.current === serialized) {
+          if (!background) setLoading(false);
+          return;
+        }
+      } catch (_) {}
+      applyDashboardPayload(data, dateStr);
+      console.warn('[Home] Dashboard loaded: logged_count=', data?.habit_counts?.logged_count, 'logged_dates=', (data?.logged_dates?.length ?? 0));
+      await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, data);
+      // Prefetch habit logging state for today and yesterday so Log habits opens instantly
+      (async () => {
+        try {
+          const today = new Date();
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          const todayStr = getDateString(today);
+          const yesterdayStr = getDateString(yesterday);
+          const [resToday, resYesterday] = await Promise.all([
+            supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: todayStr }),
+            supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: yesterdayStr }),
+          ]);
+          if (resToday?.data && !resToday?.error) {
+            await setHabitLoggingCache(user.id, todayStr, resToday.data);
+            setHabitLoggingMemory(user.id, todayStr, resToday.data);
+            // Prefetch consumption options so Caffeine/Alcohol rows don't show "Loading options..."
+            const consumptionHabits = (resToday.data.habits || []).filter(
+              (h) => h.type === 'drug' || h.type === 'quick_consumption'
+            );
+            consumptionHabits.forEach((h) => consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {}));
+            // Prefetch drug level for today so Caffeine/Alcohol "level right now" shows without delay
+            consumptionHabits.forEach((h) => drugLevelService.getLevelNow(user.id, h).catch(() => {}));
+          }
+          if (resYesterday?.data && !resYesterday?.error) {
+            await setHabitLoggingCache(user.id, yesterdayStr, resYesterday.data);
+            setHabitLoggingMemory(user.id, yesterdayStr, resYesterday.data);
+          }
+        } catch (e) {
+          console.warn('[Home] Habit logging prefetch failed', e?.message || e);
+        }
+      })();
+      if (!background) setLoading(false);
+      insightsService.getHomeInsightsWithSummary(user.id, 10).then(({ topInsights: top, summaryByMetric }) => {
+        setTopInsights(top);
+        setInsightsSummaryByMetric(summaryByMetric);
+      }).catch(() => {
+        setTopInsights([]);
+        setInsightsSummaryByMetric([]);
+      });
+    } catch (err) {
+      console.warn('[Home] Dashboard fetch failed:', err?.message || err);
+      if (!background) setLoading(false);
+    }
+  }, [user?.id, selectedDate, getDateString, applyDashboardPayload]);
+
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
@@ -513,126 +687,83 @@ const HomeScreen = () => {
     }, [])
   );
 
-  const lastHomeFocusFetchRef = useRef(0);
-  const HOME_FOCUS_STALE_MS = 30000;
-
   useFocusEffect(
     React.useCallback(() => {
-      // Always refresh habit counts when home gains focus so "x out of y habits logged"
-      // updates immediately after the user returns from logging habits
-      fetchHabitCount();
-      fetchTotalHabitCount();
-
-      const now = Date.now();
-      if (lastHomeFocusFetchRef.current > 0 && (now - lastHomeFocusFetchRef.current) < HOME_FOCUS_STALE_MS) {
-        return;
-      }
-      lastHomeFocusFetchRef.current = now;
-      checkHabitsLogged();
-      checkTodaysHabitsLogged();
-      fetchLoggingStreak();
-      fetchTopInsights();
-    }, [selectedDate, user])
+      if (!user) return;
+      const dateStr = getDateString(selectedDate);
+      if (!dateStr) return;
+      let cancelled = false;
+      homeCacheService.getPersistedDashboardPayload(user.id, dateStr).then((cached) => {
+        if (cancelled) return;
+        if (cached && !cached.error) {
+          try {
+            const serialized = JSON.stringify(cached);
+            if (lastDashboardPayloadRef.current !== serialized) {
+              lastDashboardPayloadRef.current = serialized;
+              applyDashboardPayload(cached, dateStr);
+            }
+          } catch (_) {
+            applyDashboardPayload(cached, dateStr);
+          }
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
+        fetchDashboard({ background: !!cached });
+      });
+      return () => { cancelled = true; };
+    }, [user, selectedDate, getDateString, applyDashboardPayload, fetchDashboard])
   );
 
-  // Cache-first bootstrap: show last saved data immediately so the home doesn't feel like it's "loading" on reopen
   useEffect(() => {
     if (!user) return;
-    let cancelled = false;
-    const dateString = typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0];
-    Promise.all([
-      homeCacheService.getPersistedSleepData(user.id, dateString),
-      homeCacheService.getPersistedHabitCount(user.id, dateString),
-      homeCacheService.getPersistedTotalHabitCount(user.id),
-    ]).then(([persistedSleep, persistedCount, persistedTotalCount]) => {
-      if (cancelled) return;
-      if (persistedSleep !== undefined) {
-        setSleepData(persistedSleep);
-        setIsExcluded(persistedSleep?.exclude_from_insights || false);
-        setExclusionReason(persistedSleep?.exclusion_reason || null);
-        setSleepDataCache(prev => new Map(prev).set(dateString, persistedSleep));
-      }
-      if (persistedCount !== undefined) {
-        setHabitCount(persistedCount);
-        setHabitCountCache(prev => new Map(prev).set(dateString, persistedCount));
-      }
-      if (persistedTotalCount !== undefined) {
-        setTotalHabitCount(persistedTotalCount);
-      }
-      setLoading(false);
-    }).catch(() => {
-      if (!cancelled) setLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [user]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single().then(({ data }) => {
-      setTrackTiredness(data?.track_tiredness === true);
-      setTrackDreamVividness(data?.track_dream_vividness === true);
-    });
-  }, [user?.id]);
-
-  // Fetch yesterday's sleep for "how you felt" when viewing today (subjective scores live on last night's row)
-  const fetchLastNightSubjectiveData = useCallback(() => {
-    if (!user?.id || !isToday(selectedDate)) {
-      setLastNightSubjectiveData(null);
-      return;
-    }
-    const yesterdayStr = getYesterday();
-    sleepDataService.getSleepDataForDate(yesterdayStr).then((data) => {
-      setLastNightSubjectiveData(data && (data.tiredness_score != null || data.dream_vividness_score != null) ? data : null);
-    }).catch(() => setLastNightSubjectiveData(null));
-  }, [user?.id, selectedDate]);
-
-  useEffect(() => {
-    fetchLastNightSubjectiveData();
-  }, [fetchLastNightSubjectiveData]);
-
-  // Refetch when returning to home (e.g. after removing scores on Sleep Quality screen)
-  useFocusEffect(
-    useCallback(() => {
-      if (isToday(selectedDate)) fetchLastNightSubjectiveData();
-    }, [selectedDate, fetchLastNightSubjectiveData])
-  );
-
-  // Date-dependent operations (run when date changes)
-  useEffect(() => {
-    checkHabitsLogged();
-    fetchHabitCount();
-    fetchSleepData();
-  }, [selectedDate, user]);
-
-  // Fetch logged dates for the current strip range (last 7 days or week around selected date)
-  useEffect(() => {
-    if (user) fetchLoggedDates();
-  }, [user, selectedDate]);
-
-  // Date-independent operations: run lightweight work immediately, defer heavy fetches so first paint is fast
-  useEffect(() => {
-    if (!user) return;
-    checkTodaysHabitsLogged();
     syncAttemptTracker.cleanupOldRecords();
     const deferredTimer = setTimeout(() => {
       calculatePersonalAverages();
-      fetchTotalHabitCount();
-      fetchLoggingStreak();
-      fetchTopInsights();
       fetchCoreSleepDuration();
     }, 450);
     return () => clearTimeout(deferredTimer);
   }, [user]);
 
-  // Preload data for recent dates after first paint and initial fetches
+  // Load persisted "last attempt for today" when viewing today (for no-data card status)
   useEffect(() => {
-    if (user && !cacheLoading) {
-      const timer = setTimeout(() => {
-        preloadRecentData();
-      }, 1200);
-      return () => clearTimeout(timer);
+    if (!isToday(selectedDate)) return;
+    syncAttemptTracker.getLastAttemptForDate(getToday()).then(setLastAttemptForToday);
+  }, [selectedDate, lastSyncResult]);
+
+  useEffect(() => {
+    if (sleepData) {
+      sleepCardOpacity.setValue(0);
+      Animated.timing(sleepCardOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     }
-  }, [user]);
+  }, [sleepData]);
+
+  // Dates with unsaved changes (AsyncStorage) for the strip - logged_dates come from RPC
+  useEffect(() => {
+    if (!user?.id) return;
+    const stripCenterDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate + 'T12:00:00');
+    const STRIP_DAYS = 7;
+    const dates = isWithinLast7Days(stripCenterDate)
+      ? getDateStripArrayLast7Days()
+      : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
+    const storagePromises = dates.map(async (dateItem) => {
+      try {
+        const storageKey = `habitLogs_${user.id}_${dateItem.date}`;
+        const storedData = await AsyncStorage.getItem(storageKey);
+        if (storedData) {
+          const storedLogs = JSON.parse(storedData);
+          const hasUnsavedChanges = Object.values(storedLogs).some(value =>
+            value !== null && value !== undefined && value !== ''
+          );
+          if (hasUnsavedChanges) return dateItem.date;
+        }
+      } catch (e) {}
+      return null;
+    });
+    Promise.all(storagePromises).then((results) => {
+      setDatesWithUnsavedChanges(results.filter(Boolean));
+    });
+  }, [user?.id, selectedDate]);
 
   // Automatic sync when permissions are available and date changes to today
   useEffect(() => {
@@ -658,6 +789,11 @@ const HomeScreen = () => {
     const autoSyncSleepData = async () => {
       // Check prerequisites
       if (isCancelled || isRunning || !user || !healthSyncInitialized || !hasPermissions) {
+        return;
+      }
+
+      // We already have a fresh result from launch sync (or a previous sync this session) - don't run again
+      if (lastSyncResultRef.current) {
         return;
       }
 
@@ -729,18 +865,14 @@ const HomeScreen = () => {
             // Wait a bit for database to update, then fetch
             await new Promise(resolve => setTimeout(resolve, 500));
             try {
-              await fetchSleepData();
+              await fetchDashboard({ background: true });
             } catch (fetchError) {
               // Silently handle fetch error
             }
           } else if (resultType === 'SUCCESS_NO_DATA') {
-            // No data available - this is expected, don't retry
-            // The syncAttemptTracker already marked this as no_data
-            // Just fetch to make sure we show the "no data" state
-            await fetchSleepData();
+            await fetchDashboard({ background: true });
           } else if (resultType === 'SUCCESS_ALREADY_SYNCED') {
-            // Data already exists - just refresh to be sure
-            await fetchSleepData();
+            await fetchDashboard({ background: true });
           }
           
           // Mark that we just synced to prevent re-trigger
@@ -771,7 +903,7 @@ const HomeScreen = () => {
       // Reset autoSyncLoading when effect is cleaned up (e.g., navigating away)
       setAutoSyncLoading(false);
     };
-  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading]);
+  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading, fetchDashboard]);
 
   // Auto-hide "new sleep data" banner after 4 seconds
   useEffect(() => {
@@ -780,17 +912,19 @@ const HomeScreen = () => {
     return () => clearTimeout(t);
   }, [showNewSleepBanner]);
 
+  lastSyncResultRef.current = lastSyncResult;
+
   // Mark that we've completed a sync attempt for today when lastSyncResult is set while viewing today
   useEffect(() => {
     if (!lastSyncResult || !isToday(selectedDate)) return;
     todaySyncAttemptedRef.current = true;
   }, [lastSyncResult, selectedDate]);
 
-  // When sync completes (e.g. launch sync or manual), refetch sleep data so the card updates
+  // When sync completes (e.g. launch sync or manual), refetch dashboard so the card updates
   useEffect(() => {
     if (!lastSyncResult?.success || !user) return;
-    fetchSleepData();
-  }, [lastSyncResult?.success, lastSyncResult?.syncedRecords]);
+    fetchDashboard({ background: true });
+  }, [lastSyncResult?.success, lastSyncResult?.syncedRecords, fetchDashboard]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -798,445 +932,6 @@ const HomeScreen = () => {
       setShowPermissionPrompt(true);
     }
   }, [healthSyncInitialized, needsPermissions, hasPermissions]);
-
-  const checkHabitsLogged = async () => {
-    if (!user) return;
-
-    try {
-      // Convert Date object to YYYY-MM-DD string format
-      const dateString = selectedDate instanceof Date 
-        ? selectedDate.toISOString().split('T')[0]
-        : typeof selectedDate === 'string' 
-          ? selectedDate 
-          : new Date(selectedDate).toISOString().split('T')[0];
-      
-      const { data, error } = await supabase
-        .from('habit_logs')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('date', dateString)
-        .limit(1);
-
-      if (error) throw error;
-
-      setHabitsLogged(data && data.length > 0);
-    } catch (error) {
-      setHabitsLogged(false);
-    }
-  };
-
-  const checkTodaysHabitsLogged = async () => {
-    if (!user) return;
-
-    try {
-      const today = getToday();
-      const { data, error } = await supabase
-        .from('habit_logs')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .limit(1);
-
-      if (error) throw error;
-
-      setTodaysHabitsLogged(data && data.length > 0);
-    } catch (error) {
-      setTodaysHabitsLogged(false);
-    }
-  };
-
-  const STRIP_DAYS = 7;
-
-  const fetchLoggedDates = async () => {
-    if (!user) return;
-
-    try {
-      // Use the same 7-day range the header strip shows for the selected date
-      const stripCenterDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate + 'T12:00:00');
-      const dates = isWithinLast7Days(stripCenterDate)
-        ? getDateStripArrayLast7Days()
-        : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
-      const dateStrings = dates.map(d => d.date);
-      const loggedDateSet = new Set();
-
-      // 1. Fetch regular habit logs - include habit info to filter out automatic habits
-      const { data: habitLogs, error: habitLogsError } = await supabase
-        .from('habit_logs')
-        .select(`
-          date,
-          habits!inner(name, type)
-        `)
-        .eq('user_id', user.id)
-        .in('date', dateStrings);
-
-      if (!habitLogsError && habitLogs) {
-        // Filter to only include manually logged habits (exclude health metrics and inferred habits)
-        habitLogs.forEach(log => {
-          if (!healthMetricsService.isHealthMetricHabit(log.habits) && !isInferredHabit(log.habits)) {
-            loggedDateSet.add(log.date);
-          }
-        });
-      }
-
-      // 2. Also check consumption events (caffeine/alcohol) for these dates
-      const startDate = dateStrings[0];
-      const endDate = dateStrings[dateStrings.length - 1];
-      const { data: consumptionEvents, error: consumptionError } = await supabase
-        .from('habit_consumption_events')
-        .select(`
-          consumed_at,
-          habits!inner(type)
-        `)
-        .eq('user_id', user.id)
-        .gte('consumed_at', `${startDate}T00:00:00.000Z`)
-        .lte('consumed_at', `${endDate}T23:59:59.999Z`);
-
-      if (!consumptionError && consumptionEvents) {
-        consumptionEvents.forEach(event => {
-          if (event.habits?.type === 'quick_consumption') {
-            const eventDate = event.consumed_at.split('T')[0];
-            loggedDateSet.add(eventDate);
-          }
-        });
-      }
-
-      setLoggedDates(Array.from(loggedDateSet));
-
-      // Check for dates with unsaved changes in AsyncStorage (batch operation for better performance)
-      const unsavedDates = [];
-      const storagePromises = dates.map(async (dateItem) => {
-        try {
-          const storageKey = `habitLogs_${user.id}_${dateItem.date}`;
-          const storedData = await AsyncStorage.getItem(storageKey);
-          if (storedData) {
-            const storedLogs = JSON.parse(storedData);
-            // Check if there are any non-empty values
-            const hasUnsavedChanges = Object.values(storedLogs).some(value =>
-              value !== null && value !== undefined && value !== ''
-            );
-            if (hasUnsavedChanges) {
-              return dateItem.date;
-            }
-          }
-        } catch (error) {
-        }
-        return null;
-      });
-
-      // Wait for all AsyncStorage checks to complete
-      const unsavedResults = await Promise.all(storagePromises);
-      const filteredUnsavedDates = unsavedResults.filter(date => date !== null);
-      setDatesWithUnsavedChanges(filteredUnsavedDates);
-
-    } catch (error) {
-      setLoggedDates([]);
-      setDatesWithUnsavedChanges([]);
-    }
-  };
-
-  // Exclude inferred habits (from health data) from manual counts — same list as habit logging screen
-  const isInferredHabit = (habit) => habit && INFERRED_HABIT_NAMES.includes(habit.name);
-
-  const fetchHabitCountForDate = async (date) => {
-    if (!user) return 0;
-
-    try {
-      const dateString = typeof date === 'string' ? date : date.toISOString().split('T')[0];
-
-      // Track unique habits that have been logged
-      const loggedHabits = new Set();
-
-      // 1. Get regular habit logs (binary/numeric habits)
-      const { data: habitLogs, error: habitLogsError } = await supabase
-        .from('habit_logs')
-        .select(`
-          habit_id,
-          habits!inner(*)
-        `)
-        .eq('user_id', user.id)
-        .eq('date', dateString);
-
-      if (habitLogsError) {
-      } else {
-        // Add regular habits (excluding health metrics and inferred habits)
-        habitLogs?.forEach(log => {
-          if (!healthMetricsService.isHealthMetricHabit(log.habits) && !isInferredHabit(log.habits)) {
-            loggedHabits.add(log.habit_id);
-          }
-        });
-      }
-
-      // 2. Get consumption events for drug habits (caffeine/alcohol)
-      const { data: consumptionEvents, error: consumptionError } = await supabase
-        .from('habit_consumption_events')
-        .select(`
-          habit_id,
-          consumed_at,
-          habits!inner(name, type)
-        `)
-        .eq('user_id', user.id)
-        .gte('consumed_at', `${dateString}T00:00:00.000Z`)
-        .lt('consumed_at', `${dateString}T23:59:59.999Z`);
-
-      if (consumptionError) {
-      } else {
-        // Add quick_consumption habits that have consumption events (including "none" = logged as had none)
-        consumptionEvents?.forEach(event => {
-          if (event.habits?.type === 'quick_consumption') {
-            loggedHabits.add(event.habit_id);
-          }
-        });
-      }
-
-      return loggedHabits.size;
-    } catch (error) {
-      return 0;
-    }
-  };
-
-  const fetchTotalHabitCount = async () => {
-    if (!user) return;
-
-    try {
-      // Get all active habits for the user, excluding health metrics and untracked habits
-      const { data, error } = await supabase
-        .from('habits')
-        .select('id, name, type')
-        .eq('user_id', user.id)
-        .neq('is_active', false); // Get all habits that are not explicitly inactive/untracked
-
-      if (error) throw error;
-
-      // Filter out health metric habits, inferred habits, and untracked — same as habit logging screen
-      const allHabits = data || [];
-      const manualHabits = allHabits.filter(habit =>
-        !healthMetricsService.isHealthMetricHabit(habit) &&
-        !isInferredHabit(habit) &&
-        habit.is_active !== false
-      );
-
-      const count = manualHabits.length;
-      setTotalHabitCount(count);
-      homeCacheService.setPersistedTotalHabitCount(user.id, count);
-    } catch (error) {
-      setTotalHabitCount(0);
-    }
-  };
-
-  const fetchLoggingStreak = async () => {
-    if (!user) return;
-
-    try {
-      // Step 1: Get all manual habit IDs (excluding health metrics and automated bedtime habits)
-      // This matches the same filtering used in fetchHabitCountForDate
-      const { data: habitsData, error: habitsError } = await supabase
-        .from('habits')
-        .select('id, name, type')
-        .eq('user_id', user.id)
-        .neq('is_active', false);
-
-      if (habitsError) throw habitsError;
-
-      const manualHabits = (habitsData || [])
-        .filter(habit =>
-          !healthMetricsService.isHealthMetricHabit(habit) &&
-          !isInferredHabit(habit)
-        );
-      
-      const manualHabitIds = manualHabits.map(habit => habit.id);
-      const quickConsumptionHabitIds = manualHabits
-        .filter(habit => habit.type === 'quick_consumption')
-        .map(habit => habit.id);
-
-      if (manualHabitIds.length === 0) {
-        setLoggingStreak(0);
-        return;
-      }
-
-      // Step 2: Get dates from habit_logs for manual habits
-      const { data: logsData, error: logsError } = await supabase
-        .from('habit_logs')
-        .select('date, habit_id')
-        .eq('user_id', user.id)
-        .in('habit_id', manualHabitIds)
-        .order('date', { ascending: false });
-
-      if (logsError) throw logsError;
-
-      // Step 3: Also get dates from consumption events (for caffeine, alcohol, etc.)
-      let consumptionDates = [];
-      if (quickConsumptionHabitIds.length > 0) {
-        const { data: consumptionData, error: consumptionError } = await supabase
-          .from('habit_consumption_events')
-          .select('consumed_at, habit_id')
-          .eq('user_id', user.id)
-          .in('habit_id', quickConsumptionHabitIds);
-
-        if (!consumptionError && consumptionData) {
-          // Extract dates from consumption timestamps
-          consumptionDates = consumptionData.map(event => 
-            event.consumed_at.split('T')[0]
-          );
-        }
-      }
-
-      // Combine all dates from both sources
-      const allLogDates = [
-        ...(logsData || []).map(log => log.date),
-        ...consumptionDates
-      ];
-
-      if (allLogDates.length === 0) {
-        setLoggingStreak(0);
-        return;
-      }
-
-      // Get unique dates where any manual habits were logged (including consumption)
-      const uniqueDates = [...new Set(allLogDates)].sort().reverse();
-
-      // Calculate streak - consecutive days ending with today or yesterday
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-
-      const todayStr = today.toISOString().split('T')[0];
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-      // Start counting from today or yesterday
-      let streak = 0;
-      let checkDate = new Date(today);
-
-      // If most recent log is not today or yesterday, streak is 0
-      if (uniqueDates[0] !== todayStr && uniqueDates[0] !== yesterdayStr) {
-        setLoggingStreak(0);
-        return;
-      }
-
-      // If user hasn't logged today but logged yesterday, start from yesterday
-      if (uniqueDates[0] !== todayStr) {
-        checkDate = new Date(yesterday);
-      }
-
-      // Count consecutive days
-      const dateSet = new Set(uniqueDates);
-      
-      while (true) {
-        const checkDateStr = checkDate.toISOString().split('T')[0];
-        
-        if (dateSet.has(checkDateStr)) {
-          streak++;
-          checkDate.setDate(checkDate.getDate() - 1);
-        } else {
-          // Gap found, stop counting
-          break;
-        }
-      }
-
-      setLoggingStreak(streak);
-    } catch (error) {
-      setLoggingStreak(0);
-    }
-  };
-
-  const fetchTopInsights = async () => {
-    if (!user) return;
-    try {
-      const { topInsights: top, summaryByMetric } = await insightsService.getHomeInsightsWithSummary(user.id, 10);
-      setTopInsights(top);
-      setInsightsSummaryByMetric(summaryByMetric);
-    } catch (error) {
-      setTopInsights([]);
-      setInsightsSummaryByMetric([]);
-    }
-  };
-
-  const fetchHabitCount = async () => {
-    if (!user) return;
-
-    const dateString = getCacheKey(selectedDate);
-
-    // 1. In-memory cache: use immediately, refresh in background
-    const cachedCount = getCachedHabitCount(selectedDate);
-    if (cachedCount !== undefined) {
-      setHabitCount(cachedCount);
-      fetchHabitCountForDate(selectedDate).then((freshCount) => {
-        if (freshCount !== cachedCount) {
-          setHabitCount(freshCount);
-          updateHabitCountCache(selectedDate, freshCount);
-          homeCacheService.setPersistedHabitCount(user.id, selectedDate, freshCount);
-        }
-      });
-      return;
-    }
-
-    // 2. Persisted cache: show immediately on app reopen, then refresh in background
-    const persistedCount = await homeCacheService.getPersistedHabitCount(user.id, selectedDate);
-    if (persistedCount !== undefined) {
-      setHabitCount(persistedCount);
-      updateHabitCountCache(selectedDate, persistedCount);
-      fetchHabitCountForDate(selectedDate).then((freshCount) => {
-        setHabitCount(freshCount);
-        updateHabitCountCache(selectedDate, freshCount);
-        homeCacheService.setPersistedHabitCount(user.id, selectedDate, freshCount);
-      });
-      return;
-    }
-
-    // 3. Fetch from database
-    const count = await fetchHabitCountForDate(selectedDate);
-    setHabitCount(count);
-    updateHabitCountCache(selectedDate, count);
-    homeCacheService.setPersistedHabitCount(user.id, selectedDate, count);
-  };
-
-  const fetchSleepData = async () => {
-    if (!user) {
-      return;
-    }
-
-    // 1. In-memory cache (instant when navigating within session)
-    const cachedData = getCachedSleepData(selectedDate);
-    if (cachedData !== undefined) {
-      setSleepData(cachedData);
-      setIsExcluded(cachedData?.exclude_from_insights || false);
-      setExclusionReason(cachedData?.exclusion_reason || null);
-      return;
-    }
-
-    // 2. Persisted cache (fast on app reopen – no skeleton)
-    const dateString = selectedDate instanceof Date
-      ? selectedDate.toISOString().split('T')[0]
-      : typeof selectedDate === 'string'
-        ? selectedDate
-        : new Date(selectedDate).toISOString().split('T')[0];
-    const persistedSleep = await homeCacheService.getPersistedSleepData(user.id, dateString);
-    if (persistedSleep !== undefined) {
-      setSleepData(persistedSleep);
-      setIsExcluded(persistedSleep?.exclude_from_insights || false);
-      setExclusionReason(persistedSleep?.exclusion_reason || null);
-      updateSleepDataCache(selectedDate, persistedSleep);
-      return;
-    }
-
-    // 3. Fetch from database
-    setSleepDataLoading(true);
-    try {
-      const data = await sleepDataService.getSleepDataForDate(dateString);
-      setSleepData(data);
-      setIsExcluded(data?.exclude_from_insights || false);
-      setExclusionReason(data?.exclusion_reason || null);
-      updateSleepDataCache(selectedDate, data);
-      homeCacheService.setPersistedSleepData(user.id, dateString, data);
-    } catch (error) {
-      setSleepData(null);
-      updateSleepDataCache(selectedDate, null);
-      homeCacheService.setPersistedSleepData(user.id, dateString, null);
-    } finally {
-      setSleepDataLoading(false);
-    }
-  };
-
 
   const handleLogHabits = () => {
     if (Platform.OS === 'android') {
@@ -1268,22 +963,20 @@ const HomeScreen = () => {
         const resultType = result.resultType || 'SUCCESS_WITH_DATA';
         
         if (resultType === 'SUCCESS_WITH_DATA' && result.syncedRecords > 0) {
-          // Data was synced - clear cache and refresh
           updateSleepDataCache(selectedDate, undefined);
+          updateHabitCountCache(selectedDate, undefined);
           setShowNewSleepBanner(true);
           sleepSyncNotifications.notifyNewSleepDataSynced();
           await new Promise(resolve => setTimeout(resolve, 500));
-          await fetchSleepData();
+          await fetchDashboard({ background: true });
         } else if (resultType === 'SUCCESS_NO_DATA') {
-          // No data available - still refresh to show the state
-          await fetchSleepData();
+          await fetchDashboard({ background: true });
           Alert.alert(
             'No Data Available',
             'No sleep data was found in Health Connect for the selected date range.'
           );
         } else {
-          // Already synced or other success state
-          await fetchSleepData();
+          await fetchDashboard({ background: true });
         }
       } else {
         Alert.alert('Sync Failed', result.error || 'Unable to sync sleep data');
@@ -1431,74 +1124,6 @@ const HomeScreen = () => {
   const clearAllCaches = () => {
     setSleepDataCache(new Map());
     setHabitCountCache(new Map());
-  };
-
-  const getCachedSleepData = (date) => {
-    const cached = sleepDataCache.get(getCacheKey(date));
-    return cached === undefined ? undefined : cached;
-  };
-
-  const getCachedHabitCount = (date) => {
-    const cached = habitCountCache.get(getCacheKey(date));
-    return cached === undefined ? undefined : cached;
-  };
-
-  const preloadRecentData = async () => {
-    if (!user || cacheLoading) {
-      return;
-    }
-
-    setCacheLoading(true);
-
-    try {
-      // Preload data for today + last 5 days (6 days total)
-      const datesToPreload = [];
-      for (let i = 0; i < 6; i++) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateString = date.toISOString().split('T')[0]; // Convert to YYYY-MM-DD string
-        datesToPreload.push(dateString);
-      }
-
-      // Load sleep data for all dates in parallel
-      const sleepDataPromises = datesToPreload.map(async (dateString) => {
-        const cached = getCachedSleepData(dateString);
-        if (cached !== undefined) {
-          return; // Already cached
-        }
-
-        try {
-          const data = await sleepDataService.getSleepDataForDate(dateString);
-          updateSleepDataCache(dateString, data || null); // Cache null for no data
-        } catch (error) {
-          // Don't cache errors - allow retry on next navigation
-        }
-      });
-
-      // Load habit counts for all dates in parallel
-      const habitCountPromises = datesToPreload.map(async (dateString) => {
-        const cached = getCachedHabitCount(dateString);
-        if (cached !== undefined) {
-          return; // Already cached
-        }
-
-        try {
-          const count = await fetchHabitCountForDate(dateString);
-          updateHabitCountCache(dateString, count);
-        } catch (error) {
-          // Don't cache errors - allow retry on next navigation
-        }
-      });
-
-      await Promise.all([...sleepDataPromises, ...habitCountPromises]);
-      if (user) {
-        homeCacheService.cleanupOldEntries(user.id);
-      }
-    } catch (error) {
-      // Preload failed silently
-    } finally {
-      setCacheLoading(false);
-    }
   };
 
   const formatSleepDuration = (minutes) => {
@@ -1831,6 +1456,9 @@ const HomeScreen = () => {
                       getDataSourceDisplay={getDataSourceDisplay}
                       containerStyle={styles.sleepCardFillCard}
                       syncError={syncError}
+                      lastSyncResult={lastSyncResult}
+                      lastAttemptForToday={lastAttemptForToday}
+                      formatTimeAgo={formatTimeAgo}
                       trackTiredness={trackTiredness}
                       trackDreamVividness={trackDreamVividness}
                       onOpenSleepQualityLog={(dateStr) => navigation.navigate('SleepQualityLog', { date: dateStr })}
@@ -1842,7 +1470,7 @@ const HomeScreen = () => {
             } else {
               return (
                 <View style={styles.sleepSectionInner}>
-                  <View style={styles.sleepCardFill}>
+                  <Animated.View style={[styles.sleepCardFill, { opacity: sleepCardOpacity }]}>
                     <SleepDataCard
                       selectedDate={selectedDate}
                       isToday={isToday}
@@ -1870,7 +1498,7 @@ const HomeScreen = () => {
                       onOpenSleepQualityLog={(dateStr) => navigation.navigate('SleepQualityLog', { date: dateStr })}
                       lastNightSubjectiveData={lastNightSubjectiveData}
                     />
-                  </View>
+                  </Animated.View>
                 </View>
               );
             }
@@ -1890,12 +1518,12 @@ const HomeScreen = () => {
               { icon: 'checkbox-outline', label: `${totalHabitCount} habit${totalHabitCount !== 1 ? 's' : ''} tracked` },
               { icon: 'flame-outline', label: `${loggingStreak} day${loggingStreak !== 1 ? 's' : ''} streak` },
             ]}
-            onPress={() => navigation.navigate('Habits')}
+            onPress={() => navigation.navigate('MainTabs', { screen: 'Habits' })}
           />
           <SleepInsightsHomeCard
             topInsights={topInsights}
             summaryByMetric={insightsSummaryByMetric}
-            onPress={() => navigation.navigate('Insights')}
+            onPress={() => navigation.navigate('MainTabs', { screen: 'Insights' })}
           />
         </View>
       </ScrollView>
@@ -2095,6 +1723,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
+  sleepCardTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: spacing.sm,
+  },
   sleepCardTitle: {
     fontSize: typography.sizes.medium,
     fontWeight: typography.weights.semibold,
@@ -2106,6 +1739,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.xs,
+  },
+  skeletonSyncButtonShrink: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   cardSyncButtonText: {
     fontSize: typography.sizes.small,
