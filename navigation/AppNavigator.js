@@ -20,7 +20,7 @@ const Stack = createNativeStackNavigator();
 
 const LazyFallback = () => (
   <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#1E3A8A" />
+    <ActivityIndicator size="large" color="#FFFFFF" />
   </View>
 );
 
@@ -37,68 +37,59 @@ const AppNavigator = ({ navigationRef }) => {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  // Reset navigation when auth state changes
+  // Reset navigation only when auth state actually requires a different screen (avoids swipe/flash on first load)
+  // Defer so navigator has committed initial route; then only reset if we're on the wrong screen
   // IMPORTANT: This useEffect must come BEFORE any conditional returns to maintain hooks order
   useEffect(() => {
-    if (navigationRef.current && !loading) {
-      const targetRoute = isAuthenticated && user ? "MainTabs" : "Auth";
+    if (!navigationRef.current || loading) return;
 
-      // More aggressive reset to ensure clean navigation state
+    const targetRoute = isAuthenticated && user ? "MainTabs" : "Auth";
+
+    const maybeReset = () => {
       try {
-        navigationRef.current.reset({
+        const rootState = navigationRef.current?.getRootState();
+        const currentRoute = rootState?.routes?.[rootState.index];
+        if (currentRoute?.name === targetRoute) return;
+
+        navigationRef.current?.reset({
           index: 0,
           routes: [{ name: targetRoute }],
         });
-
-        // Verify the reset actually worked (similar to OAuth dismiss verification)
-        setTimeout(() => {
-          try {
-            const rootState = navigationRef.current.getRootState();
-            const currentRoute = rootState?.routes[rootState.index];
-
-            // For MainTabs, the actual route might be the current tab (e.g., "Home")
-            // Check if we're on the correct navigator, not the exact tab
-            const isOnCorrectNavigator = targetRoute === "MainTabs"
-              ? (currentRoute?.name === "MainTabs" || ["Home", "Habits", "Insights", "Profile"].includes(currentRoute?.name))
-              : currentRoute?.name === targetRoute;
-
-            if (!isOnCorrectNavigator) {
-
-              // Force navigation as fallback (similar to OAuth session check)
-              navigationRef.current.navigate(targetRoute);
-            } else {
-            }
-          } catch (verifyError) {
-          }
-        }, 300); // Increased delay for tab navigation to settle
-
       } catch (error) {
+        try {
+          navigationRef.current?.reset({
+            index: 0,
+            routes: [{ name: targetRoute }],
+          });
+        } catch (resetError) {}
       }
-    }
+    };
+
+    const id = setTimeout(maybeReset, 0);
+    return () => clearTimeout(id);
   }, [isAuthenticated, user, loading, navigationRef]);
 
-  // Keep showing loading screen until we're absolutely sure about auth state
+  // Keep showing loading screen until we're absolutely sure about auth state (blue background = no white flash)
   if (loading) {
     return (
       <View style={styles.loadingContainer} onLayout={hideSplashOnce}>
-        <ActivityIndicator size="large" color="#1E3A8A" />
+        <ActivityIndicator size="large" color="#FFFFFF" />
       </View>
     );
   }
 
-  // Set status bar to blue when on Home tab (shared header) or nested HabitLogging
+  // Keep status bar blue whenever we're inside MainTabs so the top/camera area never flashes white during transitions
   const onStateChange = (state) => {
     if (!state) return;
     const route = state?.routes?.[state.index];
     const name = route?.name;
-    const tabIndex = route?.state?.index ?? 0;
-    const tabName = route?.state?.routes?.[tabIndex]?.name;
-    const nestedRoute = route?.state?.routes?.[tabIndex]?.state?.routes;
-    const nestedIndex = route?.state?.routes?.[tabIndex]?.state?.index ?? 0;
-    const nestedName = nestedRoute?.[nestedIndex]?.name;
+    const stackIndex = route?.state?.index ?? 0;
+    const currentScreenName = route?.state?.routes?.[stackIndex]?.name;
     if (Platform.OS === 'android') {
-      const isHomeOrHabitLogging = name === 'MainTabs' && (tabName === 'Home' || nestedName === 'HabitLogging');
-      if (isHomeOrHabitLogging) {
+      const isInMainTabs =
+        name === 'MainTabs' &&
+        ['Home', 'Habits', 'Insights', 'Profile'].includes(currentScreenName);
+      if (isInMainTabs) {
         StatusBar.setBackgroundColor(colors.primary);
         StatusBar.setTranslucent?.(true);
       }
@@ -113,7 +104,11 @@ const AppNavigator = ({ navigationRef }) => {
     >
       <Suspense fallback={<LazyFallback />}>
         <Stack.Navigator
-          screenOptions={{ headerShown: false }}
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+            animationDuration: 220,
+          }}
           initialRouteName={initialRoute}
         >
           {isAuthenticated && user ? (
@@ -163,7 +158,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.primary,
   },
 });
 

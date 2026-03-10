@@ -55,8 +55,8 @@ const BinaryHabitInsight = ({
   const difference = yesMedian - noMedian;
   const percentChange = noMedian !== 0 ? ((difference / noMedian) * 100) : 0;
 
-  // For awakenings, fewer is better; for other sleep metrics, more is better
-  const lowerIsBetterMetrics = new Set(['awakenings_count']);
+  // For awakenings and awake time, lower is better; for other sleep metrics, more is better
+  const lowerIsBetterMetrics = new Set(['awakenings_count', 'awake_minutes']);
   const higherIsBetter = !lowerIsBetterMetrics.has(sleepMetric?.key);
   const isPositiveImpact = higherIsBetter ? (difference > 0) : (difference < 0);
   // For bar label: show + when good, - when bad (invert for awakenings so fewer = +)

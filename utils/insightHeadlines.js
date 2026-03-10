@@ -22,9 +22,9 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
 
   const habitName = habit.name.toLowerCase();
   const sleepMetricName = sleepMetric.label.toLowerCase();
-  const isAwakenings = sleepMetric?.key === 'awakenings_count';
-  const direction = isAwakenings
-    ? (trendDirection === 'positive' ? 'more' : 'fewer')
+  const isLowerBetter = sleepMetric?.key === 'awakenings_count' || sleepMetric?.key === 'awake_minutes';
+  const direction = isLowerBetter
+    ? (trendDirection === 'positive' ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
     : (trendDirection === 'positive' ? 'higher' : 'lower');
 
   // Find meaningful thresholds in the data
@@ -43,9 +43,9 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
   const avgSleepValue = sleepValues.reduce((sum, val) => sum + val, 0) / sleepValues.length;
 
   if (isPercentageMode) {
-    // In percentage mode, focus on percentage changes; use more/fewer for awakenings
-    const directionText = isAwakenings
-      ? (trendDirection === 'positive' ? 'more' : 'fewer')
+    // In percentage mode, focus on percentage changes; use more/fewer or more/less for lower-is-better metrics
+    const directionText = isLowerBetter
+      ? (trendDirection === 'positive' ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
       : (trendDirection === 'positive' ? 'more' : 'less');
     const impact = correlationStrength === 'strong' ? 'significantly' : correlationStrength === 'moderate' ? 'moderately' : 'slightly';
 
@@ -54,8 +54,8 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
     } else if (correlationStrength === 'moderate') {
       return `Your ${habitName} tends to affect your ${sleepMetricName} (${directionText} ${sleepMetricName} with higher ${habitName})`;
     } else {
-      // For awakenings, more = bad (negative), fewer = good (positive)
-      const positiveRelationship = isAwakenings ? (directionText === 'fewer') : (directionText === 'more');
+      // For lower-is-better metrics (awakenings, awake time), more = bad (negative), fewer/less = good (positive)
+      const positiveRelationship = isLowerBetter ? (directionText === 'fewer' || directionText === 'less') : (directionText === 'more');
       return `Your ${habitName} shows a ${positiveRelationship ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
     }
   }
@@ -65,8 +65,8 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
       const thresholdText = `${threshold.toFixed(1)} ${habit.unit}`;
       return `You get significantly ${direction} ${sleepMetricName} when ${habitName} exceeds ${thresholdText}`;
     } else {
-      // For awakenings, positive correlation (more habit → more awakenings) is bad for sleep
-      const correlationWord = isAwakenings
+      // For lower-is-better metrics, positive correlation (more habit → more metric) is bad for sleep
+      const correlationWord = isLowerBetter
         ? (trendDirection === 'negative' ? 'positive' : 'negative')
         : (trendDirection === 'positive' ? 'positive' : 'negative');
       return `Your ${habitName} strongly impacts ${sleepMetricName} (${correlationWord} correlation)`;
@@ -79,8 +79,8 @@ export function generateNumericalHeadline(habit, correlation, correlationStrengt
       return `Your ${habitName} moderately affects ${sleepMetricName}`;
     }
   } else {
-    // Weak correlation: positive = good for sleep (higher other metrics, or fewer awakenings)
-    const positiveRelationship = direction === 'higher' || direction === 'fewer';
+    // Weak correlation: positive = good for sleep (higher other metrics, or fewer/less for lower-is-better metrics)
+    const positiveRelationship = direction === 'higher' || direction === 'fewer' || direction === 'less';
     return `Your ${habitName} shows a ${positiveRelationship ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
   }
 }
@@ -111,7 +111,7 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
   const habitName = habit.name.toLowerCase();
   const sleepMetricName = sleepMetric.label.toLowerCase();
 
-  const isAwakeningsMetric = sleepMetric?.key === 'awakenings_count';
+  const isLowerBetterMetric = sleepMetric?.key === 'awakenings_count' || sleepMetric?.key === 'awake_minutes';
 
   // Always describe what happens when you DO the habit (never "when you skip")
   if (isPercentageMode) {
@@ -124,8 +124,8 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
     const percentText = `${absPercentChange.toFixed(0)}%`;
     // difference > 0: doing habit gives more; difference < 0: doing habit gives less/fewer
     const doingGivesMore = difference > 0;
-    const direction = isAwakeningsMetric
-      ? (doingGivesMore ? 'more' : 'fewer')
+    const direction = isLowerBetterMetric
+      ? (doingGivesMore ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
       : (doingGivesMore ? 'more' : 'less');
     return `You get ${percentText} ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
   } else {
@@ -134,10 +134,10 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
     }
 
     const impact = percentChange > 20 ? 'significantly' : percentChange > 10 ? 'moderately' : 'slightly';
-    // difference > 0: doing habit gives higher/more; difference < 0: doing habit gives lower/fewer
+    // difference > 0: doing habit gives higher/more; difference < 0: doing habit gives lower/fewer/less
     const doingGivesMore = difference > 0;
-    const direction = isAwakeningsMetric
-      ? (doingGivesMore ? 'more' : 'fewer')
+    const direction = isLowerBetterMetric
+      ? (doingGivesMore ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
       : (doingGivesMore ? 'higher' : 'lower');
     return `You get ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
   }
@@ -158,8 +158,8 @@ export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, ye
 export function generateActionableAdvice(habitType, habit, correlation, correlationStrength, trendDirection, yesStats, noStats, sleepMetric) {
   const habitName = habit.name.toLowerCase();
   const sleepMetricName = sleepMetric.label.toLowerCase();
-  // For awakenings, fewer is better — so "improve" means reduce awakenings; advice direction is flipped
-  const fewerIsBetter = sleepMetric?.key === 'awakenings_count';
+  // For awakenings and awake time, lower is better — so "improve" means reduce; advice direction is flipped
+  const fewerIsBetter = sleepMetric?.key === 'awakenings_count' || sleepMetric?.key === 'awake_minutes';
 
   if (habitType === 'numerical') {
     // When fewerIsBetter: positive trend (more habit → more awakenings) means suggest reducing habit

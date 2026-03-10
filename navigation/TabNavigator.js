@@ -1,80 +1,87 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { DefaultTheme } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import HomeStackWrapper from './HomeStackWrapper';
 import InsightsStack from './InsightsStack';
-import HabitManagementScreen from '../screens/HabitManagementScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import HabitsStack from './HabitsStack';
+import ProfileStack from './ProfileStack';
 
 const Tab = createBottomTabNavigator();
 
-// Use primary as screen root background so the area above the blue header is never white
-// (avoids white strip when native layer or safe area adds top padding)
-const tabScreenTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: colors.primary,
-  },
-};
+const TAB_CONFIG = [
+  { name: 'Home', icon: 'home', iconOutline: 'home-outline', label: 'Home' },
+  { name: 'Insights', icon: 'bar-chart', iconOutline: 'bar-chart-outline', label: 'Insights' },
+  { name: 'Habits', icon: 'list', iconOutline: 'list-outline', label: 'Habits' },
+  { name: 'Profile', icon: 'person', iconOutline: 'person-outline', label: 'Profile' },
+];
 
+/**
+ * Home tab screen: passes tab route params to HomeStackWrapper so notifications
+ * can open MainTabs → Home → HabitLogging (or SleepQualityLog) via initialNavigate.
+ */
+function HomeTabScreen({ route }) {
+  const initialNavigate = route?.params?.screen
+    ? { screen: route.params.screen, params: route.params.params }
+    : undefined;
+  return <HomeStackWrapper initialNavigate={initialNavigate} />;
+}
+
+/**
+ * Main tabs: real bottom tab navigator with one stack per tab.
+ * Tabs stay mounted so switching back to Home does not re-load; no custom bar or stack-based "tabs".
+ */
 const TabNavigator = () => {
+  const insets = useSafeAreaInsets();
+  const tabBarBottomPadding = Math.max(insets.bottom, 5) + 5;
+
   return (
     <Tab.Navigator
-      theme={tabScreenTheme}
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Insights') {
-            iconName = focused ? 'bar-chart' : 'bar-chart-outline';
-          } else if (route.name === 'Habits') {
-            iconName = focused ? 'list' : 'list-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          }
-
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
+      initialRouteName="Home"
+      screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
-        headerShown: false,
         tabBarStyle: {
           backgroundColor: colors.background,
-          paddingBottom: 5,
-          paddingTop: 2,
-          position: 'absolute',
-          bottom: 0,
-          height: 60,
           borderTopWidth: 0,
-          borderBottomWidth: 0,
-          borderTopColor: 'transparent',
-          borderBottomColor: 'transparent',
-          shadowColor: 'transparent',
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 0,
-          shadowRadius: 0,
-          elevation: 0,
+          height: 60 + tabBarBottomPadding,
+          paddingBottom: tabBarBottomPadding,
         },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
-        },
-        // Ensure screen container is blue so any top padding area matches the header
-        sceneStyle: { backgroundColor: colors.primary },
-      })}
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
+        tabBarHideOnKeyboard: true,
+        lazy: false,
+        unmountOnBlur: false,
+      }}
     >
-      <Tab.Screen name="Home" component={HomeStackWrapper} />
-      <Tab.Screen name="Insights" component={InsightsStack} />
-      <Tab.Screen name="Habits" component={HabitManagementScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      {TAB_CONFIG.map(({ name, icon, iconOutline, label }) => (
+        <Tab.Screen
+          key={name}
+          name={name}
+          component={
+            name === 'Home'
+              ? HomeTabScreen
+              : name === 'Insights'
+                ? InsightsStack
+                : name === 'Habits'
+                  ? HabitsStack
+                  : ProfileStack
+          }
+          options={{
+            tabBarLabel: label,
+            tabBarIcon: ({ focused, color, size }) => (
+              <Ionicons
+                name={focused ? icon : iconOutline}
+                size={size ?? 24}
+                color={color}
+              />
+            ),
+          }}
+        />
+      ))}
     </Tab.Navigator>
   );
 };
 
 export default TabNavigator;
-

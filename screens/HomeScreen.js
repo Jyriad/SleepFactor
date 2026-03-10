@@ -8,6 +8,7 @@ import {
   StatusBar,
   Platform,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -549,6 +550,7 @@ const HomeScreen = () => {
   const firstHomeFocusHandledRef = useRef(false);
   const focusFetchDebounceRef = useRef({ dateStr: null, timestamp: 0 });
   const sleepCardOpacity = useRef(new Animated.Value(0)).current;
+  const hadSleepDataRef = useRef(false);
   // Cooldown: don't start another auto-sync for the same date within this many ms
   const AUTO_SYNC_COOLDOWN_MS = 2 * 60 * 1000;
   const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
@@ -645,6 +647,19 @@ const HomeScreen = () => {
     }
   }, [isValidDashboardPayload]);
 
+  // Restore from in-memory cache on mount so we never show loading when returning to Home (survives remounts)
+  React.useLayoutEffect(() => {
+    if (!user?.id) return;
+    const dateStr = getDateString(selectedDate) || getToday();
+    const cached = homeCacheService.getLastAppliedDashboardPayload(user.id, dateStr);
+    if (cached && isValidDashboardPayload(cached)) {
+      applyDashboardPayload(cached, dateStr);
+      setLoading(false);
+      hadSleepDataRef.current = !!cached?.sleep_record;
+      if (cached.sleep_record) sleepCardOpacity.setValue(1);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     lastNightSubjectiveDataRef.current = lastNightSubjectiveData;
   }, [lastNightSubjectiveData]);
@@ -725,6 +740,7 @@ const HomeScreen = () => {
         }
       } catch (_) {}
       applyDashboardPayload(data, dateStr);
+      homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, data);
       console.warn('[Home] Dashboard loaded: logged_count=', data?.habit_counts?.logged_count, 'logged_dates=', (data?.logged_dates?.length ?? 0));
       await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, data);
       // Prefetch habit logging state for today and yesterday so Log habits opens instantly
@@ -760,12 +776,20 @@ const HomeScreen = () => {
       })();
       if (!background) setLoading(false);
       console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'applied' });
-      insightsService.getHomeInsightsWithSummary(user.id, 10).then(({ topInsights: top, summaryByMetric }) => {
-        setTopInsights(top);
-        setInsightsSummaryByMetric(summaryByMetric);
-      }).catch(() => {
-        setTopInsights([]);
-        setInsightsSummaryByMetric([]);
+      // Defer insight calculation so dashboard and sleep card paint first
+      InteractionManager.runAfterInteractions(() => {
+        insightsService.getHomeInsightsWithSummary(user.id, 10, {
+          onStaleRefresh: ({ topInsights: top, summaryByMetric }) => {
+            setTopInsights(top);
+            setInsightsSummaryByMetric(summaryByMetric);
+          },
+        }).then(({ topInsights: top, summaryByMetric }) => {
+          setTopInsights(top);
+          setInsightsSummaryByMetric(summaryByMetric);
+        }).catch(() => {
+          setTopInsights([]);
+          setInsightsSummaryByMetric([]);
+        });
       });
     } catch (err) {
       console.warn('[Home] Dashboard fetch failed:', err?.message || err);
@@ -854,9 +878,11 @@ const HomeScreen = () => {
             const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
             if (prevSerialized !== serialized || !isAlreadyRenderedForDate) {
               applyDashboardPayload(cached, dateStr);
+              homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, cached);
             }
           } catch (_) {
             applyDashboardPayload(cached, dateStr);
+            homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, cached);
           }
           setLoading(false);
         } else {
@@ -910,37 +936,46 @@ const HomeScreen = () => {
   }, [selectedDate, lastSyncResult]);
 
   useEffect(() => {
-    if (sleepData) {
+    if (!sleepData) return;
+    const isRestoring = hadSleepDataRef.current;
+    hadSleepDataRef.current = true;
+    if (isRestoring) {
+      sleepCardOpacity.setValue(1);
+    } else {
       sleepCardOpacity.setValue(0);
       Animated.timing(sleepCardOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     }
-  }, [sleepData]);
+  }, [sleepData, sleepCardOpacity]);
 
-  // Dates with unsaved changes (AsyncStorage) for the strip - logged_dates come from RPC
+  // Dates with unsaved changes (AsyncStorage) for the strip - debounced so rapid date swiping doesn't trigger 7 reads per change
   useEffect(() => {
     if (!user?.id) return;
-    const stripCenterDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate + 'T12:00:00');
-    const STRIP_DAYS = 7;
-    const dates = isWithinLast7Days(stripCenterDate)
-      ? getDateStripArrayLast7Days()
-      : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
-    const storagePromises = dates.map(async (dateItem) => {
-      try {
-        const storageKey = `habitLogs_${user.id}_${dateItem.date}`;
-        const storedData = await AsyncStorage.getItem(storageKey);
-        if (storedData) {
-          const storedLogs = JSON.parse(storedData);
-          const hasUnsavedChanges = Object.values(storedLogs).some(value =>
-            value !== null && value !== undefined && value !== ''
-          );
-          if (hasUnsavedChanges) return dateItem.date;
-        }
-      } catch (e) {}
-      return null;
-    });
-    Promise.all(storagePromises).then((results) => {
-      setDatesWithUnsavedChanges(results.filter(Boolean));
-    });
+    const DEBOUNCE_MS = 200;
+    const timeoutId = setTimeout(() => {
+      const stripCenterDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate + 'T12:00:00');
+      const STRIP_DAYS = 7;
+      const dates = isWithinLast7Days(stripCenterDate)
+        ? getDateStripArrayLast7Days()
+        : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
+      const storagePromises = dates.map(async (dateItem) => {
+        try {
+          const storageKey = `habitLogs_${user.id}_${dateItem.date}`;
+          const storedData = await AsyncStorage.getItem(storageKey);
+          if (storedData) {
+            const storedLogs = JSON.parse(storedData);
+            const hasUnsavedChanges = Object.values(storedLogs).some(value =>
+              value !== null && value !== undefined && value !== ''
+            );
+            if (hasUnsavedChanges) return dateItem.date;
+          }
+        } catch (e) {}
+        return null;
+      });
+      Promise.all(storagePromises).then((results) => {
+        setDatesWithUnsavedChanges(results.filter(Boolean));
+      });
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(timeoutId);
   }, [user?.id, selectedDate]);
 
   // Automatic sync when permissions are available and date changes to today

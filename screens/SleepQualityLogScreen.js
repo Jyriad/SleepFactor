@@ -79,25 +79,93 @@ const SleepQualityLogScreen = () => {
       setLoading(false);
       return;
     }
+    const todayStr = getToday();
+    const isViewingToday = dateStr === todayStr;
     let cancelled = false;
+
     (async () => {
-      const [userRow, sleepRow] = await Promise.all([
-        supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single(),
-        sleepDataService.getSleepDataForDate(dateStr),
-      ]);
-      if (cancelled) return;
-      const u = userRow?.data;
-      setTrackTiredness(u?.track_tiredness === true);
-      setTrackDreamVividness(u?.track_dream_vividness === true);
-      if (sleepRow) {
-        if (sleepRow.tiredness_score != null) setTirednessScore(sleepRow.tiredness_score);
-        if (sleepRow.dream_vividness_score != null) setDreamVividnessScore(sleepRow.dream_vividness_score);
-        setHasSavedScores(sleepRow.tiredness_score != null || sleepRow.dream_vividness_score != null);
+      // Seed from home dashboard cache when editing today, so we don't show default 5 while server load is in flight or fails on fresh app load.
+      if (isViewingToday) {
+        try {
+          const cached = await homeCacheService.getPersistedDashboardPayload(user.id, dateStr);
+          if (!cancelled && cached?.last_night_subjective && typeof cached.last_night_subjective === 'object') {
+            const sub = cached.last_night_subjective;
+            if (sub.tiredness_score != null) setTirednessScore(sub.tiredness_score);
+            if (sub.dream_vividness_score != null) setDreamVividnessScore(sub.dream_vividness_score);
+            const hasAny = sub.tiredness_score != null || sub.dream_vividness_score != null;
+            if (hasAny) setHasSavedScores(true);
+            console.warn('[SleepQualityLog] Seeded from home cache for today', {
+              dateStr,
+              tiredness_score: sub.tiredness_score,
+              dream_vividness_score: sub.dream_vividness_score,
+            });
+          }
+        } catch (e) {
+          console.warn('[SleepQualityLog] Cache seed failed (non-fatal)', e?.message || e);
+        }
       }
-      setSubjectiveDirty(false);
-      setSubjectiveSavedAt(null);
-      setLoading(false);
+
+      const fetchWithRetry = async (attempt) => {
+        const [userRow, sleepRow] = await Promise.all([
+          supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single(),
+          sleepDataService.getSleepDataForDate(dateStr),
+        ]);
+        return { userRow, sleepRow };
+      };
+
+      let userRow = null;
+      let sleepRow = null;
+      const MAX_RETRIES = 2;
+      const RETRY_DELAY_MS = 350;
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const result = await fetchWithRetry(attempt);
+          userRow = result.userRow;
+          sleepRow = result.sleepRow;
+          break;
+        } catch (e) {
+          console.warn('[SleepQualityLog] Load attempt failed', { dateStr, attempt, error: e?.message || e });
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          } else {
+            console.warn('[SleepQualityLog] All load attempts failed; using cache-seeded values if any', { dateStr });
+          }
+        }
+      }
+
+      if (cancelled) return;
+
+      try {
+        const u = userRow?.data;
+        setTrackTiredness(u?.track_tiredness === true);
+        setTrackDreamVividness(u?.track_dream_vividness === true);
+
+        if (sleepRow) {
+          const hasT = sleepRow.tiredness_score != null;
+          const hasD = sleepRow.dream_vividness_score != null;
+          console.warn('[SleepQualityLog] Server row for date', {
+            dateStr,
+            hasRow: true,
+            tiredness_score: sleepRow.tiredness_score,
+            dream_vividness_score: sleepRow.dream_vividness_score,
+          });
+          if (hasT) setTirednessScore(sleepRow.tiredness_score);
+          if (hasD) setDreamVividnessScore(sleepRow.dream_vividness_score);
+          setHasSavedScores(hasT || hasD);
+        } else {
+          console.warn('[SleepQualityLog] Server row for date', { dateStr, hasRow: false });
+        }
+
+        setSubjectiveDirty(false);
+        setSubjectiveSavedAt(null);
+      } catch (e) {
+        console.warn('[SleepQualityLog] Apply load result failed', e?.message || e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
+
     return () => { cancelled = true; };
   }, [user?.id, dateStr]);
 
@@ -347,8 +415,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   actions: {
-    marginTop: spacing.xl,
-    gap: spacing.regular,
+    marginTop: spacing.regular,
+    gap: spacing.sm,
   },
   subjectiveStatusRow: {
     flexDirection: 'row',

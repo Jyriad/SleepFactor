@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  SectionList,
   TouchableOpacity,
   StatusBar,
   Platform,
@@ -58,8 +58,7 @@ const InsightsScreen = ({ navigation, route }) => {
   const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const [analysisMode, setAnalysisMode] = useState('absolute'); // 'absolute' | 'percentage'
   const [expandedRowKey, setExpandedRowKey] = useState(null); // `${habitId}-${metricKey}`
-  const scrollViewRef = useRef(null);
-  const habitYRef = useRef({});
+  const sectionListRef = useRef(null);
   const headerHeightRef = useRef(100);
 
   const focusedHabitId = route.params?.focusedHabitId;
@@ -76,39 +75,45 @@ const InsightsScreen = ({ navigation, route }) => {
       }
       let cancelled = false;
       if (user) {
-        (async () => {
-          setLoading(true);
-          try {
-            const result = await insightsService.getInsightsGroupedByHabit(user.id);
+        setLoading(true);
+        insightsService.getInsightsGroupedByHabit(user.id, {
+          onStaleRefresh: (result) => {
             if (!cancelled) setGrouped(result);
-          } catch (error) {
-            if (!cancelled) setGrouped({ groups: [] });
-          } finally {
-            if (!cancelled) setLoading(false);
-          }
-        })();
+          },
+        }).then((result) => {
+          if (!cancelled) setGrouped(result);
+        }).catch(() => {
+          if (!cancelled) setGrouped({ groups: [] });
+        }).finally(() => {
+          if (!cancelled) setLoading(false);
+        });
       }
       return () => {
         cancelled = true;
-        if (Platform.OS === 'android') {
-          StatusBar.setBackgroundColor(colors.background);
-        }
+        // Do not set status bar to white on blur: we stay in MainTabs, so the next screen (e.g. Home) keeps it blue and avoids a white flash.
       };
     }, [user])
   );
 
   useEffect(() => {
     if (loading || !focusedHabitId || !grouped.groups.length) return;
-    const y = habitYRef.current[focusedHabitId];
-    if (y != null && scrollViewRef.current) {
+    const groups = grouped.groups || [];
+    const filtered = groups.map((g) => ({
+      ...g,
+      insights: (g.insights || []).filter((i) => i.analysisType === analysisMode),
+    })).filter((g) => g.insights.length > 0);
+    const sectionIndex = filtered.findIndex((g) => g.habitId === focusedHabitId);
+    if (sectionIndex >= 0 && sectionListRef.current) {
       setTimeout(() => {
-        scrollViewRef.current.scrollTo({
-          y: headerHeightRef.current + y - 24,
-          animated: true
+        sectionListRef.current?.scrollToLocation({
+          sectionIndex,
+          itemIndex: 0,
+          viewPosition: 0,
+          animated: true,
         });
       }, 400);
     }
-  }, [loading, focusedHabitId, grouped.groups.length]);
+  }, [loading, focusedHabitId, grouped.groups.length, analysisMode]);
 
   const groups = grouped.groups || [];
 
@@ -208,12 +213,8 @@ const InsightsScreen = ({ navigation, route }) => {
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading insights...</Text>
         </View>
-      ) : (
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-        >
+      ) : groups.length === 0 ? (
+        <View style={styles.scrollView}>
           <View
             style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
             onLayout={(e) => { headerHeightRef.current = e.nativeEvent.layout.height; }}
@@ -222,12 +223,25 @@ const InsightsScreen = ({ navigation, route }) => {
               <Text style={styles.title}>Sleep Insights</Text>
             </View>
           </View>
-
-          <View style={styles.content}>
-            {groups.length === 0 ? (
-              renderEmptyState()
-            ) : (
-              <>
+          <View style={styles.content}>{renderEmptyState()}</View>
+        </View>
+      ) : (
+        <SectionList
+          ref={sectionListRef}
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          stickySectionHeadersEnabled={false}
+          ListHeaderComponent={
+            <>
+              <View
+                style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
+                onLayout={(e) => { headerHeightRef.current = e.nativeEvent.layout.height; }}
+              >
+                <View style={styles.header}>
+                  <Text style={styles.title}>Sleep Insights</Text>
+                </View>
+              </View>
+              <View style={styles.listHeaderContent}>
                 <View style={styles.switchRow}>
                   <Text style={styles.switchLabel}>View by</Text>
                   <View style={styles.switchSegments}>
@@ -251,45 +265,66 @@ const InsightsScreen = ({ navigation, route }) => {
                     </TouchableOpacity>
                   </View>
                 </View>
-
-                {filteredGroups.length === 0 && groups.length > 0 && (
+                {filteredGroups.length === 0 && (
                   <Text style={styles.switchEmptyHint}>
                     No correlations for {analysisMode === 'percentage' ? 'Percentage' : 'Absolute'} view. Try the other option.
                   </Text>
                 )}
-                {filteredGroups.map((group) => (
-                  <View
-                    key={group.habitId}
-                    onLayout={(e) => { habitYRef.current[group.habitId] = e.nativeEvent.layout.y; }}
-                    style={[
-                      styles.habitContainer,
-                      focusedHabitId === group.habitId && styles.habitContainerFocused
-                    ]}
-                  >
-                    <Text style={styles.habitName}>{group.habitName}</Text>
-                    <View style={styles.tableHeader}>
-                      <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
-                      <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
-                      <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
-                      <View style={styles.headerChevronPlaceholder} />
-                    </View>
-                    {group.insights.map((insight) => renderInsightRow(insight, group.habitId))}
-                  </View>
-                ))}
-
-                <TouchableOpacity
-                  style={styles.detailedCta}
-                  onPress={() => navigation.navigate('DetailedInsights')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="options-outline" size={22} color={colors.primary} />
-                  <Text style={styles.detailedCtaText}>View every correlation (all metrics & options)</Text>
-                  <Ionicons name="chevron-forward" size={22} color={colors.textLight} />
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </ScrollView>
+              </View>
+            </>
+          }
+          sections={filteredGroups.map((g) => ({
+            title: g.habitName,
+            data: g.insights || [],
+            habitId: g.habitId,
+            habitName: g.habitName,
+            habit: g.habit,
+          }))}
+          keyExtractor={(item, index) => `${item.habit?.id}-${item.metricKey}-${index}`}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionWrapper}>
+              <View
+                style={[
+                  styles.habitContainer,
+                  styles.habitContainerHeader,
+                  focusedHabitId === section.habitId && styles.habitContainerFocused
+                ]}
+              >
+                <Text style={styles.habitName}>{section.habitName}</Text>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
+                  <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
+                  <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
+                  <View style={styles.headerChevronPlaceholder} />
+                </View>
+              </View>
+            </View>
+          )}
+          renderItem={({ item, section, index }) => {
+            const isLast = index === (section.data?.length ?? 0) - 1;
+            return (
+              <View style={styles.sectionWrapper}>
+                <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
+                  {renderInsightRow(item, section.habitId)}
+                </View>
+              </View>
+            );
+          }}
+          ListFooterComponent={
+            <View style={styles.sectionWrapper}>
+              <TouchableOpacity
+                style={styles.detailedCta}
+                onPress={() => navigation.navigate('DetailedInsights')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="options-outline" size={22} color={colors.primary} />
+                <Text style={styles.detailedCtaText}>View every correlation (all metrics & options)</Text>
+                <Ionicons name="chevron-forward" size={22} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
+          }
+          contentContainerStyle={styles.sectionListContent}
+        />
       )}
     </SafeAreaView>
   );
@@ -313,6 +348,9 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  sectionListContent: {
+    paddingBottom: 112,
+  },
   headerWrap: {
     backgroundColor: colors.primary,
     borderBottomLeftRadius: 12,
@@ -333,6 +371,13 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: spacing.regular,
     paddingBottom: 112,
+  },
+  listHeaderContent: {
+    paddingHorizontal: spacing.regular,
+    marginBottom: spacing.sm,
+  },
+  sectionWrapper: {
+    marginHorizontal: spacing.regular,
   },
   switchRow: {
     flexDirection: 'row',
@@ -387,6 +432,25 @@ const styles = StyleSheet.create({
     padding: spacing.regular,
     marginBottom: spacing.regular,
   },
+  habitContainerHeader: {
+    marginBottom: 0,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingBottom: 0,
+  },
+  habitContainerItem: {
+    backgroundColor: colors.cardBackground,
+    paddingHorizontal: spacing.regular,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+  },
+  habitContainerItemLast: {
+    marginBottom: spacing.regular,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    borderBottomWidth: 1,
+  },
   habitContainerFocused: {
     borderColor: colors.primary,
     borderWidth: 2,
@@ -404,7 +468,7 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    marginBottom: spacing.xs,
+    marginBottom: 0,
     gap: spacing.sm,
   },
   tableHeaderText: {

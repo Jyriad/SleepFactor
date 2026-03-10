@@ -10,8 +10,8 @@ import {
   StatusBar,
   ActivityIndicator,
   InteractionManager,
+  FlatList,
 } from 'react-native';
-import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -21,6 +21,7 @@ import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import drugLevelService from '../services/drugLevelService';
 import {
   habitLoggingStateKey,
   habitLogsCacheKey,
@@ -574,125 +575,111 @@ const HabitLoggingScreen = () => {
       {loading ? (
         <PageLoadingView />
       ) : (
-      <ScrollView
+      <FlatList
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
-      >
-        {/* Date Range Display */}
-        <Text style={styles.dateRange}>{getDateRangeText()}</Text>
-
-        {/* Habits List */}
-        <View style={styles.habitsContainer}>
-          {habits.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No habits to track</Text>
-              <Text style={styles.emptySubtext}>
-                Go to Habits tab to add habits to track
-              </Text>
-            </View>
-          ) : (
-            <>
-              {/* All Habits - Simple List */}
-              {habits.map((habit) => {
-                // Drug/quick_consumption habits need full-width layout for buttons
-                const isDrugHabit = habit.type === 'drug' || habit.type === 'quick_consumption';
-
-                const isCaffeineOrAlcohol = isDrugHabit && (habit.name === 'Caffeine' || habit.name === 'Alcohol');
-
-                const isCollapsed = isCaffeineOrAlcohol && collapsedConsumption[habit.id];
-
-                return (
-                  <View key={habit.id} style={[
-                    styles.habitRow,
-                    isDrugHabit && styles.habitRowFullWidth,
-                    isCollapsed && styles.habitRowCollapsed
+        ListHeaderComponent={<Text style={styles.dateRange}>{getDateRangeText()}</Text>}
+        data={habits}
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No habits to track</Text>
+            <Text style={styles.emptySubtext}>
+              Go to Habits tab to add habits to track
+            </Text>
+          </View>
+        }
+        renderItem={({ item: habit }) => {
+          const isDrugHabit = habit.type === 'drug' || habit.type === 'quick_consumption';
+          const isCaffeineOrAlcohol = isDrugHabit && (habit.name === 'Caffeine' || habit.name === 'Alcohol');
+          const isCollapsed = isCaffeineOrAlcohol && collapsedConsumption[habit.id];
+          return (
+            <View style={[
+              styles.habitRow,
+              isDrugHabit && styles.habitRowFullWidth,
+              isCollapsed && styles.habitRowCollapsed
+            ]}>
+              {!isDrugHabit && (
+                <View style={styles.habitInfo}>
+                  <Text style={styles.habitName}>{habit.name}</Text>
+                  <Text style={[
+                    styles.habitStats,
+                    isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
                   ]}>
-                    {!isDrugHabit && (
-                      <View style={styles.habitInfo}>
-                        <Text style={styles.habitName}>{habit.name}</Text>
-                        <Text style={[
-                          styles.habitStats,
-                          isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
-                        ]}>
-                          {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={[
-                      styles.habitInput,
-                      isDrugHabit && styles.habitInputFullWidth
-                    ]}>
-                      {isDrugHabit && (
-                        <TouchableOpacity
-                          style={[styles.drugHabitHeader, isCollapsed && styles.drugHabitHeaderCollapsed]}
-                          onPress={isCaffeineOrAlcohol ? () => toggleConsumptionCollapsed(habit.id) : undefined}
-                          activeOpacity={isCaffeineOrAlcohol ? 0.7 : 1}
-                          disabled={!isCaffeineOrAlcohol}
-                        >
-                          <View style={styles.drugHabitHeaderLeft}>
-                            <Text style={styles.habitName}>{habit.name}</Text>
-                            <Text style={[
-                              styles.habitStats,
-                              isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
-                            ]}>
-                              {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
-                            </Text>
-                          </View>
-                          {isCaffeineOrAlcohol && (
-                            <Ionicons
-                              name={isCollapsed ? 'chevron-down' : 'chevron-up'}
-                              size={22}
-                              color={colors.textSecondary}
-                            />
-                          )}
-                        </TouchableOpacity>
-                      )}
-                      {isDrugHabit && !isCollapsed && consumptionEventsLoading ? (
-                        <View style={styles.consumptionLoadingWrap}>
-                          <ActivityIndicator size="small" color={colors.primary} />
-                          <Text style={styles.consumptionLoadingText}>Loading…</Text>
-                        </View>
-                      ) : (!isDrugHabit || !isCollapsed) ? (
-                      <>
-                        <HabitInput
-                          habit={habit}
-                          value={(habit.type === 'drug' || habit.type === 'quick_consumption')
-                            ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS)
-                            : (habitLogs[habit.id] || '')}
-                          onHabitChange={handleHabitChange}
-                          unit={habit.unit}
-                          selectedDate={selectedDate}
-                          userId={user?.id}
-                          onConsumptionAdded={() => {
-                            setLevelRefreshKey((k) => k + 1);
-                            refreshConsumptionEvents();
-                          }}
-                          yesNoCounts={habitLogCountsByValue[habit.id]}
-                        />
-                        {isCaffeineOrAlcohol && (
-                          <DrugLevelContainer
-                            habit={habit}
-                            userId={user?.id}
-                            selectedDate={selectedDate}
-                            compact
-                            levelRefreshKey={levelRefreshKey}
-                          />
-                        )}
-                      </>
-                      ) : null}
+                    {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
+                  </Text>
+                </View>
+              )}
+              <View style={[
+                styles.habitInput,
+                isDrugHabit && styles.habitInputFullWidth
+              ]}>
+                {isDrugHabit && (
+                  <TouchableOpacity
+                    style={[styles.drugHabitHeader, isCollapsed && styles.drugHabitHeaderCollapsed]}
+                    onPress={isCaffeineOrAlcohol ? () => toggleConsumptionCollapsed(habit.id) : undefined}
+                    activeOpacity={isCaffeineOrAlcohol ? 0.7 : 1}
+                    disabled={!isCaffeineOrAlcohol}
+                  >
+                    <View style={styles.drugHabitHeaderLeft}>
+                      <Text style={styles.habitName}>{habit.name}</Text>
+                      <Text style={[
+                        styles.habitStats,
+                        isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
+                      ]}>
+                        {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
+                      </Text>
                     </View>
+                    {isCaffeineOrAlcohol && (
+                      <Ionicons
+                        name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                        size={22}
+                        color={colors.textSecondary}
+                      />
+                    )}
+                  </TouchableOpacity>
+                )}
+                {isDrugHabit && !isCollapsed && consumptionEventsLoading ? (
+                  <View style={styles.consumptionLoadingWrap}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.consumptionLoadingText}>Loading…</Text>
                   </View>
-                );
-              })}
-            </>
-          )}
-
-        </View>
-
-
-      </ScrollView>
+                ) : (!isDrugHabit || !isCollapsed) ? (
+                  <>
+                    <HabitInput
+                      habit={habit}
+                      value={(habit.type === 'drug' || habit.type === 'quick_consumption')
+                        ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS)
+                        : (habitLogs[habit.id] || '')}
+                      onHabitChange={handleHabitChange}
+                      unit={habit.unit}
+                      selectedDate={selectedDate}
+                      userId={user?.id}
+                      onConsumptionAdded={() => {
+                        drugLevelService.invalidateLevelNowCache(user?.id, habit.id);
+                        setLevelRefreshKey((k) => k + 1);
+                        refreshConsumptionEvents();
+                      }}
+                      yesNoCounts={habitLogCountsByValue[habit.id]}
+                    />
+                    {isCaffeineOrAlcohol && (
+                      <DrugLevelContainer
+                        habit={habit}
+                        userId={user?.id}
+                        selectedDate={selectedDate}
+                        compact
+                        levelRefreshKey={levelRefreshKey}
+                      />
+                    )}
+                  </>
+                ) : null}
+              </View>
+            </View>
+          );
+        }}
+      />
       )}
     </View>
   );
@@ -707,6 +694,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    paddingHorizontal: spacing.regular,
     paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   dateRange: {
