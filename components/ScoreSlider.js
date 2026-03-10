@@ -5,17 +5,18 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
 /**
- * 1–10 score slider for tiredness or dream vividness.
+ * 1-10 score slider for morning subjective measures.
  * Uses react-native-smooth-slider (gesture-handler) for smooth drag and local state to avoid flicker.
- * @param {string} label - e.g. "Tiredness"
- * @param {string} hint - e.g. "1 = very tired, 10 = not tired"
+ * @param {string} label - e.g. "Refreshed feeling"
+ * @param {string} hint - e.g. "How refreshed did you feel when you first woke up?"
  * @param {number|null} value - 1–10 or null (shows 5 as placeholder)
  * @param {function(number)} onValueChange - receives integer 1–10 (called on slide complete)
- * @param {string} leftLabel - optional, e.g. "Very tired"
- * @param {string} rightLabel - optional, e.g. "Not tired"
+ * @param {string} leftLabel - optional, e.g. "Not refreshed"
+ * @param {string} rightLabel - optional, e.g. "Very refreshed"
  */
 const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel }) => {
   const propValue = value == null ? 5 : Math.max(1, Math.min(10, value));
+  const hasSelection = value != null;
   const [localValue, setLocalValue] = useState(propValue);
   const isSlidingRef = useRef(false);
   const completedValueRef = useRef(null);
@@ -66,9 +67,14 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel 
       />
       <View style={styles.labelsRow}>
         {leftLabel ? <Text style={styles.axisLabel}>{leftLabel}</Text> : <View />}
-        <Text style={styles.valueLabel}>{localValue}</Text>
+        <Text style={[styles.valueLabel, !hasSelection && styles.valueLabelPlaceholder]}>
+          {hasSelection ? localValue : 'Not selected'}
+        </Text>
         {rightLabel ? <Text style={styles.axisLabel}>{rightLabel}</Text> : <View />}
       </View>
+      {!hasSelection && (
+        <Text style={styles.unselectedHint}>Move the slider to choose a score</Text>
+      )}
     </View>
   );
 };
@@ -107,6 +113,16 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
     color: colors.primary,
+  },
+  valueLabelPlaceholder: {
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  unselectedHint: {
+    marginTop: spacing.xs,
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
 });
 

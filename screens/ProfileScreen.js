@@ -779,9 +779,9 @@ const ProfileScreen = () => {
               </Text>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Track tiredness each morning</Text>
+                  <Text style={styles.label}>Track refreshed feeling each morning</Text>
                   <Text style={styles.description}>
-                    Rate how tired you felt (1–10, 10 = least tired)
+                    Rate how refreshed you felt when you first woke up (1-10, 10 = very refreshed)
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -808,9 +808,9 @@ const ProfileScreen = () => {
               </View>
               <View style={[styles.toggleRow, styles.toggleRowSpaced]}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Track dream vividness each morning</Text>
+                  <Text style={styles.label}>Track dream strength each morning</Text>
                   <Text style={styles.description}>
-                    Rate how vivid your dreams were (1–10, 10 = most vivid)
+                    Rate how strong your dreams felt (1-10, 10 = very strong)
                   </Text>
                 </View>
                 <TouchableOpacity

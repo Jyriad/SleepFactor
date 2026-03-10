@@ -185,7 +185,7 @@ BEGIN
   FROM users u
   WHERE u.id = p_user_id;
 
-  -- Last night subjective (when p_date is today: previous night's sleep row)
+  -- Last night subjective (when p_date is today: sleep that ended this morning = today's row; app uses wake date)
   IF p_date = CURRENT_DATE THEN
     SELECT jsonb_build_object(
       'tiredness_score', s.tiredness_score,
@@ -193,7 +193,7 @@ BEGIN
     )
     INTO v_last_night
     FROM sleep_data s
-    WHERE s.user_id = p_user_id AND s.date = (CURRENT_DATE - 1)
+    WHERE s.user_id = p_user_id AND s.date = CURRENT_DATE
     ORDER BY s.updated_at DESC
     LIMIT 1;
   END IF;

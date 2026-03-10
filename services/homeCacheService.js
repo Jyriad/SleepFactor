@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatDateForDB } from '../utils/dateHelpers';
 
 const PREFIX_SLEEP = 'home_sleep_';
 const PREFIX_HABIT_COUNT = 'home_habit_count_';
@@ -6,8 +7,34 @@ const PREFIX_TOTAL_HABIT_COUNT = 'home_total_habit_count_';
 const PREFIX_DASHBOARD = 'home_dashboard_';
 const MAX_CACHED_DAYS = 7;
 
+/** In-memory: set when SleepQualityLog saves subjective scores so Home refetches on focus. */
+let subjectiveJustSavedForToday = false;
+
+/** In-memory: scores just saved so Home can show them immediately (optimistic) before RPC returns. */
+let pendingSubjectiveScoresForToday = null;
+
+function setSubjectiveJustSavedForToday() {
+  subjectiveJustSavedForToday = true;
+}
+
+function getAndClearSubjectiveJustSavedForToday() {
+  const v = subjectiveJustSavedForToday;
+  subjectiveJustSavedForToday = false;
+  return v;
+}
+
+function setPendingSubjectiveScoresForToday(scores) {
+  pendingSubjectiveScoresForToday = scores && typeof scores === 'object' ? { ...scores } : null;
+}
+
+function getAndClearPendingSubjectiveScoresForToday() {
+  const v = pendingSubjectiveScoresForToday;
+  pendingSubjectiveScoresForToday = null;
+  return v;
+}
+
 function dateStringToKey(dateString) {
-  return typeof dateString === 'string' ? dateString : dateString.toISOString().split('T')[0];
+  return typeof dateString === 'string' ? dateString : formatDateForDB(dateString);
 }
 
 /**
@@ -157,7 +184,7 @@ async function cleanupOldEntries(userId) {
     const dashboardKeys = keys.filter(k => k.startsWith(PREFIX_DASHBOARD + userId + '_'));
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - MAX_CACHED_DAYS);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffStr = formatDateForDB(cutoff);
 
     const toRemove = [];
     for (const k of [...sleepKeys, ...habitKeys, ...dashboardKeys]) {
@@ -200,4 +227,8 @@ export default {
   setPersistedDashboardPayload,
   cleanupOldEntries,
   clearForUser,
+  setSubjectiveJustSavedForToday,
+  getAndClearSubjectiveJustSavedForToday,
+  setPendingSubjectiveScoresForToday,
+  getAndClearPendingSubjectiveScoresForToday,
 };

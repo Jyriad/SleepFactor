@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatDateForDB } from '../utils/dateHelpers';
 
 /**
  * Shared cache for the Habit Logging screen. Used by HomeScreen (prefetch) and HabitLoggingScreen (read/write).
@@ -10,8 +11,7 @@ const _inMemoryState = new Map(); // key: `${userId}:${dateStr}` -> full payload
 
 function getDateStr(date) {
   if (!date) return '';
-  const d = date instanceof Date ? date : new Date(date);
-  return d.toISOString().split('T')[0];
+  return formatDateForDB(date);
 }
 
 export function habitLoggingStateKey(uid, dateStr) {

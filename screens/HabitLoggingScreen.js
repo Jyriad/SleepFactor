@@ -35,12 +35,11 @@ import {
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { formatDateRange, formatDateTitle, getYesterday } from '../utils/dateHelpers';
+import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
 import PageLoadingView from '../components/PageLoadingView';
-import ScoreSlider from '../components/ScoreSlider';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -69,14 +68,9 @@ const HabitLoggingScreen = () => {
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const [collapsedConsumption, setCollapsedConsumption] = useState({});
   const selectedDateRef = useRef(selectedDate);
+  const appliedQuickConsumptionDefaultsRef = useRef(new Set());
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
   const habitLogsForDateRef = useRef(null);
-  // Subjective sleep scores (tiredness, dream vividness) for the selected date
-  const [trackTiredness, setTrackTiredness] = useState(false);
-  const [trackDreamVividness, setTrackDreamVividness] = useState(false);
-  const [tirednessScore, setTirednessScore] = useState(null);
-  const [dreamVividnessScore, setDreamVividnessScore] = useState(null);
-  const [subjectiveSaving, setSubjectiveSaving] = useState(false);
 
   // Load persisted collapse state for Caffeine/Alcohol sections
   useEffect(() => {
@@ -104,11 +98,22 @@ const HabitLoggingScreen = () => {
     selectedDateRef.current = selectedDate;
   }, [selectedDate]);
 
+  useEffect(() => {
+    appliedQuickConsumptionDefaultsRef.current = new Set();
+  }, [user?.id]);
+
   // Sync route param date into shared context so the header shows the correct date
   useEffect(() => {
     const paramDate = route.params?.date;
     if (paramDate) {
-      const dateObj = paramDate instanceof Date ? paramDate : new Date(paramDate);
+      let dateObj;
+      if (paramDate instanceof Date) {
+        dateObj = paramDate;
+      } else if (typeof paramDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(paramDate)) {
+        dateObj = new Date(`${paramDate}T12:00:00`);
+      } else {
+        dateObj = new Date(paramDate);
+      }
       setSelectedDate(dateObj);
     }
   }, [route.params?.date, setSelectedDate]);
@@ -146,14 +151,6 @@ const HabitLoggingScreen = () => {
     setHabitLogCountsByValue(typeof payload.habit_log_counts_by_value === 'object' && payload.habit_log_counts_by_value !== null ? payload.habit_log_counts_by_value : {});
     setConsumptionEvents(typeof payload.consumption_events === 'object' && payload.consumption_events !== null ? payload.consumption_events : {});
     setConsumptionEventsLoading(false);
-    if (payload.subjective_scores) {
-      setTirednessScore(payload.subjective_scores.tiredness_score ?? null);
-      setDreamVividnessScore(payload.subjective_scores.dream_vividness_score ?? null);
-    }
-    if (payload.user_prefs) {
-      setTrackTiredness(payload.user_prefs.track_tiredness === true);
-      setTrackDreamVividness(payload.user_prefs.track_dream_vividness === true);
-    }
   }, []);
 
   // First paint is always loading shell so navigation transition is fast. Then apply in-memory/cache/RPC after.
@@ -250,12 +247,7 @@ const HabitLoggingScreen = () => {
     if (!user) return;
 
     try {
-      // Convert Date object to YYYY-MM-DD string format
-      const dateString = selectedDate instanceof Date 
-        ? selectedDate.toISOString().split('T')[0]
-        : typeof selectedDate === 'string' 
-          ? selectedDate 
-          : new Date(selectedDate).toISOString().split('T')[0];
+      const dateString = getDateString(selectedDate);
       
       const habitLogEntries = Object.entries(habitLogs)
         .filter(([habitId, value]) => value !== '' && value !== null && value !== undefined)
@@ -313,10 +305,76 @@ const HabitLoggingScreen = () => {
     }
   };
 
+  const applyQuickConsumptionDefaults = useCallback(async () => {
+    if (!user?.id) return;
+
+    const dateObj = selectedDateRef.current instanceof Date
+      ? selectedDateRef.current
+      : new Date(selectedDateRef.current);
+    const dateStr = getDateString(dateObj);
+
+    const defaultEnabledConsumptionHabits = habits.filter((habit) =>
+      habit.type === 'quick_consumption' &&
+      (habit.log_as_no_by_default === true || habit.log_as_no_by_default === 'true')
+    );
+
+    if (defaultEnabledConsumptionHabits.length === 0) return;
+
+    const habitsToDefault = defaultEnabledConsumptionHabits.filter((habit) => {
+      const events = consumptionEvents[habit.id];
+      const hasEvents = Array.isArray(events) && events.length > 0;
+      const defaultKey = `${dateStr}:${habit.id}`;
+      const alreadyApplied = appliedQuickConsumptionDefaultsRef.current.has(defaultKey);
+      return !hasEvents && !alreadyApplied;
+    });
+
+    if (habitsToDefault.length === 0) return;
+
+    const noneEventTime = new Date(dateObj);
+    noneEventTime.setHours(12, 0, 0, 0);
+    const noneEventTimeIso = noneEventTime.toISOString();
+
+    const insertRows = habitsToDefault.map((habit) => ({
+      user_id: user.id,
+      habit_id: habit.id,
+      consumed_at: noneEventTimeIso,
+      amount: 0,
+      drink_type: 'none',
+    }));
+
+    const { data: insertedEvents, error: insertError } = await supabase
+      .from('habit_consumption_events')
+      .insert(insertRows)
+      .select();
+
+    if (insertError || !insertedEvents) {
+      console.warn('HabitLogging: failed applying quick-consumption defaults', insertError);
+      return;
+    }
+
+    setConsumptionEvents((prev) => {
+      const next = { ...prev };
+      insertedEvents.forEach((event) => {
+        next[event.habit_id] = [event];
+      });
+      return next;
+    });
+
+    insertedEvents.forEach((event) => {
+      appliedQuickConsumptionDefaultsRef.current.add(`${dateStr}:${event.habit_id}`);
+    });
+    setLevelRefreshKey((k) => k + 1);
+  }, [user?.id, habits, consumptionEvents]);
+
+  useEffect(() => {
+    if (loading || consumptionEventsLoading) return;
+    applyQuickConsumptionDefaults();
+  }, [loading, consumptionEventsLoading, applyQuickConsumptionDefaults]);
+
 
   const refreshConsumptionEvents = async () => {
     const dateForFetch = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-    const dateForFetchStr = dateForFetch.toISOString().split('T')[0];
+    const dateForFetchStr = formatDateForDB(dateForFetch);
     try {
       const startOfDay = new Date(dateForFetch.getFullYear(), dateForFetch.getMonth(), dateForFetch.getDate(), 0, 0, 0);
       const endOfDay = new Date(dateForFetch.getFullYear(), dateForFetch.getMonth(), dateForFetch.getDate(), 23, 59, 59);
@@ -351,7 +409,7 @@ const HabitLoggingScreen = () => {
       }
 
       const currentDate = selectedDateRef.current instanceof Date ? selectedDateRef.current : new Date(selectedDateRef.current);
-      const currentDateStr = currentDate.toISOString().split('T')[0];
+      const currentDateStr = formatDateForDB(currentDate);
         if (currentDateStr === dateForFetchStr) {
         setConsumptionEvents(consumptionEventsMap);
         try {
@@ -445,7 +503,7 @@ const HabitLoggingScreen = () => {
 
     try {
       // Sleep is stored by wake-up date; for "bedtime after day D" we need the sleep that follows D (date D+1).
-      const dateString = date instanceof Date ? date.toISOString().split('T')[0] : date;
+      const dateString = formatDateForDB(date);
       const [y, mo, day] = dateString.split('-').map(Number);
       const nextDay = new Date(y, mo - 1, day + 1);
       const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
@@ -631,57 +689,6 @@ const HabitLoggingScreen = () => {
             </>
           )}
 
-          {/* How did you feel? – Tiredness & Dream vividness (when enabled in Profile). Only for last night (yesterday). */}
-          {(trackTiredness || trackDreamVividness) && getDateString(selectedDate) === getYesterday() && (
-            <View style={styles.subjectiveSection}>
-              <Text style={styles.subjectiveSectionTitle}>How did you feel?</Text>
-              <Text style={styles.subjectiveSectionSubtitle}>Last night</Text>
-              {trackTiredness && (
-                <ScoreSlider
-                  label="Tiredness"
-                  hint="1 = very tired, 10 = not tired"
-                  value={tirednessScore}
-                  onValueChange={setTirednessScore}
-                  leftLabel="Very tired"
-                  rightLabel="Not tired"
-                />
-              )}
-              {trackDreamVividness && (
-                <ScoreSlider
-                  label="Dream vividness"
-                  hint="1 = no memory, 10 = very vivid"
-                  value={dreamVividnessScore}
-                  onValueChange={setDreamVividnessScore}
-                  leftLabel="No memory"
-                  rightLabel="Very vivid"
-                />
-              )}
-              <TouchableOpacity
-                style={[styles.subjectiveSaveButton, subjectiveSaving && styles.subjectiveSaveButtonDisabled]}
-                onPress={async () => {
-                  const dateStr = getDateString(selectedDate);
-                  if (!user?.id || !dateStr || subjectiveSaving) return;
-                  const scores = {};
-                  if (trackTiredness && tirednessScore != null) scores.tiredness_score = tirednessScore;
-                  if (trackDreamVividness && dreamVividnessScore != null) scores.dream_vividness_score = dreamVividnessScore;
-                  if (Object.keys(scores).length === 0) return;
-                  setSubjectiveSaving(true);
-                  try {
-                    await sleepDataService.updateSubjectiveScores(user.id, dateStr, scores);
-                  } catch (e) {
-                    Alert.alert('Error', 'Could not save. Please try again.');
-                  } finally {
-                    setSubjectiveSaving(false);
-                  }
-                }}
-                disabled={subjectiveSaving}
-              >
-                <Text style={styles.subjectiveSaveButtonText}>
-                  {subjectiveSaving ? 'Saving…' : 'Save how you felt'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
 
 
@@ -795,39 +802,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
-  },
-  subjectiveSection: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    padding: spacing.regular,
-    marginTop: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  subjectiveSectionTitle: {
-    fontSize: typography.sizes.medium,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  subjectiveSectionSubtitle: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-  },
-  subjectiveSaveButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.md,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  subjectiveSaveButtonDisabled: {
-    opacity: 0.6,
-  },
-  subjectiveSaveButtonText: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.white,
   },
 });
 
