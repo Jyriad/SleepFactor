@@ -192,11 +192,6 @@ const ProfileScreen = () => {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor(colors.primary);
       }
-      return () => {
-        if (Platform.OS === 'android') {
-          StatusBar.setBackgroundColor(colors.background);
-        }
-      };
     }, [])
   );
 

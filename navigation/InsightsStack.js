@@ -8,7 +8,11 @@ const Stack = createNativeStackNavigator();
 const InsightsStack = () => {
   return (
     <Stack.Navigator
-      screenOptions={{ headerShown: false }}
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        animationDuration: 220,
+      }}
       initialRouteName="Insights"
     >
       <Stack.Screen name="Insights" component={InsightsScreen} />

@@ -23,6 +23,12 @@ class InsightsService {
     this.MIN_BINARY_NO = 5; // Minimum "no" responses for binary habits
     this._homeSummaryCache = null;
     this._HOME_SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000;
+    // Cache for _getAllTaggedInsightsForHome result (shared by Home + Insights tab). TTL 5 min.
+    this._taggedInsightsCache = null;
+    this._TAGGED_INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
+    // Cache for getHabitsInsights by (userId, metric, timeRange, analysisType, showNoSignificance). TTL 5 min.
+    this._detailedInsightsCache = new Map();
+    this._DETAILED_INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
   }
 
   /**
@@ -190,6 +196,15 @@ class InsightsService {
         // Use defaults on parse error
       }
 
+      const startDateStr = startDate.toISOString ? startDate.toISOString().split('T')[0] : String(startDate);
+      const endDateStr = endDate.toISOString ? endDate.toISOString().split('T')[0] : String(endDate);
+      const cacheKey = `${userId}:${sleepMetric}:${startDateStr}:${endDateStr}:${useEfficiency}`;
+      const now = Date.now();
+      const cachedEntry = this._detailedInsightsCache.get(cacheKey);
+      if (cachedEntry && (now - cachedEntry.timestamp) < this._DETAILED_INSIGHTS_CACHE_TTL_MS) {
+        return cachedEntry.result;
+      }
+
       // Load habits, logs, drug levels, and sleep data in parallel
       const [habits, habitLogs, drugLevels, sleepDataFetched] = await Promise.all([
         this.getActiveHabits(userId),
@@ -240,7 +255,9 @@ class InsightsService {
         }
       }
 
-      return this._computeInsightsFromData(habits, habitLogs, drugLevels, sleepData, sleepMetric, useEfficiency);
+      const result = this._computeInsightsFromData(habits, habitLogs, drugLevels, sleepData, sleepMetric, useEfficiency);
+      this._detailedInsightsCache.set(cacheKey, { result, timestamp: Date.now() });
+      return result;
     } catch (error) {
       return {
         validInsights: [],
@@ -1058,6 +1075,14 @@ class InsightsService {
    */
   invalidateHomeSummaryCache() {
     this._homeSummaryCache = null;
+    this._taggedInsightsCache = null;
+  }
+
+  /**
+   * Clear the tagged insights cache (Home + Insights tab). Call when data may have changed.
+   */
+  invalidateTaggedInsightsCache() {
+    this._taggedInsightsCache = null;
   }
 
   /**
@@ -1107,15 +1132,17 @@ class InsightsService {
         }
       }
     }
+    const now = Date.now();
+    this._taggedInsightsCache = { userId, tagged, timestamp: now };
     return tagged;
   }
 
   _getInsightDirection(insight, metricKey) {
-    const lowerIsBetterMetrics = new Set(['awakenings_count']);
+    const lowerIsBetterMetrics = new Set(['awakenings_count', 'awake_minutes']);
     const higherIsBetter = !lowerIsBetterMetrics.has(metricKey);
     if (insight.type === 'numerical' && insight.trendDirection) {
       if (insight.trendDirection === 'none') return higherIsBetter ? 'positive' : 'negative';
-      // For lower-is-better metrics (awakenings), more is worse:
+      // For lower-is-better metrics (awakenings, awake time), more is worse:
       // flip so "positive correlation" (more habit → higher metric) becomes negative impact.
       if (lowerIsBetterMetrics.has(metricKey)) {
         return insight.trendDirection === 'positive' ? 'negative' : 'positive';
@@ -1135,27 +1162,7 @@ class InsightsService {
     return map[confidenceLevel] || map.none;
   }
 
-  /**
-   * Get top N insights by correlation strength for the homepage.
-   * Uses all 6 metrics × absolute/percentage (12 runs), 30 days, no core sleep.
-   * @param {string} userId - User ID
-   * @param {number} limit - Max number of insights to return (default 10)
-   * @returns {Promise<Array>} Array of { habitId, habitName, metricKey, metricLabel, analysisType, direction, strengthLabel, ... }
-   */
-  async getTopInsightsForHome(userId, limit = 10) {
-    const { topInsights } = await this.getHomeInsightsWithSummary(userId, limit);
-    return topInsights;
-  }
-
-  /**
-   * Get homepage insights plus per-metric counts of habits that help or hurt each sleep metric.
-   * One shared run of insight computation; returns top insights and summary by metric.
-   * @param {string} userId - User ID
-   * @param {number} limit - Max number of top insights (default 10)
-   * @returns {Promise<{ topInsights: Array, summaryByMetric: Array<{ metricKey, metricLabel, positiveCount, negativeCount }> }>}
-   */
-  async getHomeInsightsWithSummary(userId, limit = 10) {
-    const tagged = await this._getAllTaggedInsightsForHome(userId);
+  _buildHomeSummaryFromTagged(tagged, limit, metricsOrder) {
     const confidenceOrder = { high: 0, medium: 1, low: 2, none: 3 };
     const impactOrder = { large: 0, moderate: 1, small: 2, minimal: 3 };
     const sorted = tagged.slice().sort((a, b) => {
@@ -1181,23 +1188,18 @@ class InsightsService {
       impactLevel: insight.impactLevel,
       ...insight,
     }));
-
     const correlated = tagged.filter((i) => (i.confidenceLevel || 'none') !== 'none');
-    const metricLabels = {};
     const byMetric = {};
     for (const insight of correlated) {
       const key = insight.metricKey;
       const habitId = insight.habit?.id;
       if (!key || !habitId) continue;
-      if (!byMetric[key]) {
-        byMetric[key] = { positive: new Set(), negative: new Set() };
-        metricLabels[key] = insight.metricLabel || key;
-      }
+      if (!byMetric[key]) byMetric[key] = { positive: new Set(), negative: new Set() };
       if (insight.direction === 'positive') byMetric[key].positive.add(habitId);
       if (insight.direction === 'negative') byMetric[key].negative.add(habitId);
     }
-    const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
-    const summaryByMetric = metricsOrder
+    const order = metricsOrder || this.getAvailableSleepMetrics();
+    const summaryByMetric = order
       .map((m) => ({
         metricKey: m.key,
         metricLabel: m.label,
@@ -1205,18 +1207,10 @@ class InsightsService {
         negativeCount: (byMetric[m.key]?.negative?.size ?? 0),
       }))
       .filter((row) => row.positiveCount > 0 || row.negativeCount > 0);
-
     return { topInsights, summaryByMetric };
   }
 
-  /**
-   * Get insights grouped by habit, filtered to confidenceLevel !== 'none'.
-   * Same 12 runs as getTopInsightsForHome (6 metrics × absolute/percentage), 30 days, no core sleep.
-   * @param {string} userId - User ID
-   * @returns {Promise<Object>} { groups: Array<{ habitId, habitName, habit, insights: Array<tagged insight> }> }
-   */
-  async getInsightsGroupedByHabit(userId) {
-    const tagged = await this._getAllTaggedInsightsForHome(userId);
+  _buildGroupedFromTagged(tagged) {
     const correlated = tagged.filter((i) => (i.confidenceLevel || 'none') !== 'none');
     const byHabit = {};
     for (const insight of correlated) {
@@ -1231,6 +1225,83 @@ class InsightsService {
     const groups = Object.values(byHabit);
     groups.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
     return { groups };
+  }
+
+  /**
+   * Get top N insights by correlation strength for the homepage.
+   * Uses all 6 metrics × absolute/percentage (12 runs), 30 days, no core sleep.
+   * @param {string} userId - User ID
+   * @param {number} limit - Max number of insights to return (default 10)
+   * @returns {Promise<Array>} Array of { habitId, habitName, metricKey, metricLabel, analysisType, direction, strengthLabel, ... }
+   */
+  async getTopInsightsForHome(userId, limit = 10) {
+    const { topInsights } = await this.getHomeInsightsWithSummary(userId, limit);
+    return topInsights;
+  }
+
+  /**
+   * Get homepage insights plus per-metric counts of habits that help or hurt each sleep metric.
+   * Uses cached result if fresh (5 min TTL); optionally runs background refresh and calls onStaleRefresh when done.
+   * @param {string} userId - User ID
+   * @param {number} limit - Max number of top insights (default 10)
+   * @param {{ onStaleRefresh?: (result: { topInsights, summaryByMetric }) => void }} opts - If cache was used, onStaleRefresh is called when background refresh completes
+   * @returns {Promise<{ topInsights: Array, summaryByMetric: Array }>}
+   */
+  async getHomeInsightsWithSummary(userId, limit = 10, opts = {}) {
+    const now = Date.now();
+    const cached = this._taggedInsightsCache &&
+      this._taggedInsightsCache.userId === userId &&
+      (now - this._taggedInsightsCache.timestamp) < this._TAGGED_INSIGHTS_CACHE_TTL_MS
+      ? this._taggedInsightsCache.tagged
+      : null;
+
+    if (cached) {
+      const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
+      const result = this._buildHomeSummaryFromTagged(cached, limit, metricsOrder);
+      const onStaleRefresh = opts && opts.onStaleRefresh;
+      if (onStaleRefresh) {
+        this._getAllTaggedInsightsForHome(userId).then((tagged) => {
+          return this.getAvailableSleepMetricsForUser(userId).then((freshMetricsOrder) => {
+            onStaleRefresh(this._buildHomeSummaryFromTagged(tagged, limit, freshMetricsOrder));
+          });
+        }).catch(() => {});
+      }
+      return result;
+    }
+
+    const tagged = await this._getAllTaggedInsightsForHome(userId);
+    const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
+    return this._buildHomeSummaryFromTagged(tagged, limit, metricsOrder);
+  }
+
+  /**
+   * Get insights grouped by habit, filtered to confidenceLevel !== 'none'.
+   * Uses cached tagged insights if fresh (5 min TTL); optionally runs background refresh and calls onStaleRefresh when done.
+   * @param {string} userId - User ID
+   * @param {{ onStaleRefresh?: (result: { groups }) => void }} opts - If cache was used, onStaleRefresh is called when background refresh completes
+   * @returns {Promise<Object>} { groups: Array<{ habitId, habitName, habit, insights: Array<tagged insight> }> }
+   */
+  async getInsightsGroupedByHabit(userId, opts = {}) {
+    const now = Date.now();
+    const cached = this._taggedInsightsCache &&
+      this._taggedInsightsCache.userId === userId &&
+      (now - this._taggedInsightsCache.timestamp) < this._TAGGED_INSIGHTS_CACHE_TTL_MS
+      ? this._taggedInsightsCache.tagged
+      : null;
+
+    if (cached) {
+      const result = this._buildGroupedFromTagged(cached);
+      const onStaleRefresh = opts && opts.onStaleRefresh;
+      if (onStaleRefresh) {
+        this._getAllTaggedInsightsForHome(userId).then((tagged) => {
+          onStaleRefresh(this._buildGroupedFromTagged(tagged));
+        }).catch(() => {});
+      }
+      return result;
+    }
+
+    const tagged = await this._getAllTaggedInsightsForHome(userId);
+    return this._buildGroupedFromTagged(tagged);
   }
 
   /**

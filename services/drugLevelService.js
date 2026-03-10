@@ -33,6 +33,14 @@ function setCachedLevelNow(userId, habitId, result) {
 }
 
 /**
+ * Call after adding/editing/deleting a consumption event so the next getLevelNow() fetches fresh data.
+ * Without this, "level right now" can stay stale while the graph updates (graph is not cached).
+ */
+export function invalidateLevelNowCache(userId, habitId) {
+  if (userId && habitId) _levelNowCache.delete(levelNowCacheKey(userId, habitId));
+}
+
+/**
  * Get current drug level using last stored bedtime level (decayed to now) + today's consumption.
  * Falls back to full event-based calculation when no previous drug_levels row or no bedtime_at.
  * @param {string} userId - User ID
@@ -337,4 +345,5 @@ export default {
   getLevelTimelineForToday,
   getLevelTimelineForDate,
   getLevelAtBedtime,
+  invalidateLevelNowCache,
 };

@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   Dimensions,
   StatusBar,
@@ -18,7 +18,6 @@ import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import insightsService from '../services/insightsService';
-import sleepSyncService from '../services/sleepSyncService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
@@ -39,9 +38,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
         StatusBar.setBackgroundColor(colors.primary);
       }
       return () => {
-        if (Platform.OS === 'android') {
-          StatusBar.setBackgroundColor(colors.background);
-        }
+        // Do not set status bar to white on blur: we stay in MainTabs, so the next screen keeps it blue and avoids a white flash.
       };
     }, [])
   );
@@ -109,24 +106,6 @@ const DetailedInsightsScreen = ({ navigation }) => {
     }
 
     try {
-      if (!backgroundRefresh || !hasCached) {
-        setLoadingText('Checking sleep data sync...');
-      }
-      const needsSync = await sleepSyncService.needsSync();
-
-      if (needsSync) {
-        if (!backgroundRefresh || !hasCached) {
-          setLoadingText('Syncing sleep data...');
-        }
-        const syncResult = await sleepSyncService.syncSleepData({ silent: true });
-        if (!syncResult.success) {
-          // Continue with insights calculation even if sync fails
-        }
-      }
-
-      if (!backgroundRefresh || !hasCached) {
-        setLoadingText('Calculating insights...');
-      }
       const dateRange = insightsService.calculateDateRange(selectedTimeRange);
       const useEfficiency = selectedAnalysisType === 'percentage';
       const insightsData = await insightsService.getHabitsInsights(
@@ -237,160 +216,156 @@ const DetailedInsightsScreen = ({ navigation }) => {
   const metricInfo = getSelectedMetricInfo();
   const timeRangeInfo = getSelectedTimeRangeInfo();
 
-  return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      {loading ? (
-        <PageLoadingView />
-      ) : (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-            <View style={styles.header}>
+  const listHeader = (
+    <>
+      <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.headerBackButton}
+            onPress={() => navigation?.goBack()}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="chevron-back" size={28} color={colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Detailed Sleep Insights</Text>
+        </View>
+      </View>
+
+      <View style={styles.contentArea}>
+        <View style={styles.selectorsRow}>
+          <TouchableOpacity
+            style={styles.selector}
+            onPress={() => togglePicker('metric')}
+          >
+            <Text style={styles.selectorValue}>{metricInfo.label}</Text>
+            <Ionicons
+              name={showMetricPicker ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.selector}
+            onPress={() => togglePicker('analysisType')}
+          >
+            <Text style={styles.selectorValue}>
+              {selectedAnalysisType === 'absolute' ? 'Absolute' : 'Percentage'}
+            </Text>
+            <Ionicons
+              name={showAnalysisTypePicker ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.selectorsRow}>
+          <TouchableOpacity
+            style={styles.selector}
+            onPress={() => togglePicker('timeRange')}
+          >
+            <Text style={styles.selectorValue}>{timeRangeInfo.label}</Text>
+            <Ionicons
+              name={showTimeRangePicker ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+          <View style={[styles.selector, styles.selectorPlaceholder]} />
+        </View>
+
+        {showMetricPicker && (
+          <View style={styles.pickerContainer}>
+            {availableMetrics.map((metric) => (
               <TouchableOpacity
-                style={styles.headerBackButton}
-                onPress={() => navigation?.goBack()}
-                activeOpacity={0.7}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                key={metric.key}
+                style={[
+                  styles.pickerOption,
+                  selectedMetric === metric.key && styles.pickerOptionSelected
+                ]}
+                onPress={() => {
+                  setSelectedMetric(metric.key);
+                  setShowMetricPicker(false);
+                }}
               >
-                <Ionicons name="chevron-back" size={28} color={colors.white} />
+                <Text style={[
+                  styles.pickerOptionText,
+                  selectedMetric === metric.key && styles.pickerOptionTextSelected
+                ]}>
+                  {metric.label}
+                </Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Detailed Sleep Insights</Text>
-            </View>
+            ))}
           </View>
+        )}
 
-          <View style={styles.contentArea}>
-      <View style={styles.selectorsRow}>
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('metric')}
-        >
-          <Text style={styles.selectorValue}>{metricInfo.label}</Text>
-          <Ionicons
-            name={showMetricPicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
+        {showTimeRangePicker && (
+          <View style={styles.pickerContainer}>
+            {availableTimeRanges.map((timeRange) => (
+              <TouchableOpacity
+                key={timeRange.key}
+                style={[
+                  styles.pickerOption,
+                  selectedTimeRange === timeRange.key && styles.pickerOptionSelected
+                ]}
+                onPress={() => {
+                  setSelectedTimeRange(timeRange.key);
+                  setShowTimeRangePicker(false);
+                }}
+              >
+                <Text style={[
+                  styles.pickerOptionText,
+                  selectedTimeRange === timeRange.key && styles.pickerOptionTextSelected
+                ]}>
+                  {timeRange.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('analysisType')}
-        >
-          <Text style={styles.selectorValue}>
-            {selectedAnalysisType === 'absolute' ? 'Absolute' : 'Percentage'}
-          </Text>
-          <Ionicons
-            name={showAnalysisTypePicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.selectorsRow}>
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => togglePicker('timeRange')}
-        >
-          <Text style={styles.selectorValue}>{timeRangeInfo.label}</Text>
-          <Ionicons
-            name={showTimeRangePicker ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
-        <View style={[styles.selector, styles.selectorPlaceholder]} />
-      </View>
-
-      {showMetricPicker && (
-        <View style={styles.pickerContainer}>
-          {availableMetrics.map((metric) => (
+        {showAnalysisTypePicker && (
+          <View style={styles.pickerContainer}>
             <TouchableOpacity
-              key={metric.key}
               style={[
                 styles.pickerOption,
-                selectedMetric === metric.key && styles.pickerOptionSelected
+                selectedAnalysisType === 'absolute' && styles.pickerOptionSelected
               ]}
               onPress={() => {
-                setSelectedMetric(metric.key);
-                setShowMetricPicker(false);
+                setSelectedAnalysisType('absolute');
+                setShowAnalysisTypePicker(false);
               }}
             >
               <Text style={[
                 styles.pickerOptionText,
-                selectedMetric === metric.key && styles.pickerOptionTextSelected
+                selectedAnalysisType === 'absolute' && styles.pickerOptionTextSelected
               ]}>
-                {metric.label}
+                Absolute Amount
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {showTimeRangePicker && (
-        <View style={styles.pickerContainer}>
-          {availableTimeRanges.map((timeRange) => (
             <TouchableOpacity
-              key={timeRange.key}
               style={[
                 styles.pickerOption,
-                selectedTimeRange === timeRange.key && styles.pickerOptionSelected
+                selectedAnalysisType === 'percentage' && styles.pickerOptionSelected
               ]}
               onPress={() => {
-                setSelectedTimeRange(timeRange.key);
-                setShowTimeRangePicker(false);
+                setSelectedAnalysisType('percentage');
+                setShowAnalysisTypePicker(false);
               }}
             >
               <Text style={[
                 styles.pickerOptionText,
-                selectedTimeRange === timeRange.key && styles.pickerOptionTextSelected
+                selectedAnalysisType === 'percentage' && styles.pickerOptionTextSelected
               ]}>
-                {timeRange.label}
+                Percentage of Sleep
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      )}
+          </View>
+        )}
 
-      {showAnalysisTypePicker && (
-        <View style={styles.pickerContainer}>
-          <TouchableOpacity
-            style={[
-              styles.pickerOption,
-              selectedAnalysisType === 'absolute' && styles.pickerOptionSelected
-            ]}
-            onPress={() => {
-              setSelectedAnalysisType('absolute');
-              setShowAnalysisTypePicker(false);
-            }}
-          >
-            <Text style={[
-              styles.pickerOptionText,
-              selectedAnalysisType === 'absolute' && styles.pickerOptionTextSelected
-            ]}>
-              Absolute Amount
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.pickerOption,
-              selectedAnalysisType === 'percentage' && styles.pickerOptionSelected
-            ]}
-            onPress={() => {
-              setSelectedAnalysisType('percentage');
-              setShowAnalysisTypePicker(false);
-            }}
-          >
-            <Text style={[
-              styles.pickerOptionText,
-              selectedAnalysisType === 'percentage' && styles.pickerOptionTextSelected
-            ]}>
-              Percentage of Sleep
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <View style={styles.content}>
+        <View style={styles.content}>
           <Text style={styles.subtitle}>
             Discover how your habits impact {metricInfo.label.toLowerCase()}
             {selectedAnalysisType === 'percentage'
@@ -399,19 +374,28 @@ const DetailedInsightsScreen = ({ navigation }) => {
                   : ' (as percentage of total sleep)')
               : ''}
           </Text>
-
-          {insights?.validInsights?.length > 0 && (
-            <View style={styles.insightsSection}>
-              {insights.validInsights.map(renderInsightCard)}
-            </View>
-          )}
-
-          {(!insights?.validInsights?.length && !insights?.placeholders?.length) && (
-            renderEmptyState()
-          )}
         </View>
-          </View>
-        </ScrollView>
+      </View>
+    </>
+  );
+
+  const validInsights = insights?.validInsights ?? [];
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      {loading ? (
+        <PageLoadingView />
+      ) : (
+        <FlatList
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          data={validInsights}
+          keyExtractor={(item, index) => `${item.habit?.id}-${selectedMetric}-${selectedAnalysisType}-${index}`}
+          ListHeaderComponent={listHeader}
+          renderItem={({ item }) => renderInsightCard(item)}
+          ListEmptyComponent={validInsights.length === 0 && !insights?.placeholders?.length ? renderEmptyState() : null}
+          contentContainerStyle={validInsights.length === 0 ? styles.contentContainerEmpty : styles.flatListContent}
+        />
       )}
     </SafeAreaView>
   );
@@ -505,6 +489,13 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  flatListContent: {
+    paddingBottom: 112,
+  },
+  contentContainerEmpty: {
+    paddingBottom: 112,
+    flexGrow: 1,
   },
   content: {
     paddingHorizontal: spacing.regular,

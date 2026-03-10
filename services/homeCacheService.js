@@ -13,6 +13,29 @@ let subjectiveJustSavedForToday = false;
 /** In-memory: scores just saved so Home can show them immediately (optimistic) before RPC returns. */
 let pendingSubjectiveScoresForToday = null;
 
+/** In-memory: last applied dashboard payload by userId+dateStr. Survives navigator remounts so Home can show it on first paint. */
+const lastAppliedDashboardByKey = new Map();
+
+function cacheKey(userId, dateStr) {
+  return `${userId}:${dateStr}`;
+}
+
+function setLastAppliedDashboardPayload(userId, dateStr, payload) {
+  if (!userId || !dateStr || !payload) return;
+  try {
+    lastAppliedDashboardByKey.set(cacheKey(userId, dateStr), payload);
+  } catch (_) {}
+}
+
+function getLastAppliedDashboardPayload(userId, dateStr) {
+  if (!userId || !dateStr) return undefined;
+  try {
+    return lastAppliedDashboardByKey.get(cacheKey(userId, dateStr));
+  } catch (_) {
+    return undefined;
+  }
+}
+
 function setSubjectiveJustSavedForToday() {
   subjectiveJustSavedForToday = true;
 }
@@ -203,6 +226,11 @@ async function cleanupOldEntries(userId) {
  */
 async function clearForUser(userId) {
   try {
+    if (userId) {
+      for (const key of lastAppliedDashboardByKey.keys()) {
+        if (key.startsWith(userId + ':')) lastAppliedDashboardByKey.delete(key);
+      }
+    }
     const keys = await AsyncStorage.getAllKeys();
     const toRemove = keys.filter(
       k => k.startsWith(PREFIX_SLEEP + userId + '_') ||
@@ -227,6 +255,8 @@ export default {
   setPersistedDashboardPayload,
   cleanupOldEntries,
   clearForUser,
+  setLastAppliedDashboardPayload,
+  getLastAppliedDashboardPayload,
   setSubjectiveJustSavedForToday,
   getAndClearSubjectiveJustSavedForToday,
   setPendingSubjectiveScoresForToday,

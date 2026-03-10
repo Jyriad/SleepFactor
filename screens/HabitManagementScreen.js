@@ -12,6 +12,7 @@ import {
   Animated,
   StatusBar,
   Platform,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -84,11 +85,6 @@ const HabitManagementScreen = () => {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor(colors.primary);
       }
-      return () => {
-        if (Platform.OS === 'android') {
-          StatusBar.setBackgroundColor(colors.background);
-        }
-      };
     }, [])
   );
   const { user } = useAuth();
@@ -109,21 +105,25 @@ const HabitManagementScreen = () => {
 
   const closeAllSwipeables = useCallback(() => {}, []);
 
-  // Reload habits when screen comes into focus only if list may have changed (e.g. returning from Add/Edit/Delete)
+  // Reload habits when screen comes into focus; defer until after transition so the slide starts immediately
   useFocusEffect(
     useCallback(() => {
-      const trigger = getHabitsRefreshTrigger();
-      if (trigger !== lastRefreshTriggerRef.current) {
-        lastRefreshTriggerRef.current = trigger;
-        loadHabits(true);
-      } else {
-        loadHabits(false);
-      }
+      const task = InteractionManager.runAfterInteractions(() => {
+        const trigger = getHabitsRefreshTrigger();
+        if (trigger !== lastRefreshTriggerRef.current) {
+          lastRefreshTriggerRef.current = trigger;
+          loadHabits(true);
+        } else {
+          loadHabits(false);
+        }
+      });
+      return () => task.cancel();
     }, [user, closeAllSwipeables])
   );
 
   useEffect(() => {
-    loadHabits();
+    const task = InteractionManager.runAfterInteractions(() => loadHabits());
+    return () => task.cancel();
   }, [user]);
 
   const loadHabits = async (force = false) => {
