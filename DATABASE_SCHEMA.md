@@ -12,8 +12,8 @@ Extends Supabase auth.users with app-specific fields.
 - `id` (UUID, Primary Key) - References `auth.users(id)`
 - `notification_time` (TIME) - User's preferred bedtime reminder time
 - `timezone` (TEXT) - User's timezone (default: 'UTC')
-- `track_tiredness` (BOOLEAN) - When true, user is prompted to log tiredness (1-10) each morning (default: false)
-- `track_dream_vividness` (BOOLEAN) - When true, user is prompted to log dream vividness (1-10) each morning (default: false)
+- `track_tiredness` (BOOLEAN) - When true, user is prompted to log refreshed feeling (1-10) each morning (default: false)
+- `track_dream_vividness` (BOOLEAN) - When true, user is prompted to log dream strength (1-10) each morning (default: false)
 - `morning_checkin_time` (TIME, Nullable) - Time for morning "How did you sleep?" notification; null = no notification
 - `created_at` (TIMESTAMPTZ) - Timestamp when record was created
 - `updated_at` (TIMESTAMPTZ) - Timestamp when record was last updated
@@ -85,8 +85,8 @@ Stores sleep metrics from wearables (HealthKit/Health Connect) or manual entry.
 - `awakenings_count` (INTEGER) - Number of times user woke up (default: 0)
 - `sleep_score` (NUMERIC, Nullable) - Overall sleep score (0-100) if available
 - `rested_feeling` (INTEGER, Nullable) - User's subjective rating of how rested they felt (1-5 scale)
-- `tiredness_score` (INTEGER, Nullable) - Subjective tiredness 1-10; 10 = least tired (best)
-- `dream_vividness_score` (INTEGER, Nullable) - Subjective dream vividness 1-10; 10 = most vivid
+- `tiredness_score` (INTEGER, Nullable) - Subjective refreshed feeling 1-10; 10 = very refreshed
+- `dream_vividness_score` (INTEGER, Nullable) - Subjective dream strength 1-10; 10 = very strong
 - `source` (TEXT) - Data source: 'healthkit', 'health_connect', or 'manual'
 - `created_at` (TIMESTAMPTZ) - Timestamp when record was created
 - `updated_at` (TIMESTAMPTZ) - Timestamp when record was last updated

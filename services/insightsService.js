@@ -1111,11 +1111,13 @@ class InsightsService {
   }
 
   _getInsightDirection(insight, metricKey) {
-    const higherIsBetter = metricKey !== 'awakenings_count' || metricKey === 'tiredness_score' || metricKey === 'dream_vividness_score';
+    const lowerIsBetterMetrics = new Set(['awakenings_count']);
+    const higherIsBetter = !lowerIsBetterMetrics.has(metricKey);
     if (insight.type === 'numerical' && insight.trendDirection) {
       if (insight.trendDirection === 'none') return higherIsBetter ? 'positive' : 'negative';
-      // For awakenings, more is worse: flip so "positive correlation" (more habit → more awakenings) → negative impact
-      if (metricKey === 'awakenings_count') {
+      // For lower-is-better metrics (awakenings), more is worse:
+      // flip so "positive correlation" (more habit → higher metric) becomes negative impact.
+      if (lowerIsBetterMetrics.has(metricKey)) {
         return insight.trendDirection === 'positive' ? 'negative' : 'positive';
       }
       return insight.trendDirection;
@@ -1247,7 +1249,7 @@ class InsightsService {
   }
 
   /**
-   * Get available sleep metrics including subjective (Tiredness, Dream vividness) when user has them enabled.
+   * Get available sleep metrics including subjective (Refreshed feeling, Dream strength) when user has them enabled.
    * @param {string} userId - User ID
    * @returns {Promise<Array>} Array of metric objects with label, key, unit; subjective metrics only if toggles on
    */
@@ -1258,10 +1260,10 @@ class InsightsService {
       const { data } = await supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', userId).single();
       const list = [...base];
       if (data?.track_tiredness === true) {
-        list.push({ key: 'tiredness_score', label: 'Tiredness', unit: 'score', higherIsBetter: true });
+        list.push({ key: 'tiredness_score', label: 'Refreshed feeling', unit: 'score', higherIsBetter: true });
       }
       if (data?.track_dream_vividness === true) {
-        list.push({ key: 'dream_vividness_score', label: 'Dream vividness', unit: 'score', higherIsBetter: true });
+        list.push({ key: 'dream_vividness_score', label: 'Dream strength', unit: 'score', higherIsBetter: true });
       }
       return list;
     } catch (e) {

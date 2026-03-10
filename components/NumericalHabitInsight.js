@@ -82,7 +82,8 @@ const NumericalHabitInsight = ({
   const headline = generateNumericalHeadline(habit, displayCorrelation, displayCorrelationStrength, displayTrendDirection, sleepMetric, displayDataPoints, isPercentageMode, confidenceLevel);
 
   // For awakenings, fewer is better; for other sleep metrics, more is better
-  const higherIsBetter = sleepMetric?.key !== 'awakenings_count';
+  const lowerIsBetterMetrics = new Set(['awakenings_count']);
+  const higherIsBetter = !lowerIsBetterMetrics.has(sleepMetric?.key);
   // For bar label: show + when good, - when bad (invert for awakenings so fewer = +)
   const displayCorrelationForLabel = higherIsBetter ? displayCorrelation : (displayCorrelation != null ? -displayCorrelation : null);
   // Scale bar width so impacts are visible and relative: |r| = 0.4 fills the half-bar (50% width)

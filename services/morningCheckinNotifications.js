@@ -156,14 +156,13 @@ export async function rescheduleIfEnabled() {
 }
 
 /**
- * Navigate to SleepQualityLog for yesterday (last night's sleep date).
+ * Navigate to SleepQualityLog for last night's sleep (stored as today's date / wake date).
  */
 function navigateToSleepQualityLog(navigationRef) {
   const root = navigationRef?.current;
   if (!root) return;
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const dateStr = yesterday.toISOString().split('T')[0];
+  const today = new Date();
+  const dateStr = today.toISOString().split('T')[0];
   root.navigate('MainTabs', {
     screen: 'Home',
     params: { screen: 'SleepQualityLog', params: { date: dateStr } },

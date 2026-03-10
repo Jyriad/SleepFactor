@@ -7,6 +7,8 @@ import {
   Switch,
   ScrollView,
   TouchableOpacity,
+  LayoutAnimation,
+  UIManager,
   Animated,
   StatusBar,
   Platform,
@@ -16,7 +18,6 @@ import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import DraggableFlatList from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
-import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
@@ -97,22 +98,16 @@ const HabitManagementScreen = () => {
   const [untrackedHabits, setUntrackedHabits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const swipeableRefs = useRef({}); // Track open Swipeable instances
+  const [expandedHabitId, setExpandedHabitId] = useState(null);
   const lastRefreshTriggerRef = useRef(getHabitsRefreshTrigger());
 
-  // Close all open swipeables when screen loses focus
-  const closeAllSwipeables = useCallback(() => {
-    Object.values(swipeableRefs.current).forEach(ref => {
-      if (ref && typeof ref.close === 'function') {
-        try {
-          ref.close();
-        } catch (error) {
-          // Silently handle swipeable close errors
-        }
-      }
-    });
-    // Don't clear refs here - they're needed for future operations
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
   }, []);
+
+  const closeAllSwipeables = useCallback(() => {}, []);
 
   // Reload habits when screen comes into focus only if list may have changed (e.g. returning from Add/Edit/Delete)
   useFocusEffect(
@@ -124,18 +119,7 @@ const HabitManagementScreen = () => {
       } else {
         loadHabits(false);
       }
-      closeAllSwipeables();
     }, [user, closeAllSwipeables])
-  );
-
-  // Close swipeables when screen loses focus
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        // Cleanup: close all swipeables when leaving screen
-        closeAllSwipeables();
-      };
-    }, [closeAllSwipeables])
   );
 
   useEffect(() => {
@@ -697,39 +681,31 @@ const HabitManagementScreen = () => {
 
     try {
       const isPlaceholder = habit.id && habit.id.startsWith('predef-');
-      const isAlwaysAvailable = habit.id && habit.id.startsWith('always-');
       if (isPlaceholder) {
         // Create the habit as tracked (active)
         await createPredefinedHabit(habit);
         return;
       }
-      if (isAlwaysAvailable) {
-        // Always available habits are already in the database, just toggle active state
-        // Don't return, continue with normal toggle logic
-      }
 
       const newIsActive = habit.is_active === false; // Toggle from current state
-
-      // Get max priority for the target section
-      const allHabits = [...manualHabits, ...automaticHabits, ...untrackedHabits];
-      const targetHabits = allHabits.filter(h => (h.is_active !== false) === newIsActive);
-      const maxPriority = targetHabits.length > 0
-        ? Math.max(...targetHabits.map(h => h.priority || 0)) + 1
-        : 0;
 
       // Update habit
       const { error } = await supabase
         .from('habits')
         .update({
           is_active: newIsActive,
-          priority: maxPriority,
           updated_at: new Date().toISOString(),
         })
         .eq('id', habit.id);
 
       if (error) throw error;
       insightsService.invalidateHomeSummaryCache();
-      loadHabits(true); // Force refresh
+      // Keep card in place immediately; sort order will be re-applied on next full reload.
+      setManualHabits(prev =>
+        prev.map(h =>
+          h.id === habit.id ? { ...h, is_active: newIsActive } : h
+        )
+      );
     } catch (error) {
       Alert.alert('Error', 'Failed to update habit');
     }
@@ -856,6 +832,12 @@ const HabitManagementScreen = () => {
     }
   };
 
+  const toggleHabitExpanded = (habitId) => {
+    if (!habitId) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedHabitId(prev => (prev === habitId ? null : habitId));
+  };
+
   const getHabitTypeDescription = (habit) => {
     const typeDescriptions = {
       binary: 'Yes/No',
@@ -886,159 +868,130 @@ const HabitManagementScreen = () => {
     const isAlwaysAvailable = habit.id && habit.id.startsWith('always-');
     const isCustom = habit.is_custom === true || habit.is_custom === 'true';
 
-    // Render right actions (swipe left to reveal)
-    const renderRightActions = () => {
-      // Allow editing for custom habits OR drug habits (Caffeine, Alcohol)
-      const canEdit = isCustom || habit.type === 'quick_consumption';
-      if (!canEdit) return null;
-
-      return (
-        <View style={styles.rightActions}>
-          <TouchableOpacity
-            style={[styles.rightActionButton, styles.editActionButton]}
-            onPress={() => openEditHabit(habit)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="pencil" size={24} color={colors.white} />
-          </TouchableOpacity>
-          {/* Only show delete button for custom habits */}
-          {isCustom && (
-            <TouchableOpacity
-              style={[styles.rightActionButton, styles.deleteActionButton]}
-              onPress={() => openDeleteHabit(habit)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="trash" size={24} color={colors.white} />
-            </TouchableOpacity>
-          )}
-        </View>
-      );
-    };
-
     const habitId = habit.id || habit.name;
+    const isExpanded = expandedHabitId === habitId;
 
     return (
-      <Swipeable
-        ref={(ref) => {
-          if (ref) {
-            swipeableRefs.current[habitId] = ref;
-          } else {
-            delete swipeableRefs.current[habitId];
-          }
-        }}
-        renderRightActions={renderRightActions}
-        rightThreshold={40}
-        friction={2}
-        overshootRight={false}
-        enabled={!isActive} // Disable swipe when actively dragging
-        onSwipeableWillOpen={() => {
-          // Close all other swipeables when this one opens
-          Object.entries(swipeableRefs.current).forEach(([id, ref]) => {
-            if (id !== habitId && ref && typeof ref.close === 'function') {
-              try {
-                ref.close();
-              } catch (error) {
-                // Silently handle swipeable close errors
-              }
-            }
-          });
-        }}
-        onSwipeableOpen={() => {
-          // Use setTimeout to ensure refs are updated
-          setTimeout(() => {
-            Object.entries(swipeableRefs.current).forEach(([id, ref]) => {
-              if (id !== habitId && ref && typeof ref.close === 'function') {
-                try {
-                  ref.close();
-                } catch (error) {
-                  // Silently handle swipeable close errors
-                }
-              }
-            });
-          }, 0);
-        }}
-      >
-        <View style={[styles.cardWrapper, isActive && styles.cardWrapperDragging]}>
-          <View
-            style={[styles.habitCard, isActive && styles.habitCardDragging]}
-            onStartShouldSetResponder={() => !isActive}
-          >
-        <TouchableOpacity
-          style={styles.cardContent}
-          onLongPress={() => {
-            // Close any open swipeables when starting to drag
-            closeAllSwipeables();
-            drag();
-          }}
-          delayLongPress={150}
-          activeOpacity={1} // Prevent highlight on press
-        >
-          {/* Header section with habit name and custom indicator */}
-          <View style={styles.habitHeader}>
-            <View style={styles.nameContainer}>
-              <Text style={styles.habitName}>{habit.name}</Text>
-              {isCustom && (
-                <View style={styles.customBadge}>
-                  <Text style={styles.customBadgeText}>Custom</Text>
-                </View>
-              )}
-              {habit.is_active !== false ? (
-                <View style={styles.trackedBadge}>
-                  <Text style={styles.trackedBadgeText}>Tracked</Text>
-                </View>
-              ) : (
-                <View style={styles.pausedBadge}>
-                  <Text style={styles.pausedBadgeText}>Paused</Text>
-                </View>
-              )}
-            </View>
-          </View>
+      <View style={[styles.cardWrapper, isActive && styles.cardWrapperDragging]}>
+        <View style={[styles.habitCard, isActive && styles.habitCardDragging]}>
+          <View style={styles.cardContent}>
+            <TouchableOpacity
+              style={styles.dragHandleColumn}
+              onLongPress={() => {
+                closeAllSwipeables();
+                drag();
+              }}
+              delayLongPress={150}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="reorder-three-outline" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
 
-          {/* Body section with type and actions */}
-          <View style={styles.habitBody}>
-            <View style={styles.habitBodyLeft}>
-              <Text style={styles.habitType}>
-                {getHabitTypeDescription(habit)}
-                {isPlaceholder && ' (not added yet)'}
-              </Text>
-              {!isPlaceholder && habit.type === 'binary' && (
-                <View style={styles.logNoByDefaultRow}>
-                  <Switch
-                    value={habit.log_as_no_by_default === true}
-                    onValueChange={() => toggleLogAsNoByDefault(habit)}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                    thumbColor={habit.log_as_no_by_default ? '#FFFFFF' : '#FFFFFF'}
-                  />
-                  <Text style={styles.logNoByDefaultLabel}>Log as "no" by default</Text>
-                </View>
-              )}
-            </View>
+            <View style={styles.cardRightColumn}>
+              <TouchableOpacity style={styles.cardMainContent} onPress={() => toggleHabitExpanded(habitId)} activeOpacity={0.85}>
+                <View style={styles.habitHeaderCompact}>
+                  <View style={styles.nameContainerCompact}>
+                    <Text style={styles.habitName}>{habit.name}</Text>
+                  </View>
 
-            {isPlaceholder && !isAlwaysAvailable ? (
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => createPredefinedHabit(habit)}
-              >
-                <Text style={styles.addButtonText}>Add</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.toggleSection}>
-                <Text style={styles.toggleLabel}>
-                  {habit.is_active !== false ? 'Tracking' : 'Untracked'}
+                  {isPlaceholder && !isAlwaysAvailable ? (
+                    <TouchableOpacity
+                      style={styles.addButtonCompact}
+                      onPress={() => createPredefinedHabit(habit)}
+                    >
+                      <Text style={styles.addButtonText}>Add</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.statusAndChevronRow}>
+                      <TouchableOpacity
+                        style={styles.statusTouchable}
+                        onPress={() => toggleHabitTracking(habit)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[
+                          styles.statusDot,
+                          habit.is_active !== false ? styles.statusDotActive : styles.statusDotPaused
+                        ]} />
+                        <Text
+                          style={[
+                            styles.statusLabel,
+                            habit.is_active !== false ? styles.statusLabelActive : styles.statusLabelPaused
+                          ]}
+                        >
+                          {habit.is_active !== false ? 'Active' : 'Paused'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.chevronButton}
+                        onPress={() => toggleHabitExpanded(habitId)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={22}
+                          color={colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                <Text style={styles.habitTypeLine}>
+                  {getHabitTypeDescription(habit)}
+                  {isPlaceholder && ' (not added yet)'}
                 </Text>
-                <Switch
-                  value={habit.is_active !== false}
-                  onValueChange={() => toggleHabitTracking(habit)}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor={habit.is_active !== false ? '#FFFFFF' : '#FFFFFF'}
-                />
+              </TouchableOpacity>
+
+              {isExpanded && !isPlaceholder && (
+              <View style={styles.expandedSectionContainer}>
+                <View style={styles.expandedSection}>
+                  {(habit.type === 'binary' || habit.type === 'quick_consumption') && (
+                    <View style={styles.expandedSwitchRow}>
+                      <Text style={styles.expandedSwitchLabel}>
+                        {habit.type === 'quick_consumption'
+                          ? 'Log as "none" by default'
+                          : 'Log as "no" by default'}
+                      </Text>
+                      <Switch
+                        value={habit.log_as_no_by_default === true}
+                        onValueChange={() => toggleLogAsNoByDefault(habit)}
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                        thumbColor="#FFFFFF"
+                      />
+                    </View>
+                  )}
+
+                  {(isCustom || habit.type === 'quick_consumption') && (
+                    <View style={styles.expandedActionBar}>
+                      {(isCustom || habit.type === 'quick_consumption') && (
+                        <TouchableOpacity
+                          style={styles.expandedActionBarButton}
+                          onPress={() => openEditHabit(habit)}
+                        >
+                          <Ionicons name="pencil" size={18} color={colors.primary} />
+                          <Text style={styles.expandedActionBarButtonText}>Edit</Text>
+                        </TouchableOpacity>
+                      )}
+                      {isCustom && (
+                        <TouchableOpacity
+                          style={styles.expandedActionBarButton}
+                          onPress={() => openDeleteHabit(habit)}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={colors.error} />
+                          <Text style={[styles.expandedActionBarButtonText, styles.expandedActionBarButtonDanger]}>
+                            Delete
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                </View>
               </View>
             )}
-          </View>
-        </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </Swipeable>
+      </View>
     );
   };
 
@@ -1057,7 +1010,7 @@ const HabitManagementScreen = () => {
                 <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
                   <View style={styles.header}>
                     <Text style={styles.title}>Manage Your Habits</Text>
-                    <Text style={styles.subtitle}>Long press and drag habits to reorder • Swipe left on habits to edit</Text>
+                    <Text style={styles.subtitle}>Long press and drag the handle to reorder • Tap a habit to expand options</Text>
                   </View>
                 </View>
                 <View style={styles.sectionHeader}>
@@ -1224,7 +1177,7 @@ const HabitManagementScreen = () => {
                     <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
                       <View style={styles.header}>
                         <Text style={styles.title}>Manage Your Habits</Text>
-                        <Text style={styles.subtitle}>Long press and drag habits to reorder • Swipe left on habits to edit</Text>
+                        <Text style={styles.subtitle}>Long press and drag the handle to reorder • Tap a habit to expand options</Text>
                       </View>
                     </View>
                     <View style={styles.sectionHeader}>
@@ -1467,19 +1420,33 @@ const styles = StyleSheet.create({
   },
   habitCard: {
     flexDirection: 'column',
-    paddingVertical: spacing.sm,
+    paddingVertical: 6,
     paddingHorizontal: spacing.regular,
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    minHeight: 56,
-    overflow: 'hidden', // Ensure content respects rounded corners
+    overflow: 'hidden',
   },
   habitCardDragging: {
     opacity: 0.9,
   },
   cardContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  dragHandleColumn: {
+    width: 26,
+    marginRight: spacing.xs,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardRightColumn: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  cardMainContent: {
     flex: 1,
   },
   deleteButton: {
@@ -1492,31 +1459,111 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: spacing.sm,
   },
-  habitHeader: {
-    marginBottom: spacing.xs,
-  },
-  nameContainer: {
+  habitHeaderCompact: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  habitBody: {
+  nameContainerCompact: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  habitBodyLeft: {
     flex: 1,
+    marginRight: spacing.xs,
   },
-  logNoByDefaultRow: {
+  statusAndChevronRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xs,
+    gap: spacing.sm,
   },
-  logNoByDefaultLabel: {
+  statusTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusDotActive: {
+    backgroundColor: colors.success,
+  },
+  statusDotPaused: {
+    backgroundColor: colors.textLight,
+  },
+  statusLabel: {
     fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
-    marginLeft: spacing.sm,
+    fontWeight: typography.weights.medium,
+  },
+  statusLabelActive: {
+    color: colors.success,
+  },
+  statusLabelPaused: {
+    color: colors.textLight,
+  },
+  addButtonCompact: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  addButtonText: {
+    color: colors.white,
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.semibold,
+  },
+  habitTypeLine: {
+    fontSize: typography.sizes.xs,
+    color: colors.textLight,
+    marginTop: 2,
+  },
+  chevronButton: {
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandedSectionContainer: {
+    marginLeft: 0,
+  },
+  expandedSection: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 2,
+  },
+  expandedSwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  expandedSwitchLabel: {
+    flex: 1,
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    marginRight: spacing.sm,
+  },
+  expandedActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.xs,
+    gap: spacing.sm,
+  },
+  expandedActionBarButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  expandedActionBarButtonText: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+  },
+  expandedActionBarButtonDanger: {
+    color: colors.error,
   },
   habitActions: {
     flexDirection: 'row',
@@ -1527,27 +1574,11 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: spacing.sm,
   },
-  toggleSection: {
-    width: 100,
-    alignItems: 'center',
-  },
   habitName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
     flex: 1,
-  },
-  habitType: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-  },
-  toggleLabel: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-    textAlign: 'center',
-    width: '100%',
-    fontWeight: '500', // Slightly bolder for better readability
   },
   emptyText: {
     fontSize: typography.sizes.body,

@@ -19,9 +19,9 @@ const HomeStackWrapper = () => {
       <View style={styles.container}>
         <Stack.Navigator
           screenOptions={{ headerShown: false }}
-          initialRouteName="Home"
+          initialRouteName="HomeMain"
         >
-          <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="HomeMain" component={HomeScreen} />
           <Stack.Screen
             name="HabitLogging"
             component={HabitLoggingScreen}

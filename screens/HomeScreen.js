@@ -38,7 +38,7 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
 
 const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo, trackTiredness, trackDreamVividness, onOpenSleepQualityLog, lastNightSubjectiveData }) => {
   const viewingToday = isToday(selectedDate);
-  const dateStr = selectedDate && (typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0]);
+  const dateStr = selectedDate && (typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate));
   const hasSubjectiveScores = viewingToday && lastNightSubjectiveData && ((trackTiredness && lastNightSubjectiveData.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData.dream_vividness_score != null));
 
   const syncedTodayNoData = viewingToday && hasPermissions && lastSyncResult?.success && lastSyncResult?.resultType === 'SUCCESS_NO_DATA';
@@ -111,7 +111,7 @@ const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermis
         {(trackTiredness || trackDreamVividness) && isToday(selectedDate) && onOpenSleepQualityLog && (
           <TouchableOpacity
             style={styles.howDidYouFeelCTA}
-            onPress={() => onOpenSleepQualityLog(getYesterday())}
+            onPress={() => onOpenSleepQualityLog(getToday())}
             activeOpacity={0.7}
           >
             <Ionicons name="happy-outline" size={18} color={colors.primary} />
@@ -151,9 +151,10 @@ const SleepDataCard = ({
   lastNightSubjectiveData,
 }) => {
   const viewingToday = isToday(selectedDate);
-  const sleepDateStr = sleepData?.date || (selectedDate && (typeof selectedDate === 'string' ? selectedDate : selectedDate.toISOString().split('T')[0]));
-  // When viewing today, "how you felt" is stored on yesterday's row (last night)
-  const subjectiveSource = viewingToday && lastNightSubjectiveData ? lastNightSubjectiveData : sleepData;
+  const sleepDateStr = sleepData?.date || (selectedDate && (typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate)));
+  // When viewing today, always read subjective values from last night's row only.
+  // Do not fall back to today's sleep row, otherwise UI can show stale/mismatched scores.
+  const subjectiveSource = viewingToday ? lastNightSubjectiveData : sleepData;
   const hasSubjectiveScores = (trackTiredness && subjectiveSource?.tiredness_score != null) || (trackDreamVividness && subjectiveSource?.dream_vividness_score != null);
 
   return (
@@ -259,16 +260,16 @@ const SleepDataCard = ({
             )}
 
             {trackTiredness && subjectiveSource?.tiredness_score != null && (
-              renderSleepMetricRow('Tiredness', `${subjectiveSource.tiredness_score}/10`, null, null, null, null, 'tiredness')
+              renderSleepMetricRow('Refreshed feeling', `${subjectiveSource.tiredness_score}/10`, null, null, null, null, 'tiredness')
             )}
             {trackDreamVividness && subjectiveSource?.dream_vividness_score != null && (
-              renderSleepMetricRow('Dream vividness', `${subjectiveSource.dream_vividness_score}/10`, null, null, null, null, 'dream-vividness')
+              renderSleepMetricRow('Dream strength', `${subjectiveSource.dream_vividness_score}/10`, null, null, null, null, 'dream-vividness')
             )}
 
             {(trackTiredness || trackDreamVividness) && viewingToday && onOpenSleepQualityLog && (
               <TouchableOpacity
                 style={styles.howDidYouFeelCTA}
-                onPress={() => onOpenSleepQualityLog(getYesterday())}
+                onPress={() => onOpenSleepQualityLog(getToday())}
                 activeOpacity={0.7}
               >
                 <Ionicons name="happy-outline" size={18} color={colors.primary} />
@@ -472,7 +473,7 @@ const AVERAGE_SLEEP_PERCENTAGES = {
   awakenings_count: 1.5, // Average number of awakenings per night
 };
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getToday, getYesterday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo } from '../utils/dateHelpers';
+import { getToday, getYesterday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo, formatDateForDB } from '../utils/dateHelpers';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
@@ -529,8 +530,11 @@ const HomeScreen = () => {
   const [showNewSleepBanner, setShowNewSleepBanner] = useState(false);
   const [trackTiredness, setTrackTiredness] = useState(false);
   const [trackDreamVividness, setTrackDreamVividness] = useState(false);
-  // When viewing "today", subjective scores live on yesterday's sleep row (last night)
+  // When viewing "today", subjective scores live on today's sleep row (last night = wake date)
   const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
+  const lastNightSubjectiveDataRef = useRef(null);
+  // Optimistic scores passed back from SleepQualityLog; prefer over stale RPC until server catches up
+  const optimisticSubjectiveScoresRef = useRef(null);
   // Minimal habits list from dashboard RPC for passing to Habit Logging (instant names/icons)
   const [dashboardHabits, setDashboardHabits] = useState([]);
   // Last sync attempt for today (persisted) so no-data card can show "Last checked: ..."
@@ -538,7 +542,12 @@ const HomeScreen = () => {
 
   const justSyncedRef = useRef(false);
   const lastSyncResultRef = useRef(null);
-  const lastDashboardPayloadRef = useRef(null);
+  const lastDashboardPayloadByDateRef = useRef(new Map());
+  const renderedDashboardDateRef = useRef(null);
+  const fetchedDateKeysRef = useRef(new Set());
+  const inFlightDashboardByDateRef = useRef(new Map());
+  const firstHomeFocusHandledRef = useRef(false);
+  const focusFetchDebounceRef = useRef({ dateStr: null, timestamp: 0 });
   const sleepCardOpacity = useRef(new Animated.Value(0)).current;
   // Cooldown: don't start another auto-sync for the same date within this many ms
   const AUTO_SYNC_COOLDOWN_MS = 2 * 60 * 1000;
@@ -563,16 +572,23 @@ const HomeScreen = () => {
 
   const getDateString = useCallback((date) => {
     if (!date) return null;
-    return typeof date === 'string' ? date : date.toISOString().split('T')[0];
+    return typeof date === 'string' ? date : formatDateForDB(date);
+  }, []);
+
+  const isValidDashboardPayload = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    if (payload.error) return false;
+    if (!Object.prototype.hasOwnProperty.call(payload, 'sleep_record')) return false;
+    if (!payload.habit_counts || typeof payload.habit_counts !== 'object') return false;
+    if (!Object.prototype.hasOwnProperty.call(payload.habit_counts, 'logged_count')) return false;
+    if (!Object.prototype.hasOwnProperty.call(payload.habit_counts, 'total_active_count')) return false;
+    if (!Object.prototype.hasOwnProperty.call(payload, 'habits_logged')) return false;
+    if (!Object.prototype.hasOwnProperty.call(payload, 'todays_habits_logged')) return false;
+    return true;
   }, []);
 
   const applyDashboardPayload = useCallback((payload, dateStr) => {
-    if (!payload || payload.error) return;
-    try {
-      const serialized = JSON.stringify(payload);
-      if (lastDashboardPayloadRef.current === serialized) return;
-      lastDashboardPayloadRef.current = serialized;
-    } catch (_) {}
+    if (!isValidDashboardPayload(payload)) return;
     const sleepRecord = payload.sleep_record && typeof payload.sleep_record === 'object' && payload.sleep_record.id != null ? payload.sleep_record : null;
     setSleepData(sleepRecord);
     setIsExcluded(sleepRecord?.exclude_from_insights || false);
@@ -587,7 +603,30 @@ const HomeScreen = () => {
     setTrackTiredness(payload.user_prefs?.track_tiredness === true);
     setTrackDreamVividness(payload.user_prefs?.track_dream_vividness === true);
     const lastNight = payload.last_night_subjective;
-    setLastNightSubjectiveData(lastNight && (lastNight.tiredness_score != null || lastNight.dream_vividness_score != null) ? lastNight : null);
+    const hasPayloadScores = lastNight && (lastNight.tiredness_score != null || lastNight.dream_vividness_score != null);
+    const viewingToday = dateStr === getToday();
+    const optimistic = optimisticSubjectiveScoresRef.current;
+    let nextSubjective = null;
+    if (viewingToday && optimistic) {
+      const payloadMatchesOptimistic = hasPayloadScores &&
+        lastNight.tiredness_score === optimistic.tiredness_score &&
+        lastNight.dream_vividness_score === optimistic.dream_vividness_score;
+      if (payloadMatchesOptimistic) {
+        optimisticSubjectiveScoresRef.current = null;
+        nextSubjective = hasPayloadScores ? lastNight : null;
+      } else {
+        nextSubjective = (optimistic.tiredness_score != null || optimistic.dream_vividness_score != null) ? optimistic : null;
+      }
+    } else {
+      const keepCurrentSubjective = viewingToday && !hasPayloadScores && lastNightSubjectiveDataRef.current && (lastNightSubjectiveDataRef.current.tiredness_score != null || lastNightSubjectiveDataRef.current.dream_vividness_score != null);
+      nextSubjective = keepCurrentSubjective ? lastNightSubjectiveDataRef.current : (hasPayloadScores ? lastNight : null);
+    }
+    setLastNightSubjectiveData(nextSubjective);
+    console.warn('[Home] Subjective payload applied', {
+      dateStr,
+      lastNightSubjective: payload.last_night_subjective,
+      displaySubjective: lastNight && (lastNight.tiredness_score != null || lastNight.dream_vividness_score != null) ? lastNight : null,
+    });
     const loggedDatesRaw = payload.logged_dates;
     const loggedDatesArray = Array.isArray(loggedDatesRaw)
       ? loggedDatesRaw
@@ -598,31 +637,90 @@ const HomeScreen = () => {
     setHabitsLogged(payload.habits_logged === true);
     setTodaysHabitsLogged(payload.todays_habits_logged === true);
     setDashboardHabits(Array.isArray(payload.habits) ? payload.habits : []);
-  }, []);
+    renderedDashboardDateRef.current = dateStr || null;
+    if (dateStr) {
+      try {
+        lastDashboardPayloadByDateRef.current.set(dateStr, JSON.stringify(payload));
+      } catch (_) {}
+    }
+  }, [isValidDashboardPayload]);
+
+  useEffect(() => {
+    lastNightSubjectiveDataRef.current = lastNightSubjectiveData;
+  }, [lastNightSubjectiveData]);
 
   const fetchDashboard = useCallback(async (opts = {}) => {
-    const { background = false } = opts;
+    const { background = false, retryAttempt = 0 } = opts;
+    const MAX_STARTUP_RETRIES = 2;
+    const RETRY_BASE_DELAY_MS = 450;
+    const DASHBOARD_RPC_TIMEOUT_MS = 10000;
     if (!user?.id) return;
     const dateStr = getDateString(selectedDate);
     if (!dateStr) return;
+    const existingInFlight = inFlightDashboardByDateRef.current.get(dateStr);
+    if (existingInFlight) {
+      console.warn('[Home] fetchDashboard deduped in-flight request', { dateStr, background, retryAttempt });
+      if (!background) {
+        setLoading(true);
+        try {
+          await existingInFlight;
+        } finally {
+          setLoading(false);
+        }
+      }
+      return;
+    }
     if (!background) setLoading(true);
-    try {
-      const { data, error } = await supabase.rpc('get_home_dashboard_data', {
+    const requestId = `${dateStr}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    console.warn('[Home] fetchDashboard start', { requestId, dateStr, background, retryAttempt, userId: user?.id });
+    const runPromise = (async () => {
+      try {
+      let timeoutId = null;
+      const rpcPromise = supabase.rpc('get_home_dashboard_data', {
         p_user_id: user.id,
         p_date: dateStr,
       });
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('dashboard_rpc_timeout')), DASHBOARD_RPC_TIMEOUT_MS);
+      });
+      const { data, error } = await Promise.race([rpcPromise, timeoutPromise]);
+      if (timeoutId) clearTimeout(timeoutId);
       if (error) {
         console.warn('[Home] Dashboard RPC error:', error?.message || error);
         throw error;
       }
       if (data?.error) {
         console.warn('[Home] Dashboard RPC returned error:', data.error);
+        const isAuthWarmup = String(data.error).toLowerCase().includes('unauthorized');
+        if (isAuthWarmup && retryAttempt < MAX_STARTUP_RETRIES) {
+          const retryDelay = RETRY_BASE_DELAY_MS * (retryAttempt + 1);
+          console.warn('[Home] Dashboard unauthorized during startup, retrying', {
+            retryAttempt: retryAttempt + 1,
+            retryDelay,
+            dateStr,
+          });
+          setTimeout(() => {
+            fetchDashboard({ background, retryAttempt: retryAttempt + 1 });
+          }, retryDelay);
+          return;
+        }
+        if (!background) setLoading(false);
+        console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'rpc_error_payload' });
+        return;
+      }
+      if (!isValidDashboardPayload(data)) {
+        console.warn('[Home] Dashboard RPC returned invalid payload shape');
+        if (!background) setLoading(false);
+        console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'invalid_payload' });
         return;
       }
       try {
         const serialized = JSON.stringify(data);
-        if (lastDashboardPayloadRef.current === serialized) {
+        const prevSerialized = lastDashboardPayloadByDateRef.current.get(dateStr);
+        const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
+        if (prevSerialized === serialized && isAlreadyRenderedForDate) {
           if (!background) setLoading(false);
+          console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'duplicate_payload' });
           return;
         }
       } catch (_) {}
@@ -661,6 +759,7 @@ const HomeScreen = () => {
         }
       })();
       if (!background) setLoading(false);
+      console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'applied' });
       insightsService.getHomeInsightsWithSummary(user.id, 10).then(({ topInsights: top, summaryByMetric }) => {
         setTopInsights(top);
         setInsightsSummaryByMetric(summaryByMetric);
@@ -670,9 +769,34 @@ const HomeScreen = () => {
       });
     } catch (err) {
       console.warn('[Home] Dashboard fetch failed:', err?.message || err);
+      const message = String(err?.message || '');
+      const isLikelyAuthWarmup =
+        /unauthorized|jwt|auth session missing|invalid jwt/i.test(message);
+      if (isLikelyAuthWarmup && retryAttempt < MAX_STARTUP_RETRIES) {
+        const retryDelay = RETRY_BASE_DELAY_MS * (retryAttempt + 1);
+        console.warn('[Home] Dashboard fetch auth warmup retry', {
+          retryAttempt: retryAttempt + 1,
+          retryDelay,
+          dateStr,
+        });
+        setTimeout(() => {
+          fetchDashboard({ background, retryAttempt: retryAttempt + 1 });
+        }, retryDelay);
+        return;
+      }
       if (!background) setLoading(false);
+      console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'exception', error: String(err?.message || err) });
+    } finally {
+      const current = inFlightDashboardByDateRef.current.get(dateStr);
+      if (current === runPromise) {
+        inFlightDashboardByDateRef.current.delete(dateStr);
+      }
     }
-  }, [user?.id, selectedDate, getDateString, applyDashboardPayload]);
+    })();
+
+    inFlightDashboardByDateRef.current.set(dateStr, runPromise);
+    await runPromise;
+  }, [user?.id, selectedDate, getDateString, applyDashboardPayload, isValidDashboardPayload]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -687,19 +811,48 @@ const HomeScreen = () => {
     }, [])
   );
 
+  // On first Home focus in a fresh app session, always center on today.
+  // This prevents reopening the app into an old date context.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (firstHomeFocusHandledRef.current) return;
+      firstHomeFocusHandledRef.current = true;
+      const todayStr = getToday();
+      const currentStr = getDateString(selectedDate);
+      if (currentStr !== todayStr) {
+        safeSetSelectedDate(new Date(`${todayStr}T12:00:00`));
+      }
+    }, [selectedDate, getDateString])
+  );
+
   useFocusEffect(
     React.useCallback(() => {
       if (!user) return;
       const dateStr = getDateString(selectedDate);
       if (!dateStr) return;
+      const subjectiveJustSaved = homeCacheService.getAndClearSubjectiveJustSavedForToday();
+      const pendingScores = homeCacheService.getAndClearPendingSubjectiveScoresForToday();
+      if (pendingScores != null && dateStr === getToday()) {
+        const hasAny = pendingScores.tiredness_score != null || pendingScores.dream_vividness_score != null;
+        setLastNightSubjectiveData(hasAny ? pendingScores : null);
+        optimisticSubjectiveScoresRef.current = hasAny ? pendingScores : null;
+      }
+      if (subjectiveJustSaved && dateStr === getToday()) {
+        lastDashboardPayloadByDateRef.current.delete(dateStr);
+      }
+      // When user just saved subjective scores for today, don't apply persisted cache —
+      // it may still be stale; we'll fetch fresh so the homepage shows updated scores.
+      const skipCacheForSubjectiveRefresh = subjectiveJustSaved && dateStr === getToday();
       let cancelled = false;
       homeCacheService.getPersistedDashboardPayload(user.id, dateStr).then((cached) => {
         if (cancelled) return;
-        if (cached && !cached.error) {
+        const hasUsableCache = !skipCacheForSubjectiveRefresh && isValidDashboardPayload(cached);
+        if (hasUsableCache) {
           try {
             const serialized = JSON.stringify(cached);
-            if (lastDashboardPayloadRef.current !== serialized) {
-              lastDashboardPayloadRef.current = serialized;
+            const prevSerialized = lastDashboardPayloadByDateRef.current.get(dateStr);
+            const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
+            if (prevSerialized !== serialized || !isAlreadyRenderedForDate) {
               applyDashboardPayload(cached, dateStr);
             }
           } catch (_) {
@@ -708,11 +861,36 @@ const HomeScreen = () => {
           setLoading(false);
         } else {
           setLoading(true);
+          if (skipCacheForSubjectiveRefresh) {
+            console.warn('[Home] Skipped cache after subjective save; fetching fresh data', { dateStr });
+          }
         }
-        fetchDashboard({ background: !!cached });
+        console.warn('[Home] cache check', {
+          dateStr,
+          hasCache: !!cached,
+          hasUsableCache,
+        });
+        const alreadyFetchedForDate = fetchedDateKeysRef.current.has(dateStr);
+        if (!alreadyFetchedForDate) {
+          fetchedDateKeysRef.current.add(dateStr);
+        }
+        const now = Date.now();
+        if (
+          focusFetchDebounceRef.current.dateStr === dateStr &&
+          now - focusFetchDebounceRef.current.timestamp < 700
+        ) {
+          console.warn('[Home] fetchDashboard skipped by focus debounce', { dateStr });
+          return;
+        }
+        focusFetchDebounceRef.current = { dateStr, timestamp: now };
+        // After saving subjective scores, force foreground fetch so we show fresh data.
+        // Otherwise use background when cache is usable and we've already fetched this date.
+        const forceForeground = subjectiveJustSaved && dateStr === getToday();
+        const shouldBackground = !forceForeground && hasUsableCache && alreadyFetchedForDate;
+        fetchDashboard({ background: shouldBackground });
       });
       return () => { cancelled = true; };
-    }, [user, selectedDate, getDateString, applyDashboardPayload, fetchDashboard])
+    }, [user, selectedDate, getDateString, applyDashboardPayload, fetchDashboard, isValidDashboardPayload])
   );
 
   useEffect(() => {
@@ -939,7 +1117,7 @@ const HomeScreen = () => {
       StatusBar.setTranslucent?.(true);
     }
     const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-    navigation.navigate('HabitLogging', { date: dateToUse.toISOString() });
+    navigation.navigate('HabitLogging', { date: formatDateForDB(dateToUse) });
   };
 
   const handleLogTodaysHabits = () => {
@@ -949,7 +1127,7 @@ const HomeScreen = () => {
     }
     const today = new Date();
     safeSetSelectedDate(today);
-    navigation.navigate('HabitLogging', { date: today.toISOString() });
+    navigation.navigate('HabitLogging', { date: formatDateForDB(today) });
   };
 
   const handleSyncNow = async () => {
@@ -1102,7 +1280,7 @@ const HomeScreen = () => {
   };
 
   // Cache management functions
-  const getCacheKey = (date) => typeof date === 'string' ? date : date.toISOString().split('T')[0];
+  const getCacheKey = (date) => typeof date === 'string' ? date : formatDateForDB(date);
 
   const updateSleepDataCache = (date, data) => {
     const key = getCacheKey(date);
@@ -1265,7 +1443,7 @@ const HomeScreen = () => {
         .from('sleep_data')
         .select('*')
         .eq('user_id', user.id)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+        .gte('date', formatDateForDB(thirtyDaysAgo))
         .order('date', { ascending: false });
 
       if (error) throw error;
