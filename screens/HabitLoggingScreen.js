@@ -12,6 +12,7 @@ import {
   InteractionManager,
   FlatList,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -40,7 +41,6 @@ import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/date
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
-import PageLoadingView from '../components/PageLoadingView';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -51,27 +51,59 @@ const EMPTY_CONSUMPTION_EVENTS = [];
 const getDateString = (date) => getDateStr(date);
 const collapsedConsumptionKey = (uid) => `habit_logging_collapsed_${uid}`;
 
-const HabitLoggingScreen = () => {
-  const navigation = useNavigation();
-  const route = useRoute();
+function normalizeHabitForPayload(h) {
+  return {
+    ...h,
+    is_custom: h.is_custom === true || h.is_custom === 'true',
+    is_pinned: h.is_pinned === true || h.is_pinned === 'true',
+    priority: h.priority ?? 0,
+  };
+}
+
+function payloadToInitialState(payload) {
+  if (!payload || payload.error) return null;
+  const habitsList = Array.isArray(payload.habits) ? payload.habits : [];
+  const normalized = habitsList.map(normalizeHabitForPayload);
+  const logsMap = typeof payload.logs === 'object' && payload.logs !== null ? { ...payload.logs } : {};
+  normalized
+    .filter(h => h.type === 'binary' && (h.log_as_no_by_default === true || h.log_as_no_by_default === 'true'))
+    .forEach(h => { if (logsMap[h.id] === undefined) logsMap[h.id] = 'no'; });
+  return {
+    habits: normalized,
+    habitLogs: logsMap,
+    habitLogCountsByValue: typeof payload.habit_log_counts_by_value === 'object' && payload.habit_log_counts_by_value !== null ? payload.habit_log_counts_by_value : {},
+    consumptionEvents: typeof payload.consumption_events === 'object' && payload.consumption_events !== null ? payload.consumption_events : {},
+  };
+}
+
+const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) => {
+  const routeFromHook = useRoute();
+  const navigationFromHook = useNavigation();
+  const route = routeProp ?? routeFromHook;
+  const navigation = navigationProp ?? navigationFromHook;
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
   const setSelectedDate = dateHeader?.setSelectedDate ?? (() => {});
 
-  const [habits, setHabits] = useState([]);
-  const [habitLogs, setHabitLogs] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [habitLogCountsByValue, setHabitLogCountsByValue] = useState({});
-  const [consumptionEvents, setConsumptionEvents] = useState({});
+  // Bootstrap from in-memory cache on first paint so we often show content immediately (no spinner)
+  const routeDateStr = typeof route.params?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(route.params.date) ? route.params.date : null;
+  const inMemoryBoot = user?.id && routeDateStr ? getInMemoryState(user.id, routeDateStr) : null;
+  const bootState = inMemoryBoot && !inMemoryBoot.error ? payloadToInitialState(inMemoryBoot) : null;
+
+  const [habits, setHabits] = useState(bootState?.habits ?? []);
+  const [habitLogs, setHabitLogs] = useState(bootState?.habitLogs ?? {});
+  const [loading, setLoading] = useState(!bootState);
+  const [habitLogCountsByValue, setHabitLogCountsByValue] = useState(bootState?.habitLogCountsByValue ?? {});
+  const [consumptionEvents, setConsumptionEvents] = useState(bootState?.consumptionEvents ?? {});
   const [consumptionEventsLoading, setConsumptionEventsLoading] = useState(false);
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const [collapsedConsumption, setCollapsedConsumption] = useState({});
   const selectedDateRef = useRef(selectedDate);
   const appliedQuickConsumptionDefaultsRef = useRef(new Set());
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
-  const habitLogsForDateRef = useRef(null);
+  const habitLogsForDateRef = useRef(bootState ? routeDateStr : null);
 
   // Load persisted collapse state for Caffeine/Alcohol sections
   useEffect(() => {
@@ -154,20 +186,22 @@ const HabitLoggingScreen = () => {
     setConsumptionEventsLoading(false);
   }, []);
 
-  // First paint is always loading shell so navigation transition is fast. Then apply in-memory/cache/RPC after.
+  // Load data: only show loading when we don't have in-memory; apply in-memory immediately, then async cache + RPC.
   useEffect(() => {
     if (!user) return;
 
     const dateStr = getDateString(selectedDate);
-    setLoading(true);
-    setConsumptionEventsLoading(true);
+    const inMemory = getInMemoryState(user.id, dateStr);
+    const hasInMemory = inMemory && !inMemory.error;
+    if (!hasInMemory) {
+      setLoading(true);
+      setConsumptionEventsLoading(true);
+    }
 
     let cancelled = false;
     const task = InteractionManager.runAfterInteractions(() => {
       if (cancelled) return;
-      // Apply in-memory state so content appears right after first frame (no AsyncStorage wait)
-      const inMemory = getInMemoryState(user.id, dateStr);
-      if (inMemory && !inMemory.error) {
+      if (hasInMemory) {
         applyHabitLoggingPayload(inMemory, dateStr);
         setLoading(false);
         setConsumptionEventsLoading(false);
@@ -569,12 +603,31 @@ const HabitLoggingScreen = () => {
     return formatDateRange(previousDate, date);
   };
 
+  const statusBarHeight = Constants.statusBarHeight ?? 24;
+  const minimalHeaderTop = insets.top > 0 ? statusBarHeight : 0;
+
   return (
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
-      <ScrollableDateHeaderBar />
       {loading ? (
-        <PageLoadingView />
+        <>
+          <View style={[styles.minimalHeaderBlock, { paddingTop: minimalHeaderTop }]}>
+            <View style={styles.minimalHeaderInner}>
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.minimalBackButton}>
+                <Ionicons name="chevron-back" size={24} color={colors.white} />
+              </TouchableOpacity>
+              <Text style={styles.minimalHeaderTitle}>Log habits</Text>
+            </View>
+          </View>
+          <View style={styles.minimalLoadingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        </>
       ) : (
+      <>
+      <ScrollableDateHeaderBar
+        showBackButton={!!routeProp}
+        onBackPress={routeProp ? () => navigation.goBack() : undefined}
+      />
       <FlatList
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -662,6 +715,17 @@ const HabitLoggingScreen = () => {
                         setLevelRefreshKey((k) => k + 1);
                         refreshConsumptionEvents();
                       }}
+                      onOpenLogConsumption={(params) => {
+                        navigation.navigate('LogConsumption', {
+                          ...params,
+                          userId: user?.id,
+                          onSaveSuccess: () => {
+                            drugLevelService.invalidateLevelNowCache(user?.id, habit.id);
+                            setLevelRefreshKey((k) => k + 1);
+                            refreshConsumptionEvents();
+                          },
+                        });
+                      }}
                       yesNoCounts={habitLogCountsByValue[habit.id]}
                     />
                     {isCaffeineOrAlcohol && (
@@ -680,14 +744,47 @@ const HabitLoggingScreen = () => {
           );
         }}
       />
+      </>
       )}
     </View>
   );
 };
 
+const MINIMAL_HEADER_RADIUS = 12;
+
 const styles = StyleSheet.create({
   bodyWrap: {
     flex: 1,
+    backgroundColor: colors.background,
+  },
+  minimalHeaderBlock: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: MINIMAL_HEADER_RADIUS,
+    borderBottomRightRadius: MINIMAL_HEADER_RADIUS,
+    overflow: 'hidden',
+    marginBottom: 8,
+    zIndex: 10,
+    elevation: 10,
+  },
+  minimalHeaderInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 4,
+  },
+  minimalBackButton: {
+    padding: spacing.xs,
+  },
+  minimalHeaderTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.semibold,
+    color: colors.white,
+  },
+  minimalLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: colors.background,
   },
   scrollView: {
@@ -698,10 +795,10 @@ const styles = StyleSheet.create({
     paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   dateRange: {
-    fontSize: typography.sizes.small,
+    fontSize: typography.sizes.xs,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginVertical: spacing.sm,
+    marginVertical: spacing.xs,
     paddingHorizontal: spacing.regular,
   },
   habitsContainer: {
@@ -709,24 +806,24 @@ const styles = StyleSheet.create({
   },
   habitRow: {
     backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+    borderRadius: 10,
     padding: spacing.sm,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
-    minHeight: 56,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
   },
   habitInfo: {
     flex: 1,
-    marginRight: spacing.md,
+    marginRight: spacing.sm,
   },
   habitName: {
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   habitStats: {
     fontSize: typography.sizes.xs,
@@ -748,7 +845,7 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
   },
   habitRowCollapsed: {
-    minHeight: 56,
+    minHeight: 48,
   },
   habitInputFullWidth: {
     width: '100%',
@@ -757,7 +854,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   drugHabitHeaderLeft: {
     flex: 1,

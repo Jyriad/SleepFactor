@@ -37,10 +37,8 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   />
 );
 
-const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo, trackTiredness, trackDreamVividness, onOpenSleepQualityLog, lastNightSubjectiveData }) => {
+const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo }) => {
   const viewingToday = isToday(selectedDate);
-  const dateStr = selectedDate && (typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate));
-  const hasSubjectiveScores = viewingToday && lastNightSubjectiveData && ((trackTiredness && lastNightSubjectiveData.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData.dream_vividness_score != null));
 
   const syncedTodayNoData = viewingToday && hasPermissions && lastSyncResult?.success && lastSyncResult?.resultType === 'SUCCESS_NO_DATA';
   const persistedNoData = viewingToday && hasPermissions && lastAttemptForToday?.outcome === 'no_data';
@@ -109,16 +107,6 @@ const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermis
             <Text style={styles.connectButtonText}>Connect Health App</Text>
           </TouchableOpacity>
         )}
-        {(trackTiredness || trackDreamVividness) && isToday(selectedDate) && onOpenSleepQualityLog && (
-          <TouchableOpacity
-            style={styles.howDidYouFeelCTA}
-            onPress={() => onOpenSleepQualityLog(getToday())}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="happy-outline" size={18} color={colors.primary} />
-            <Text style={styles.howDidYouFeelCTAText}>{hasSubjectiveScores ? 'Edit how you felt +' : 'Add how you felt +'}</Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -146,18 +134,8 @@ const SleepDataCard = ({
   onExclude,
   onInclude,
   containerStyle,
-  trackTiredness,
-  trackDreamVividness,
-  onOpenSleepQualityLog,
-  lastNightSubjectiveData,
 }) => {
   const viewingToday = isToday(selectedDate);
-  const sleepDateStr = sleepData?.date || (selectedDate && (typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate)));
-  // When viewing today, always read subjective values from last night's row only.
-  // Do not fall back to today's sleep row, otherwise UI can show stale/mismatched scores.
-  const subjectiveSource = viewingToday ? lastNightSubjectiveData : sleepData;
-  const hasSubjectiveScores = (trackTiredness && subjectiveSource?.tiredness_score != null) || (trackDreamVividness && subjectiveSource?.dream_vividness_score != null);
-
   return (
     <View style={[styles.sleepCard, containerStyle]}>
       <View style={styles.sleepCardHeader}>
@@ -260,25 +238,6 @@ const SleepDataCard = ({
               renderSleepMetricRow('Sleep Score', `${sleepData.sleep_score}/100`, null, null, null, null, 'sleep-score')
             )}
 
-            {trackTiredness && subjectiveSource?.tiredness_score != null && (
-              renderSleepMetricRow('Refreshed feeling', `${subjectiveSource.tiredness_score}/10`, null, null, null, null, 'tiredness')
-            )}
-            {trackDreamVividness && subjectiveSource?.dream_vividness_score != null && (
-              renderSleepMetricRow('Dream strength', `${subjectiveSource.dream_vividness_score}/10`, null, null, null, null, 'dream-vividness')
-            )}
-
-            {(trackTiredness || trackDreamVividness) && viewingToday && onOpenSleepQualityLog && (
-              <TouchableOpacity
-                style={styles.howDidYouFeelCTA}
-                onPress={() => onOpenSleepQualityLog(getToday())}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="happy-outline" size={18} color={colors.primary} />
-                <Text style={styles.howDidYouFeelCTAText}>
-                  {hasSubjectiveScores ? 'Edit how you felt +' : 'Add how you felt +'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </>
         );
       })()}
@@ -688,6 +647,37 @@ const HomeScreen = () => {
     if (!background) setLoading(true);
     const requestId = `${dateStr}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     console.warn('[Home] fetchDashboard start', { requestId, dateStr, background, retryAttempt, userId: user?.id });
+
+    // Prefetch habit logging for today and yesterday in parallel so "Log habits" opens instantly
+    (async () => {
+      try {
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const todayStr = getDateString(today);
+        const yesterdayStr = getDateString(yesterday);
+        const [resToday, resYesterday] = await Promise.all([
+          supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: todayStr }),
+          supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: yesterdayStr }),
+        ]);
+        if (resToday?.data && !resToday?.error) {
+          await setHabitLoggingCache(user.id, todayStr, resToday.data);
+          setHabitLoggingMemory(user.id, todayStr, resToday.data);
+          const consumptionHabits = (resToday.data.habits || []).filter(
+            (h) => h.type === 'drug' || h.type === 'quick_consumption'
+          );
+          consumptionHabits.forEach((h) => consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {}));
+          consumptionHabits.forEach((h) => drugLevelService.getLevelNow(user.id, h).catch(() => {}));
+        }
+        if (resYesterday?.data && !resYesterday?.error) {
+          await setHabitLoggingCache(user.id, yesterdayStr, resYesterday.data);
+          setHabitLoggingMemory(user.id, yesterdayStr, resYesterday.data);
+        }
+      } catch (e) {
+        console.warn('[Home] Habit logging prefetch failed', e?.message || e);
+      }
+    })();
+
     const runPromise = (async () => {
       try {
       let timeoutId = null;
@@ -743,37 +733,6 @@ const HomeScreen = () => {
       homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, data);
       console.warn('[Home] Dashboard loaded: logged_count=', data?.habit_counts?.logged_count, 'logged_dates=', (data?.logged_dates?.length ?? 0));
       await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, data);
-      // Prefetch habit logging state for today and yesterday so Log habits opens instantly
-      (async () => {
-        try {
-          const today = new Date();
-          const yesterday = new Date(today);
-          yesterday.setDate(yesterday.getDate() - 1);
-          const todayStr = getDateString(today);
-          const yesterdayStr = getDateString(yesterday);
-          const [resToday, resYesterday] = await Promise.all([
-            supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: todayStr }),
-            supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: yesterdayStr }),
-          ]);
-          if (resToday?.data && !resToday?.error) {
-            await setHabitLoggingCache(user.id, todayStr, resToday.data);
-            setHabitLoggingMemory(user.id, todayStr, resToday.data);
-            // Prefetch consumption options so Caffeine/Alcohol rows don't show "Loading options..."
-            const consumptionHabits = (resToday.data.habits || []).filter(
-              (h) => h.type === 'drug' || h.type === 'quick_consumption'
-            );
-            consumptionHabits.forEach((h) => consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {}));
-            // Prefetch drug level for today so Caffeine/Alcohol "level right now" shows without delay
-            consumptionHabits.forEach((h) => drugLevelService.getLevelNow(user.id, h).catch(() => {}));
-          }
-          if (resYesterday?.data && !resYesterday?.error) {
-            await setHabitLoggingCache(user.id, yesterdayStr, resYesterday.data);
-            setHabitLoggingMemory(user.id, yesterdayStr, resYesterday.data);
-          }
-        } catch (e) {
-          console.warn('[Home] Habit logging prefetch failed', e?.message || e);
-        }
-      })();
       if (!background) setLoading(false);
       console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'applied' });
       // Defer insight calculation so dashboard and sleep card paint first
@@ -1595,6 +1554,46 @@ const HomeScreen = () => {
           />
         </View>
 
+        {/* How you felt - compact card just under habits, only when viewing today and tracking */}
+        {isToday(selectedDate) && (trackTiredness || trackDreamVividness) && (
+          <View style={styles.section}>
+            <View style={styles.howYouFeltCard}>
+              {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ? (
+                <View style={styles.howYouFeltRows}>
+                  {trackTiredness && lastNightSubjectiveData?.tiredness_score != null && (
+                    <View style={[styles.metricRow, styles.metricRowAlternate]}>
+                      <Text style={styles.metricLabel}>Refreshed feeling</Text>
+                      <View style={styles.metricValueContainer}>
+                        <Text style={styles.metricValue}>{lastNightSubjectiveData.tiredness_score}/10</Text>
+                      </View>
+                    </View>
+                  )}
+                  {trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null && (
+                    <View style={[styles.metricRow, styles.metricRowAlternate]}>
+                      <Text style={styles.metricLabel}>Dream strength</Text>
+                      <View style={styles.metricValueContainer}>
+                        <Text style={styles.metricValue}>{lastNightSubjectiveData.dream_vividness_score}/10</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              ) : null}
+              <TouchableOpacity
+                style={styles.howDidYouFeelCTACompact}
+                onPress={() => navigation.navigate('SleepQualityLog', { date: getToday() })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="happy-outline" size={16} color={colors.primary} />
+                <Text style={styles.howDidYouFeelCTATextCompact}>
+                  {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null)
+                    ? 'Edit how you felt +'
+                    : 'Add how you felt +'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Sleep Data Card - Fixed-height container so size never changes during sync */}
         <View style={styles.section}>
           <View style={styles.sleepSectionStable}>
@@ -1718,8 +1717,6 @@ const HomeScreen = () => {
           })()}
           </View>
         </View>
-
-        {/* Navigation Cards */}
 
         {/* Navigation Cards */}
         <View style={styles.section}>
@@ -1976,6 +1973,35 @@ const styles = StyleSheet.create({
   },
   sleepMetrics: {
     gap: 2, // Reduced from spacing.xs (4px) to 2px
+  },
+  howYouFeltCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 16,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  howYouFeltRows: {
+    marginBottom: spacing.xs,
+    gap: 2,
+  },
+  howDidYouFeelCTACompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  howDidYouFeelCTATextCompact: {
+    fontSize: typography.sizes.small,
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
   },
   howDidYouFeelRow: {
     flexDirection: 'row',

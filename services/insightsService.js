@@ -846,7 +846,18 @@ class InsightsService {
     const dataMaturityLabel = n < 20 ? 'Emerging Trend' : 'Significant Insight';
 
     if (correlation !== null) {
-      // For numerical habits: use correlation p-value
+      // For numerical habits: require minimum PAIRED data points (habit + sleep metric on same nights)
+      // Small n makes p-value and correlation strength unreliable (e.g. 3 points can show "strong" by chance)
+      if (n < this.MIN_DATA_POINTS) {
+        const pValue = calculateCorrelationPValue(correlation, n);
+        return {
+          confidenceLevel: 'none',
+          pValue: Math.round(pValue * 1000) / 1000,
+          isSignificant: false,
+          dataMaturityLabel
+        };
+      }
+
       const pValue = calculateCorrelationPValue(correlation, n);
 
       let confidenceLevel;
