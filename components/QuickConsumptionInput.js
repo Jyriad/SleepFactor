@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,53 +10,21 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { Picker } from 'react-native-wheel-pick';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { getPresetById } from '../constants/drugPresets';
-import { getDefaultVolumeForOptionInRegion } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
-import { formatVolume, getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
+import { formatVolume, getVolumeUnitLabel } from '../utils/unitConversion';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import Button from './Button';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
 import EditConsumptionOptionModal from './EditConsumptionOptionModal';
 
-// Memoized so parent re-renders don't touch the TextInput (avoids dropped keystrokes on Android).
-const CustomVolumeInput = memo(({ initialValue, valueRef, onBlur, placeholder, inputKey }) => (
-  <TextInput
-    key={inputKey}
-    style={styles.customVolumeInput}
-    defaultValue={initialValue}
-    onChangeText={(text) => { valueRef.current = text; }}
-    onBlur={onBlur}
-    placeholder={placeholder}
-    keyboardType="numeric"
-    maxLength={4}
-  />
-));
-
-// Isolated display for "→ X mg" so only this re-renders when the user types (parent and TextInput do not).
-const CustomAmountDisplay = forwardRef(({ initialAmount, unit }, ref) => {
-  const [amount, setAmount] = useState(initialAmount ?? 0);
-  useImperativeHandle(ref, () => ({
-    updateAmount: (value) => setAmount(value),
-  }), []);
-  useEffect(() => {
-    setAmount(initialAmount ?? 0);
-  }, [initialAmount]);
-  return (
-    <Text style={styles.customVolumeResult}>
-      {amount.toFixed(1)} {unit}
-    </Text>
-  );
-});
-
-const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded }) => {
+const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption }) => {
   const { preferences } = useUserPreferences();
   const measurementRegion = preferences.measurementRegion || 'metric';
   const measurementSystem = preferences.measurementSystem || 'metric';
@@ -66,10 +34,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const hasNoneEvent = consumptionEvents.some(event => event.drink_type === 'none');
   const isNoneSelected = hasNoneEvent;
 
-  const [showTimeModal, setShowTimeModal] = useState(false);
   const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
-  const [selectedHour, setSelectedHour] = useState(new Date().getHours());
-  const [selectedMinute, setSelectedMinute] = useState(new Date().getMinutes());
   // Initialize from cache so first paint shows options when cache is warm (no "Loading options..." flash)
   const [consumptionOptions, setConsumptionOptions] = useState(() => {
     if (!habit?.id) return [];
@@ -85,15 +50,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [showEditModal, setShowEditModal] = useState(false);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
-  const [selectedOption, setSelectedOption] = useState(null);
-  const [selectedServing, setSelectedServing] = useState(1); // Default to 1 serving
-  const [showCustomVolume, setShowCustomVolume] = useState(false);
-  const [customVolume, setCustomVolume] = useState('');
-  const [customDrugAmount, setCustomDrugAmount] = useState(0);
-  const [quickAddAmount, setQuickAddAmount] = useState('');
-  const [editingEvent, setEditingEvent] = useState(null);
-  const customVolumeRef = useRef('');
-  const customAmountDisplayRef = useRef(null);
+  const [selectedOption, setSelectedOption] = useState(null); // For long-press edit option modal only
 
   // Fetch options when not in cache (initial state already used cache for first paint)
   useEffect(() => {
@@ -170,44 +127,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
   const handleDeleteOption = (optionId) => {
     setConsumptionOptions(prev => prev.filter(option => option.id !== optionId));
-  };
-
-  // Quick consumption function for one-time additions
-  const addQuickConsumption = async (consumptionTime, customAmount = null) => {
-    try {
-      const defaultAmount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1;
-      const amount = customAmount || parseFloat(quickAddAmount) || defaultAmount;
-
-      const result = await supabase
-        .from('habit_consumption_events')
-        .insert({
-          habit_id: habit?.id,
-          user_id: userId,
-          consumed_at: consumptionTime.toISOString(),
-          amount,
-          drink_type: null, // No specific option for quick add
-        });
-
-      if (result.error) {
-        Alert.alert('Error', 'Failed to add consumption');
-      } else {
-        // Clear None selection since we're adding consumption
-
-        // Immediately update the bedtime drug level in habit_logs
-        try {
-          await updateBedtimeDrugLevel(habit?.id, selectedDate);
-        } catch (levelError) {
-          // Don't block the consumption logging if level calculation fails
-        }
-
-        // Refresh the habit data to show the new consumption
-        if (onConsumptionAdded) {
-          onConsumptionAdded();
-        }
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add consumption');
-    }
   };
 
   // Calculate and update bedtime drug level after consumption events change
@@ -331,38 +250,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     return null; // No default volume
   };
 
-  const calculateCustomDrugAmount = (volumeMl) => {
-    if (!selectedOption || !selectedOption.drug_amount) return 0;
-    if (volumeMl == null || volumeMl <= 0) return 0;
-
-    // Canonical default_volume (ml) - use ratio calculation
-    const refVolume = selectedOption.default_volume;
-    if (refVolume) {
-      const calculated = (volumeMl / refVolume) * selectedOption.drug_amount;
-      return Math.round(calculated * 10) / 10;
-    }
-    return Math.round(volumeMl * 10) / 10;
-  };
-
-  /** Default volume (ml) for one serving in the user's region; falls back to option.default_volume. */
-  const getEffectiveDefaultVolume = (option) => {
-    if (!option) return null;
-    const regionVol = getDefaultVolumeForOptionInRegion(option.name, habit?.name, measurementRegion);
-    return regionVol ?? option.default_volume ?? null;
-  };
-
-  const handleCustomVolumeBlur = useCallback(() => {
-    const inputUnit = getVolumeUnitLabel(measurementSystem);
-    const volumeMl = parseVolumeInputToMl(customVolumeRef.current, measurementSystem, inputUnit);
-    const calculatedAmount = calculateCustomDrugAmount(volumeMl);
-    customAmountDisplayRef.current?.updateAmount(calculatedAmount);
-  }, [measurementSystem, selectedOption?.id]);
-
-  const effectiveDefaultVolForDisplay = selectedOption ? getEffectiveDefaultVolume(selectedOption) : null;
-  const customVolumePlaceholder = effectiveDefaultVolForDisplay
-    ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem)
-    : '100';
-
   const selectConsumptionOption = (option) => {
     const isNoneOption = option.drug_amount === 0;
 
@@ -465,274 +352,14 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       return;
     }
 
-    // Selecting a non-None option - just open the modal, don't clear None selection yet
-    // None selection will only be cleared when consumption is actually logged
-
-    // If "None" was selected (no consumption events), selecting another option will add the first consumption
-    // Use database values directly - no hardcoded fallbacks
+    // Selecting a non-None option: open dedicated Log Consumption screen
     const optionWithDefaults = {
       ...option,
       default_volume: option.default_volume,
       serving_unit: option.serving_unit || 'ml',
       serving_options: option.serving_options || [0.5, 1, 1.5, 2]
     };
-
-
-    setSelectedOption(optionWithDefaults);
-    setSelectedServing(1); // Reset to default serving
-    setShowCustomVolume(false); // Reset custom volume
-    setCustomVolume('');
-    setCustomDrugAmount(0);
-    setSelectedConsumptionType(option.id);
-    const now = new Date();
-    setSelectedHour(now.getHours());
-    setSelectedMinute(now.getMinutes());
-    setShowTimeModal(true);
-  };
-
-  const handleHourChange = (value) => {
-    setSelectedHour(parseInt(value));
-  };
-
-  const handleMinuteChange = (value) => {
-    setSelectedMinute(parseInt(value));
-  };
-
-  const quickAddConsumption = (consumptionType, timeOfDay) => {
-    let hour;
-    switch (timeOfDay) {
-      case 'morning':
-        hour = 8; // 8 AM
-        break;
-      case 'afternoon':
-        hour = 14; // 2 PM
-        break;
-      case 'evening':
-        hour = 18; // 6 PM
-        break;
-      default:
-        hour = 12; // Noon
-    }
-
-    const consumptionTime = new Date(selectedDate);
-    consumptionTime.setHours(hour, 0, 0, 0);
-
-    addConsumptionEvent(consumptionType, consumptionTime);
-  };
-
-  const confirmTimeModal = () => {
-    const consumptionTime = new Date(selectedDate);
-    consumptionTime.setHours(selectedHour, selectedMinute, 0, 0);
-
-    if (editingEvent) {
-      // Update existing event
-      updateConsumptionEvent(editingEvent.id, selectedConsumptionType, consumptionTime);
-    } else {
-      // Add new event
-      addConsumptionEvent(selectedConsumptionType, consumptionTime);
-    }
-
-    setShowTimeModal(false);
-    setEditingEvent(null);
-  };
-
-  // Generate hour and minute data for the pickers (memoized so re-renders don't trigger heavy Picker updates and block the custom volume input)
-  const hourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
-    value: i.toString(),
-    label: i.toString().padStart(2, '0')
-  })), []);
-
-  const minuteData = useMemo(() => Array.from({ length: 60 }, (_, i) => ({
-    value: i.toString(),
-    label: i.toString().padStart(2, '0')
-  })), []);
-
-  const addConsumptionEvent = async (consumptionType, consumptionTime) => {
-    try {
-      // consumptionType can be either a UUID (new format) or string (legacy format)
-      let baseAmount = 1; // Default amount
-      let drinkType = consumptionType;
-      let totalAmount = 0;
-
-      const resolvedOption = resolveConsumptionType(consumptionType);
-      if (resolvedOption) {
-        baseAmount = resolvedOption.drug_amount;
-        drinkType = resolvedOption.id; // Always store as UUID
-      } else {
-        // Fallback for completely unknown types - use default amount
-        baseAmount = habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1; // Default caffeine or alcohol amount
-      }
-
-      // Calculate total amount and volume based on serving type (volume always stored in ml)
-      let servingMultiplier;
-      let volumeConsumed;
-      if (selectedServing === 'custom') {
-        const inputUnit = getVolumeUnitLabel(measurementSystem);
-        const volumeStr = customVolumeRef.current ?? customVolume;
-        volumeConsumed = parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit)
-          || selectedOption?.default_volume || 0;
-        totalAmount = calculateCustomDrugAmount(volumeConsumed);
-        servingMultiplier = 'custom';
-      } else {
-        // Use region-specific serving size (canonical option, app applies region)
-        servingMultiplier = selectedServing || 1;
-        const effectiveDefaultVol = selectedOption ? getEffectiveDefaultVolume(selectedOption) : resolvedOption?.default_volume;
-        const refVolume = effectiveDefaultVol || selectedOption?.default_volume || resolvedOption?.default_volume || 1;
-        volumeConsumed = effectiveDefaultVol ? effectiveDefaultVol * servingMultiplier : 0;
-        totalAmount = refVolume ? (baseAmount * (volumeConsumed / refVolume)) : baseAmount * servingMultiplier;
-      }
-
-      // First, delete any existing "none" events for this habit and date
-      const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-      const startOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0);
-      const endOfDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59);
-
-      await supabase
-        .from('habit_consumption_events')
-        .delete()
-        .eq('user_id', userId)
-        .eq('habit_id', habit?.id)
-        .eq('drink_type', 'none')
-        .gte('consumed_at', startOfDay.toISOString())
-        .lte('consumed_at', endOfDay.toISOString());
-
-      // Save to database
-      const result = await supabase
-        .from('habit_consumption_events')
-        .insert({
-          habit_id: habit?.id,
-          user_id: userId,
-          consumed_at: consumptionTime.toISOString(),
-          amount: totalAmount,
-          volume: volumeConsumed,
-          drink_type: drinkType,
-        })
-        .select()
-        .single();
-
-      if (result.error) {
-        Alert.alert('Error', 'Failed to add consumption');
-        return;
-      }
-
-      // Use the actual database record with proper UUID
-      const newEvent = {
-        ...result.data,
-        base_amount: baseAmount, // Store base amount for reference
-        serving: servingMultiplier, // Store serving multiplier
-      };
-
-      // Filter out any "none" events and add the new consumption event
-      const filteredEvents = consumptionEvents.filter(event => event.drink_type !== 'none');
-      onChange([...filteredEvents, newEvent]);
-
-      // Refresh the consumption events to update the UI
-      if (onConsumptionAdded) {
-        onConsumptionAdded();
-      }
-
-      // None selection is automatically cleared since we're adding consumption
-
-      // Immediately update the bedtime drug level in habit_logs
-      try {
-        await updateBedtimeDrugLevel(habit?.id, selectedDate);
-      } catch (levelError) {
-        // Don't block the consumption logging if level calculation fails
-      }
-
-      // Reset selection state
-      setSelectedOption(null);
-      setSelectedServing(1);
-      setSelectedConsumptionType(null);
-      setShowCustomVolume(false);
-      setCustomVolume('');
-      setCustomDrugAmount(0);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add consumption');
-    }
-  };
-
-  const updateConsumptionEvent = async (eventId, consumptionType, consumptionTime) => {
-    try {
-      // Calculate total amount and volume based on serving type (same logic as addConsumptionEvent)
-      const resolvedOption = resolveConsumptionType(consumptionType);
-      let baseAmount = resolvedOption?.drug_amount || (habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1);
-      let totalAmount = 0;
-      let volumeConsumed;
-      let servingMultiplier;
-
-      if (selectedServing === 'custom') {
-        const inputUnit = getVolumeUnitLabel(measurementSystem);
-        const volumeStr = customVolumeRef.current ?? customVolume;
-        volumeConsumed = parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit)
-          || resolvedOption?.default_volume || 0;
-        totalAmount = calculateCustomDrugAmount(volumeConsumed);
-        servingMultiplier = 'custom';
-      } else {
-        servingMultiplier = selectedServing || 1;
-        const effectiveDefaultVol = resolvedOption ? getDefaultVolumeForOptionInRegion(resolvedOption.name, habit?.name, measurementRegion) ?? resolvedOption.default_volume : null;
-        const refVolume = effectiveDefaultVol || resolvedOption?.default_volume || 1;
-        volumeConsumed = effectiveDefaultVol ? effectiveDefaultVol * servingMultiplier : 0;
-        totalAmount = refVolume ? (baseAmount * (volumeConsumed / refVolume)) : baseAmount * servingMultiplier;
-      }
-
-      // Find the event to update
-      const eventToUpdate = consumptionEvents.find(event => event.id === eventId);
-      if (!eventToUpdate) {
-        return;
-      }
-
-      // Update in database (assuming event.id is the database UUID)
-      const updateData = {
-        consumed_at: consumptionTime.toISOString(),
-        amount: totalAmount,
-        volume: volumeConsumed,
-        drink_type: resolvedOption?.id || consumptionType,
-      };
-
-      const { error: updateError } = await supabase
-        .from('habit_consumption_events')
-        .update(updateData)
-        .eq('id', eventId);
-
-      if (updateError) {
-        Alert.alert('Error', 'Failed to update consumption');
-        return;
-      }
-
-      // Update the existing event locally
-      const updatedEvents = consumptionEvents.map(event =>
-        event.id === eventId
-          ? {
-              ...event,
-              consumed_at: consumptionTime.toISOString(),
-              amount: totalAmount,
-              volume: volumeConsumed,
-              base_amount: baseAmount,
-              serving: servingMultiplier,
-              drink_type: resolvedOption?.id || consumptionType,
-            }
-          : event
-      );
-
-      onChange(updatedEvents);
-
-      // Update bedtime drug level
-      try {
-        await updateBedtimeDrugLevel(habit?.id, selectedDate);
-      } catch (levelError) {
-      }
-
-      // Reset selection state
-      setSelectedOption(null);
-      setSelectedServing(1);
-      setSelectedConsumptionType(null);
-      setShowCustomVolume(false);
-      setCustomVolume('');
-      setCustomDrugAmount(0);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update consumption');
-    }
+    onOpenLogConsumption?.({ habit, selectedOption: optionWithDefaults, selectedDate, editingEvent: null });
   };
 
   const deleteConsumptionEvent = async (eventId) => {
@@ -765,65 +392,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   };
 
   const editConsumptionEvent = (event) => {
-    // Pre-fill the modal with existing event data
     const resolvedOption = resolveConsumptionType(event.drink_type);
-    if (resolvedOption) {
-      setSelectedOption(resolvedOption);
-      setSelectedConsumptionType(event.drink_type);
-    }
-
-    // Event from DB has volume but not serving (we don't persist serving). Infer custom vs preset from volume.
-    const volumeMl = event.volume != null ? Number(event.volume) : null;
-    const effectiveDefaultVol = resolvedOption
-      ? (getDefaultVolumeForOptionInRegion(resolvedOption.name, habit?.name, measurementRegion) ?? resolvedOption.default_volume)
-      : null;
-
-    let useCustom = event.serving === 'custom';
-    let presetServing = event.serving && event.serving !== 'custom' ? event.serving : 1;
-
-    if (volumeMl != null && volumeMl > 0 && effectiveDefaultVol) {
-      const tolerance = 2;
-      let matched = false;
-      for (let n = 1; n <= 10; n++) {
-        const expected = effectiveDefaultVol * n;
-        if (Math.abs(volumeMl - expected) <= tolerance) {
-          presetServing = n;
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        useCustom = true;
-      }
-    } else if (volumeMl != null && volumeMl > 0) {
-      useCustom = true;
-    }
-
-    if (useCustom) {
-      setSelectedServing('custom');
-      setCustomDrugAmount(event.amount ?? 0);
-      const vol = volumeMl ?? (event.base_amount && resolvedOption?.default_volume
-        ? (event.amount / event.base_amount) * resolvedOption.default_volume
-        : null);
-      const volumeStr = vol ? mlToUserUnit(vol, measurementSystem) : '100';
-      setCustomVolume(volumeStr);
-      customVolumeRef.current = volumeStr;
-      setShowCustomVolume(true);
-    } else {
-      setSelectedServing(presetServing);
-      setShowCustomVolume(false);
-      setCustomVolume('');
-      setCustomDrugAmount(0);
-    }
-
-    // Set the time
-    const eventTime = new Date(event.consumed_at);
-    setSelectedHour(eventTime.getHours());
-    setSelectedMinute(eventTime.getMinutes());
-
-    // Store the event being edited for later update
-    setEditingEvent(event);
-    setShowTimeModal(true);
+    onOpenLogConsumption?.({ habit, selectedOption: resolvedOption ?? undefined, selectedDate, editingEvent: event });
   };
 
   const formatTime = (dateString) => {
@@ -1025,228 +595,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         </>
       )}
 
-      {/* Time Selection Modal */}
-      <Modal
-        visible={showTimeModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
-          setShowTimeModal(false);
-          setEditingEvent(null);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.timePickerModal}>
-            <ScrollView
-              style={styles.modalScrollView}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalScrollContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={styles.modalTitle}>
-                Log {selectedOption ? selectedOption.name.toLowerCase() : 'consumption'}
-              </Text>
-
-              {/* Serving Selection */}
-              {selectedOption && (
-                <View style={styles.modalServingSection}>
-                  <Text style={styles.servingLabel}>
-                    {selectedOption.name}
-                    {effectiveDefaultVolForDisplay ? ` ${formatVolume(effectiveDefaultVolForDisplay, measurementSystem)}` : ''}
-                    {selectedOption.drug_amount ? `${effectiveDefaultVolForDisplay ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}` : ''}
-                    {(effectiveDefaultVolForDisplay || selectedOption.drug_amount) ? ' per serving' : ''}
-                  </Text>
-                  <View style={styles.modalServingButtons}>
-                    {/* Standard serving buttons */}
-                    {[0.5, 1, 2].map((serving) => {
-                      const totalDrugAmount = selectedOption.drug_amount * serving;
-                      const totalVolume = effectiveDefaultVolForDisplay ? Math.round(effectiveDefaultVolForDisplay * serving) : null;
-                      return (
-                        <TouchableOpacity
-                          key={serving}
-                          style={[
-                            styles.modalServingButton,
-                            selectedServing === serving && !showCustomVolume && styles.modalServingButtonSelected
-                          ]}
-                          onPress={() => {
-                            setSelectedServing(serving);
-                            setShowCustomVolume(false);
-                            setCustomVolume('');
-                            setCustomDrugAmount(0);
-                          }}
-                        >
-                          <Text style={[
-                            styles.modalServingButtonText,
-                            selectedServing === serving && !showCustomVolume && styles.modalServingButtonTextSelected
-                          ]}>
-                            {serving}x
-                          </Text>
-                          <Text style={[
-                            styles.modalServingAmountText,
-                            selectedServing === serving && !showCustomVolume && styles.modalServingAmountTextSelected
-                          ]}>
-                            {totalVolume ? formatVolume(totalVolume, measurementSystem) : ''}
-                            {(totalVolume || totalDrugAmount) && (totalVolume && totalDrugAmount) ? '\n' : ''}
-                            {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Other/Custom button */}
-                    <TouchableOpacity
-                      style={[
-                        styles.modalServingButton,
-                        showCustomVolume && styles.modalServingButtonSelected
-                      ]}
-                      onPress={() => {
-                        setSelectedServing('custom');
-                        setShowCustomVolume(true);
-                        const defaultVolume = effectiveDefaultVolForDisplay
-                          ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem)
-                          : '';
-                        setCustomVolume(defaultVolume);
-                        customVolumeRef.current = defaultVolume;
-                        setCustomDrugAmount(selectedOption.drug_amount || 0);
-                      }}
-                    >
-                      <Text style={[
-                        styles.modalServingButtonText,
-                        showCustomVolume && styles.modalServingButtonTextSelected
-                      ]}>
-                        Other
-                      </Text>
-                      <Text style={[
-                        styles.modalServingAmountText,
-                        showCustomVolume && styles.modalServingAmountTextSelected
-                      ]}>
-                        Custom{'\n'}Amount
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Custom Volume Input */}
-                  {showCustomVolume && (
-                    <View style={styles.customVolumeSection}>
-                      <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
-                      <View style={styles.customVolumeInputRow}>
-                        <CustomVolumeInput
-                          initialValue={customVolume}
-                          valueRef={customVolumeRef}
-                          onBlur={handleCustomVolumeBlur}
-                          placeholder={customVolumePlaceholder}
-                          inputKey={`custom-volume-${selectedOption?.id ?? 'default'}-${editingEvent?.id ?? 'new'}`}
-                        />
-                        <Text style={styles.customVolumeUnit}>{getVolumeUnitLabel(measurementSystem)}</Text>
-                        <Text style={styles.customVolumeArrow}>→</Text>
-                        <View style={styles.customAmountWithLabel}>
-                          <CustomAmountDisplay
-                            ref={customAmountDisplayRef}
-                            initialAmount={selectedOption?.drug_amount ?? customDrugAmount ?? 0}
-                            unit={selectedOption?.drug_unit || habit?.unit}
-                          />
-                          {getActiveIngredientLabel() ? (
-                            <Text style={styles.customVolumeIngredientLabel}>({getActiveIngredientLabel()})</Text>
-                          ) : null}
-                        </View>
-                      </View>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              <View style={styles.timePickerContainer}>
-              <View style={styles.pickerGroup}>
-                <Text style={styles.timeLabel}>Hour</Text>
-                <Picker
-                  pickerData={hourData}
-                  selectedValue={selectedHour.toString()}
-                  onValueChange={handleHourChange}
-                  textColor={colors.textSecondary}
-                  selectTextColor={colors.primary}
-                  textSize={20}
-                  itemHeight={50}
-                  style={styles.wheelPicker}
-                />
-              </View>
-
-              <View style={styles.pickerGroup}>
-                <Text style={styles.timeLabel}>Minute</Text>
-                <Picker
-                  pickerData={minuteData}
-                  selectedValue={selectedMinute.toString()}
-                  onValueChange={handleMinuteChange}
-                  textColor={colors.textSecondary}
-                  selectTextColor={colors.primary}
-                  textSize={20}
-                  itemHeight={50}
-                  style={styles.wheelPicker}
-                />
-              </View>
-            </View>
-
-            <View style={styles.quickTimeOptions}>
-              <Text style={styles.quickTimeLabel}>Quick Time:</Text>
-              <View style={styles.quickTimeButtons}>
-                <TouchableOpacity
-                  style={styles.quickTimeButton}
-                  onPress={() => {
-                    const morning = new Date(selectedDate);
-                    morning.setHours(10, 0, 0, 0);
-                    addConsumptionEvent(selectedConsumptionType, morning);
-                    setShowTimeModal(false);
-                  }}
-                >
-                  <Text style={styles.quickTimeButtonText}>Morning</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickTimeButton}
-                  onPress={() => {
-                    const afternoon = new Date(selectedDate);
-                    afternoon.setHours(15, 0, 0, 0);
-                    addConsumptionEvent(selectedConsumptionType, afternoon);
-                    setShowTimeModal(false);
-                  }}
-                >
-                  <Text style={styles.quickTimeButtonText}>Afternoon</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickTimeButton}
-                  onPress={() => {
-                    const evening = new Date(selectedDate);
-                    evening.setHours(19, 0, 0, 0);
-                    addConsumptionEvent(selectedConsumptionType, evening);
-                    setShowTimeModal(false);
-                  }}
-                >
-                  <Text style={styles.quickTimeButtonText}>Evening</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            </ScrollView>
-
-            {/* Fixed footer: always visible Cancel and Add/Update */}
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setShowTimeModal(false);
-                  setEditingEvent(null);
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.addButton]}
-                onPress={confirmTimeModal}
-              >
-                <Text style={styles.addButtonText}>{editingEvent ? 'Update' : 'Add'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* Plus Menu Modal */}
       <Modal
         visible={showPlusMenu}
@@ -1273,160 +621,12 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   style={styles.menuOption}
                   onPress={() => {
                     setShowPlusMenu(false);
-                    setQuickAddAmount('');
-                    setShowQuickAddModal(true);
+                    onOpenLogConsumption?.({ habit, selectedOption: null, selectedDate, editingEvent: null });
                   }}
                 >
                   <Ionicons name="time" size={20} color={colors.primary} />
                   <Text style={styles.menuOptionText}>Quick add one-time</Text>
                 </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Quick Add Modal */}
-      <Modal
-        visible={showQuickAddModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowQuickAddModal(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowQuickAddModal(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.timePickerModal}>
-                <ScrollView
-                  style={styles.modalScrollView}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.modalScrollContent}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <Text style={styles.modalTitle}>
-                    Quick Add {habit?.name?.toLowerCase() || 'consumption'}
-                  </Text>
-
-                  <View style={styles.timePickerContainer}>
-                    <View style={styles.pickerGroup}>
-                      <Text style={styles.timeLabel}>Hour</Text>
-                      <Picker
-                        pickerData={hourData}
-                        selectedValue={selectedHour.toString()}
-                        onValueChange={handleHourChange}
-                        textColor={colors.textSecondary}
-                        selectTextColor={colors.primary}
-                        textSize={20}
-                        itemHeight={50}
-                        style={styles.wheelPicker}
-                      />
-                    </View>
-
-                    <View style={styles.pickerGroup}>
-                      <Text style={styles.timeLabel}>Minute</Text>
-                      <Picker
-                        pickerData={minuteData}
-                        selectedValue={selectedMinute.toString()}
-                        onValueChange={handleMinuteChange}
-                        textColor={colors.textSecondary}
-                        selectTextColor={colors.primary}
-                        textSize={20}
-                        itemHeight={50}
-                        style={styles.wheelPicker}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Amount Input */}
-                  <View style={styles.amountInputContainer}>
-                    <Text style={styles.amountLabel}>
-                      Amount ({habit?.name?.toLowerCase().includes('caffeine') ? 'mg' : 'units'})
-                    </Text>
-                    <TextInput
-                      style={styles.amountInput}
-                      value={quickAddAmount}
-                      onChangeText={setQuickAddAmount}
-                      placeholder={habit?.name?.toLowerCase().includes('caffeine') ? '95' : '1'}
-                      keyboardType="numeric"
-                      maxLength={4}
-                    />
-                  </View>
-
-                  <View style={styles.quickTimeOptions}>
-                    <Text style={styles.quickTimeLabel}>Quick Time:</Text>
-                    <View style={styles.quickTimeButtons}>
-                      <TouchableOpacity
-                        style={styles.quickTimeButton}
-                        onPress={() => {
-                          const amount = parseFloat(quickAddAmount);
-                          if (isNaN(amount) || amount <= 0) {
-                            Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
-                            return;
-                          }
-                          const morning = new Date(selectedDate);
-                          morning.setHours(10, 0, 0, 0);
-                          addQuickConsumption(morning, amount);
-                          setShowQuickAddModal(false);
-                        }}
-                      >
-                        <Text style={styles.quickTimeButtonText}>Morning</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.quickTimeButton}
-                        onPress={() => {
-                          const amount = parseFloat(quickAddAmount);
-                          if (isNaN(amount) || amount <= 0) {
-                            Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
-                            return;
-                          }
-                          const afternoon = new Date(selectedDate);
-                          afternoon.setHours(15, 0, 0, 0);
-                          addQuickConsumption(afternoon, amount);
-                          setShowQuickAddModal(false);
-                        }}
-                      >
-                        <Text style={styles.quickTimeButtonText}>Afternoon</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.quickTimeButton}
-                        onPress={() => {
-                          const evening = new Date(selectedDate);
-                          evening.setHours(19, 0, 0, 0);
-                          addQuickConsumption(evening, amount);
-                          setShowQuickAddModal(false);
-                        }}
-                      >
-                        <Text style={styles.quickTimeButtonText}>Evening</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </ScrollView>
-
-                {/* Fixed footer: always visible Cancel and Add */}
-                <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.cancelButton]}
-                    onPress={() => setShowQuickAddModal(false)}
-                  >
-                    <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.addButton]}
-                    onPress={() => {
-                      const amount = parseFloat(quickAddAmount);
-                      if (isNaN(amount) || amount <= 0) {
-                        Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
-                        return;
-                      }
-                      const consumptionTime = new Date(selectedDate);
-                      consumptionTime.setHours(selectedHour, selectedMinute, 0, 0);
-                      addQuickConsumption(consumptionTime, amount);
-                      setShowQuickAddModal(false);
-                    }}
-                  >
-                    <Text style={styles.addButtonText}>Add</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             </TouchableWithoutFeedback>
           </View>

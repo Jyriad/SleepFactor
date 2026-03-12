@@ -15,8 +15,9 @@ const HEADER_BOTTOM_RADIUS = 12;
 /**
  * Fixed date-picker header (top row + 7-day strip + handle).
  * Tapping the handle opens the calendar in a bottom sheet (via context).
+ * When showBackButton is true (e.g. Habit Logging in pre-mounted overlay), back is shown and onBackPress is used if provided.
  */
-const ScrollableDateHeaderBar = ({ rightElement = null }) => {
+const ScrollableDateHeaderBar = ({ rightElement = null, showBackButton: showBackButtonProp = false, onBackPress = null }) => {
   const ctx = useDateHeader();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -24,7 +25,8 @@ const ScrollableDateHeaderBar = ({ rightElement = null }) => {
   const statusBarHeight = Constants.statusBarHeight ?? 24;
   const topPadding = insets.top > 0 ? statusBarHeight : 0;
 
-  const isHabitLogging = route.name === 'HabitLogging';
+  const isHabitLogging = showBackButtonProp || route.name === 'HabitLogging';
+  const handleBack = onBackPress ?? (() => navigation.goBack());
 
   if (!ctx) return null;
 
@@ -33,7 +35,7 @@ const ScrollableDateHeaderBar = ({ rightElement = null }) => {
   };
 
   const backButton = isHabitLogging ? (
-    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+    <TouchableOpacity onPress={handleBack} style={styles.backButton}>
       <Ionicons name="chevron-back" size={24} color={colors.white} />
     </TouchableOpacity>
   ) : null;
@@ -62,12 +64,12 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: HEADER_BOTTOM_RADIUS,
     borderBottomRightRadius: HEADER_BOTTOM_RADIUS,
     overflow: 'hidden',
-    marginBottom: 15,
+    marginBottom: 8,
     zIndex: 10,
     elevation: 10,
   },
   headerInner: {
-    paddingTop: HEADER_INNER_PADDING,
+    paddingTop: 8,
   },
   backButton: {
     padding: spacing.xs,

@@ -6,7 +6,7 @@ import HabitToggle from './HabitToggle';
 import DrugHabitInput from './DrugHabitInput';
 import QuickConsumptionInput from './QuickConsumptionInput';
 
-const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate, userId, onConsumptionAdded, yesNoCounts }) => {
+const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption, yesNoCounts }) => {
   // Stable per-habit callback so parent re-renders don't force consumption modal (and wheel pickers) to re-render and block the custom volume input
   const effectiveOnChange = onHabitChange != null
     ? useCallback((v) => onHabitChange(habit.id, v), [onHabitChange, habit.id])
@@ -103,6 +103,7 @@ const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate,
             selectedDate={selectedDate}
             userId={userId}
             onConsumptionAdded={onConsumptionAdded}
+            onOpenLogConsumption={onOpenLogConsumption}
           />
         );
 
