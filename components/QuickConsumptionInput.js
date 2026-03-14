@@ -17,7 +17,7 @@ import { getPresetById } from '../constants/drugPresets';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
-import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
+import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { formatVolume, getVolumeUnitLabel } from '../utils/unitConversion';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import Button from './Button';
@@ -197,8 +197,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         return;
       }
 
+      const minMg = habitUsesCaffeineMgFloor(habit.name) ? CAFFEINE_MG_FLOOR : null;
       const bedtimeLevel = eventsData && eventsData.length > 0
-        ? getBedtimeDrugLevel(eventsData, targetBedtime, habit.half_life_hours || 5)
+        ? getBedtimeDrugLevel(eventsData, targetBedtime, habit.half_life_hours || 5, 5, minMg)
         : 0;
 
       // Update the drug levels table with the calculated bedtime level and exact bedtime time for decay-to-now

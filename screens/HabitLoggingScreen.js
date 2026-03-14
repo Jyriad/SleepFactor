@@ -32,9 +32,11 @@ import {
   setHabitLoggingState as writeHabitLoggingCache,
   getInMemoryState,
   setInMemoryState,
+  clearInMemoryState,
   getDateStr,
 } from '../services/habitLoggingCacheService';
-import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
+import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
+import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
@@ -104,6 +106,23 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const appliedQuickConsumptionDefaultsRef = useRef(new Set());
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
   const habitLogsForDateRef = useRef(bootState ? routeDateStr : null);
+  const lastHabitsRefreshTriggerRef = useRef(getHabitsRefreshTrigger());
+  const [habitListRefreshGen, setHabitListRefreshGen] = useState(0);
+  const skipInMemoryNextLoadRef = useRef(false);
+
+  // After add/edit/delete habit, refetch list so new habits (e.g. time) appear — same trigger as Habit Management.
+  useFocusEffect(
+    useCallback(() => {
+      const t = getHabitsRefreshTrigger();
+      if (t !== lastHabitsRefreshTriggerRef.current && user?.id) {
+        lastHabitsRefreshTriggerRef.current = t;
+        const ds = getDateString(selectedDateRef.current);
+        clearInMemoryState(user.id, ds);
+        skipInMemoryNextLoadRef.current = true;
+        setHabitListRefreshGen((g) => g + 1);
+      }
+    }, [user?.id])
+  );
 
   // Load persisted collapse state for Caffeine/Alcohol sections
   useEffect(() => {
@@ -118,11 +137,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
             setCollapsedConsumption(parsed);
           }
         } catch (e) {
-          console.warn('HabitLogging: failed to parse collapsed state', e);
         }
       })
       .catch((err) => {
-        console.warn('HabitLogging: failed to load collapsed state', err);
       });
     return () => { cancelled = true; };
   }, [user?.id]);
@@ -192,7 +209,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
 
     const dateStr = getDateString(selectedDate);
     const inMemory = getInMemoryState(user.id, dateStr);
-    const hasInMemory = inMemory && !inMemory.error;
+    const forceNoCache = skipInMemoryNextLoadRef.current;
+    if (forceNoCache) skipInMemoryNextLoadRef.current = false;
+    const hasInMemory = !forceNoCache && inMemory && !inMemory.error;
     if (!hasInMemory) {
       setLoading(true);
       setConsumptionEventsLoading(true);
@@ -237,7 +256,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           try {
             await writeHabitLoggingCache(user.id, dateStr, data);
           } catch (e) {
-            console.warn('HabitLogging: cache write failed', e);
           }
 
           const consumptionHabits = (data.habits || []).filter(h => h.type === 'drug' || h.type === 'quick_consumption');
@@ -260,7 +278,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       cancelled = true;
       task.cancel();
     };
-  }, [selectedDate, user, applyHabitLoggingPayload]);
+  }, [selectedDate, user, applyHabitLoggingPayload, habitListRefreshGen]);
 
   // Save habitLogs to AsyncStorage whenever they change (debounced). Only save when current habitLogs state is for the selected date (avoids writing wrong date when user switches dates).
   useEffect(() => {
@@ -316,7 +334,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           .in('habit_id', clearedHabitIds);
       }
     } catch (error) {
-      console.warn('HabitLogging: save habit logs to server failed', error);
       Alert.alert('Error', 'Failed to save habit log. Please try again.');
     }
   };
@@ -327,7 +344,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       const storageKey = habitLogsCacheKey(user.id, getDateString(selectedDate));
       await AsyncStorage.setItem(storageKey, JSON.stringify(habitLogs));
     } catch (error) {
-      console.warn('HabitLogging: save habit logs cache failed', error);
     }
   };
 
@@ -336,7 +352,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     try {
       await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(counts));
     } catch (e) {
-      console.warn('HabitLogging: save counts cache failed', e);
     }
   };
 
@@ -383,7 +398,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       .select();
 
     if (insertError || !insertedEvents) {
-      console.warn('HabitLogging: failed applying quick-consumption defaults', insertError);
       return;
     }
 
@@ -430,7 +444,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           .order('consumed_at', { ascending: true });
 
         if (eventsError) {
-          console.warn('HabitLogging: refreshConsumptionEvents fetch error', eventsError);
         } else {
           if (eventsData) {
             eventsData.forEach(event => {
@@ -455,11 +468,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
             );
           }
         } catch (e) {
-          console.warn('HabitLogging: refreshConsumptionEvents cache write failed', e);
         }
       }
     } catch (error) {
-      console.warn('HabitLogging: refreshConsumptionEvents failed', error);
       Alert.alert('Error', 'Failed to refresh consumption data. Please try again.');
     }
   };
@@ -469,7 +480,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       const next = { ...prev, [habitId]: !prev[habitId] };
       if (user?.id) {
         AsyncStorage.setItem(collapsedConsumptionKey(user.id), JSON.stringify(next)).catch((err) => {
-          console.warn('HabitLogging: save collapsed state failed', err);
         });
       }
       return next;
@@ -586,7 +596,13 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       }
 
       // Calculate the drug level at target bedtime (actual sleep start or notification time)
-      const bedtimeLevel = getBedtimeDrugLevel(eventsData, targetBedtime, habit.half_life_hours || 5);
+      const bedtimeLevel = getBedtimeDrugLevel(
+        eventsData,
+        targetBedtime,
+        habit.half_life_hours || 5,
+        5,
+        habitUsesCaffeineMgFloor(habit) ? CAFFEINE_MG_FLOOR : null
+      );
 
       return bedtimeLevel;
 
@@ -632,6 +648,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         scrollEnabled={!dateHeader?.isHeaderExpanded}
         ListHeaderComponent={<Text style={styles.dateRange}>{getDateRangeText()}</Text>}
         data={habits}

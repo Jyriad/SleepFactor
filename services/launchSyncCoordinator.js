@@ -1,5 +1,4 @@
 import sleepSyncService from './sleepSyncService';
-import sleepSyncNotifications from './sleepSyncNotifications';
 
 let launchSyncPromise = null;
 
@@ -27,10 +26,6 @@ export function startLaunchSync() {
         force: true,
         silent: true,
       });
-
-      if (result?.success && result?.syncedRecords > 0) {
-        sleepSyncNotifications.notifyNewSleepDataSynced();
-      }
 
       return result || { success: false };
     } catch (e) {

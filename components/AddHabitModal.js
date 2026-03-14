@@ -36,7 +36,7 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
     onSave({
       name: habitName,
       type: habitType,
-      unit: habitUnit,
+      unit: habitType === 'numeric' ? habitUnit.trim() : '',
     });
     
     setHabitName('');
@@ -96,7 +96,6 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                     { key: 'binary', label: 'Yes/No' },
                     { key: 'numeric', label: 'Numeric' },
                     { key: 'time', label: 'Time' },
-                    { key: 'text', label: 'Text' }
                   ].map(({ key, label }) => (
                     <TouchableOpacity
                       key={key}
@@ -106,6 +105,7 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                       ]}
                       onPress={() => {
                         setHabitType(key);
+                        if (key === 'time') setHabitUnit('');
                       }}
                     >
                       <Text
@@ -121,12 +121,12 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                 </View>
               </View>
 
-              {(habitType === 'numeric' || habitType === 'time') && (
+              {habitType === 'numeric' && (
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Unit</Text>
                   <TextInput
                     style={styles.textInput}
-                    placeholder={`e.g., ${habitType === 'numeric' ? 'cups, °C, hours' : 'minutes, hours'}`}
+                    placeholder="e.g., cups, steps, °C"
                     placeholderTextColor={colors.textLight}
                     value={habitUnit}
                     onChangeText={(text) => {

@@ -9,15 +9,16 @@ import {
   TouchableOpacity,
   LayoutAnimation,
   UIManager,
-  Animated,
   StatusBar,
   Platform,
   InteractionManager,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import DraggableFlatList from 'react-native-draggable-flatlist';
+import Animated, { useAnimatedRef } from 'react-native-reanimated';
+import Sortable from 'react-native-sortables';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuth } from '../contexts/AuthContext';
@@ -66,6 +67,8 @@ const INFERRED_HABITS = [
   },
 ];
 
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const HabitManagementScreen = () => {
   const insets = useSafeAreaInsets();
@@ -279,16 +282,31 @@ const HabitManagementScreen = () => {
       });
 
       const validManual = sortedManual.filter(habit => habit && (habit.id || habit.name));
-      let validAutomatic = automatic.filter(habit => habit && (habit.id || habit.name));
       const validInferred = inferred.filter(habit => habit && (habit.id || habit.name));
 
+      // Only automatic rows for metrics that already have wearable data (HC lookback or existing logs)
+      let validAutomatic = [];
       try {
-        const providedMetrics = await healthMetricsService.getMetricsProvidedByDevice();
-        const providedNames = new Set(providedMetrics.map(m => m.name));
-        validAutomatic = validAutomatic.filter(habit =>
-          !healthMetricsService.isHealthMetricHabit(habit) || providedNames.has(habit.name)
+        const withData = await healthMetricsService.getMetricsWithWearableData(user.id, 120);
+        const byName = new Map(
+          automatic.filter((h) => healthMetricsService.isHealthMetricHabit(h)).map((h) => [h.name, h])
         );
+        validAutomatic = withData.map((metric) => {
+          const existing = byName.get(metric.name);
+          if (existing) return existing;
+          return {
+            id: `placeholder-${metric.key}`,
+            user_id: user.id,
+            name: metric.name,
+            type: metric.type,
+            unit: metric.unit,
+            is_custom: false,
+            is_active: false,
+            is_pinned: false,
+          };
+        });
       } catch (err) {
+        validAutomatic = automatic.filter((h) => h && (h.id || h.name));
       }
 
       setManualHabits(validManual);
@@ -547,8 +565,11 @@ const HabitManagementScreen = () => {
           }
         }
 
-        if (existingHabit) {
-          
+        if (existingHabit && String(existingHabit.id).startsWith('placeholder-')) {
+          setAutomaticHabits((prev) =>
+            prev.map((h) => (h.name === metric.name ? { ...h, is_active: false } : h))
+          );
+        } else if (existingHabit) {
           const { error } = await supabase
             .from('habits')
             .update({ is_active: false })
@@ -558,23 +579,14 @@ const HabitManagementScreen = () => {
             throw error;
           }
 
-
-          // Update state with real data (already optimistically updated above)
-          setAutomaticHabits(prev => {
-            const habitInState = prev.find(h => h.name === metric.name);
+          setAutomaticHabits((prev) => {
+            const habitInState = prev.find((h) => h.name === metric.name);
             if (habitInState) {
-              // Update with real data
-              const updated = prev.map(h =>
-                h.name === metric.name
-                  ? { ...existingHabit, is_active: false }
-                  : h
+              return prev.map((h) =>
+                h.name === metric.name ? { ...existingHabit, is_active: false } : h
               );
-              return updated;
-            } else {
-              // Add it to state with is_active: false
-              const updated = [...prev, { ...existingHabit, is_active: false }];
-              return updated;
             }
+            return [...prev, { ...existingHabit, is_active: false }];
           });
         } else {
           Alert.alert('Warning', `Could not find ${metric.name} to disable`);
@@ -619,11 +631,14 @@ const HabitManagementScreen = () => {
   };
 
   const toggleInferredHabit = async (habit) => {
-    if (!user) return;
+    if (!user || !habit.id || String(habit.id).startsWith('placeholder-')) return;
+
+    const newActiveState = habit.is_active === false;
+    setInferredHabits((prev) =>
+      prev.map((h) => (h.id === habit.id ? { ...h, is_active: newActiveState } : h))
+    );
 
     try {
-      const newActiveState = habit.is_active === false;
-
       const { error } = await supabase
         .from('habits')
         .update({ is_active: newActiveState })
@@ -633,12 +648,27 @@ const HabitManagementScreen = () => {
 
       insightsService.invalidateHomeSummaryCache();
 
-      setInferredHabits(prev =>
-        prev.map(h =>
-          h.id === habit.id ? { ...h, is_active: newActiveState } : h
-        )
-      );
+      if (newActiveState && habit.name === 'Bedtime Consistency') {
+        const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
+        await bedtimeHabitsService.backfillBedtimeHabits(user.id);
+      }
+      if (newActiveState && habit.name === 'Exercise Time Before Bed') {
+        const result = await exerciseTimeBeforeBedService.backfill(user.id, 30);
+        if (result.success && result.synced !== undefined) {
+          Alert.alert(
+            'Sync Complete',
+            result.synced > 0
+              ? `Filled in ${result.synced} days of exercise time before bed from your health data.`
+              : result.message || 'No data to sync for this period.'
+          );
+        } else if (!result.success && result.message) {
+          Alert.alert('Sync Incomplete', result.message);
+        }
+      }
     } catch (error) {
+      setInferredHabits((prev) =>
+        prev.map((h) => (h.id === habit.id ? { ...h, is_active: !newActiveState } : h))
+      );
       Alert.alert('Error', 'Failed to update habit tracking');
     }
   };
@@ -770,33 +800,35 @@ const HabitManagementScreen = () => {
     }
   };
 
-  const onDragEnd = async ({ data }) => {
+  const persistHabitOrder = async (data) => {
     if (!user) return;
-
-    // Update local state immediately for smooth UX
     setManualHabits(data);
-
-    // Update priority in database (only for manual habits)
     try {
       const updates = data.map((habit, index) => ({
         id: habit.id,
-        priority: index
+        priority: index,
       }));
-
       for (const update of updates) {
-        // Only update if it's a real habit (not a placeholder)
-        if (update.id && !update.id.startsWith('predef-')) {
+        if (update.id && !String(update.id).startsWith('predef-')) {
           await supabase
             .from('habits')
             .update({ priority: update.priority })
             .eq('id', update.id);
         }
       }
-    } catch (error) {
-      // Revert local changes on error
+    } catch (e) {
       await loadHabits(true);
     }
   };
+
+  const sortScrollRef = useAnimatedRef();
+  const manualHabitsRef = useRef(manualHabits);
+  manualHabitsRef.current = manualHabits;
+
+  const onSortDragEnd = useCallback(({ order }) => {
+    const next = order(manualHabitsRef.current);
+    persistHabitOrder(next);
+  }, [user]);
 
 
 
@@ -860,8 +892,7 @@ const HabitManagementScreen = () => {
     return typeNames[type] || type;
   };
 
-  const renderHabitItem = ({ item: habit, drag, isActive }) => {
-    // Safety check for habit data
+  const renderSortableHabitRow = useCallback((habit) => {
     if (!habit) return null;
 
     const isPlaceholder = habit.id && habit.id.startsWith('predef-');
@@ -872,20 +903,12 @@ const HabitManagementScreen = () => {
     const isExpanded = expandedHabitId === habitId;
 
     return (
-      <View style={[styles.cardWrapper, isActive && styles.cardWrapperDragging]}>
-        <View style={[styles.habitCard, isActive && styles.habitCardDragging]}>
+      <View style={styles.cardWrapper}>
+        <View style={styles.habitCard}>
           <View style={styles.cardContent}>
-            <TouchableOpacity
-              style={styles.dragHandleColumn}
-              onLongPress={() => {
-                closeAllSwipeables();
-                drag();
-              }}
-              delayLongPress={150}
-              activeOpacity={0.7}
-            >
+            <View style={styles.dragHandleColumn} accessibilityLabel="Reorder habit">
               <Ionicons name="reorder-three-outline" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
+            </View>
 
             <View style={styles.cardRightColumn}>
               <TouchableOpacity style={styles.cardMainContent} onPress={() => toggleHabitExpanded(habitId)} activeOpacity={0.85}>
@@ -993,13 +1016,154 @@ const HabitManagementScreen = () => {
         </View>
       </View>
     );
-  };
+  }, [
+    expandedHabitId,
+    closeAllSwipeables,
+    toggleHabitExpanded,
+    toggleHabitTracking,
+    createPredefinedHabit,
+    toggleLogAsNoByDefault,
+    openEditHabit,
+    openDeleteHabit,
+  ]);
+
+  const footerAutomaticBlock =
+    automaticHabits.length > 0 ? (
+      <View style={styles.footerSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Automatic Habits</Text>
+          <Text style={styles.sectionSubtitle}>
+            Habits automatically tracked from your sleep and health data
+          </Text>
+        </View>
+        <View style={styles.instructionContainer}>
+          <Ionicons name="fitness-outline" size={20} color={colors.primary} />
+          <Text style={styles.instructionText}>
+            Tap Active or Paused on each card to control what is tracked for insights
+          </Text>
+        </View>
+        {automaticHabits.map((habit) => {
+          const healthMetric = healthMetricsService.getAvailableMetrics().find((m) => m.name === habit.name);
+          if (!healthMetric) return null;
+          const active = habit.is_active !== false;
+          return (
+            <View key={habit.id || healthMetric.key || habit.name} style={styles.cardWrapper}>
+              <View style={styles.habitCard}>
+                <View style={styles.cardContent}>
+                  <View style={styles.dragHandleColumn}>
+                    <Ionicons name="fitness-outline" size={18} color={colors.textSecondary} />
+                  </View>
+                  <View style={styles.cardRightColumn}>
+                    <View style={styles.habitHeaderCompact}>
+                      <View style={styles.nameContainerCompact}>
+                        <Text style={styles.habitName}>{healthMetric.name}</Text>
+                      </View>
+                      <View style={styles.statusAndChevronRow}>
+                        <TouchableOpacity
+                          style={styles.statusTouchable}
+                          onPress={() => toggleHealthMetric(healthMetric, !active)}
+                          activeOpacity={0.7}
+                        >
+                          <View
+                            style={[
+                              styles.statusDot,
+                              active ? styles.statusDotActive : styles.statusDotPaused,
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.statusLabel,
+                              active ? styles.statusLabelActive : styles.statusLabelPaused,
+                            ]}
+                          >
+                            {active ? 'Active' : 'Paused'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <Text style={styles.habitTypeLine}>{healthMetric.description}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    ) : null;
+
+  const footerInferredBlock =
+    inferredHabits.length > 0 ? (
+      <View style={styles.footerSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Inferred Habits</Text>
+          <Text style={styles.sectionSubtitle}>
+            Values derived from your automatic habits (e.g. bedtime from sleep, exercise time from heart rate)
+          </Text>
+        </View>
+        {inferredHabits.map((habit) => {
+          const config = INFERRED_HABITS.find((h) => h.name === habit.name);
+          const active = habit.is_active !== false;
+          return (
+            <View key={habit.id || habit.name} style={styles.cardWrapper}>
+              <View style={styles.habitCard}>
+                <View style={styles.cardContent}>
+                  <View style={styles.dragHandleColumn}>
+                    <Ionicons name="analytics-outline" size={18} color={colors.textSecondary} />
+                  </View>
+                  <View style={styles.cardRightColumn}>
+                    <View style={styles.habitHeaderCompact}>
+                      <View style={styles.nameContainerCompact}>
+                        <Text style={styles.habitName}>{habit.name}</Text>
+                        {config?.infoTitle && (
+                          <TouchableOpacity
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            onPress={() => Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])}
+                            style={{ marginLeft: 6 }}
+                          >
+                            <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <View style={styles.statusAndChevronRow}>
+                        <TouchableOpacity
+                          style={styles.statusTouchable}
+                          onPress={() => toggleInferredHabit(habit)}
+                          activeOpacity={0.7}
+                        >
+                          <View
+                            style={[
+                              styles.statusDot,
+                              active ? styles.statusDotActive : styles.statusDotPaused,
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.statusLabel,
+                              active ? styles.statusLabelActive : styles.statusLabelPaused,
+                            ]}
+                          >
+                            {active ? 'Active' : 'Paused'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <Text style={styles.habitTypeLine}>
+                      {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    ) : null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.rootContainer}>
         <SafeAreaView style={styles.container} edges={['bottom']}>
-          {/* Manual Habits Section - Uses DraggableFlatList for reordering */}
+          {/* Manual habits: react-native-sortables (smooth auto-scroll on Android) */}
           <View style={styles.contentWrap}>
             {loading ? (
               <PageLoadingView />
@@ -1010,7 +1174,7 @@ const HabitManagementScreen = () => {
                 <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
                   <View style={styles.header}>
                     <Text style={styles.title}>Manage Your Habits</Text>
-                    <Text style={styles.subtitle}>Long press and drag the handle to reorder • Tap a habit to expand options</Text>
+                    <Text style={styles.subtitle}>Long press a habit to reorder • Tap to expand options</Text>
                   </View>
                 </View>
                 <View style={styles.sectionHeader}>
@@ -1033,29 +1197,52 @@ const HabitManagementScreen = () => {
                     <View style={styles.instructionContainer}>
                       <Ionicons name="fitness-outline" size={20} color={colors.primary} />
                       <Text style={styles.instructionText}>
-                        Toggle habits on/off to control what data is tracked for insights
+                        Tap Active or Paused on each card to control what is tracked for insights
                       </Text>
                     </View>
                     {automaticHabits.map((habit) => {
-                      const healthMetric = healthMetricsService.getAvailableMetrics().find(m => m.name === habit.name);
-                      const isEnabled = habit.is_active !== false;
+                      const healthMetric = healthMetricsService.getAvailableMetrics().find((m) => m.name === habit.name);
+                      if (!healthMetric) return null;
+                      const active = habit.is_active !== false;
                       return (
-                        <View key={habit.id || healthMetric?.key || habit.name} style={styles.automaticHabitItem}>
-                          <View style={styles.automaticHabitInfo}>
-                            <Ionicons name="fitness-outline" size={24} color={colors.primary} />
-                            <View style={styles.automaticHabitText}>
-                              <Text style={styles.automaticHabitName}>{healthMetric ? healthMetric.name : habit.name}</Text>
-                              <Text style={styles.automaticHabitDescription}>
-                                {healthMetric ? healthMetric.description : 'Automatically tracked from health data'}
-                              </Text>
+                        <View key={habit.id || healthMetric.key || habit.name} style={styles.cardWrapper}>
+                          <View style={styles.habitCard}>
+                            <View style={styles.cardContent}>
+                              <View style={styles.dragHandleColumn}>
+                                <Ionicons name="fitness-outline" size={18} color={colors.textSecondary} />
+                              </View>
+                              <View style={styles.cardRightColumn}>
+                                <View style={styles.habitHeaderCompact}>
+                                  <View style={styles.nameContainerCompact}>
+                                    <Text style={styles.habitName}>{healthMetric.name}</Text>
+                                  </View>
+                                  <View style={styles.statusAndChevronRow}>
+                                    <TouchableOpacity
+                                      style={styles.statusTouchable}
+                                      onPress={() => toggleHealthMetric(healthMetric, !active)}
+                                      activeOpacity={0.7}
+                                    >
+                                      <View
+                                        style={[
+                                          styles.statusDot,
+                                          active ? styles.statusDotActive : styles.statusDotPaused,
+                                        ]}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.statusLabel,
+                                          active ? styles.statusLabelActive : styles.statusLabelPaused,
+                                        ]}
+                                      >
+                                        {active ? 'Active' : 'Paused'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                                <Text style={styles.habitTypeLine}>{healthMetric.description}</Text>
+                              </View>
                             </View>
                           </View>
-                          <Switch
-                            value={isEnabled}
-                            onValueChange={(value) => toggleHealthMetric(healthMetric, value)}
-                            trackColor={{ false: colors.border, true: colors.primary }}
-                            thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                          />
                         </View>
                       );
                     })}
@@ -1070,73 +1257,60 @@ const HabitManagementScreen = () => {
                       </Text>
                     </View>
                     {inferredHabits.map((habit) => {
-                      const config = INFERRED_HABITS.find(h => h.name === habit.name);
-                      const isEnabled = habit.is_active !== false;
+                      const config = INFERRED_HABITS.find((h) => h.name === habit.name);
+                      const active = habit.is_active !== false;
                       return (
-                        <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
-                          <View style={styles.automaticHabitInfo}>
-                            <Ionicons name="analytics-outline" size={24} color={colors.primary} />
-                            <View style={styles.automaticHabitText}>
-                              <View style={styles.inferredHabitNameRow}>
-                                <Text style={styles.automaticHabitName}>{habit.name}</Text>
-                                {config?.infoTitle && (
-                                  <TouchableOpacity
-                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    onPress={() => Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])}
-                                  >
-                                    <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
-                                  </TouchableOpacity>
-                                )}
+                        <View key={habit.id || habit.name} style={styles.cardWrapper}>
+                          <View style={styles.habitCard}>
+                            <View style={styles.cardContent}>
+                              <View style={styles.dragHandleColumn}>
+                                <Ionicons name="analytics-outline" size={18} color={colors.textSecondary} />
                               </View>
-                              <Text style={styles.automaticHabitDescription}>
-                                {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
-                              </Text>
+                              <View style={styles.cardRightColumn}>
+                                <View style={styles.habitHeaderCompact}>
+                                  <View style={styles.nameContainerCompact}>
+                                    <Text style={styles.habitName}>{habit.name}</Text>
+                                    {config?.infoTitle && (
+                                      <TouchableOpacity
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                        onPress={() =>
+                                          Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])
+                                        }
+                                        style={{ marginLeft: 6 }}
+                                      >
+                                        <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
+                                      </TouchableOpacity>
+                                    )}
+                                  </View>
+                                  <View style={styles.statusAndChevronRow}>
+                                    <TouchableOpacity
+                                      style={styles.statusTouchable}
+                                      onPress={() => toggleInferredHabit(habit)}
+                                      activeOpacity={0.7}
+                                    >
+                                      <View
+                                        style={[
+                                          styles.statusDot,
+                                          active ? styles.statusDotActive : styles.statusDotPaused,
+                                        ]}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.statusLabel,
+                                          active ? styles.statusLabelActive : styles.statusLabelPaused,
+                                        ]}
+                                      >
+                                        {active ? 'Active' : 'Paused'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                                <Text style={styles.habitTypeLine}>
+                                  {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
+                                </Text>
+                              </View>
                             </View>
                           </View>
-                          <Switch
-                            value={isEnabled}
-                            onValueChange={(value) => {
-                              const newActive = value;
-                              setInferredHabits(prev =>
-                                prev.map(h =>
-                                  h.id === habit.id ? { ...h, is_active: newActive } : h
-                                )
-                              );
-                              (async () => {
-                                try {
-                                  const { error } = await supabase
-                                    .from('habits')
-                                    .update({ is_active: newActive })
-                                    .eq('id', habit.id);
-                                  if (error) throw error;
-                                  insightsService.invalidateHomeSummaryCache();
-                                  if (newActive && habit.name === 'Bedtime Consistency') {
-                                    const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
-                                    await bedtimeHabitsService.backfillBedtimeHabits(user.id);
-                                  }
-                                  if (newActive && habit.name === 'Exercise Time Before Bed') {
-                                    const result = await exerciseTimeBeforeBedService.backfill(user.id, 30);
-                                    if (result.success && result.synced !== undefined) {
-                                      Alert.alert('Sync Complete', result.synced > 0
-                                        ? `Filled in ${result.synced} days of exercise time before bed from your health data.`
-                                        : (result.message || 'No data to sync for this period.'));
-                                    } else if (!result.success && result.message) {
-                                      Alert.alert('Sync Incomplete', result.message);
-                                    }
-                                  }
-                                } catch (err) {
-                                  setInferredHabits(prev =>
-                                    prev.map(h =>
-                                      h.id === habit.id ? { ...h, is_active: !newActive } : h
-                                    )
-                                  );
-                                  Alert.alert('Error', 'Failed to update habit tracking');
-                                }
-                              })();
-                            }}
-                            trackColor={{ false: colors.border, true: colors.primary }}
-                            thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                          />
                         </View>
                       );
                     })}
@@ -1151,185 +1325,68 @@ const HabitManagementScreen = () => {
               </ScrollView>
             )}
             {manualHabits.length > 0 && (
-              <DraggableFlatList
-                data={loading ? [] : manualHabits}
-                keyExtractor={(item) => item.id || item.name}
-                renderItem={renderHabitItem}
-                onDragEnd={onDragEnd}
-                onScrollBeginDrag={() => {
-                  closeAllSwipeables();
-                }}
-                onMomentumScrollBegin={() => {
-                  closeAllSwipeables();
-                }}
-                onScrollEndDrag={() => {
-                  closeAllSwipeables();
-                }}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.draggableListContent}
-                activationDistance={15}
-                dragItemOverflow={false}
-                removeClippedSubviews={false}
-                maxToRenderPerBatch={10}
-                scrollEnabled={true}
-                ListHeaderComponent={
-                  <>
-                    <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-                      <View style={styles.header}>
-                        <Text style={styles.title}>Manage Your Habits</Text>
-                        <Text style={styles.subtitle}>Long press and drag the handle to reorder • Tap a habit to expand options</Text>
-                      </View>
-                    </View>
-                    <View style={styles.sectionHeader}>
-                      <Text style={styles.sectionTitle}>Your Habits</Text>
-                      <Text style={styles.sectionSubtitle}>
-                        Habits you track manually (exercise, reading, etc.)
+              <Sortable.PortalProvider>
+                <Animated.ScrollView
+                  ref={sortScrollRef}
+                  style={styles.scrollView}
+                  contentContainerStyle={[
+                    styles.draggableListContent,
+                    styles.sortableScrollContent,
+                  ]}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  onScrollBeginDrag={closeAllSwipeables}
+                  onMomentumScrollBegin={closeAllSwipeables}
+                  onScrollEndDrag={closeAllSwipeables}
+                >
+                  <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
+                    <View style={styles.header}>
+                      <Text style={styles.title}>Manage Your Habits</Text>
+                      <Text style={styles.subtitle}>
+                        Long press a habit to reorder • Tap to expand options
                       </Text>
                     </View>
-                  </>
-                }
-                ListFooterComponent={
-                  <>
-                    {/* Automatic Habits Section */}
-            {automaticHabits.length > 0 && (
-              <View style={styles.footerSection}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Automatic Habits</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Habits automatically tracked from your sleep and health data
-                  </Text>
-                </View>
-                {!loading && (
-                  <View style={styles.instructionContainer}>
-                    <Ionicons name="fitness-outline" size={20} color={colors.primary} />
-                    <Text style={styles.instructionText}>
-                      Toggle habits on/off to control what data is tracked for insights
+                  </View>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Your Habits</Text>
+                    <Text style={styles.sectionSubtitle}>
+                      Habits you track manually (exercise, reading, etc.)
                     </Text>
                   </View>
-                )}
-                {!loading && automaticHabits.map((habit) => {
-                  const healthMetric = healthMetricsService.getAvailableMetrics().find(m => m.name === habit.name);
-                  const isEnabled = habit.is_active !== false;
-                  return (
-                    <View key={habit.id || healthMetric?.key || habit.name} style={styles.automaticHabitItem}>
-                      <View style={styles.automaticHabitInfo}>
-                        <Ionicons name="fitness-outline" size={24} color={colors.primary} />
-                        <View style={styles.automaticHabitText}>
-                          <Text style={styles.automaticHabitName}>{healthMetric ? healthMetric.name : habit.name}</Text>
-                          <Text style={styles.automaticHabitDescription}>
-                            {healthMetric ? healthMetric.description : 'Automatically tracked from health data'}
-                          </Text>
-                        </View>
-                      </View>
-                      <Switch
-                        value={isEnabled}
-                        onValueChange={(value) => toggleHealthMetric(healthMetric, value)}
-                        trackColor={{ false: colors.border, true: colors.primary }}
-                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-
-                    {/* Inferred Habits Section */}
-            {inferredHabits.length > 0 && (
-              <View style={styles.footerSection}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Inferred Habits</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Values derived from your automatic habits (e.g. bedtime from sleep, exercise time from heart rate)
-                  </Text>
-                </View>
-                {inferredHabits.map((habit) => {
-                  const config = INFERRED_HABITS.find(h => h.name === habit.name);
-                  const isEnabled = habit.is_active !== false;
-                  return (
-                    <View key={habit.id || habit.name} style={styles.automaticHabitItem}>
-                      <View style={styles.automaticHabitInfo}>
-                        <Ionicons name="analytics-outline" size={24} color={colors.primary} />
-                        <View style={styles.automaticHabitText}>
-                          <View style={styles.inferredHabitNameRow}>
-                            <Text style={styles.automaticHabitName}>{habit.name}</Text>
-                            {config?.infoTitle && (
-                              <TouchableOpacity
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                onPress={() => Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])}
-                              >
-                                <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                          <Text style={styles.automaticHabitDescription}>
-                            {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
-                          </Text>
-                        </View>
-                      </View>
-                      <Switch
-                        value={isEnabled}
-                        onValueChange={(value) => {
-                          const newActive = value;
-                          setInferredHabits(prev =>
-                            prev.map(h =>
-                              h.id === habit.id ? { ...h, is_active: newActive } : h
-                            )
-                          );
-                          (async () => {
-                            try {
-                              const { error } = await supabase
-                                .from('habits')
-                                .update({ is_active: newActive })
-                                .eq('id', habit.id);
-                              if (error) throw error;
-                              insightsService.invalidateHomeSummaryCache();
-                              if (newActive && habit.name === 'Bedtime Consistency') {
-                                const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
-                                await bedtimeHabitsService.backfillBedtimeHabits(user.id);
-                              }
-                              if (newActive && habit.name === 'Exercise Time Before Bed') {
-                                const result = await exerciseTimeBeforeBedService.backfill(user.id, 30);
-                                if (result.success && result.synced !== undefined) {
-                                  Alert.alert('Sync Complete', result.synced > 0
-                                    ? `Filled in ${result.synced} days of exercise time before bed from your health data.`
-                                    : (result.message || 'No data to sync for this period.'));
-                                } else if (!result.success && result.message) {
-                                  Alert.alert('Sync Incomplete', result.message);
-                                }
-                              }
-                            } catch (err) {
-                              setInferredHabits(prev =>
-                                prev.map(h =>
-                                  h.id === habit.id ? { ...h, is_active: !newActive } : h
-                                )
-                              );
-                              Alert.alert('Error', 'Failed to update habit tracking');
-                            }
-                          })();
-                        }}
-                        trackColor={{ false: colors.border, true: colors.primary }}
-                        thumbColor={isEnabled ? '#FFFFFF' : '#FFFFFF'}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-
-
-                    {/* Add Custom Habit Button */}
-                    <View style={styles.addCustomHabitContainer}>
-                      <TouchableOpacity
-                        style={styles.addCustomHabitButton}
-                        onPress={openAddHabit}
+                  <Sortable.Flex
+                    flexDirection="column"
+                    flexWrap="nowrap"
+                    width={SCREEN_WIDTH}
+                    alignItems="stretch"
+                    gap={0}
+                    scrollableRef={sortScrollRef}
+                    autoScrollDirection="vertical"
+                    overDrag="vertical"
+                    onDragEnd={onSortDragEnd}
+                    activeItemScale={1}
+                    activeItemOpacity={1}
+                    inactiveItemScale={1}
+                    inactiveItemOpacity={1}
+                  >
+                    {manualHabits.map((habit) => (
+                      <View
+                        key={String(habit.id || habit.name)}
+                        style={[styles.sortableItemOuter, { width: SCREEN_WIDTH }]}
                       >
-                        <Ionicons name="add-circle" size={24} color="#FFFFFF" />
-                        <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                }
-              />
+                        {renderSortableHabitRow(habit)}
+                      </View>
+                    ))}
+                  </Sortable.Flex>
+                  {footerAutomaticBlock}
+                  {footerInferredBlock}
+                  <View style={styles.addCustomHabitContainer}>
+                    <TouchableOpacity style={styles.addCustomHabitButton} onPress={openAddHabit}>
+                      <Ionicons name="add-circle" size={24} color="#FFFFFF" />
+                      <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Animated.ScrollView>
+              </Sortable.PortalProvider>
             )}
           </View>
             )}
@@ -1404,10 +1461,20 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     lineHeight: 18,
   },
+  sortableScrollContent: {
+    width: SCREEN_WIDTH,
+    alignItems: 'stretch',
+  },
+  sortableItemOuter: {
+    alignSelf: 'stretch',
+  },
   cardWrapper: {
     borderRadius: 12,
     marginVertical: 4,
     marginHorizontal: spacing.regular,
+    width: SCREEN_WIDTH - spacing.regular * 2,
+    alignSelf: 'center',
+    maxWidth: SCREEN_WIDTH - spacing.regular * 2,
   },
   cardWrapperDragging: {
     shadowColor: colors.primary,
@@ -1427,6 +1494,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
+    width: '100%',
+    alignSelf: 'stretch',
   },
   habitCardDragging: {
     opacity: 0.9,
@@ -1469,6 +1538,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     marginRight: spacing.xs,
+    minWidth: 0,
   },
   statusAndChevronRow: {
     flexDirection: 'row',
@@ -1579,6 +1649,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
     flex: 1,
+    flexShrink: 1,
   },
   emptyText: {
     fontSize: typography.sizes.body,
@@ -1617,42 +1688,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     lineHeight: 18,
-  },
-  automaticHabitItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.regular,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  automaticHabitInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  automaticHabitText: {
-    marginLeft: spacing.regular,
-    flex: 1,
-  },
-  automaticHabitName: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  automaticHabitDescription: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    lineHeight: 16,
-  },
-  inferredHabitNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
   },
   untrackedHabitItem: {
     flexDirection: 'column',

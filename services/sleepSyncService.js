@@ -3,7 +3,6 @@ import healthService from './healthService';
 import sleepDataService from './sleepDataService';
 import bedtimeHabitsService from './bedtimeHabitsService';
 import syncAttemptTracker from './syncAttemptTracker';
-import backgroundSleepSync from './backgroundSleepSync';
 import { supabase } from './supabase';
 import { formatDateForDB } from '../utils/dateHelpers';
 
@@ -152,7 +151,7 @@ class SleepSyncService {
    * @param {Object} options - Sync options
    * @param {number} options.daysBack - Number of days back to sync (default: 7)
    * @param {boolean} options.force - Force sync even if recently synced
-   * @param {boolean} options.silent - If true, don't show UI indicators (for background sync)
+   * @param {boolean} options.silent - If true, don't show UI indicators (e.g. launch sync)
    * @returns {Promise<Object>} Sync result with success status and data
    */
   async syncSleepData({ daysBack = 7, force = false, silent = false } = {}) {
@@ -424,11 +423,6 @@ class SleepSyncService {
         this.isInitialized = false;
         try {
           await AsyncStorage.removeItem(LAST_SYNC_STORAGE_KEY);
-        } catch (e) {
-          // Non-blocking
-        }
-        try {
-          await backgroundSleepSync.unregisterSleepSyncBackgroundTask();
         } catch (e) {
           // Non-blocking
         }

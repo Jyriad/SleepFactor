@@ -25,7 +25,6 @@ import consumptionOptionsService from '../services/consumptionOptionsService';
 import drugLevelService from '../services/drugLevelService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
-import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 // Sleep Data Rendering Components
@@ -468,6 +467,8 @@ const HomeScreen = () => {
   const [topInsights, setTopInsights] = useState(null);
   const [insightsSummaryByMetric, setInsightsSummaryByMetric] = useState(null);
   const [loading, setLoading] = useState(true);
+  /** Habit card + Log Habits: show as soon as we have disk or network dashboard (avoid spinner on cold start). */
+  const [habitSummaryReady, setHabitSummaryReady] = useState(false);
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
@@ -507,6 +508,9 @@ const HomeScreen = () => {
   const fetchedDateKeysRef = useRef(new Set());
   const inFlightDashboardByDateRef = useRef(new Map());
   const firstHomeFocusHandledRef = useRef(false);
+  const FORGOT_YESTERDAY_DISMISSED_KEY = 'home_forgot_yesterday_dismissed_date';
+  const [forgotYesterdayShow, setForgotYesterdayShow] = useState(false);
+  const [forgotYesterdayChecking, setForgotYesterdayChecking] = useState(false);
   const focusFetchDebounceRef = useRef({ dateStr: null, timestamp: 0 });
   const sleepCardOpacity = useRef(new Animated.Value(0)).current;
   const hadSleepDataRef = useRef(false);
@@ -583,11 +587,6 @@ const HomeScreen = () => {
       nextSubjective = keepCurrentSubjective ? lastNightSubjectiveDataRef.current : (hasPayloadScores ? lastNight : null);
     }
     setLastNightSubjectiveData(nextSubjective);
-    console.warn('[Home] Subjective payload applied', {
-      dateStr,
-      lastNightSubjective: payload.last_night_subjective,
-      displaySubjective: lastNight && (lastNight.tiredness_score != null || lastNight.dream_vividness_score != null) ? lastNight : null,
-    });
     const loggedDatesRaw = payload.logged_dates;
     const loggedDatesArray = Array.isArray(loggedDatesRaw)
       ? loggedDatesRaw
@@ -604,6 +603,7 @@ const HomeScreen = () => {
         lastDashboardPayloadByDateRef.current.set(dateStr, JSON.stringify(payload));
       } catch (_) {}
     }
+    setHabitSummaryReady(true);
   }, [isValidDashboardPayload]);
 
   // Restore from in-memory cache on mount so we never show loading when returning to Home (survives remounts)
@@ -614,10 +614,45 @@ const HomeScreen = () => {
     if (cached && isValidDashboardPayload(cached)) {
       applyDashboardPayload(cached, dateStr);
       setLoading(false);
+      setHabitSummaryReady(true);
       hadSleepDataRef.current = !!cached?.sleep_record;
       if (cached.sleep_record) sleepCardOpacity.setValue(1);
     }
   }, [user?.id]);
+
+  // Disk hydrate for current date (one multiGet): full dashboard or at least habit counts — cold start fast path.
+  useEffect(() => {
+    if (!user?.id) return;
+    const dateStr = getDateString(selectedDate) || getToday();
+    const mem = homeCacheService.getLastAppliedDashboardPayload(user.id, dateStr);
+    if (mem && isValidDashboardPayload(mem)) {
+      setHabitSummaryReady(true);
+      return;
+    }
+    setHabitSummaryReady(false);
+    let cancelled = false;
+    homeCacheService.hydrateHomeSnapshot(user.id, dateStr).then(({ dashboard, loggedCount, totalHabitCount }) => {
+      if (cancelled) return;
+      if (dashboard && isValidDashboardPayload(dashboard)) {
+        applyDashboardPayload(dashboard, dateStr);
+        homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, dashboard);
+        setLoading(false);
+        setHabitSummaryReady(true);
+        hadSleepDataRef.current = !!dashboard?.sleep_record;
+        if (dashboard.sleep_record) sleepCardOpacity.setValue(1);
+        return;
+      }
+      if (loggedCount !== undefined && totalHabitCount !== undefined) {
+        setHabitCount(loggedCount);
+        setTotalHabitCount(totalHabitCount);
+        setHabitSummaryReady(true);
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, selectedDate, getDateString, applyDashboardPayload, isValidDashboardPayload]);
 
   useEffect(() => {
     lastNightSubjectiveDataRef.current = lastNightSubjectiveData;
@@ -633,7 +668,6 @@ const HomeScreen = () => {
     if (!dateStr) return;
     const existingInFlight = inFlightDashboardByDateRef.current.get(dateStr);
     if (existingInFlight) {
-      console.warn('[Home] fetchDashboard deduped in-flight request', { dateStr, background, retryAttempt });
       if (!background) {
         setLoading(true);
         try {
@@ -646,7 +680,6 @@ const HomeScreen = () => {
     }
     if (!background) setLoading(true);
     const requestId = `${dateStr}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    console.warn('[Home] fetchDashboard start', { requestId, dateStr, background, retryAttempt, userId: user?.id });
 
     // Prefetch habit logging for today and yesterday in parallel so "Log habits" opens instantly
     (async () => {
@@ -673,9 +706,7 @@ const HomeScreen = () => {
           await setHabitLoggingCache(user.id, yesterdayStr, resYesterday.data);
           setHabitLoggingMemory(user.id, yesterdayStr, resYesterday.data);
         }
-      } catch (e) {
-        console.warn('[Home] Habit logging prefetch failed', e?.message || e);
-      }
+      } catch (_e) {}
     })();
 
     const runPromise = (async () => {
@@ -691,32 +722,22 @@ const HomeScreen = () => {
       const { data, error } = await Promise.race([rpcPromise, timeoutPromise]);
       if (timeoutId) clearTimeout(timeoutId);
       if (error) {
-        console.warn('[Home] Dashboard RPC error:', error?.message || error);
         throw error;
       }
       if (data?.error) {
-        console.warn('[Home] Dashboard RPC returned error:', data.error);
         const isAuthWarmup = String(data.error).toLowerCase().includes('unauthorized');
         if (isAuthWarmup && retryAttempt < MAX_STARTUP_RETRIES) {
           const retryDelay = RETRY_BASE_DELAY_MS * (retryAttempt + 1);
-          console.warn('[Home] Dashboard unauthorized during startup, retrying', {
-            retryAttempt: retryAttempt + 1,
-            retryDelay,
-            dateStr,
-          });
           setTimeout(() => {
             fetchDashboard({ background, retryAttempt: retryAttempt + 1 });
           }, retryDelay);
           return;
         }
         if (!background) setLoading(false);
-        console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'rpc_error_payload' });
         return;
       }
       if (!isValidDashboardPayload(data)) {
-        console.warn('[Home] Dashboard RPC returned invalid payload shape');
         if (!background) setLoading(false);
-        console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'invalid_payload' });
         return;
       }
       try {
@@ -725,16 +746,13 @@ const HomeScreen = () => {
         const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
         if (prevSerialized === serialized && isAlreadyRenderedForDate) {
           if (!background) setLoading(false);
-          console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'duplicate_payload' });
           return;
         }
       } catch (_) {}
       applyDashboardPayload(data, dateStr);
       homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, data);
-      console.warn('[Home] Dashboard loaded: logged_count=', data?.habit_counts?.logged_count, 'logged_dates=', (data?.logged_dates?.length ?? 0));
       await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, data);
       if (!background) setLoading(false);
-      console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'applied' });
       // Defer insight calculation so dashboard and sleep card paint first
       InteractionManager.runAfterInteractions(() => {
         insightsService.getHomeInsightsWithSummary(user.id, 10, {
@@ -751,24 +769,17 @@ const HomeScreen = () => {
         });
       });
     } catch (err) {
-      console.warn('[Home] Dashboard fetch failed:', err?.message || err);
       const message = String(err?.message || '');
       const isLikelyAuthWarmup =
         /unauthorized|jwt|auth session missing|invalid jwt/i.test(message);
       if (isLikelyAuthWarmup && retryAttempt < MAX_STARTUP_RETRIES) {
         const retryDelay = RETRY_BASE_DELAY_MS * (retryAttempt + 1);
-        console.warn('[Home] Dashboard fetch auth warmup retry', {
-          retryAttempt: retryAttempt + 1,
-          retryDelay,
-          dateStr,
-        });
         setTimeout(() => {
           fetchDashboard({ background, retryAttempt: retryAttempt + 1 });
         }, retryDelay);
         return;
       }
       if (!background) setLoading(false);
-      console.warn('[Home] fetchDashboard complete', { requestId, dateStr, background, outcome: 'exception', error: String(err?.message || err) });
     } finally {
       const current = inFlightDashboardByDateRef.current.get(dateStr);
       if (current === runPromise) {
@@ -808,6 +819,21 @@ const HomeScreen = () => {
     }, [selectedDate, getDateString])
   );
 
+  // First Home visit (today): remind if yesterday's habits incomplete; dismiss hides until next calendar day
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id) return;
+      if (getDateString(selectedDate) !== getToday()) return;
+      refreshForgotYesterdayBanner();
+    }, [user?.id, selectedDate, getDateString, getToday, refreshForgotYesterdayBanner])
+  );
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (getDateString(selectedDate) !== getToday()) return;
+    refreshForgotYesterdayBanner();
+  }, [user?.id, selectedDate, getDateString, getToday, refreshForgotYesterdayBanner]);
+
   useFocusEffect(
     React.useCallback(() => {
       if (!user) return;
@@ -846,15 +872,7 @@ const HomeScreen = () => {
           setLoading(false);
         } else {
           setLoading(true);
-          if (skipCacheForSubjectiveRefresh) {
-            console.warn('[Home] Skipped cache after subjective save; fetching fresh data', { dateStr });
-          }
         }
-        console.warn('[Home] cache check', {
-          dateStr,
-          hasCache: !!cached,
-          hasUsableCache,
-        });
         const alreadyFetchedForDate = fetchedDateKeysRef.current.has(dateStr);
         if (!alreadyFetchedForDate) {
           fetchedDateKeysRef.current.add(dateStr);
@@ -864,7 +882,6 @@ const HomeScreen = () => {
           focusFetchDebounceRef.current.dateStr === dateStr &&
           now - focusFetchDebounceRef.current.timestamp < 700
         ) {
-          console.warn('[Home] fetchDashboard skipped by focus debounce', { dateStr });
           return;
         }
         focusFetchDebounceRef.current = { dateStr, timestamp: now };
@@ -1033,7 +1050,6 @@ const HomeScreen = () => {
             updateSleepDataCache(selectedDate, undefined);
             updateHabitCountCache(selectedDate, undefined);
             setShowNewSleepBanner(true);
-            sleepSyncNotifications.notifyNewSleepDataSynced();
             // Wait a bit for database to update, then fetch
             await new Promise(resolve => setTimeout(resolve, 500));
             try {
@@ -1124,6 +1140,61 @@ const HomeScreen = () => {
     navigation.navigate('HabitLogging', { date: formatDateForDB(today) });
   };
 
+  const handleLogYesterdaysHabits = useCallback(() => {
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setTranslucent?.(true);
+    }
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    navigation.navigate('HabitLogging', { date: formatDateForDB(y) });
+  }, [navigation]);
+
+  const dismissForgotYesterday = useCallback(async () => {
+    try {
+      await AsyncStorage.setItem(FORGOT_YESTERDAY_DISMISSED_KEY, getToday());
+    } catch (_e) {}
+    setForgotYesterdayShow(false);
+  }, []);
+
+  const refreshForgotYesterdayBanner = useCallback(async () => {
+    if (!user?.id) return;
+    const todayStr = getToday();
+    const viewingToday = getDateString(selectedDate) === todayStr;
+    if (!viewingToday) {
+      setForgotYesterdayShow(false);
+      return;
+    }
+    try {
+      const dismissed = await AsyncStorage.getItem(FORGOT_YESTERDAY_DISMISSED_KEY);
+      if (dismissed === todayStr) {
+        setForgotYesterdayShow(false);
+        return;
+      }
+    } catch (_e) {}
+    setForgotYesterdayChecking(true);
+    try {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const yesterdayStr = formatDateForDB(y);
+      const { data, error } = await supabase.rpc('get_home_dashboard_data', {
+        p_user_id: user.id,
+        p_date: yesterdayStr,
+      });
+      if (error || data?.error) {
+        setForgotYesterdayShow(false);
+        return;
+      }
+      const total = data?.habit_counts?.total_active_count ?? 0;
+      const logged = data?.habit_counts?.logged_count ?? 0;
+      setForgotYesterdayShow(total > 0 && logged < total);
+    } catch (_e) {
+      setForgotYesterdayShow(false);
+    } finally {
+      setForgotYesterdayChecking(false);
+    }
+  }, [user?.id, selectedDate, getDateString, getToday]);
+
   const handleSyncNow = async () => {
     try {
       clearError();
@@ -1138,7 +1209,6 @@ const HomeScreen = () => {
           updateSleepDataCache(selectedDate, undefined);
           updateHabitCountCache(selectedDate, undefined);
           setShowNewSleepBanner(true);
-          sleepSyncNotifications.notifyNewSleepDataSynced();
           await new Promise(resolve => setTimeout(resolve, 500));
           await fetchDashboard({ background: true });
         } else if (resultType === 'SUCCESS_NO_DATA') {
@@ -1543,6 +1613,40 @@ const HomeScreen = () => {
           </View>
         )}
 
+        {/* Yesterday incomplete habits — only on Home + today; dismiss hides for rest of day */}
+        {isToday(selectedDate) && (forgotYesterdayChecking || forgotYesterdayShow) && (
+          <View style={styles.todayReminderSlot}>
+            {forgotYesterdayChecking ? (
+              <View style={[styles.todayReminder, styles.todayReminderSkeleton]}>
+                <View style={styles.todayReminderHeader}>
+                  <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
+                  <Text style={[styles.todayReminderText, styles.skeletonText]}>Loading...</Text>
+                </View>
+                <View style={[styles.todayReminderButton, styles.skeletonButton]} />
+              </View>
+            ) : (
+              <View style={styles.todayReminder}>
+                <View style={styles.todayReminderHeader}>
+                  <Ionicons name="alert-circle-outline" size={20} color="#CA8A04" />
+                  <Text style={styles.todayReminderText}>
+                    You didn&apos;t log all your habits yesterday
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.todayReminderButton}
+                  onPress={handleLogYesterdaysHabits}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.todayReminderButtonText}>Log yesterday&apos;s habits</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={dismissForgotYesterday} style={styles.forgotYesterdayDismiss} hitSlop={{ top: 12, bottom: 12 }}>
+                  <Text style={styles.forgotYesterdayDismissText}>Dismiss</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Habit Summary Card - Always visible with stable layout; skeleton when loading */}
         <View style={styles.section}>
           <HabitSummaryCard
@@ -1550,7 +1654,7 @@ const HomeScreen = () => {
             habitCount={habitCount}
             totalHabitCount={totalHabitCount}
             onPress={handleLogHabits}
-            loading={loading}
+            loading={!habitSummaryReady}
           />
         </View>
 
@@ -1823,6 +1927,16 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
     textAlign: 'center',
+  },
+  forgotYesterdayDismiss: {
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  forgotYesterdayDismissText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textDecorationLine: 'underline',
   },
   section: {
     marginBottom: 8,

@@ -8,8 +8,8 @@ const PREFERENCES_STORAGE_KEY = '@user_preferences';
 // Default preferences
 const DEFAULT_PREFERENCES = {
   timeFormat: '12', // '12' or '24'
-  outlierSensitivity: 'standard', // 'conservative', 'standard', or 'aggressive'
-  autoExcludeOutliers: false, // whether to automatically exclude detected outliers
+  outlierSensitivity: 'standard', // reserved if AUTO_EXCLUDE_OUTLIERS_ENABLED in insightsService
+  autoExcludeOutliers: false, // reserved; auto-exclude UI removed until re-enabled
   showNoSignificanceHabits: false, // whether to show habits with 'no statistical significance yet'
   measurementSystem: 'metric', // 'metric' (ml) or 'imperial' (fl oz) - for drink/volume display
   measurementRegion: 'metric', // 'US', 'UK', or 'metric' - which preset options to use (affects default drink sizes)

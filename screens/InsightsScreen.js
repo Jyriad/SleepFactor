@@ -47,6 +47,54 @@ const getSleepMetricColor = (metricKey) => {
   return colors.sleepStages?.[stage] ?? colors.textPrimary;
 };
 
+/** Full-width binary progress: Yes / No labels beside each bar */
+const BinaryProgressBlock = ({ progress }) => {
+  const yesPct = Math.min(100, (progress.binaryYes / progress.targetBinaryYes) * 100);
+  const noPct = Math.min(100, (progress.binaryNo / progress.targetBinaryNo) * 100);
+  return (
+    <View style={styles.binaryProgressWrap}>
+      <View style={styles.binaryBarRow}>
+        <Text style={styles.binaryBarLabel}>Yes</Text>
+        <View style={styles.binaryBarTrack}>
+          <View style={[styles.binaryBarFillYes, { width: `${yesPct}%` }]} />
+        </View>
+        <Text style={styles.binaryBarCount}>
+          {progress.binaryYes}/{progress.targetBinaryYes}
+        </Text>
+      </View>
+      <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
+        <Text style={styles.binaryBarLabel}>No</Text>
+        <View style={styles.binaryBarTrackAlt}>
+          <View style={[styles.binaryBarFillNo, { width: `${noPct}%` }]} />
+        </View>
+        <Text style={styles.binaryBarCount}>
+          {progress.binaryNo}/{progress.targetBinaryNo}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
+/** Numeric habit: full-width paired-nights progress (no table columns) */
+const NumericProgressBlock = ({ progress }) => {
+  const pct = Math.min(100, (progress.pairedDays / progress.targetNumerical) * 100);
+  return (
+    <View style={styles.binaryProgressWrap}>
+      <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
+        <Text style={styles.binaryBarLabelPaired} numberOfLines={1}>
+          Paired
+        </Text>
+        <View style={styles.binaryBarTrack}>
+          <View style={[styles.binaryBarFillYes, { width: `${pct}%` }]} />
+        </View>
+        <Text style={styles.binaryBarCount}>
+          {progress.pairedDays}/{progress.targetNumerical}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 const InsightsScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
@@ -54,10 +102,10 @@ const InsightsScreen = ({ navigation, route }) => {
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
-  const [grouped, setGrouped] = useState({ groups: [] });
+  const [tabData, setTabData] = useState({ groups: [] });
   const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
-  const [analysisMode, setAnalysisMode] = useState('absolute'); // 'absolute' | 'percentage'
-  const [expandedRowKey, setExpandedRowKey] = useState(null); // `${habitId}-${metricKey}`
+  const [analysisMode, setAnalysisMode] = useState('absolute');
+  const [expandedRowKey, setExpandedRowKey] = useState(null);
   const sectionListRef = useRef(null);
   const headerHeightRef = useRef(100);
 
@@ -68,6 +116,11 @@ const InsightsScreen = ({ navigation, route }) => {
     insightsService.getAvailableSleepMetricsForUser(user.id).then(setAvailableMetrics);
   }, [user?.id]);
 
+  const loadTab = useCallback(() => {
+    if (!user?.id) return Promise.resolve();
+    return insightsService.getInsightsTabGroups(user.id).then(setTabData);
+  }, [user?.id]);
+
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === 'android') {
@@ -76,33 +129,23 @@ const InsightsScreen = ({ navigation, route }) => {
       let cancelled = false;
       if (user) {
         setLoading(true);
-        insightsService.getInsightsGroupedByHabit(user.id, {
-          onStaleRefresh: (result) => {
-            if (!cancelled) setGrouped(result);
-          },
-        }).then((result) => {
-          if (!cancelled) setGrouped(result);
-        }).catch(() => {
-          if (!cancelled) setGrouped({ groups: [] });
-        }).finally(() => {
-          if (!cancelled) setLoading(false);
-        });
+        loadTab()
+          .catch(() => {
+            if (!cancelled) setTabData({ groups: [] });
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
       }
       return () => {
         cancelled = true;
-        // Do not set status bar to white on blur: we stay in MainTabs, so the next screen (e.g. Home) keeps it blue and avoids a white flash.
       };
-    }, [user])
+    }, [user, loadTab])
   );
 
   useEffect(() => {
-    if (loading || !focusedHabitId || !grouped.groups.length) return;
-    const groups = grouped.groups || [];
-    const filtered = groups.map((g) => ({
-      ...g,
-      insights: (g.insights || []).filter((i) => i.analysisType === analysisMode),
-    })).filter((g) => g.insights.length > 0);
-    const sectionIndex = filtered.findIndex((g) => g.habitId === focusedHabitId);
+    if (loading || !focusedHabitId || !tabData.groups.length) return;
+    const sectionIndex = tabData.groups.findIndex((g) => g.habitId === focusedHabitId);
     if (sectionIndex >= 0 && sectionListRef.current) {
       setTimeout(() => {
         sectionListRef.current?.scrollToLocation({
@@ -113,14 +156,43 @@ const InsightsScreen = ({ navigation, route }) => {
         });
       }, 400);
     }
-  }, [loading, focusedHabitId, grouped.groups.length, analysisMode]);
+  }, [loading, focusedHabitId, tabData.groups.length]);
 
-  const groups = grouped.groups || [];
+  const groups = tabData.groups || [];
 
-  const filteredGroups = groups.map((group) => ({
-    ...group,
-    insights: (group.insights || []).filter((i) => i.analysisType === analysisMode),
-  })).filter((g) => g.insights.length > 0);
+  const sectionDataForGroup = (g) => {
+    const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
+    const noLink = analysisMode === 'percentage' ? g.noLinkPercentage : g.noLinkAbsolute;
+    if (!g.progress.ready) {
+      return [{ rowType: 'building', key: `build-${g.habitId}`, progress: g.progress }];
+    }
+    if (insights.length > 0) {
+      return insights.map((insight, idx) => ({
+        rowType: 'insight',
+        key: `ins-${g.habitId}-${insight.metricKey}-${idx}`,
+        insight,
+      }));
+    }
+    if (noLink) {
+      return [
+        {
+          rowType: 'noLink',
+          key: `nolink-${g.habitId}`,
+          timesLogged: g.timesLogged ?? 0,
+        },
+      ];
+    }
+    return [{ rowType: 'building', key: `build2-${g.habitId}`, progress: g.progress }];
+  };
+
+  const sections = groups
+    .map((g) => ({
+      ...g,
+      data: sectionDataForGroup(g),
+    }))
+    .filter((s) => s.data.length > 0);
+
+  const anySignificant = sections.some((s) => s.data.some((d) => d.rowType === 'insight'));
 
   const getMetricInfo = (metricKey) =>
     availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0];
@@ -181,7 +253,7 @@ const InsightsScreen = ({ navigation, route }) => {
                 sleepMetric={sleepMetricInfo}
                 width={embeddedCardWidth}
                 isPercentageMode={analysisMode === 'percentage'}
-                onRefresh={() => {}}
+                onRefresh={loadTab}
                 allowExpandNoSignificance={false}
                 isExpanded={true}
                 embedded={true}
@@ -196,14 +268,64 @@ const InsightsScreen = ({ navigation, route }) => {
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
       <Ionicons name="analytics-outline" size={64} color={colors.textSecondary} />
-      <Text style={styles.emptyStateTitle}>No correlations found</Text>
+      <Text style={styles.emptyStateTitle}>No habits to analyse</Text>
       <Text style={styles.emptyStateText}>
-        Keep logging habits and sleep to see which habits affect your sleep.
-      </Text>
-      <Text style={styles.emptyStateSubtext}>
-        We need at least 10 days of paired data per habit to detect correlations.
+        Add a habit and log it on days when you have sleep data.
       </Text>
     </View>
+  );
+
+  const listHeader = (
+    <>
+      <View
+        style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
+        onLayout={(e) => {
+          headerHeightRef.current = e.nativeEvent.layout.height;
+        }}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Sleep Insights</Text>
+        </View>
+      </View>
+      <View style={styles.listHeaderContent}>
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>View by</Text>
+          <View style={styles.switchSegments}>
+            <TouchableOpacity
+              style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
+              onPress={() => setAnalysisMode('absolute')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.switchSegmentText,
+                  analysisMode === 'absolute' && styles.switchSegmentTextActive,
+                ]}
+              >
+                Absolute
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.switchSegment, analysisMode === 'percentage' && styles.switchSegmentActive]}
+              onPress={() => setAnalysisMode('percentage')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.switchSegmentText,
+                  analysisMode === 'percentage' && styles.switchSegmentTextActive,
+                ]}
+              >
+                Percentage
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        {!anySignificant && groups.length > 0 && (
+          <Text style={styles.switchEmptyHint}>Try the other view if this one is empty.</Text>
+        )}
+      </View>
+    </>
   );
 
   return (
@@ -215,14 +337,7 @@ const InsightsScreen = ({ navigation, route }) => {
         </View>
       ) : groups.length === 0 ? (
         <View style={styles.scrollView}>
-          <View
-            style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
-            onLayout={(e) => { headerHeightRef.current = e.nativeEvent.layout.height; }}
-          >
-            <View style={styles.header}>
-              <Text style={styles.title}>Sleep Insights</Text>
-            </View>
-          </View>
+          {listHeader}
           <View style={styles.content}>{renderEmptyState()}</View>
         </View>
       ) : (
@@ -231,81 +346,71 @@ const InsightsScreen = ({ navigation, route }) => {
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
-          ListHeaderComponent={
-            <>
-              <View
-                style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
-                onLayout={(e) => { headerHeightRef.current = e.nativeEvent.layout.height; }}
-              >
-                <View style={styles.header}>
-                  <Text style={styles.title}>Sleep Insights</Text>
-                </View>
-              </View>
-              <View style={styles.listHeaderContent}>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>View by</Text>
-                  <View style={styles.switchSegments}>
-                    <TouchableOpacity
-                      style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
-                      onPress={() => setAnalysisMode('absolute')}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.switchSegmentText, analysisMode === 'absolute' && styles.switchSegmentTextActive]}>
-                        Absolute
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.switchSegment, analysisMode === 'percentage' && styles.switchSegmentActive]}
-                      onPress={() => setAnalysisMode('percentage')}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.switchSegmentText, analysisMode === 'percentage' && styles.switchSegmentTextActive]}>
-                        Percentage
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                {filteredGroups.length === 0 && (
-                  <Text style={styles.switchEmptyHint}>
-                    No correlations for {analysisMode === 'percentage' ? 'Percentage' : 'Absolute'} view. Try the other option.
-                  </Text>
-                )}
-              </View>
-            </>
-          }
-          sections={filteredGroups.map((g) => ({
+          ListHeaderComponent={listHeader}
+          sections={sections.map((g) => ({
             title: g.habitName,
-            data: g.insights || [],
+            data: g.data,
             habitId: g.habitId,
             habitName: g.habitName,
             habit: g.habit,
+            progress: g.progress,
+            timesLogged: g.timesLogged ?? 0,
+            showTableHeader: g.data.some((d) => d.rowType === 'insight'),
           }))}
-          keyExtractor={(item, index) => `${item.habit?.id}-${item.metricKey}-${index}`}
+          keyExtractor={(item) => item.key}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionWrapper}>
               <View
                 style={[
                   styles.habitContainer,
                   styles.habitContainerHeader,
-                  focusedHabitId === section.habitId && styles.habitContainerFocused
+                  focusedHabitId === section.habitId && styles.habitContainerFocused,
+                  !section.showTableHeader && styles.habitContainerNoTable,
                 ]}
               >
                 <Text style={styles.habitName}>{section.habitName}</Text>
-                <View style={styles.tableHeader}>
-                  <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
-                  <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
-                  <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
-                  <View style={styles.headerChevronPlaceholder} />
-                </View>
+                {section.showTableHeader ? (
+                  <View style={styles.tableHeader}>
+                    <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
+                    <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
+                    <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
+                    <View style={styles.headerChevronPlaceholder} />
+                  </View>
+                ) : null}
               </View>
             </View>
           )}
           renderItem={({ item, section, index }) => {
             const isLast = index === (section.data?.length ?? 0) - 1;
+            if (item.rowType === 'building') {
+              return (
+                <View style={styles.sectionWrapper}>
+                  <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
+                    {item.progress.isBinary ? (
+                      <BinaryProgressBlock progress={item.progress} />
+                    ) : (
+                      <NumericProgressBlock progress={item.progress} />
+                    )}
+                  </View>
+                </View>
+              );
+            }
+            if (item.rowType === 'noLink') {
+              const n = item.timesLogged ?? 0;
+              return (
+                <View style={styles.sectionWrapper}>
+                  <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast, styles.noLinkPad]}>
+                    <Text style={styles.noLinkOneLine} numberOfLines={1}>
+                      No link found yet · Logged {n} time{n !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                </View>
+              );
+            }
             return (
               <View style={styles.sectionWrapper}>
                 <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
-                  {renderInsightRow(item, section.habitId)}
+                  {renderInsightRow(item.insight, section.habitId)}
                 </View>
               </View>
             );
@@ -429,14 +534,73 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.regular,
-    marginBottom: spacing.regular,
-  },
-  habitContainerHeader: {
+    paddingHorizontal: spacing.regular,
+    paddingTop: spacing.xs + 2,
     marginBottom: 0,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     paddingBottom: 0,
+  },
+  habitContainerHeader: {
+    marginBottom: 0,
+  },
+  habitContainerNoTable: {
+    paddingBottom: spacing.xs,
+  },
+  binaryProgressWrap: {
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  binaryBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 6,
+  },
+  binaryBarRowLast: {
+    marginBottom: 0,
+  },
+  binaryBarLabel: {
+    width: 32,
+    fontSize: 11,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+    flexShrink: 0,
+  },
+  binaryBarLabelPaired: {
+    minWidth: 44,
+    fontSize: 11,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+    flexShrink: 0,
+    marginRight: 2,
+  },
+  binaryBarTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+  },
+  binaryBarTrackAlt: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+  },
+  binaryBarCount: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    minWidth: 48,
+    textAlign: 'right',
+  },
+  noLinkPad: {
+    paddingVertical: spacing.sm,
+  },
+  noLinkOneLine: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
   },
   habitContainerItem: {
     backgroundColor: colors.cardBackground,
@@ -456,19 +620,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   habitName: {
-    fontSize: typography.sizes.medium,
+    fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   tableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xs,
+    paddingTop: 2,
+    paddingBottom: spacing.xs,
     paddingLeft: 4,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    marginBottom: 0,
     gap: spacing.sm,
   },
   tableHeaderText: {
@@ -494,11 +658,29 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     gap: spacing.sm,
   },
+  tableRowMuted: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingLeft: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  mutedText: {
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  tagSlot: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: typography.sizes.small,
+  },
   tableCellMetric: {
     flex: 2,
     fontSize: typography.sizes.small,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
+    fontWeight: typography.weights.regular || '400',
+    color: colors.textSecondary,
   },
   tag: {
     paddingVertical: 2,
@@ -517,6 +699,56 @@ const styles = StyleSheet.create({
   expandedContentWrap: {
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingLeft: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  progressRowMain: {
+    flex: 2,
+    paddingRight: spacing.xs,
+  },
+  progressBarBg: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+  },
+  progressBarFg: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  progressBarFgAlt: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.sleepStages?.rem ?? colors.primary,
+  },
+  binaryBarFillYes: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  binaryBarFillNo: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.sleepStages?.rem ?? colors.primary,
+  },
+  progressMicro: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  progressDash: {
+    flex: 1,
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   detailedCta: {
     flexDirection: 'row',
@@ -552,13 +784,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: spacing.sm,
-  },
-  emptyStateSubtext: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 18,
   },
 });
 

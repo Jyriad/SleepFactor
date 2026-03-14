@@ -29,8 +29,8 @@ function HomeTabScreen({ route }) {
 }
 
 /**
- * Main tabs: real bottom tab navigator with one stack per tab.
- * Tabs stay mounted so switching back to Home does not re-load; no custom bar or stack-based "tabs".
+ * Main tabs: one stack per tab. Lazy: only Home mounts at first paint; other tabs mount on first open
+ * (faster cold start). unmountOnBlur: false keeps each tab mounted after first visit so switching back is instant.
  */
 const TabNavigator = () => {
   const insets = useSafeAreaInsets();
@@ -51,7 +51,7 @@ const TabNavigator = () => {
         },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
         tabBarHideOnKeyboard: true,
-        lazy: false,
+        lazy: true,
         unmountOnBlur: false,
       }}
     >

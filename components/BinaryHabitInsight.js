@@ -48,6 +48,10 @@ const BinaryHabitInsight = ({
 
   // Non-significant insights show as compact, non-expandable cards (unless allowExpandNoSignificance is true)
   const isSignificantInsight = confidenceLevel !== 'none';
+  const minYes = 10;
+  const minNo = 10;
+  const analyzedEnoughBinary =
+    yesDataPoints >= minYes && noDataPoints >= minNo && confidenceLevel === 'none';
 
   // Calculate impact metrics for headline and bar
   const yesMedian = yesStats?.median || 0;
@@ -98,7 +102,40 @@ const BinaryHabitInsight = ({
             </Text>
           </View>
         </View>
-        <Text style={styles.noSignificanceText}>Not enough data yet</Text>
+        <View style={{ marginTop: spacing.sm, width: '100%' }}>
+          <Text style={styles.noSignificanceText}>
+            {analyzedEnoughBinary
+              ? 'No clear link (yet)'
+              : 'Building your data'}
+          </Text>
+          <View style={[styles.progressBarBackground, { marginTop: spacing.xs }]}>
+            <View
+              style={{
+                height: 8,
+                borderRadius: 4,
+                width: `${Math.min(100, (yesDataPoints / minYes) * 100)}%`,
+                backgroundColor: colors.primary,
+              }}
+            />
+          </View>
+          <Text style={[styles.logCountText, { marginTop: 4 }]}>Yes nights {yesDataPoints}/{minYes}</Text>
+          <View style={[styles.progressBarBackground, { marginTop: spacing.xs }]}>
+            <View
+              style={{
+                height: 8,
+                borderRadius: 4,
+                width: `${Math.min(100, (noDataPoints / minNo) * 100)}%`,
+                backgroundColor: colors.sleepStages?.rem ?? colors.primary,
+              }}
+            />
+          </View>
+          <Text style={[styles.logCountText, { marginTop: 4 }]}>No nights {noDataPoints}/{minNo}</Text>
+          {analyzedEnoughBinary ? (
+            <Text style={[styles.noSignificanceText, { marginTop: spacing.sm }]}>
+              Enough data to compare — no strong difference on this metric so far.
+            </Text>
+          ) : null}
+        </View>
       </View>
     );
   }

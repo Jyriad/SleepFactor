@@ -34,6 +34,7 @@ const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev')
   ? `${BASE_VERSION} Dev` 
   : BASE_VERSION;
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { signOut } from '../services/auth';
@@ -43,7 +44,6 @@ import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
-import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import habitReminderNotifications from '../services/habitReminderNotifications';
 import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import homeCacheService from '../services/homeCacheService';
@@ -80,7 +80,6 @@ const ProfileScreen = () => {
   const [caffeineHabitId, setCaffeineHabitId] = useState(null);
   const [alcoholHabitId, setAlcoholHabitId] = useState(null);
   const [halfLifeSaving, setHalfLifeSaving] = useState(false);
-  const [notifyWhenNewSleepData, setNotifyWhenNewSleepData] = useState(true);
   const [habitReminderEnabled, setHabitReminderEnabled] = useState(false);
   const [habitReminderTime, setHabitReminderTime] = useState('20:00');
   const [showHabitReminderTimePicker, setShowHabitReminderTimePicker] = useState(false);
@@ -93,6 +92,7 @@ const ProfileScreen = () => {
   const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
   const [morningCheckinPickerMinute, setMorningCheckinPickerMinute] = useState(0);
   const [showDeleteDataModal, setShowDeleteDataModal] = useState(false);
+  const [sleepDataModalVisible, setSleepDataModalVisible] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -102,11 +102,6 @@ const ProfileScreen = () => {
     value: i.toString(),
     label: i.toString().padStart(2, '0'),
   })), []);
-
-  // Load notify-when-new-sleep preference
-  useEffect(() => {
-    sleepSyncNotifications.getNotifyWhenNewSleepData().then(setNotifyWhenNewSleepData);
-  }, []);
 
   // Load habit reminder preferences
   useEffect(() => {
@@ -221,7 +216,15 @@ const ProfileScreen = () => {
     isInitialized,
     isLoading,
     performSync,
+    requestPermissions,
+    refreshPermissionState,
   } = useHealthSync();
+
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshPermissionState();
+    }, [refreshPermissionState])
+  );
 
   const handleLogout = () => {
     Alert.alert(
@@ -246,11 +249,22 @@ const ProfileScreen = () => {
 
   const getDataSourceDisplay = (hasPermissions) => {
     if (!isInitialized) return 'Initializing...';
-    if (!hasPermissions) return 'Not connected';
+    if (!hasPermissions) return 'Not connected — tap for options';
 
-    // Determine platform
-    const platform = require('react-native').Platform.OS;
-    return platform === 'android' ? 'Health Connect' : 'Apple Health';
+    return Platform.OS === 'android' ? 'Health Connect' : 'Apple Health';
+  };
+
+  const openSystemPermissions = async () => {
+    try {
+      await Linking.openSettings();
+    } catch (e) {
+      Alert.alert('Settings', 'Open Settings manually and find SleepFactor to manage permissions.');
+    }
+  };
+
+  const handleSleepDataSourcePress = () => {
+    refreshPermissionState();
+    setSleepDataModalVisible(true);
   };
 
   const handleDisconnect = () => {
@@ -414,122 +428,137 @@ const ProfileScreen = () => {
             />
           </View>
 
-          {/* Data Connections */}
+          {/* Data Connections — single entry; sync / disconnect / permissions inside modal */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Data Connections</Text>
-            <View style={styles.infoCard}>
-              <Text style={styles.label}>Sleep Data Source</Text>
-              <Text style={styles.value}>{getDataSourceDisplay(hasPermissions)}</Text>
-            </View>
-            {hasPermissions && (
-              <>
-                <Button
-                  title="Sync All Sleep Data"
-                  onPress={handleSyncData}
-                  loading={isLoading}
-                  style={styles.syncButton}
+            <TouchableOpacity
+              style={styles.infoCard}
+              onPress={handleSleepDataSourcePress}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Sleep data source, tap to manage sync and permissions"
+            >
+              <View style={styles.dataSourceRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Sleep data source</Text>
+                  <Text style={styles.value}>{getDataSourceDisplay(hasPermissions)}</Text>
+                  <Text style={styles.dataSourceHint}>Tap to sync, permissions, or disconnect</Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={22}
+                  color={colors.textSecondary}
+                  style={{ alignSelf: 'center' }}
                 />
-                <Button
-                  title="Disconnect"
-                  onPress={handleDisconnect}
-                  variant="secondary"
-                  style={styles.disconnectButton}
-                />
-              </>
-            )}
+              </View>
+            </TouchableOpacity>
           </View>
+
+          <Modal
+            visible={sleepDataModalVisible}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setSleepDataModalVisible(false)}
+          >
+            <SafeAreaView style={styles.sleepDataModalSafe} edges={['top', 'bottom']}>
+              <View style={styles.sleepDataModalHeader}>
+                <Text style={styles.sleepDataModalTitle}>Sleep data source</Text>
+                <TouchableOpacity
+                  onPress={() => setSleepDataModalVisible(false)}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel="Close"
+                >
+                  <Ionicons name="close" size={28} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                style={styles.sleepDataModalScroll}
+                contentContainerStyle={styles.sleepDataModalScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.sleepDataStatusPill}>
+                  <View
+                    style={[
+                      styles.sleepDataStatusDot,
+                      hasPermissions ? styles.sleepDataStatusDotOn : styles.sleepDataStatusDotOff,
+                    ]}
+                  />
+                  <Text style={styles.sleepDataStatusText}>
+                    {hasPermissions
+                      ? `Connected · ${Platform.OS === 'android' ? 'Health Connect' : 'Apple Health'}`
+                      : 'Not connected'}
+                  </Text>
+                </View>
+                <Text style={styles.sleepDataModalBody}>
+                  {Platform.OS === 'android'
+                    ? 'Sleep is read from Health Connect. Grant access in SleepFactor first, then sync. You can fine-tune what SleepFactor may read in system settings or in the Health Connect app (connected apps).'
+                    : 'Sleep is read from Apple Health. Grant access when prompted, then sync. You can change access anytime in Settings → Privacy & Security → Health → SleepFactor.'}
+                </Text>
+
+                {!hasPermissions && isInitialized && (
+                  <Button
+                    title="Grant sleep access (in app)"
+                    onPress={async () => {
+                      try {
+                        await requestPermissions();
+                        await refreshPermissionState();
+                      } catch (e) {
+                        Alert.alert('Permissions', 'Try again or use Open system settings below.');
+                      }
+                    }}
+                    loading={isLoading}
+                    style={styles.sleepDataModalButton}
+                  />
+                )}
+
+                <Button
+                  title="Open system settings (permissions)"
+                  onPress={openSystemPermissions}
+                  variant="secondary"
+                  style={styles.sleepDataModalButton}
+                />
+
+                <Button
+                  title="Sync all sleep data (last 100 days)"
+                  onPress={async () => {
+                    if (!user?.id) return;
+                    try {
+                      await handleSyncData();
+                      await refreshPermissionState();
+                    } catch (e) {
+                      /* handleSyncData already alerts */
+                    }
+                  }}
+                  loading={isLoading}
+                  style={styles.sleepDataModalButton}
+                />
+
+                <Button
+                  title="Disconnect / revoke access"
+                  onPress={() => {
+                    setSleepDataModalVisible(false);
+                    handleDisconnect();
+                  }}
+                  variant="secondary"
+                  style={styles.sleepDataModalButton}
+                />
+
+                <TouchableOpacity
+                  style={styles.sleepDataModalDone}
+                  onPress={() => setSleepDataModalVisible(false)}
+                >
+                  <Text style={styles.sleepDataModalDoneText}>Done</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </SafeAreaView>
+          </Modal>
 
           {/* Data Quality */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Data Quality</Text>
             <Text style={styles.sectionDescription}>
-              Control how your data is used for insights calculation
+              Exclude specific nights from insights from Sleep or Habit data review — only you choose what to leave out.
             </Text>
-            <View style={[styles.infoCard, styles.toggleCard]}>
-              <View style={styles.toggleRow}>
-                <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Auto-exclude outliers</Text>
-                  <Text style={styles.description}>
-                    Automatically exclude detected outliers from insights
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleSwitch,
-                    preferences.autoExcludeOutliers && styles.toggleSwitchOn,
-                  ]}
-                  onPress={() => updatePreference('autoExcludeOutliers', !preferences.autoExcludeOutliers)}
-                >
-                  <View
-                    style={[
-                      styles.toggleKnob,
-                      preferences.autoExcludeOutliers && styles.toggleKnobOn,
-                    ]}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-            {preferences.autoExcludeOutliers && (
-              <View style={[styles.infoCard, styles.toggleCard]}>
-                <Text style={styles.label}>Outlier detection sensitivity</Text>
-                <Text style={styles.description}>
-                  How aggressively to detect and exclude anomalous data points
-                </Text>
-                <View style={styles.sensitivityContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.sensitivityOption,
-                      preferences.outlierSensitivity === 'conservative' && styles.sensitivityOptionSelected,
-                    ]}
-                    onPress={() => updatePreference('outlierSensitivity', 'conservative')}
-                  >
-                    <Text
-                      style={[
-                        styles.sensitivityText,
-                        preferences.outlierSensitivity === 'conservative' && styles.sensitivityTextSelected,
-                      ]}
-                    >
-                      Conservative
-                    </Text>
-                    <Text style={styles.sensitivityDescription}>Exclude less data</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.sensitivityOption,
-                      preferences.outlierSensitivity === 'standard' && styles.sensitivityOptionSelected,
-                    ]}
-                    onPress={() => updatePreference('outlierSensitivity', 'standard')}
-                  >
-                    <Text
-                      style={[
-                        styles.sensitivityText,
-                        preferences.outlierSensitivity === 'standard' && styles.sensitivityTextSelected,
-                      ]}
-                    >
-                      Standard
-                    </Text>
-                    <Text style={styles.sensitivityDescription}>Balanced approach</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.sensitivityOption,
-                      preferences.outlierSensitivity === 'aggressive' && styles.sensitivityOptionSelected,
-                    ]}
-                    onPress={() => updatePreference('outlierSensitivity', 'aggressive')}
-                  >
-                    <Text
-                      style={[
-                        styles.sensitivityText,
-                        preferences.outlierSensitivity === 'aggressive' && styles.sensitivityTextSelected,
-                      ]}
-                    >
-                      Aggressive
-                    </Text>
-                    <Text style={styles.sensitivityDescription}>Exclude more data</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
             <Text style={[styles.sectionSubTitle, { marginTop: spacing.lg }]}>Advanced</Text>
             <View style={[styles.infoCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
@@ -679,49 +708,6 @@ const ProfileScreen = () => {
               )}
             </View>
             <Text style={styles.sectionSubTitle}>Notifications</Text>
-            <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
-              <View style={styles.toggleRow}>
-                <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Notify when new sleep data is synced</Text>
-                  <Text style={styles.description}>
-                    Show a notification when last night&apos;s sleep has been synced (e.g. from your wearable)
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleSwitch,
-                    notifyWhenNewSleepData && styles.toggleSwitchOn,
-                  ]}
-                  onPress={async () => {
-                    const next = !notifyWhenNewSleepData;
-                    setNotifyWhenNewSleepData(next);
-                    await sleepSyncNotifications.setNotifyWhenNewSleepData(next);
-                  }}
-                >
-                  <View
-                    style={[
-                      styles.toggleKnob,
-                      notifyWhenNewSleepData && styles.toggleKnobOn,
-                    ]}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-            {Platform.OS === 'android' && (
-              <View style={[styles.infoCard, styles.notificationsCard]}>
-                <Text style={styles.label}>Allow background sync</Text>
-                <Text style={styles.description}>
-                  To get &quot;Sleep data synced&quot; notifications in the morning, allow SleepFactor to run in the background. In Settings, open Battery and set SleepFactor to Unrestricted (or turn off battery optimization). Opening the app also syncs your sleep data if background sync hasn&apos;t run yet.
-                </Text>
-                <TouchableOpacity
-                  style={[styles.openSettingsButton, { marginTop: spacing.sm }]}
-                  onPress={() => Linking.openSettings()}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.openSettingsButtonText}>Open app settings</Text>
-                </TouchableOpacity>
-              </View>
-            )}
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
@@ -1141,6 +1127,91 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  dataSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  dataSourceHint: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    lineHeight: 18,
+  },
+  sleepDataModalSafe: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  sleepDataModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.regular,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.cardBackground,
+  },
+  sleepDataModalTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  sleepDataModalScroll: {
+    flex: 1,
+  },
+  sleepDataModalScrollContent: {
+    padding: spacing.regular,
+    paddingBottom: spacing.xxl,
+  },
+  sleepDataStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.cardBackground,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  sleepDataStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  sleepDataStatusDotOn: {
+    backgroundColor: colors.success,
+  },
+  sleepDataStatusDotOff: {
+    backgroundColor: colors.textLight,
+  },
+  sleepDataStatusText: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+  },
+  sleepDataModalBody: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
+  sleepDataModalButton: {
+    marginBottom: spacing.sm,
+  },
+  sleepDataModalDone: {
+    marginTop: spacing.lg,
+    alignSelf: 'center',
+    paddingVertical: spacing.md,
+  },
+  sleepDataModalDoneText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.primary,
   },
   label: {
     fontSize: typography.sizes.small,

@@ -79,10 +79,19 @@ const ScatterPlot = ({
   const displayXRange = xRange;
   const displayYRange = yRange;
 
-  // Calculate trend line if requested (using original data)
+  // Trend line uses only points included in analysis (excluded nights stay on chart but don't steer the line)
+  const includedForRegression = validData.filter(p => !p.exclude_from_insights);
+  const regressionX = includedForRegression.length >= 2
+    ? includedForRegression.map(p => p.x)
+    : xValues;
+  const regressionY = includedForRegression.length >= 2
+    ? includedForRegression.map(p => p.y)
+    : yValues;
+
+  // Calculate trend line if requested
   let trendLineData = null;
-  if (showTrendLine && validData.length >= 2) {
-    const regression = calculateLinearRegression(xValues, yValues);
+  if (showTrendLine && regressionX.length >= 2) {
+    const regression = calculateLinearRegression(regressionX, regressionY);
     if (regression && !isNaN(regression.slope) && !isNaN(regression.intercept)) {
       // Create trend line points across the display x-range
       const trendXMin = displayXMin;
@@ -387,11 +396,10 @@ const ScatterPlot = ({
 
             {/* Data points */}
             {validData.map((point, index) => {
-              const isOutlier = point.isOutlier || false;
               const isExcluded = point.exclude_from_insights || false;
               const isAutoExcluded = point.auto_excluded || false;
 
-              // Determine visual properties based on exclusion status
+              // Grey only when excluded from analysis (auto or manual)
               let pointFillColor = pointColor;
               let pointOpacity = 0.8;
               let pointRadius = 10;
@@ -399,16 +407,11 @@ const ScatterPlot = ({
               let strokeWidth = 0;
 
               if (isExcluded) {
-                // Excluded points are smaller, more transparent, and have a border
                 pointRadius = 6;
                 pointOpacity = 0.4;
                 strokeColor = isAutoExcluded ? colors.warning : colors.error;
                 strokeWidth = 2;
                 pointFillColor = colors.textSecondary;
-              } else if (isOutlier) {
-                // Outliers (but not excluded) are slightly dimmed
-                pointFillColor = colors.textSecondary;
-                pointOpacity = 0.6;
               }
 
               return (

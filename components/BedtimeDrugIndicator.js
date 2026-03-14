@@ -10,7 +10,9 @@ import { typography, spacing } from '../constants';
 import {
   getBedtimeDrugLevel,
   getDrugLevelColor,
-  formatDrugLevel
+  formatDrugLevel,
+  habitUsesCaffeineMgFloor,
+  CAFFEINE_MG_FLOOR,
 } from '../utils/drugHalfLife';
 
 const BedtimeDrugIndicator = ({
@@ -28,11 +30,13 @@ const BedtimeDrugIndicator = ({
     // Use sleep_start_time if available, otherwise use bedtime parameter
     const actualBedtime = sleepStartTime || bedtime;
 
+    const minMg = habitUsesCaffeineMgFloor(habit) ? CAFFEINE_MG_FLOOR : null;
     const level = getBedtimeDrugLevel(
       consumptionEvents,
       actualBedtime,
       habit.half_life_hours || 5,
-      habit.drug_threshold_percent || 5
+      habit.drug_threshold_percent || 5,
+      minMg
     );
 
     // Get color based on level (assuming typical dose is around the average consumption)

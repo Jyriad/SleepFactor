@@ -58,16 +58,12 @@ const NumericalHabitInsight = ({
 
   // Non-significant insights show as compact, non-expandable cards (unless allowExpandNoSignificance is true)
   const isSignificantInsight = confidenceLevel !== 'none';
+  const minPairedForAnalysis = 10;
+  const analyzedEnoughData =
+    totalDataPoints >= minPairedForAnalysis && confidenceLevel === 'none';
 
-  // Time formatter for habits that store values as minutes past midnight
-  const formatTimeValue = (minutes) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-  };
-
-  // Determine if this habit needs time formatting
-  const needsTimeFormatting = habit.type === 'time';
+  // Time habits: X axis = minutes before tracked sleep start (plain numbers)
+  const formatMinutesBeforeSleep = (min) => String(Math.round(Number(min)));
 
 
   // Use original data points (no efficiency transformation)
@@ -121,12 +117,26 @@ const NumericalHabitInsight = ({
             </View>
           </View>
           <View style={styles.progressContainer}>
-            <Text style={styles.progressLabel}>Not enough data yet</Text>
+            <Text style={styles.progressLabel}>
+              {analyzedEnoughData ? 'No clear link (yet)' : 'Building your data'}
+            </Text>
             <View style={styles.progressBarBackground}>
-              <View style={[styles.progressBarFill, { width: `${(totalDataPoints / 10) * 100}%` }]} />
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${Math.min(100, (totalDataPoints / minPairedForAnalysis) * 100)}%`,
+                    backgroundColor: analyzedEnoughData ? colors.textSecondary : undefined,
+                  },
+                ]}
+              />
             </View>
             <Text style={styles.progressText}>
-              {Math.max(0, 10 - totalDataPoints) > 0 ? `Log ${Math.max(0, 10 - totalDataPoints)} more day${Math.max(0, 10 - totalDataPoints) !== 1 ? 's' : ''} to unlock this insight` : 'Almost there!'}
+              {analyzedEnoughData
+                ? `We checked ${totalDataPoints} paired nights — no strong pattern showed up on this metric. Keep logging; it can change.`
+                : Math.max(0, minPairedForAnalysis - totalDataPoints) > 0
+                  ? `Log ${Math.max(0, minPairedForAnalysis - totalDataPoints)} more paired night${Math.max(0, minPairedForAnalysis - totalDataPoints) !== 1 ? 's' : ''} to unlock analysis`
+                  : 'Almost there'}
             </Text>
           </View>
         </View>
@@ -159,7 +169,12 @@ const NumericalHabitInsight = ({
   // This will fall through to the normal expanded/collapsed view logic below
 
   // Format habit unit for display
-  const habitUnit = habit.unit ? ` (${habit.unit})` : '';
+  const habitUnit =
+    habit.type === 'time'
+      ? ' (min before sleep)'
+      : habit.unit
+        ? ` (${habit.unit})`
+        : '';
 
   // Correlation strength color
   const getCorrelationColor = (strength) => {
@@ -343,7 +358,7 @@ const NumericalHabitInsight = ({
           correlation={displayCorrelation}
           correlationStrength={displayCorrelationStrength}
           trendDirection={displayTrendDirection}
-          xValueFormatter={needsTimeFormatting ? formatTimeValue : null}
+          xValueFormatter={habit.type === 'time' ? formatMinutesBeforeSleep : null}
         onPointPress={(point) => {
           setSelectedPoint(point);
           setShowDetailModal(true);

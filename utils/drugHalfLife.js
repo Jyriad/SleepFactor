@@ -1,6 +1,20 @@
 // Drug half-life calculation utilities
 // Handles pharmacokinetic calculations for drug levels over time
 
+/** Below this total (mg), caffeine is treated as 0 — avoids endless half-life tail. */
+export const CAFFEINE_MG_FLOOR = 5;
+
+export const habitUsesCaffeineMgFloor = (habitOrName) => {
+  const n = typeof habitOrName === 'string' ? habitOrName : habitOrName?.name;
+  return (n || '').toLowerCase().includes('caffeine');
+};
+
+export const applyCaffeineMgFloor = (levelMg) => {
+  if (levelMg == null || Number.isNaN(levelMg)) return 0;
+  const n = Number(levelMg);
+  return n < CAFFEINE_MG_FLOOR ? 0 : n;
+};
+
 /**
  * Calculate remaining drug level at target time from a single consumption event
  * @param {Object} consumptionEvent - Consumption event with consumed_at and amount
@@ -28,9 +42,16 @@ export const calculateDrugLevel = (consumptionEvent, targetTime, halfLifeHours) 
  * @param {Date} targetTime - Time to calculate drug level for
  * @param {number} halfLifeHours - Half-life in hours
  * @param {number} thresholdPercent - Threshold percentage below which drug is considered zero (default 5%)
+ * @param {number|null} absoluteMinMg - If set (e.g. 5 for caffeine), totals below this become 0
  * @returns {number} Total remaining drug amount at target time
  */
-export const calculateTotalDrugLevel = (consumptionEvents, targetTime, halfLifeHours, thresholdPercent = 5) => {
+export const calculateTotalDrugLevel = (
+  consumptionEvents,
+  targetTime,
+  halfLifeHours,
+  thresholdPercent = 5,
+  absoluteMinMg = null
+) => {
   let totalLevel = 0;
 
   consumptionEvents.forEach(event => {
@@ -46,6 +67,9 @@ export const calculateTotalDrugLevel = (consumptionEvents, targetTime, halfLifeH
     // If below threshold, treat as 0 (don't add to total)
   });
 
+  if (absoluteMinMg != null && totalLevel < absoluteMinMg) {
+    return 0;
+  }
   return totalLevel;
 };
 
@@ -65,7 +89,8 @@ export const generateDrugLevelTimeline = (
   endTime,
   halfLifeHours,
   thresholdPercent = 5,
-  intervalMinutes = 30
+  intervalMinutes = 30,
+  absoluteMinMg = null
 ) => {
   const dataPoints = [];
   const intervalMs = intervalMinutes * 60 * 1000; // Convert to milliseconds
@@ -73,7 +98,13 @@ export const generateDrugLevelTimeline = (
   let currentTime = new Date(startTime);
 
   while (currentTime <= endTime) {
-    const level = calculateTotalDrugLevel(consumptionEvents, currentTime, halfLifeHours, thresholdPercent);
+    const level = calculateTotalDrugLevel(
+      consumptionEvents,
+      currentTime,
+      halfLifeHours,
+      thresholdPercent,
+      absoluteMinMg
+    );
 
     dataPoints.push({
       time: new Date(currentTime),
@@ -94,9 +125,21 @@ export const generateDrugLevelTimeline = (
  * @param {number} thresholdPercent - Threshold percentage (default 5%)
  * @returns {number} Drug level at bedtime
  */
-export const getBedtimeDrugLevel = (consumptionEvents, bedtime, halfLifeHours, thresholdPercent = 5) => {
+export const getBedtimeDrugLevel = (
+  consumptionEvents,
+  bedtime,
+  halfLifeHours,
+  thresholdPercent = 5,
+  absoluteMinMg = null
+) => {
   const bedtimeDate = bedtime instanceof Date ? bedtime : new Date(bedtime);
-  return calculateTotalDrugLevel(consumptionEvents, bedtimeDate, halfLifeHours, thresholdPercent);
+  return calculateTotalDrugLevel(
+    consumptionEvents,
+    bedtimeDate,
+    halfLifeHours,
+    thresholdPercent,
+    absoluteMinMg
+  );
 };
 
 /**
@@ -120,8 +163,19 @@ export const getEventsInDateRange = (allEvents, startDate, endDate) => {
  * @param {number} thresholdPercent - Threshold percentage (default 5%)
  * @returns {number} Current drug level
  */
-export const getCurrentDrugLevel = (consumptionEvents, halfLifeHours, thresholdPercent = 5) => {
-  return calculateTotalDrugLevel(consumptionEvents, new Date(), halfLifeHours, thresholdPercent);
+export const getCurrentDrugLevel = (
+  consumptionEvents,
+  halfLifeHours,
+  thresholdPercent = 5,
+  absoluteMinMg = null
+) => {
+  return calculateTotalDrugLevel(
+    consumptionEvents,
+    new Date(),
+    halfLifeHours,
+    thresholdPercent,
+    absoluteMinMg
+  );
 };
 
 /**
@@ -132,13 +186,24 @@ export const getCurrentDrugLevel = (consumptionEvents, halfLifeHours, thresholdP
  * @param {number} halfLifeHours - Half-life in hours
  * @returns {number} Decayed level at target time
  */
-export const decayLevelToTime = (levelAtSource, sourceTime, targetTime, halfLifeHours) => {
+export const decayLevelToTime = (
+  levelAtSource,
+  sourceTime,
+  targetTime,
+  halfLifeHours,
+  absoluteMinMg = null
+) => {
   if (levelAtSource == null || levelAtSource <= 0 || !halfLifeHours) return 0;
   const source = sourceTime instanceof Date ? sourceTime : new Date(sourceTime);
   const target = targetTime instanceof Date ? targetTime : new Date(targetTime);
   const hoursElapsed = (target.getTime() - source.getTime()) / (1000 * 60 * 60);
-  if (hoursElapsed <= 0) return levelAtSource;
-  return levelAtSource * Math.pow(0.5, hoursElapsed / halfLifeHours);
+  if (hoursElapsed <= 0) {
+    const v = levelAtSource;
+    return absoluteMinMg != null && v < absoluteMinMg ? 0 : v;
+  }
+  const decayed = levelAtSource * Math.pow(0.5, hoursElapsed / halfLifeHours);
+  if (absoluteMinMg != null && decayed < absoluteMinMg) return 0;
+  return decayed;
 };
 
 /**
@@ -198,7 +263,8 @@ export const calculateAverageDailyPattern = (
   endTime,
   halfLifeHours,
   thresholdPercent = 5,
-  intervalMinutes = 60
+  intervalMinutes = 60,
+  absoluteMinMg = null
 ) => {
   if (!dailyConsumptionEvents || dailyConsumptionEvents.length === 0) {
     return [];
@@ -206,7 +272,15 @@ export const calculateAverageDailyPattern = (
 
   // Generate timeline for each day
   const dayTimelines = dailyConsumptionEvents.map(dayEvents =>
-    generateDrugLevelTimeline(dayEvents, startTime, endTime, halfLifeHours, thresholdPercent, intervalMinutes)
+    generateDrugLevelTimeline(
+      dayEvents,
+      startTime,
+      endTime,
+      halfLifeHours,
+      thresholdPercent,
+      intervalMinutes,
+      absoluteMinMg
+    )
   );
 
   // Calculate average at each time point

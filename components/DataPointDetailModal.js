@@ -16,7 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import dataQualityService from '../services/dataQualityService';
 import sleepDataService from '../services/sleepDataService';
 import { supabase } from '../services/supabase';
-import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
+import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import SleepTimeline from './SleepTimeline';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -40,9 +40,7 @@ const HabitItem = ({ habitItem, isExpanded, onToggle }) => {
 
     switch (type) {
       case 'time':
-        const hours = Math.floor(value / 60);
-        const minutes = Math.round(value % 60);
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        return `${Math.round(Number(value))} min before sleep`;
       case 'numeric':
         return unit ? `${value} ${unit}` : value.toString();
       case 'quick_consumption':
@@ -275,8 +273,9 @@ const DataPointDetailModal = ({
           drugLevels.forEach(level => {
             const events = (rangeEvents || []).filter(e => e.habit_id === level.habit_id);
             const halfLife = level.habits?.half_life_hours ?? 5;
+            const minMg = habitUsesCaffeineMgFloor(level.habits?.name) ? CAFFEINE_MG_FLOOR : null;
             const levelValue = events.length > 0
-              ? getBedtimeDrugLevel(events, targetBedtime, halfLife)
+              ? getBedtimeDrugLevel(events, targetBedtime, halfLife, 5, minMg)
               : 0;
             recalculatedLevels[level.habit_id] = levelValue;
           });
@@ -493,9 +492,7 @@ const DataPointDetailModal = ({
 
     switch (type) {
       case 'time':
-        const hours = Math.floor(value / 60);
-        const minutes = Math.round(value % 60);
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        return `${Math.round(Number(value))} min before sleep`;
       case 'numeric':
         return unit ? `${value} ${unit}` : value.toString();
       case 'binary':

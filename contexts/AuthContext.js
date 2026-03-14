@@ -27,17 +27,14 @@ const saveSessionToStorage = async (session) => {
     } else {
       await AsyncStorage.removeItem(STORAGE_KEYS.SESSION);
     }
-  } catch (error) {
-    console.warn('AuthContext: saveSessionToStorage failed', error);
-  }
+  } catch (_error) {}
 };
 
 const loadSessionFromStorage = async () => {
   try {
     const sessionData = await AsyncStorage.getItem(STORAGE_KEYS.SESSION);
     return sessionData ? JSON.parse(sessionData) : null;
-  } catch (error) {
-    console.warn('AuthContext: loadSessionFromStorage failed', error);
+  } catch (_error) {
     return null;
   }
 };
@@ -98,8 +95,7 @@ export const AuthProvider = ({ children }) => {
           initializedRef.current = true;
           setLoading(false);
         }
-      } catch (error) {
-        console.warn('AuthContext: initializeAuth failed', error);
+      } catch (_error) {
         if (isMounted) {
           initializedRef.current = true;
           setLoading(false);
