@@ -49,7 +49,9 @@ const SleepInsightsHomeCard = ({ topInsights, summaryByMetric, onPress }) => {
       )}
       {!isLoading && !hasSummary && (
         <View style={styles.statusWrapper}>
-          <Text style={styles.lineTextSecondary}>No insights yet</Text>
+          <Text style={styles.lineTextSecondary}>
+            Open Sleep Insights to see progress per habit and any clear links.
+          </Text>
         </View>
       )}
     </View>

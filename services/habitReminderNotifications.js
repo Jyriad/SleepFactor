@@ -22,18 +22,13 @@ function getNextTriggerDate(hour, minute) {
   return next;
 }
 
-const LOG_TAG = '[habitReminder]';
-
 /** expo-notifications loads ExpoPushTokenManager on require; use Expo's registry so we find it in new-arch/bridgeless (globalThis.expo.modules) as well as legacy. */
 function getNotifications() {
   try {
     const pushTokenModule = requireOptionalNativeModule('ExpoPushTokenManager');
     if (!pushTokenModule) return null;
     return require('expo-notifications');
-  } catch (e) {
-    if (__DEV__) {
-      console.warn(LOG_TAG, 'expo-notifications not available', e?.message || e);
-    }
+  } catch (_e) {
     return null;
   }
 }
@@ -63,9 +58,7 @@ export async function setHabitReminderEnabled(value) {
     } else {
       await cancelHabitReminder();
     }
-  } catch (e) {
-    console.warn(LOG_TAG, 'setHabitReminderEnabled error', e?.message || e);
-  }
+  } catch (_e) {}
 }
 
 /**
@@ -93,9 +86,7 @@ export async function setHabitReminderTime(time) {
     if (enabled) {
       await scheduleHabitReminder();
     }
-  } catch (e) {
-    console.warn(LOG_TAG, 'setHabitReminderTime error', e?.message || e);
-  }
+  } catch (_e) {}
 }
 
 /**
@@ -121,7 +112,6 @@ export async function scheduleHabitReminder() {
   if (Platform.OS === 'web') return;
   const Notifications = getNotifications();
   if (!Notifications) {
-    console.warn(LOG_TAG, 'skipped: native notifications not available (rebuild dev/prod APK with expo-notifications)');
     return;
   }
   try {
@@ -132,7 +122,6 @@ export async function scheduleHabitReminder() {
     }
     const granted = await sleepSyncNotifications.requestNotificationPermission();
     if (!granted) {
-      console.warn(LOG_TAG, 'skipped: notification permission not granted');
       return;
     }
 
@@ -154,9 +143,7 @@ export async function scheduleHabitReminder() {
         date: nextTriggerDate,
       },
     });
-  } catch (e) {
-    console.warn(LOG_TAG, 'scheduleHabitReminder failed', e?.message || e, e);
-  }
+  } catch (_e) {}
 }
 
 /**
@@ -213,11 +200,7 @@ export function setupNotificationResponseListener(navigationRef) {
         setTimeout(() => navigateToTodaysHabitLogging(navigationRef), 500);
       }
     }).catch(() => {});
-  } catch (e) {
-    if (__DEV__) {
-      console.warn(LOG_TAG, 'setupNotificationResponseListener failed', e?.message || e);
-    }
-  }
+  } catch (_e) {}
 }
 
 /**
@@ -233,9 +216,7 @@ export function setupRescheduleListener() {
       const type = notification?.request?.content?.data?.type;
       if (type === 'habit_reminder') scheduleHabitReminder();
     });
-  } catch (e) {
-    console.warn(LOG_TAG, 'setupRescheduleListener failed', e?.message || e);
-  }
+  } catch (_e) {}
 }
 
 export default {

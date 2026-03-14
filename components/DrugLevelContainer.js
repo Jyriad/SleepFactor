@@ -21,6 +21,7 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
   const { formatTime } = useUserPreferences();
   const [expanded, setExpanded] = useState(false);
   const [levelNow, setLevelNow] = useState(null);
+  const [bedtimeAt, setBedtimeAt] = useState(null);
   const [timeline, setTimeline] = useState(null);
   const [timelineForDate, setTimelineForDate] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -44,10 +45,16 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
       try {
         if (isViewingToday) {
           const result = await drugLevelService.getLevelNow(userId, habit);
-          if (!cancelled) setLevelNow(result);
+          if (!cancelled) {
+            setLevelNow(result);
+            setBedtimeAt(null);
+          }
         } else {
           const result = await drugLevelService.getLevelAtBedtime(userId, habit, dateStr);
-          if (!cancelled) setLevelNow(result);
+          if (!cancelled) {
+            setLevelNow(result);
+            setBedtimeAt(result.bedtimeAt || null);
+          }
         }
       } catch (e) {
         if (!cancelled) setLevelNow({ level: 0, unit: habit.unit || 'units' });
@@ -140,6 +147,9 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
               width={CHART_WIDTH}
               height={CHART_HEIGHT}
               formatTimeLabel={formatTime}
+              crosshairTime={isViewingToday ? new Date() : bedtimeAt}
+              crosshairLevel={levelNow?.level ?? 0}
+              crosshairLabel={isViewingToday ? 'Now' : 'Bedtime'}
             />
           ) : (
             <View style={styles.chartPlaceholder}>

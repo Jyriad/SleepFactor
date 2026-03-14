@@ -114,8 +114,7 @@ export default {
         sounds: [],
         androidMode: "default"
       }
-    ],
-    "expo-background-fetch"
+    ]
   ],
   extra: {
     eas: {

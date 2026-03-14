@@ -190,8 +190,54 @@ async function setPersistedDashboardPayload(userId, date, payload) {
     const dateStr = dateStringToKey(date);
     const key = `${PREFIX_DASHBOARD}${userId}_${dateStr}`;
     await AsyncStorage.setItem(key, JSON.stringify(payload));
+    const logged = payload?.habit_counts?.logged_count;
+    const total = payload?.habit_counts?.total_active_count;
+    if (typeof logged === 'number' && !Number.isNaN(logged)) {
+      await AsyncStorage.setItem(`${PREFIX_HABIT_COUNT}${userId}_${dateStr}`, String(logged));
+    }
+    if (typeof total === 'number' && !Number.isNaN(total)) {
+      await AsyncStorage.setItem(`${PREFIX_TOTAL_HABIT_COUNT}${userId}`, String(total));
+    }
   } catch (error) {
     // ignore
+  }
+}
+
+/**
+ * One disk round-trip: dashboard JSON + habit counts for cold start.
+ * @returns {{ dashboard: object|undefined, loggedCount: number|undefined, totalHabitCount: number|undefined }}
+ */
+async function hydrateHomeSnapshot(userId, date) {
+  const dateStr = dateStringToKey(date);
+  const dashboardKey = `${PREFIX_DASHBOARD}${userId}_${dateStr}`;
+  const habitKey = `${PREFIX_HABIT_COUNT}${userId}_${dateStr}`;
+  const totalKey = `${PREFIX_TOTAL_HABIT_COUNT}${userId}`;
+  try {
+    const pairs = await AsyncStorage.multiGet([dashboardKey, habitKey, totalKey]);
+    const rawDash = pairs[0][1];
+    const rawLogged = pairs[1][1];
+    const rawTotal = pairs[2][1];
+    let dashboard;
+    if (rawDash) {
+      try {
+        dashboard = JSON.parse(rawDash);
+      } catch (_) {
+        dashboard = undefined;
+      }
+    }
+    let loggedCount;
+    if (rawLogged != null) {
+      const n = parseInt(rawLogged, 10);
+      if (!Number.isNaN(n)) loggedCount = n;
+    }
+    let totalHabitCount;
+    if (rawTotal != null) {
+      const n = parseInt(rawTotal, 10);
+      if (!Number.isNaN(n)) totalHabitCount = n;
+    }
+    return { dashboard, loggedCount, totalHabitCount };
+  } catch (_) {
+    return {};
   }
 }
 
@@ -253,6 +299,7 @@ export default {
   setPersistedTotalHabitCount,
   getPersistedDashboardPayload,
   setPersistedDashboardPayload,
+  hydrateHomeSnapshot,
   cleanupOldEntries,
   clearForUser,
   setLastAppliedDashboardPayload,

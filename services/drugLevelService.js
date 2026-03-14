@@ -6,10 +6,40 @@ import {
   calculateTotalDrugLevel,
   decayLevelToTime,
   generateDrugLevelTimeline,
+  habitUsesCaffeineMgFloor,
+  applyCaffeineMgFloor,
+  CAFFEINE_MG_FLOOR,
 } from '../utils/drugHalfLife';
 
 const DEFAULT_HALF_LIFE_HOURS = 5;
 const THRESHOLD_PERCENT = 5;
+
+function caffeineAbsoluteMinMg(habit) {
+  return habitUsesCaffeineMgFloor(habit) ? CAFFEINE_MG_FLOOR : null;
+}
+
+/** Resolve bedtime Date for sleep following dateStr (same rules as getLevelAtBedtime). */
+export async function resolveBedtimeForDate(userId, dateStr) {
+  try {
+    const [y, mo, day] = dateStr.split('-').map(Number);
+    const nextDay = new Date(y, mo - 1, day + 1);
+    const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+    const sleepData = await sleepDataService.getSleepDataForDate(nextDayStr);
+    if (sleepData?.sleep_start_time) {
+      return new Date(sleepData.sleep_start_time);
+    }
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('notification_time')
+      .eq('id', userId)
+      .single();
+    const notificationTime = userError || !userData ? '22:00:00' : (userData.notification_time || '22:00:00');
+    const [h, m, s] = notificationTime.split(':').map(Number);
+    return new Date(y, mo - 1, day, h, m, s || 0, 0);
+  } catch (e) {
+    return null;
+  }
+}
 const LEVEL_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes – so prefetch from Home is still valid when opening Habit Logging
 
 const _levelNowCache = new Map(); // key: `${userId}:${habitId}` -> { result, timestamp }
@@ -54,6 +84,7 @@ export async function getLevelNow(userId, habit) {
   }
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
   const unit = habit?.unit || 'units';
+  const minMg = caffeineAbsoluteMinMg(habit);
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
 
@@ -85,7 +116,8 @@ export async function getLevelNow(userId, habit) {
     Number(last.level_value),
     bedtimeAt,
     now,
-    halfLife
+    halfLife,
+    minMg
   );
 
   // Today's events from midnight to now
@@ -99,14 +131,19 @@ export async function getLevelNow(userId, habit) {
     .order('consumed_at', { ascending: true });
 
   if (eventsError) {
-    return { level: carryover, unit };
+    let level = minMg != null ? applyCaffeineMgFloor(carryover) : carryover;
+    const result = { level, unit };
+    setCachedLevelNow(userId, habit.id, result);
+    return result;
   }
 
   const fromToday = (todayEvents && todayEvents.length > 0)
-    ? calculateTotalDrugLevel(todayEvents, now, halfLife, THRESHOLD_PERCENT)
+    ? calculateTotalDrugLevel(todayEvents, now, halfLife, THRESHOLD_PERCENT, minMg)
     : 0;
 
-  const result = { level: carryover + fromToday, unit };
+  let level = carryover + fromToday;
+  if (minMg != null) level = applyCaffeineMgFloor(level);
+  const result = { level, unit };
   setCachedLevelNow(userId, habit.id, result);
   return result;
 }
@@ -115,6 +152,7 @@ export async function getLevelNow(userId, habit) {
  * Fallback: fetch events from past N days and compute current level from events only.
  */
 async function fallbackLevelFromEvents(userId, habit, halfLife, unit) {
+  const minMg = caffeineAbsoluteMinMg(habit);
   const now = new Date();
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
   const historyStart = new Date(now);
@@ -135,7 +173,9 @@ async function fallbackLevelFromEvents(userId, habit, halfLife, unit) {
     return result;
   }
 
-  const result = { level: getCurrentDrugLevel(events, halfLife, THRESHOLD_PERCENT), unit };
+  let level = getCurrentDrugLevel(events, halfLife, THRESHOLD_PERCENT, minMg);
+  if (minMg != null) level = applyCaffeineMgFloor(level);
+  const result = { level, unit };
   setCachedLevelNow(userId, habit.id, result);
   return result;
 }
@@ -151,6 +191,7 @@ async function fallbackLevelFromEvents(userId, habit, halfLife, unit) {
 export async function getLevelTimelineForToday(userId, habit) {
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
   const unit = habit?.unit || 'units';
+  const minMg = caffeineAbsoluteMinMg(habit);
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
@@ -214,18 +255,22 @@ export async function getLevelTimelineForToday(userId, habit) {
         carryoverLevel,
         carryoverBedtimeAt,
         currentTime,
-        halfLife
+        halfLife,
+        minMg
       );
     }
     const eventLevelAtTime = calculateTotalDrugLevel(
       eventsForIncrement,
       currentTime,
       halfLife,
-      THRESHOLD_PERCENT
+      THRESHOLD_PERCENT,
+      minMg
     );
+    let level = carryoverAtTime + eventLevelAtTime;
+    if (minMg != null) level = applyCaffeineMgFloor(level);
     dataPoints.push({
       time: new Date(currentTime),
-      level: carryoverAtTime + eventLevelAtTime,
+      level,
     });
     currentTime = new Date(currentTime.getTime() + intervalMs);
   }
@@ -243,6 +288,7 @@ export async function getLevelTimelineForToday(userId, habit) {
 export async function getLevelTimelineForDate(userId, habit, dateStr) {
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
   const unit = habit?.unit || 'units';
+  const minMg = caffeineAbsoluteMinMg(habit);
   const [y, m, d] = dateStr.split('-').map(Number);
   const dayStart = new Date(y, m - 1, d, 0, 0, 0);
   const dayEnd = new Date(y, m - 1, d + 1, 0, 0, 0);
@@ -271,11 +317,9 @@ export async function getLevelTimelineForDate(userId, habit, dateStr) {
     dayEnd,
     halfLife,
     THRESHOLD_PERCENT,
-    30
+    30,
+    minMg
   );
-
-  const firstTime = dataPoints?.[0]?.time;
-  const lastTime = dataPoints?.length ? dataPoints[dataPoints.length - 1]?.time : null;
 
   return { dataPoints, unit };
 }
@@ -291,29 +335,11 @@ export async function getLevelTimelineForDate(userId, habit, dateStr) {
 export async function getLevelAtBedtime(userId, habit, dateStr) {
   const unit = habit?.unit || 'units';
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
+  const minMg = caffeineAbsoluteMinMg(habit);
 
-  let targetBedtime;
-  try {
-    // Sleep is stored by wake-up date (morning you woke). For "bedtime after day D" we need the sleep that *follows* D (night D→D+1), stored as date D+1.
-    const [y, mo, day] = dateStr.split('-').map(Number);
-    const nextDay = new Date(y, mo - 1, day + 1);
-    const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
-    const sleepData = await sleepDataService.getSleepDataForDate(nextDayStr);
-    if (sleepData?.sleep_start_time) {
-      targetBedtime = new Date(sleepData.sleep_start_time);
-    } else {
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('notification_time')
-        .eq('id', userId)
-        .single();
-      const notificationTime = userError || !userData ? '22:00:00' : (userData.notification_time || '22:00:00');
-      const [y, mo, day] = dateStr.split('-').map(Number);
-      const [h, m, s] = notificationTime.split(':').map(Number);
-      targetBedtime = new Date(y, mo - 1, day, h, m, s || 0, 0);
-    }
-  } catch (e) {
-    return { level: 0, unit };
+  const targetBedtime = await resolveBedtimeForDate(userId, dateStr);
+  if (!targetBedtime) {
+    return { level: 0, unit, bedtimeAt: null };
   }
 
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
@@ -330,14 +356,15 @@ export async function getLevelAtBedtime(userId, habit, dateStr) {
     .order('consumed_at', { ascending: true });
 
   if (error) {
-    return { level: 0, unit };
+    return { level: 0, unit, bedtimeAt: targetBedtime };
   }
 
-  const level = events?.length > 0
-    ? getBedtimeDrugLevel(events, targetBedtime, halfLife, THRESHOLD_PERCENT)
+  let level = events?.length > 0
+    ? getBedtimeDrugLevel(events, targetBedtime, halfLife, THRESHOLD_PERCENT, minMg)
     : 0;
+  if (minMg != null) level = applyCaffeineMgFloor(level);
 
-  return { level, unit };
+  return { level, unit, bedtimeAt: targetBedtime };
 }
 
 export default {
@@ -346,4 +373,5 @@ export default {
   getLevelTimelineForDate,
   getLevelAtBedtime,
   invalidateLevelNowCache,
+  resolveBedtimeForDate,
 };

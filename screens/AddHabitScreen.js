@@ -55,7 +55,7 @@ const AddHabitScreen = () => {
           user_id: user.id,
           name: habitName.trim(),
           type: habitType,
-          unit: habitUnit || null,
+          unit: habitType === 'numeric' ? (habitUnit.trim() || null) : null,
           is_custom: true,
           is_active: true,
           priority: maxPriority,
@@ -147,7 +147,6 @@ const AddHabitScreen = () => {
               { key: 'binary', label: 'Yes/No' },
               { key: 'numeric', label: 'Numeric' },
               { key: 'time', label: 'Time' },
-              { key: 'text', label: 'Text' }
             ].map(({ key, label }) => (
               <TouchableOpacity
                 key={key}
@@ -155,7 +154,10 @@ const AddHabitScreen = () => {
                   styles.typeButton,
                   habitType === key && styles.typeButtonActive,
                 ]}
-                onPress={() => setHabitType(key)}
+                onPress={() => {
+                  setHabitType(key);
+                  if (key === 'time') setHabitUnit('');
+                }}
               >
                 <Text
                   style={[
@@ -170,12 +172,12 @@ const AddHabitScreen = () => {
           </View>
         </View>
 
-        {(habitType === 'numeric' || habitType === 'time') && (
+        {habitType === 'numeric' && (
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Unit</Text>
             <TextInput
               style={styles.textInput}
-              placeholder={`e.g., ${habitType === 'numeric' ? 'cups, °C, hours' : 'minutes, hours'}`}
+              placeholder="e.g., cups, steps, °C"
               placeholderTextColor={colors.textLight}
               value={habitUnit}
               onChangeText={setHabitUnit}

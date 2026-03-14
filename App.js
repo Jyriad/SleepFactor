@@ -12,7 +12,6 @@ import { supabase } from './services/supabase';
 import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
 import morningCheckinNotifications from './services/morningCheckinNotifications';
-import sleepSyncNotifications from './services/sleepSyncNotifications';
 import { colors } from './constants/colors';
 
 // Keep native splash visible until we hide it after the first screen has laid out
@@ -26,74 +25,113 @@ if (Platform.OS === 'android') {
   }
 }
 
-export default function App() {
+const OAUTH_DEBUG = '[OAuthDebug]';
 
+export default function App() {
   const navigationRef = useRef();
   const [pendingDeepLink, setPendingDeepLink] = useState(null);
 
-  // Debug logging for pending deep link state changes
   useEffect(() => {
-    if (pendingDeepLink) {
-    }
-  }, [pendingDeepLink]);
-
-  useEffect(() => {
-    // Handle deep links when app is opened
     const handleDeepLink = async (event) => {
       const url = event.url;
+      if (!url) return;
 
-      if (url && url.includes('reset-password')) {
-
-        // Store the deep link URL to be processed when navigation is ready
+      if (url.includes('reset-password')) {
         setPendingDeepLink(url);
-
-        // Try to navigate immediately if navigation is ready
         if (navigationRef.current) {
           navigationRef.current.navigate('ResetPassword', { url });
           setPendingDeepLink(null);
-        } else {
         }
-      } else if (url && (url.includes('code=') || url.includes('access_token='))) {
+        return;
+      }
 
-        try {
-          // Parse the URL to extract OAuth parameters
-          const parsedUrl = Linking.parse(url);
-          const code = parsedUrl.queryParams?.code;
-          const accessToken = parsedUrl.queryParams?.access_token;
-          const refreshToken = parsedUrl.queryParams?.refresh_token;
+      const looksOAuth =
+        url.includes('code=') ||
+        url.includes('access_token=') ||
+        url.includes('error=');
+      if (!looksOAuth) return;
 
-          if (code) {
-            // Exchange the authorization code for a session
-            const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-            if (error) {
-              console.warn('App: OAuth exchangeCodeForSession failed', error);
-            }
-          } else if (accessToken) {
-            // If we have tokens directly, set the session
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            if (error) {
-              console.warn('App: OAuth setSession failed', error);
-            }
+      let scheme = '';
+      try {
+        scheme = new URL(url).protocol;
+      } catch (_) {}
+      const parsedUrl = Linking.parse(url);
+      const codeInQuery = !!parsedUrl.queryParams?.code;
+      const tokenInQuery = !!parsedUrl.queryParams?.access_token;
+      const hashIdx = url.indexOf('#');
+      const fragment = hashIdx >= 0 ? url.slice(hashIdx + 1) : '';
+      const tokenInHash = /access_token=/.test(fragment);
+      const codeInHash = /(?:^|&)code=/.test(fragment);
+      console.log(OAUTH_DEBUG, 'App.deepLink', {
+        scheme,
+        path: parsedUrl.path,
+        codeInQuery,
+        tokenInQuery,
+        tokenInHash,
+        codeInHash,
+        urlLength: url.length,
+      });
+
+      try {
+        const qPart = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : '';
+        const parseQ = (s) => {
+          const o = {};
+          for (const part of s.split('&')) {
+            const i = part.indexOf('=');
+            if (i < 0) continue;
+            o[decodeURIComponent(part.slice(0, i))] = decodeURIComponent(
+              part.slice(i + 1).replace(/\+/g, ' ')
+            );
           }
-        } catch (error) {
-          console.warn('App: deep link OAuth handling failed', error);
+          return o;
+        };
+        const q = parseQ(qPart);
+        if (q.error) {
+          console.warn(OAUTH_DEBUG, 'App.deepLink.oauthError', q.error, q.error_description || '');
+          return;
         }
-      } else {
+        let code = q.code || parsedUrl.queryParams?.code;
+        let accessToken = q.access_token || parsedUrl.queryParams?.access_token;
+        let refreshToken = q.refresh_token || parsedUrl.queryParams?.refresh_token;
+        if (!accessToken && fragment) {
+          const m = fragment.match(/access_token=([^&]+)/);
+          if (m) accessToken = decodeURIComponent(m[1]);
+          const r = fragment.match(/refresh_token=([^&]+)/);
+          if (r) refreshToken = decodeURIComponent(r[1]);
+        }
+        if (!code && fragment) {
+          const fragQ = parseQ(fragment);
+          code = fragQ.code;
+        }
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          console.log(OAUTH_DEBUG, 'App.deepLink.exchangeCode', { ok: !error, message: error?.message });
+        } else if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          console.log(OAUTH_DEBUG, 'App.deepLink.setSession', { ok: !error, message: error?.message });
+        } else {
+          console.log(OAUTH_DEBUG, 'App.deepLink.noActionableParams', {
+            hasCode: !!code,
+            hasAccessToken: !!accessToken,
+            hasRefreshToken: !!refreshToken,
+          });
+        }
+      } catch (error) {
+        console.log(OAUTH_DEBUG, 'App.deepLink.exception', { message: error?.message || String(error) });
       }
     };
 
-    // Get initial URL if app was opened from a link
-    Linking.getInitialURL().then((url) => {
-      if (url) {
-        // Make sure we handle the initial URL properly
-        handleDeepLink({ url });
-      }
-    }).catch((error) => {
-      console.warn('App: getInitialURL failed', error);
-    });
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) handleDeepLink({ url });
+      })
+      .catch((error) => {
+        console.log(OAUTH_DEBUG, 'App.getInitialURL.failed', { message: error?.message });
+      });
 
     // Listen for future deep link events
     const subscription = Linking.addEventListener('url', handleDeepLink);
@@ -138,7 +176,6 @@ export default function App() {
     morningCheckinNotifications.setupRescheduleListener();
     morningCheckinNotifications.rescheduleIfEnabled();
     morningCheckinNotifications.setupNotificationResponseListener(navigationRef);
-    sleepSyncNotifications.setupSyncNotificationResponseListener(navigationRef);
   }, []);
 
   // When app returns to foreground, reschedule habit reminder and morning check-in

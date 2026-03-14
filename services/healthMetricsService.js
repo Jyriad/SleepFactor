@@ -421,21 +421,23 @@ class HealthMetricsService {
   }
 
   /**
-   * Get only health metrics that the user's device/tracker actually provides (permission + data in last 7 days).
-   * Used to hide automatic habits like "Walking Distance" when the tracker doesn't write that data.
-   * @returns {Promise<Array>} Array of health metric definitions that have data
+   * Wearable-backed metrics that actually have data: Health Connect/HealthKit in the lookback window,
+   * or at least one habit_log already stored from a past sync. Long lookback avoids hiding after a quiet week.
+   * @param {string} [userId] - When set, includes metrics that already have synced logs in the app
+   * @param {number} [lookbackDays=120] - How far back to read from the health store per metric
+   * @returns {Promise<Array>} Metric definitions that qualify (deduped by key)
    */
-  async getMetricsProvidedByDevice() {
+  async getMetricsWithWearableData(userId, lookbackDays = 120) {
+    const byKey = new Map();
     try {
       if (!this.isInitialized) {
         const initialized = await this.initialize();
         if (!initialized) return [];
       }
 
-      const results = [];
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
+      startDate.setDate(startDate.getDate() - lookbackDays);
 
       for (const metric of this.healthMetrics) {
         const recordType = this.getRecordTypeForMetric(metric.key);
@@ -446,14 +448,41 @@ class HealthMetricsService {
 
         const data = await this.fetchHealthMetricData(metric.key, startDate, endDate);
         if (data && data.length > 0) {
-          results.push(metric);
+          byKey.set(metric.key, metric);
         }
       }
 
-      return results;
+      if (userId) {
+        const names = this.healthMetrics.map((m) => m.name);
+        const { data: habits } = await supabase
+          .from('habits')
+          .select('id,name')
+          .eq('user_id', userId)
+          .eq('is_custom', false)
+          .in('name', names);
+
+        for (const h of habits || []) {
+          const { count, error } = await supabase
+            .from('habit_logs')
+            .select('id', { count: 'exact', head: true })
+            .eq('habit_id', h.id)
+            .limit(1);
+          if (!error && count > 0) {
+            const metric = this.healthMetrics.find((m) => m.name === h.name);
+            if (metric) byKey.set(metric.key, metric);
+          }
+        }
+      }
+
+      return Array.from(byKey.values());
     } catch (error) {
-      return [];
+      return Array.from(byKey.values());
     }
+  }
+
+  /** @deprecated Use getMetricsWithWearableData */
+  async getMetricsProvidedByDevice() {
+    return this.getMetricsWithWearableData(null, 7);
   }
 
   /**

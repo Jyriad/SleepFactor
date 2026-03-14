@@ -3,8 +3,6 @@ import { AppState } from 'react-native';
 import sleepSyncService from '../services/sleepSyncService';
 import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
-import backgroundSleepSync from '../services/backgroundSleepSync';
-import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import launchSyncCoordinator from '../services/launchSyncCoordinator';
 import { formatDateForDB } from '../utils/dateHelpers';
 
@@ -27,34 +25,39 @@ export const useHealthSync = ({
   const [needsPermissions, setNeedsPermissions] = useState(false);
   const lastSyncTodayWhenMissingRef = useRef(0);
   const FOREGROUND_SYNC_TODAY_COOLDOWN_MS = 15 * 60 * 1000; // 15 min
-  const backgroundTaskRegisteredRef = useRef(false);
+
+  const refreshPermissionState = useCallback(async () => {
+    try {
+      const initialized = await sleepSyncService.initialize();
+      setIsInitialized(initialized);
+      if (initialized) {
+        const granted = await sleepSyncService.hasPermissions();
+        setHasPermissions(granted);
+        if (!granted) {
+          setNeedsPermissions(true);
+        }
+      } else {
+        setHasPermissions(false);
+      }
+    } catch (err) {
+      setHasPermissions(false);
+    }
+  }, []);
 
   // Initialize sync service
   useEffect(() => {
-    const initialize = async () => {
-      try {
-        const initialized = await sleepSyncService.initialize();
-        setIsInitialized(initialized);
+    refreshPermissionState().catch(() => {});
+  }, [refreshPermissionState]);
 
-        if (initialized) {
-          const permissionsGranted = await sleepSyncService.hasPermissions();
-          setHasPermissions(permissionsGranted);
-          if (permissionsGranted && !backgroundTaskRegisteredRef.current) {
-            backgroundTaskRegisteredRef.current = true;
-            backgroundSleepSync.registerSleepSyncBackgroundTask()
-              .then((registered) => {
-                if (registered) sleepSyncNotifications.requestNotificationPermission();
-              })
-              .catch(() => {});
-          }
-        }
-      } catch (err) {
-        setError(err.message);
+  // Re-check permissions whenever app returns to foreground (fixes stale "Not connected" after granting in Health Connect)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshPermissionState();
       }
-    };
-
-    initialize();
-  }, []);
+    });
+    return () => sub?.remove();
+  }, [refreshPermissionState]);
 
   // Auto-sync on mount: always use launch sync (start if not started) so one sync runs on open and result is applied
   useEffect(() => {
@@ -87,7 +90,8 @@ export const useHealthSync = ({
     if (!autoSyncOnForeground) return;
 
     const handleAppStateChange = (nextAppState) => {
-      if (nextAppState !== 'active' || !isInitialized || !hasPermissions) return;
+      if (nextAppState !== 'active' || !isInitialized) return;
+      if (!hasPermissions) return;
 
       (async () => {
         try {
@@ -219,11 +223,6 @@ export const useHealthSync = ({
       setNeedsPermissions(!granted);
 
       if (granted) {
-        if (!backgroundTaskRegisteredRef.current) {
-          backgroundTaskRegisteredRef.current = true;
-          const registered = await backgroundSleepSync.registerSleepSyncBackgroundTask();
-          if (registered) await sleepSyncNotifications.requestNotificationPermission();
-        }
         // Auto-sync after permissions are granted
         await performSync();
       }
@@ -287,6 +286,7 @@ export const useHealthSync = ({
     getLastSyncTimestamp,
     clearError,
     resetNeedsPermissions,
+    refreshPermissionState,
   };
 };
 

@@ -66,7 +66,6 @@ export async function setHabitLoggingState(userId, dateStr, data) {
       await AsyncStorage.setItem(consumptionEventsCacheKey(userId, dateStr), JSON.stringify(data.consumption_events));
     }
   } catch (e) {
-    console.warn('HabitLoggingCache: write failed', e);
   }
 }
 
@@ -91,6 +90,12 @@ export function getInMemoryState(userId, dateStr) {
 export function setInMemoryState(userId, dateStr, data) {
   if (!userId || !dateStr || !data || data.error) return;
   _inMemoryState.set(`${userId}:${dateStr}`, data);
+}
+
+/** Drop cached logging payload so next open refetches (e.g. after add/edit habit). */
+export function clearInMemoryState(userId, dateStr) {
+  if (!userId || !dateStr) return;
+  _inMemoryState.delete(`${userId}:${dateStr}`);
 }
 
 export { getDateStr };

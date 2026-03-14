@@ -21,7 +21,7 @@ import { getDefaultVolumeForOptionInRegion } from '../constants/consumptionRefer
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
-import { getBedtimeDrugLevel } from '../utils/drugHalfLife';
+import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { formatVolume, getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
 
 const LogConsumptionScreen = () => {
@@ -215,8 +215,9 @@ const LogConsumptionScreen = () => {
 
       if (eventsError) return;
 
+      const minMg = habitUsesCaffeineMgFloor(habitRow.name) ? CAFFEINE_MG_FLOOR : null;
       const bedtimeLevel = eventsData?.length > 0
-        ? getBedtimeDrugLevel(eventsData, targetBedtime, habitRow.half_life_hours || 5)
+        ? getBedtimeDrugLevel(eventsData, targetBedtime, habitRow.half_life_hours || 5, 5, minMg)
         : 0;
 
       const drugLevelEntry = {

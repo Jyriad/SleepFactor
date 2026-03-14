@@ -51,7 +51,6 @@ const SleepQualityLogScreen = () => {
       const todayStr = formatDateForDB(new Date());
       const cached = await homeCacheService.getPersistedDashboardPayload(user.id, todayStr);
       if (!cached || cached.error) {
-        console.warn('[SleepQualityLog] No home cache to update for', todayStr);
         return;
       }
       const currentLastNight = cached.last_night_subjective && typeof cached.last_night_subjective === 'object'
@@ -59,12 +58,6 @@ const SleepQualityLogScreen = () => {
         : {};
       const merged = { ...currentLastNight, ...nextPartialScores };
       const hasAny = merged.tiredness_score != null || merged.dream_vividness_score != null;
-      console.warn('[SleepQualityLog] Updating home subjective cache', {
-        todayStr,
-        nextPartialScores,
-        merged,
-        hasAny,
-      });
       await homeCacheService.setPersistedDashboardPayload(user.id, todayStr, {
         ...cached,
         last_night_subjective: hasAny ? merged : null,
@@ -94,15 +87,8 @@ const SleepQualityLogScreen = () => {
             if (sub.dream_vividness_score != null) setDreamVividnessScore(sub.dream_vividness_score);
             const hasAny = sub.tiredness_score != null || sub.dream_vividness_score != null;
             if (hasAny) setHasSavedScores(true);
-            console.warn('[SleepQualityLog] Seeded from home cache for today', {
-              dateStr,
-              tiredness_score: sub.tiredness_score,
-              dream_vividness_score: sub.dream_vividness_score,
-            });
           }
-        } catch (e) {
-          console.warn('[SleepQualityLog] Cache seed failed (non-fatal)', e?.message || e);
-        }
+        } catch (_e) {}
       }
 
       const fetchWithRetry = async (attempt) => {
@@ -124,12 +110,9 @@ const SleepQualityLogScreen = () => {
           userRow = result.userRow;
           sleepRow = result.sleepRow;
           break;
-        } catch (e) {
-          console.warn('[SleepQualityLog] Load attempt failed', { dateStr, attempt, error: e?.message || e });
+        } catch (_e) {
           if (attempt < MAX_RETRIES) {
             await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-          } else {
-            console.warn('[SleepQualityLog] All load attempts failed; using cache-seeded values if any', { dateStr });
           }
         }
       }
@@ -144,23 +127,14 @@ const SleepQualityLogScreen = () => {
         if (sleepRow) {
           const hasT = sleepRow.tiredness_score != null;
           const hasD = sleepRow.dream_vividness_score != null;
-          console.warn('[SleepQualityLog] Server row for date', {
-            dateStr,
-            hasRow: true,
-            tiredness_score: sleepRow.tiredness_score,
-            dream_vividness_score: sleepRow.dream_vividness_score,
-          });
           if (hasT) setTirednessScore(sleepRow.tiredness_score);
           if (hasD) setDreamVividnessScore(sleepRow.dream_vividness_score);
           setHasSavedScores(hasT || hasD);
-        } else {
-          console.warn('[SleepQualityLog] Server row for date', { dateStr, hasRow: false });
         }
 
         setSubjectiveDirty(false);
         setSubjectiveSavedAt(null);
-      } catch (e) {
-        console.warn('[SleepQualityLog] Apply load result failed', e?.message || e);
+      } catch (_e) {
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -180,7 +154,6 @@ const SleepQualityLogScreen = () => {
     setSaving(true);
     try {
       await sleepDataService.updateSubjectiveScores(user.id, dateStr, scores);
-      console.warn('[SleepQualityLog] Saved subjective scores', { dateStr, scores });
       await updateHomeLastNightCache(scores);
       homeCacheService.setSubjectiveJustSavedForToday();
       homeCacheService.setPendingSubjectiveScoresForToday(scores);
@@ -224,7 +197,6 @@ const SleepQualityLogScreen = () => {
             setSaving(true);
             try {
               await sleepDataService.updateSubjectiveScores(user.id, dateStr, { tiredness_score: null, dream_vividness_score: null });
-              console.warn('[SleepQualityLog] Removed subjective scores', { dateStr });
               await updateHomeLastNightCache({ tiredness_score: null, dream_vividness_score: null });
               homeCacheService.setSubjectiveJustSavedForToday();
               homeCacheService.setPendingSubjectiveScoresForToday(null);
