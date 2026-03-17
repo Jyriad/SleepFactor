@@ -25,8 +25,6 @@ if (Platform.OS === 'android') {
   }
 }
 
-const OAUTH_DEBUG = '[OAuthDebug]';
-
 export default function App() {
   const navigationRef = useRef();
   const [pendingDeepLink, setPendingDeepLink] = useState(null);
@@ -60,18 +58,6 @@ export default function App() {
       const tokenInQuery = !!parsedUrl.queryParams?.access_token;
       const hashIdx = url.indexOf('#');
       const fragment = hashIdx >= 0 ? url.slice(hashIdx + 1) : '';
-      const tokenInHash = /access_token=/.test(fragment);
-      const codeInHash = /(?:^|&)code=/.test(fragment);
-      console.log(OAUTH_DEBUG, 'App.deepLink', {
-        scheme,
-        path: parsedUrl.path,
-        codeInQuery,
-        tokenInQuery,
-        tokenInHash,
-        codeInHash,
-        urlLength: url.length,
-      });
-
       try {
         const qPart = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : '';
         const parseQ = (s) => {
@@ -86,10 +72,7 @@ export default function App() {
           return o;
         };
         const q = parseQ(qPart);
-        if (q.error) {
-          console.warn(OAUTH_DEBUG, 'App.deepLink.oauthError', q.error, q.error_description || '');
-          return;
-        }
+        if (q.error) return;
         let code = q.code || parsedUrl.queryParams?.code;
         let accessToken = q.access_token || parsedUrl.queryParams?.access_token;
         let refreshToken = q.refresh_token || parsedUrl.queryParams?.refresh_token;
@@ -105,33 +88,21 @@ export default function App() {
         }
 
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          console.log(OAUTH_DEBUG, 'App.deepLink.exchangeCode', { ok: !error, message: error?.message });
+          await supabase.auth.exchangeCodeForSession(code);
         } else if (accessToken && refreshToken) {
-          const { error } = await supabase.auth.setSession({
+          await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
-          console.log(OAUTH_DEBUG, 'App.deepLink.setSession', { ok: !error, message: error?.message });
-        } else {
-          console.log(OAUTH_DEBUG, 'App.deepLink.noActionableParams', {
-            hasCode: !!code,
-            hasAccessToken: !!accessToken,
-            hasRefreshToken: !!refreshToken,
-          });
         }
-      } catch (error) {
-        console.log(OAUTH_DEBUG, 'App.deepLink.exception', { message: error?.message || String(error) });
-      }
+      } catch (_error) {}
     };
 
     Linking.getInitialURL()
       .then((url) => {
         if (url) handleDeepLink({ url });
       })
-      .catch((error) => {
-        console.log(OAUTH_DEBUG, 'App.getInitialURL.failed', { message: error?.message });
-      });
+      .catch(() => {});
 
     // Listen for future deep link events
     const subscription = Linking.addEventListener('url', handleDeepLink);

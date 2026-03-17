@@ -1,0 +1,32 @@
+---
+description: Project learnings from debugging and past fixes. Use to avoid repeating failed approaches and to inform diagnosis of similar issues.
+alwaysApply: false
+---
+
+# Learnings
+
+## Insights & habit_logs (Supabase row limit and exclusion filter)
+
+**What we learned (March 2026)**
+
+- **Supabase default row limit:** A single request to `habit_logs` (or other tables) returns at most **1000 rows**. The client `.limit(10000)` does not override this server-side cap. If the user has more than 1000 habit logs in the Insights date range, only the first 1000 (by `order by date ascending`) are returned, so **recent logs never reach the app**. That led to time habits (e.g. "Last meal") showing **0/10 paired** and **timeLogsCount: 0** even when rows existed in the DB.
+- **Fix:** Paginate in `getHabitLogs`: loop with `.range(from, to)` (e.g. 0–999, 1000–1999, …), concatenate all pages, then apply any in-memory filters. Stop when a page returns fewer than the page size.
+- **Exclusion filter:** Do **not** rely on Supabase `.or('exclude_from_insights.eq.false,exclude_from_insights.is.null')` for boolean/null columns; it can exclude rows we want included. **Filter in JavaScript** after fetch: keep rows where `exclude_from_insights !== true` (so we include `false`, `null`, and missing).
+- **Time-habit pairing:** Time habits (e.g. last meal) pair with sleep by **wake-up date**: a log on date D pairs with sleep for the night D→D+1, stored under date D+1. Use the timezone-safe **`addCalendarDay(log.date)`** for “next day” to avoid UTC/local date shifts.
+
+**Potential edge cases / unresolved**
+
+- Users with very large habit log history (many pages) may see slower Insights load; consider capping total pages or narrowing the date range if performance becomes an issue.
+- **Other tables:** `getSleepData` and any other Supabase fetches that use a wide date range and no pagination may also hit the 1000-row cap. If similar “missing recent data” or wrong counts appear elsewhere, check whether that endpoint needs pagination.
+
+---
+
+## UI responsiveness and React structure (March 2026)
+
+**What we learned**
+
+- **Context value stability:** If a context provider sets `value={{ a, b, c }}` in render, a new object is created every time, so every consumer re-renders whenever the provider re-renders—even when `a`, `b`, `c` did not change. **Fix:** Wrap the value in `useMemo` with dependencies `[a, b, c, ...]` so the reference only changes when the contents change. This is especially important when the provider wraps heavy trees (e.g. HomeScreen and a pre-mounted HabitLoggingScreen) that both subscribe to the same context.
+- **List components (FlatList, SectionList):** Passing inline `renderItem`, `ListHeaderComponent`, or `ListEmptyComponent` (new function or JSX every render) makes the list think props changed and can force unnecessary row re-renders. Use `useCallback` for `renderItem` / `renderSectionHeader` / `renderItem`, and use a stable reference for header/empty (e.g. a named component or `useMemo`). For row content, extract a `React.memo` row component and pass only the props that row needs (e.g. per-habit slices like `habitLogValue` and `yesNoCounts`) so only rows whose data changed re-render.
+- **Default export when adding components:** When adding a new component at the bottom of a file that already has `export default ScreenName`, do not remove or overwrite that export. If the default export is lost, other files that `import ScreenName from '...'` receive the module object instead of the component, and React reports "Element type is invalid: expected a string or a class/function but got: object" at the place that renders that component (e.g. HomeStackWrapper rendering HabitLoggingScreen).
+- **Insights (or any tab) reload on focus:** Calling `setLoading(true)` and a full fetch on every `useFocusEffect` makes switching back to the tab feel slow. If we already have data (e.g. `tabData.groups.length > 0`), show it immediately and optionally refetch in the background so the spinner does not reappear on every visit.
+- **Derived list data:** Building `sections` or other list input in render without `useMemo` creates a new array every render; the list then may do extra work. Compute with `useMemo` and the right dependency array (e.g. `[groups, analysisMode]`), and memoize the list header and any callbacks passed to the list so the list receives stable props.
