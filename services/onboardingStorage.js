@@ -34,9 +34,7 @@ export async function markOnboardingCompletedForUser(userId) {
     set.add(userId);
     await AsyncStorage.setItem(ONBOARDING_USER_IDS_KEY, JSON.stringify([...set]));
     await AsyncStorage.removeItem(LEGACY_ONBOARDING_COMPLETED_KEY);
-  } catch (e) {
-    console.warn('onboardingStorage: markOnboardingCompletedForUser failed', e);
-  }
+  } catch (_e) {}
 }
 
 /**

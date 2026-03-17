@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -78,6 +78,34 @@ function payloadToInitialState(payload) {
   };
 }
 
+/** Stable empty list component so FlatList does not get a new reference every render. */
+const HabitLoggingEmptyComponent = () => (
+  <View style={emptyListStyles.emptyContainer}>
+    <Text style={emptyListStyles.emptyText}>No habits to track</Text>
+    <Text style={emptyListStyles.emptySubtext}>
+      Go to Habits tab to add habits to track
+    </Text>
+  </View>
+);
+
+const emptyListStyles = StyleSheet.create({
+  emptyContainer: {
+    paddingVertical: spacing.xl,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+  },
+  emptySubtext: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+});
+
 const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) => {
   const routeFromHook = useRoute();
   const navigationFromHook = useNavigation();
@@ -106,9 +134,12 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const appliedQuickConsumptionDefaultsRef = useRef(new Set());
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
   const habitLogsForDateRef = useRef(bootState ? routeDateStr : null);
+  // Only persist to DB/storage when the user actually edited this date; avoids writing loaded (possibly wrong) cache data to the server
+  const userHasEditedDateRef = useRef(false);
   const lastHabitsRefreshTriggerRef = useRef(getHabitsRefreshTrigger());
   const [habitListRefreshGen, setHabitListRefreshGen] = useState(0);
   const skipInMemoryNextLoadRef = useRef(false);
+  const refreshConsumptionEventsRef = useRef(() => {});
 
   // After add/edit/delete habit, refetch list so new habits (e.g. time) appear — same trigger as Habit Management.
   useFocusEffect(
@@ -187,6 +218,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
 
   const applyHabitLoggingPayload = useCallback((payload, dateStr) => {
     if (!payload || payload.error) return;
+    // Applying loaded data, not a user edit — do not persist this to server until user actually changes something
+    userHasEditedDateRef.current = false;
     const habitsList = Array.isArray(payload.habits) ? payload.habits : [];
     const normalized = habitsList.map(normalizeHabit);
     setHabits(normalized);
@@ -215,6 +248,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     if (!hasInMemory) {
       setLoading(true);
       setConsumptionEventsLoading(true);
+      // Clear habitLogs so we don't show the previous date's data while loading
+      setHabitLogs({});
     }
 
     let cancelled = false;
@@ -249,13 +284,16 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           if (error) throw error;
           if (data?.error) return;
 
-          applyHabitLoggingPayload(data, dateStr);
-          setInMemoryState(user.id, dateStr, data);
-          setLoading(false);
+          const stillForDateAfterRpc = !cancelled && getDateString(selectedDateRef.current) === dateStr;
+          if (stillForDateAfterRpc) {
+            applyHabitLoggingPayload(data, dateStr);
+            setInMemoryState(user.id, dateStr, data);
+            setLoading(false);
 
-          try {
-            await writeHabitLoggingCache(user.id, dateStr, data);
-          } catch (e) {
+            try {
+              await writeHabitLoggingCache(user.id, dateStr, data);
+            } catch (e) {
+            }
           }
 
           const consumptionHabits = (data.habits || []).filter(h => h.type === 'drug' || h.type === 'quick_consumption');
@@ -280,21 +318,54 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     };
   }, [selectedDate, user, applyHabitLoggingPayload, habitListRefreshGen]);
 
-  // Save habitLogs to AsyncStorage whenever they change (debounced). Only save when current habitLogs state is for the selected date (avoids writing wrong date when user switches dates).
+  // Save only when the user actually edited this date; avoids persisting wrong data that was loaded from cache for another date.
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       const selectedStr = getDateString(selectedDate);
       if (habitLogsForDateRef.current !== selectedStr) return;
-      if (Object.keys(habitLogs).length > 0) {
-        saveHabitLogsToStorage();
-        // Also save to database immediately for regular habits
-        saveRegularHabitsToDatabase();
-      }
+      if (!userHasEditedDateRef.current) return;
+      saveHabitLogsToStorage();
+      saveRegularHabitsToDatabase();
     }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [habitLogs, selectedDate]);
 
+  const saveSingleHabitLog = async (habitId, value) => {
+    if (!user) return;
+    try {
+      const dateString = getDateString(selectedDateRef.current);
+
+      if (value !== '' && value !== null && value !== undefined) {
+        const { error: logsError } = await supabase
+          .from('habit_logs')
+          .upsert(
+            [
+              {
+                user_id: user.id,
+                habit_id: habitId,
+                date: dateString,
+                value: String(value),
+              },
+            ],
+            {
+              onConflict: 'user_id,habit_id,date',
+            }
+          );
+
+        if (logsError) throw logsError;
+      } else {
+        await supabase
+          .from('habit_logs')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('habit_id', habitId)
+          .eq('date', dateString);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save habit log. Please try again.');
+    }
+  };
 
   const saveRegularHabitsToDatabase = async () => {
     if (!user) return;
@@ -475,6 +546,26 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     }
   };
 
+  refreshConsumptionEventsRef.current = refreshConsumptionEvents;
+
+  const handleConsumptionAdded = useCallback((habitId) => {
+    drugLevelService.invalidateLevelNowCache(user?.id, habitId);
+    setLevelRefreshKey((k) => k + 1);
+    refreshConsumptionEventsRef.current?.();
+  }, [user?.id]);
+
+  const handleOpenLogConsumption = useCallback((params, habitId) => {
+    navigation.navigate('LogConsumption', {
+      ...params,
+      userId: user?.id,
+      onSaveSuccess: () => {
+        drugLevelService.invalidateLevelNowCache(user?.id, habitId);
+        setLevelRefreshKey((k) => k + 1);
+        refreshConsumptionEventsRef.current?.();
+      },
+    });
+  }, [navigation, user?.id]);
+
   const toggleConsumptionCollapsed = useCallback((habitId) => {
     setCollapsedConsumption((prev) => {
       const next = { ...prev, [habitId]: !prev[habitId] };
@@ -503,18 +594,30 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     const habit = habits.find(h => h.id === habitId);
     if (!habit) return;
 
+    const dateStrForLog = getDateString(selectedDateRef.current);
+
     if (habit.type === 'drug' || habit.type === 'quick_consumption') {
+      userHasEditedDateRef.current = true;
       setConsumptionEvents(prev => ({
         ...prev,
         [habitId]: value || [],
       }));
     } else {
+      userHasEditedDateRef.current = true;
       const oldValue = habitLogs[habitId];
       habitLogsForDateRef.current = getDateString(selectedDateRef.current);
+      const nextLogs = { ...habitLogs, [habitId]: value };
       setHabitLogs(prev => ({
         ...prev,
         [habitId]: value,
       }));
+
+      // Keep in-memory cache in sync so navigating away and back shows the correct value (e.g. after clear)
+      const dateStr = getDateString(selectedDateRef.current);
+      const currentInMemory = getInMemoryState(user?.id, dateStr);
+      if (user?.id && dateStr && currentInMemory && !currentInMemory.error) {
+        setInMemoryState(user.id, dateStr, { ...currentInMemory, logs: nextLogs });
+      }
 
       // Update cached Yes/No counts when user taps Yes or No (only changes by ±1 per tap)
       if (habit.type === 'binary') {
@@ -538,6 +641,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           });
         }
       }
+
+      // Persist this single habit log immediately so Insights can see it
+      saveSingleHabitLog(habitId, value);
     }
   }, [habits, habitLogs]);
 
@@ -612,12 +718,61 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   };
 
 
-  const getDateRangeText = () => {
+  const dateRangeText = useMemo(() => {
     const date = new Date(selectedDate);
     const previousDate = new Date(date);
     previousDate.setDate(date.getDate() - 1);
     return formatDateRange(previousDate, date);
-  };
+  }, [selectedDate]);
+
+  const listHeaderComponent = useMemo(
+    () => <Text style={styles.dateRange}>{dateRangeText}</Text>,
+    [dateRangeText]
+  );
+
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const renderItem = useCallback(
+    ({ item: habit }) => {
+      const isDrugHabit = habit.type === 'drug' || habit.type === 'quick_consumption';
+      const isCaffeineOrAlcohol = isDrugHabit && (habit.name === 'Caffeine' || habit.name === 'Alcohol');
+      const isCollapsed = isCaffeineOrAlcohol && collapsedConsumption[habit.id];
+      return (
+        <HabitLoggingRow
+          habit={habit}
+          isDrugHabit={isDrugHabit}
+          isCaffeineOrAlcohol={isCaffeineOrAlcohol}
+          isCollapsed={isCollapsed}
+          consumptionEventsForHabit={consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS}
+          habitLogValue={habit.type === 'drug' || habit.type === 'quick_consumption' ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS) : (habitLogs[habit.id] || '')}
+          consumptionEventsLoading={consumptionEventsLoading}
+          yesNoCounts={habitLogCountsByValue[habit.id]}
+          selectedDate={selectedDate}
+          userId={user?.id}
+          levelRefreshKey={levelRefreshKey}
+          onHabitChange={handleHabitChange}
+          onConsumptionAdded={handleConsumptionAdded}
+          onOpenLogConsumption={handleOpenLogConsumption}
+          toggleConsumptionCollapsed={toggleConsumptionCollapsed}
+          isLogged={isHabitLoggedToday(habit)}
+        />
+      );
+    },
+    [
+      collapsedConsumption,
+      consumptionEvents,
+      habitLogs,
+      habitLogCountsByValue,
+      consumptionEventsLoading,
+      selectedDate,
+      user?.id,
+      levelRefreshKey,
+      handleHabitChange,
+      handleConsumptionAdded,
+      handleOpenLogConsumption,
+      toggleConsumptionCollapsed,
+    ]
+  );
 
   const statusBarHeight = Constants.statusBarHeight ?? 24;
   const minimalHeaderTop = insets.top > 0 ? statusBarHeight : 0;
@@ -651,116 +806,11 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         scrollEnabled={!dateHeader?.isHeaderExpanded}
-        ListHeaderComponent={<Text style={styles.dateRange}>{getDateRangeText()}</Text>}
+        ListHeaderComponent={listHeaderComponent}
         data={habits}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No habits to track</Text>
-            <Text style={styles.emptySubtext}>
-              Go to Habits tab to add habits to track
-            </Text>
-          </View>
-        }
-        renderItem={({ item: habit }) => {
-          const isDrugHabit = habit.type === 'drug' || habit.type === 'quick_consumption';
-          const isCaffeineOrAlcohol = isDrugHabit && (habit.name === 'Caffeine' || habit.name === 'Alcohol');
-          const isCollapsed = isCaffeineOrAlcohol && collapsedConsumption[habit.id];
-          return (
-            <View style={[
-              styles.habitRow,
-              isDrugHabit && styles.habitRowFullWidth,
-              isCollapsed && styles.habitRowCollapsed
-            ]}>
-              {!isDrugHabit && (
-                <View style={styles.habitInfo}>
-                  <Text style={styles.habitName}>{habit.name}</Text>
-                  <Text style={[
-                    styles.habitStats,
-                    isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
-                  ]}>
-                    {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
-                  </Text>
-                </View>
-              )}
-              <View style={[
-                styles.habitInput,
-                isDrugHabit && styles.habitInputFullWidth
-              ]}>
-                {isDrugHabit && (
-                  <TouchableOpacity
-                    style={[styles.drugHabitHeader, isCollapsed && styles.drugHabitHeaderCollapsed]}
-                    onPress={isCaffeineOrAlcohol ? () => toggleConsumptionCollapsed(habit.id) : undefined}
-                    activeOpacity={isCaffeineOrAlcohol ? 0.7 : 1}
-                    disabled={!isCaffeineOrAlcohol}
-                  >
-                    <View style={styles.drugHabitHeaderLeft}>
-                      <Text style={styles.habitName}>{habit.name}</Text>
-                      <Text style={[
-                        styles.habitStats,
-                        isHabitLoggedToday(habit) ? styles.habitStatsLogged : styles.habitStatsNotLogged
-                      ]}>
-                        {isHabitLoggedToday(habit) ? '✓ Logged today' : 'Not logged today'}
-                      </Text>
-                    </View>
-                    {isCaffeineOrAlcohol && (
-                      <Ionicons
-                        name={isCollapsed ? 'chevron-down' : 'chevron-up'}
-                        size={22}
-                        color={colors.textSecondary}
-                      />
-                    )}
-                  </TouchableOpacity>
-                )}
-                {isDrugHabit && !isCollapsed && consumptionEventsLoading ? (
-                  <View style={styles.consumptionLoadingWrap}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.consumptionLoadingText}>Loading…</Text>
-                  </View>
-                ) : (!isDrugHabit || !isCollapsed) ? (
-                  <>
-                    <HabitInput
-                      habit={habit}
-                      value={(habit.type === 'drug' || habit.type === 'quick_consumption')
-                        ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS)
-                        : (habitLogs[habit.id] || '')}
-                      onHabitChange={handleHabitChange}
-                      unit={habit.unit}
-                      selectedDate={selectedDate}
-                      userId={user?.id}
-                      onConsumptionAdded={() => {
-                        drugLevelService.invalidateLevelNowCache(user?.id, habit.id);
-                        setLevelRefreshKey((k) => k + 1);
-                        refreshConsumptionEvents();
-                      }}
-                      onOpenLogConsumption={(params) => {
-                        navigation.navigate('LogConsumption', {
-                          ...params,
-                          userId: user?.id,
-                          onSaveSuccess: () => {
-                            drugLevelService.invalidateLevelNowCache(user?.id, habit.id);
-                            setLevelRefreshKey((k) => k + 1);
-                            refreshConsumptionEvents();
-                          },
-                        });
-                      }}
-                      yesNoCounts={habitLogCountsByValue[habit.id]}
-                    />
-                    {isCaffeineOrAlcohol && (
-                      <DrugLevelContainer
-                        habit={habit}
-                        userId={user?.id}
-                        selectedDate={selectedDate}
-                        compact
-                        levelRefreshKey={levelRefreshKey}
-                      />
-                    )}
-                  </>
-                ) : null}
-              </View>
-            </View>
-          );
-        }}
+        keyExtractor={keyExtractor}
+        ListEmptyComponent={HabitLoggingEmptyComponent}
+        renderItem={renderItem}
       />
       </>
       )}
@@ -906,6 +956,103 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
   },
+});
+
+const HabitLoggingRow = React.memo(function HabitLoggingRow({
+  habit,
+  isDrugHabit,
+  isCaffeineOrAlcohol,
+  isCollapsed,
+  habitLogValue,
+  consumptionEventsLoading,
+  yesNoCounts,
+  selectedDate,
+  userId,
+  levelRefreshKey,
+  onHabitChange,
+  onConsumptionAdded,
+  onOpenLogConsumption,
+  toggleConsumptionCollapsed,
+  isLogged,
+}) {
+  return (
+    <View style={[
+      styles.habitRow,
+      isDrugHabit && styles.habitRowFullWidth,
+      isCollapsed && styles.habitRowCollapsed,
+    ]}>
+      {!isDrugHabit && (
+        <View style={styles.habitInfo}>
+          <Text style={styles.habitName}>{habit.name}</Text>
+          <Text style={[
+            styles.habitStats,
+            isLogged ? styles.habitStatsLogged : styles.habitStatsNotLogged,
+          ]}>
+            {isLogged ? '✓ Logged' : 'Not logged'}
+          </Text>
+        </View>
+      )}
+      <View style={[
+        styles.habitInput,
+        isDrugHabit && styles.habitInputFullWidth,
+      ]}>
+        {isDrugHabit && (
+          <TouchableOpacity
+            style={[styles.drugHabitHeader, isCollapsed && styles.drugHabitHeaderCollapsed]}
+            onPress={isCaffeineOrAlcohol ? () => toggleConsumptionCollapsed(habit.id) : undefined}
+            activeOpacity={isCaffeineOrAlcohol ? 0.7 : 1}
+            disabled={!isCaffeineOrAlcohol}
+          >
+            <View style={styles.drugHabitHeaderLeft}>
+              <Text style={styles.habitName}>{habit.name}</Text>
+              <Text style={[
+                styles.habitStats,
+                isLogged ? styles.habitStatsLogged : styles.habitStatsNotLogged,
+              ]}>
+                {isLogged ? '✓ Logged' : 'Not logged'}
+              </Text>
+            </View>
+            {isCaffeineOrAlcohol && (
+              <Ionicons
+                name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                size={22}
+                color={colors.textSecondary}
+              />
+            )}
+          </TouchableOpacity>
+        )}
+        {isDrugHabit && !isCollapsed && consumptionEventsLoading ? (
+          <View style={styles.consumptionLoadingWrap}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.consumptionLoadingText}>Loading…</Text>
+          </View>
+        ) : (!isDrugHabit || !isCollapsed) ? (
+          <>
+            <HabitInput
+              habit={habit}
+              value={habitLogValue}
+              onHabitChange={onHabitChange}
+              unit={habit.unit}
+              selectedDate={selectedDate}
+              userId={userId}
+              onConsumptionAdded={() => onConsumptionAdded(habit.id)}
+              onOpenLogConsumption={(params) => onOpenLogConsumption(params, habit.id)}
+              yesNoCounts={yesNoCounts}
+            />
+            {isCaffeineOrAlcohol && (
+              <DrugLevelContainer
+                habit={habit}
+                userId={userId}
+                selectedDate={selectedDate}
+                compact
+                levelRefreshKey={levelRefreshKey}
+              />
+            )}
+          </>
+        ) : null}
+      </View>
+    </View>
+  );
 });
 
 export default HabitLoggingScreen;

@@ -36,7 +36,7 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   />
 );
 
-const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo }) => {
+const SleepNoDataSkeleton = React.memo(({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo }) => {
   const viewingToday = isToday(selectedDate);
 
   const syncedTodayNoData = viewingToday && hasPermissions && lastSyncResult?.success && lastSyncResult?.resultType === 'SUCCESS_NO_DATA';
@@ -109,9 +109,9 @@ const SleepNoDataSkeleton = ({ selectedDate, isToday, formatDateTitle, hasPermis
       </View>
     </View>
   );
-};
+});
 
-const SleepDataCard = ({
+const SleepDataCard = React.memo(({
   selectedDate,
   isToday,
   formatDateTitle,
@@ -270,7 +270,7 @@ const SleepDataCard = ({
       )}
     </View>
   );
-};
+});
 
 const SleepDataSimpleLoading = () => (
   <View style={styles.sleepCard}>
@@ -283,7 +283,7 @@ const SleepDataSimpleLoading = () => (
   </View>
 );
 
-const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, containerStyle, message }) => {
+const SleepDataLoadingSkeleton = React.memo(({ selectedDate, isToday, formatDateTitle, containerStyle, message }) => {
   const displayMessage = message || 'Syncing...';
   const spinValue = useRef(new Animated.Value(0)).current;
   const pulseValue = useRef(new Animated.Value(0.5)).current;
@@ -408,7 +408,7 @@ const SleepDataLoadingSkeleton = ({ selectedDate, isToday, formatDateTitle, cont
     </Animated.View>
   </View>
   );
-};
+});
 
 // Sleep stage display names and their corresponding colors
 const SLEEP_METRIC_CONFIG = {
@@ -511,6 +511,7 @@ const HomeScreen = () => {
   const FORGOT_YESTERDAY_DISMISSED_KEY = 'home_forgot_yesterday_dismissed_date';
   const [forgotYesterdayShow, setForgotYesterdayShow] = useState(false);
   const [forgotYesterdayChecking, setForgotYesterdayChecking] = useState(false);
+  const forgotYesterdayCacheRef = useRef({ dateStr: null, show: false });
   const focusFetchDebounceRef = useRef({ dateStr: null, timestamp: 0 });
   const sleepCardOpacity = useRef(new Animated.Value(0)).current;
   const hadSleepDataRef = useRef(false);
@@ -1151,11 +1152,13 @@ const HomeScreen = () => {
   }, [navigation]);
 
   const dismissForgotYesterday = useCallback(async () => {
-    try {
-      await AsyncStorage.setItem(FORGOT_YESTERDAY_DISMISSED_KEY, getToday());
-    } catch (_e) {}
+    const todayStr = getToday();
+    forgotYesterdayCacheRef.current = { dateStr: todayStr, show: false };
     setForgotYesterdayShow(false);
-  }, []);
+    try {
+      await AsyncStorage.setItem(FORGOT_YESTERDAY_DISMISSED_KEY, todayStr);
+    } catch (_e) {}
+  }, [getToday]);
 
   const refreshForgotYesterdayBanner = useCallback(async () => {
     if (!user?.id) return;
@@ -1169,9 +1172,36 @@ const HomeScreen = () => {
       const dismissed = await AsyncStorage.getItem(FORGOT_YESTERDAY_DISMISSED_KEY);
       if (dismissed === todayStr) {
         setForgotYesterdayShow(false);
+        forgotYesterdayCacheRef.current = { dateStr: todayStr, show: false };
         return;
       }
     } catch (_e) {}
+    const cache = forgotYesterdayCacheRef.current;
+    if (cache.dateStr === todayStr) {
+      setForgotYesterdayShow(cache.show);
+      setForgotYesterdayChecking(false);
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const yesterdayStr = formatDateForDB(y);
+      supabase.rpc('get_home_dashboard_data', { p_user_id: user.id, p_date: yesterdayStr })
+        .then(({ data, error }) => {
+          if (error || data?.error) {
+            forgotYesterdayCacheRef.current = { dateStr: todayStr, show: false };
+            setForgotYesterdayShow(false);
+            return;
+          }
+          const total = data?.habit_counts?.total_active_count ?? 0;
+          const logged = data?.habit_counts?.logged_count ?? 0;
+          const show = total > 0 && logged < total;
+          forgotYesterdayCacheRef.current = { dateStr: todayStr, show };
+          setForgotYesterdayShow(show);
+        })
+        .catch(() => {
+          forgotYesterdayCacheRef.current = { dateStr: todayStr, show: false };
+          setForgotYesterdayShow(false);
+        });
+      return;
+    }
     setForgotYesterdayChecking(true);
     try {
       const y = new Date();
@@ -1183,13 +1213,17 @@ const HomeScreen = () => {
       });
       if (error || data?.error) {
         setForgotYesterdayShow(false);
+        forgotYesterdayCacheRef.current = { dateStr: todayStr, show: false };
         return;
       }
       const total = data?.habit_counts?.total_active_count ?? 0;
       const logged = data?.habit_counts?.logged_count ?? 0;
-      setForgotYesterdayShow(total > 0 && logged < total);
+      const show = total > 0 && logged < total;
+      forgotYesterdayCacheRef.current = { dateStr: todayStr, show };
+      setForgotYesterdayShow(show);
     } catch (_e) {
       setForgotYesterdayShow(false);
+      forgotYesterdayCacheRef.current = { dateStr: todayStr, show: false };
     } finally {
       setForgotYesterdayChecking(false);
     }
@@ -1368,12 +1402,12 @@ const HomeScreen = () => {
     setHabitCountCache(new Map());
   };
 
-  const formatSleepDuration = (minutes) => {
+  const formatSleepDuration = useCallback((minutes) => {
     if (!minutes) return '0h 0m';
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
-  };
+  }, []);
 
   const getDataFreshness = (sleepData) => {
     if (!sleepData) return null;
@@ -1392,7 +1426,7 @@ const HomeScreen = () => {
     }
   };
 
-  const renderSleepMetricRow = (label, minutes, percentage, avgComparison, color = null, specialIndicator = null, key = null, isAlternate = false) => (
+  const renderSleepMetricRow = useCallback((label, minutes, percentage, avgComparison, color = null, specialIndicator = null, key = null, isAlternate = false) => (
     <View key={key} style={[styles.metricRow, isAlternate && styles.metricRowAlternate]}>
       <View style={styles.metricLabelContainer}>
         {specialIndicator ? (
@@ -1416,9 +1450,9 @@ const HomeScreen = () => {
         )}
       </View>
     </View>
-  );
+  ), []);
 
-  const calculateSleepMetrics = (sleepData) => {
+  const calculateSleepMetrics = useCallback((sleepData) => {
     if (!sleepData || !sleepData.total_sleep_minutes) return {};
 
     const totalSleep = sleepData.total_sleep_minutes;
@@ -1466,7 +1500,7 @@ const HomeScreen = () => {
     }
 
     return metrics;
-  };
+  }, [personalAverages, formatSleepDuration]);
 
   const getDataSourceDisplay = (source) => {
     switch (source) {
@@ -1613,37 +1647,27 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Yesterday incomplete habits — only on Home + today; dismiss hides for rest of day */}
-        {isToday(selectedDate) && (forgotYesterdayChecking || forgotYesterdayShow) && (
+        {/* Yesterday incomplete habits — only on Home + today when we know the answer; no skeleton to avoid layout jump */}
+        {isToday(selectedDate) && !forgotYesterdayChecking && forgotYesterdayShow && (
           <View style={styles.todayReminderSlot}>
-            {forgotYesterdayChecking ? (
-              <View style={[styles.todayReminder, styles.todayReminderSkeleton]}>
-                <View style={styles.todayReminderHeader}>
-                  <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
-                  <Text style={[styles.todayReminderText, styles.skeletonText]}>Loading...</Text>
-                </View>
-                <View style={[styles.todayReminderButton, styles.skeletonButton]} />
+            <View style={styles.todayReminder}>
+              <View style={styles.todayReminderHeader}>
+                <Ionicons name="alert-circle-outline" size={20} color="#CA8A04" />
+                <Text style={styles.todayReminderText}>
+                  You didn&apos;t log all your habits yesterday
+                </Text>
               </View>
-            ) : (
-              <View style={styles.todayReminder}>
-                <View style={styles.todayReminderHeader}>
-                  <Ionicons name="alert-circle-outline" size={20} color="#CA8A04" />
-                  <Text style={styles.todayReminderText}>
-                    You didn&apos;t log all your habits yesterday
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.todayReminderButton}
-                  onPress={handleLogYesterdaysHabits}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.todayReminderButtonText}>Log yesterday&apos;s habits</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={dismissForgotYesterday} style={styles.forgotYesterdayDismiss} hitSlop={{ top: 12, bottom: 12 }}>
-                  <Text style={styles.forgotYesterdayDismissText}>Dismiss</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+              <TouchableOpacity
+                style={styles.todayReminderButton}
+                onPress={handleLogYesterdaysHabits}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.todayReminderButtonText}>Log yesterday&apos;s habits</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={dismissForgotYesterday} style={styles.forgotYesterdayDismiss} hitSlop={{ top: 12, bottom: 12 }}>
+                <Text style={styles.forgotYesterdayDismissText}>Dismiss</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -1665,7 +1689,7 @@ const HomeScreen = () => {
               {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ? (
                 <View style={styles.howYouFeltRows}>
                   {trackTiredness && lastNightSubjectiveData?.tiredness_score != null && (
-                    <View style={[styles.metricRow, styles.metricRowAlternate]}>
+                    <View style={styles.metricRow}>
                       <Text style={styles.metricLabel}>Refreshed feeling</Text>
                       <View style={styles.metricValueContainer}>
                         <Text style={styles.metricValue}>{lastNightSubjectiveData.tiredness_score}/10</Text>
@@ -1673,7 +1697,7 @@ const HomeScreen = () => {
                     </View>
                   )}
                   {trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null && (
-                    <View style={[styles.metricRow, styles.metricRowAlternate]}>
+                    <View style={styles.metricRow}>
                       <Text style={styles.metricLabel}>Dream strength</Text>
                       <View style={styles.metricValueContainer}>
                         <Text style={styles.metricValue}>{lastNightSubjectiveData.dream_vividness_score}/10</Text>
@@ -1751,6 +1775,21 @@ const HomeScreen = () => {
                       formatDateTitle={formatDateTitle}
                       containerStyle={styles.sleepCardFillCard}
                       message="Syncing last night's sleep…"
+                    />
+                  </View>
+                </View>
+              );
+            } else if (!sleepData && isToday(selectedDate) && lastSyncResult?.success) {
+              // Sync just succeeded; refetch is in progress. Keep showing skeleton until payload is applied.
+              return (
+                <View style={styles.sleepSectionInner}>
+                  <View style={styles.sleepCardFill}>
+                    <SleepDataLoadingSkeleton
+                      selectedDate={selectedDate}
+                      isToday={isToday}
+                      formatDateTitle={formatDateTitle}
+                      containerStyle={styles.sleepCardFillCard}
+                      message="Loading…"
                     />
                   </View>
                 </View>
@@ -2091,13 +2130,13 @@ const styles = StyleSheet.create({
   howYouFeltCard: {
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
   },
   howYouFeltRows: {
-    marginBottom: spacing.xs,
+    marginBottom: 2,
     gap: 2,
   },
   howDidYouFeelCTACompact: {
@@ -2105,7 +2144,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.regular,
     borderRadius: 10,
     borderWidth: 2,

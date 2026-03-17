@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -128,7 +128,10 @@ const InsightsScreen = ({ navigation, route }) => {
       }
       let cancelled = false;
       if (user) {
-        setLoading(true);
+        const hasCachedData = tabData.groups && tabData.groups.length > 0;
+        if (!hasCachedData) {
+          setLoading(true);
+        }
         loadTab()
           .catch(() => {
             if (!cancelled) setTabData({ groups: [] });
@@ -160,44 +163,59 @@ const InsightsScreen = ({ navigation, route }) => {
 
   const groups = tabData.groups || [];
 
-  const sectionDataForGroup = (g) => {
-    const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
-    const noLink = analysisMode === 'percentage' ? g.noLinkPercentage : g.noLinkAbsolute;
-    if (!g.progress.ready) {
-      return [{ rowType: 'building', key: `build-${g.habitId}`, progress: g.progress }];
-    }
-    if (insights.length > 0) {
-      return insights.map((insight, idx) => ({
-        rowType: 'insight',
-        key: `ins-${g.habitId}-${insight.metricKey}-${idx}`,
-        insight,
-      }));
-    }
-    if (noLink) {
-      return [
-        {
-          rowType: 'noLink',
-          key: `nolink-${g.habitId}`,
+  const sections = useMemo(() => {
+    const sectionDataForGroup = (g) => {
+      const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
+      const noLink = analysisMode === 'percentage' ? g.noLinkPercentage : g.noLinkAbsolute;
+      if (!g.progress.ready) {
+        return [{ rowType: 'building', key: `build-${g.habitId}`, progress: g.progress }];
+      }
+      if (insights.length > 0) {
+        return insights.map((insight, idx) => ({
+          rowType: 'insight',
+          key: `ins-${g.habitId}-${insight.metricKey}-${idx}`,
+          insight,
+        }));
+      }
+      if (noLink) {
+        return [
+          {
+            rowType: 'noLink',
+            key: `nolink-${g.habitId}`,
+            timesLogged: g.timesLogged ?? 0,
+          },
+        ];
+      }
+      return [{ rowType: 'building', key: `build2-${g.habitId}`, progress: g.progress }];
+    };
+    return groups
+      .map((g) => {
+        const data = sectionDataForGroup(g);
+        return {
+          title: g.habitName,
+          data,
+          habitId: g.habitId,
+          habitName: g.habitName,
+          habit: g.habit,
+          progress: g.progress,
           timesLogged: g.timesLogged ?? 0,
-        },
-      ];
-    }
-    return [{ rowType: 'building', key: `build2-${g.habitId}`, progress: g.progress }];
-  };
+          showTableHeader: data.some((d) => d.rowType === 'insight'),
+        };
+      })
+      .filter((s) => s.data.length > 0);
+  }, [groups, analysisMode]);
 
-  const sections = groups
-    .map((g) => ({
-      ...g,
-      data: sectionDataForGroup(g),
-    }))
-    .filter((s) => s.data.length > 0);
+  const anySignificant = useMemo(
+    () => sections.some((s) => s.data.some((d) => d.rowType === 'insight')),
+    [sections]
+  );
 
-  const anySignificant = sections.some((s) => s.data.some((d) => d.rowType === 'insight'));
+  const getMetricInfo = useCallback(
+    (metricKey) => availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0],
+    [availableMetrics]
+  );
 
-  const getMetricInfo = (metricKey) =>
-    availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0];
-
-  const renderInsightRow = (insight, habitId) => {
+  const renderInsightRow = useCallback((insight, habitId) => {
     const rowKey = `${habitId}-${insight.metricKey}`;
     const isExpanded = expandedRowKey === rowKey;
     const isPositive = insight.direction === 'positive';
@@ -263,9 +281,9 @@ const InsightsScreen = ({ navigation, route }) => {
         )}
       </View>
     );
-  };
+  }, [expandedRowKey, analysisMode, getMetricInfo, loadTab]);
 
-  const renderEmptyState = () => (
+  const renderEmptyState = useCallback(() => (
     <View style={styles.emptyState}>
       <Ionicons name="analytics-outline" size={64} color={colors.textSecondary} />
       <Text style={styles.emptyStateTitle}>No habits to analyse</Text>
@@ -273,59 +291,129 @@ const InsightsScreen = ({ navigation, route }) => {
         Add a habit and log it on days when you have sleep data.
       </Text>
     </View>
+  ), []);
+
+  const renderSectionHeader = useCallback(
+    ({ section }) => (
+      <View style={styles.sectionWrapper}>
+        <View
+          style={[
+            styles.habitContainer,
+            styles.habitContainerHeader,
+            focusedHabitId === section.habitId && styles.habitContainerFocused,
+            !section.showTableHeader && styles.habitContainerNoTable,
+          ]}
+        >
+          <Text style={styles.habitName}>{section.habitName}</Text>
+          {section.showTableHeader ? (
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
+              <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
+              <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
+              <View style={styles.headerChevronPlaceholder} />
+            </View>
+          ) : null}
+        </View>
+      </View>
+    ),
+    [focusedHabitId]
   );
 
-  const listHeader = (
-    <>
-      <View
-        style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
-        onLayout={(e) => {
-          headerHeightRef.current = e.nativeEvent.layout.height;
-        }}
-      >
-        <View style={styles.header}>
-          <Text style={styles.title}>Sleep Insights</Text>
-        </View>
-      </View>
-      <View style={styles.listHeaderContent}>
-        <View style={styles.switchRow}>
-          <Text style={styles.switchLabel}>View by</Text>
-          <View style={styles.switchSegments}>
-            <TouchableOpacity
-              style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
-              onPress={() => setAnalysisMode('absolute')}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.switchSegmentText,
-                  analysisMode === 'absolute' && styles.switchSegmentTextActive,
-                ]}
-              >
-                Absolute
+  const renderItem = useCallback(
+    ({ item, section, index }) => {
+      const isLast = index === (section.data?.length ?? 0) - 1;
+      if (item.rowType === 'building') {
+        return (
+          <View style={styles.sectionWrapper}>
+            <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
+              {item.progress.isBinary ? (
+                <BinaryProgressBlock progress={item.progress} />
+              ) : (
+                <NumericProgressBlock progress={item.progress} />
+              )}
+            </View>
+          </View>
+        );
+      }
+      if (item.rowType === 'noLink') {
+        const n = item.timesLogged ?? 0;
+        return (
+          <View style={styles.sectionWrapper}>
+            <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast, styles.noLinkPad]}>
+              <Text style={styles.noLinkOneLine} numberOfLines={1}>
+                No link found yet · Logged {n} time{n !== 1 ? 's' : ''}
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.switchSegment, analysisMode === 'percentage' && styles.switchSegmentActive]}
-              onPress={() => setAnalysisMode('percentage')}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.switchSegmentText,
-                  analysisMode === 'percentage' && styles.switchSegmentTextActive,
-                ]}
-              >
-                Percentage
-              </Text>
-            </TouchableOpacity>
+            </View>
+          </View>
+        );
+      }
+      return (
+        <View style={styles.sectionWrapper}>
+          <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
+            {renderInsightRow(item.insight, section.habitId)}
           </View>
         </View>
-        {!anySignificant && groups.length > 0 && (
-          <Text style={styles.switchEmptyHint}>Try the other view if this one is empty.</Text>
-        )}
-      </View>
-    </>
+      );
+    },
+    [renderInsightRow]
+  );
+
+  const sectionListKeyExtractor = useCallback((item) => item.key, []);
+
+  const listHeader = useMemo(
+    () => (
+      <>
+        <View
+          style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
+          onLayout={(e) => {
+            headerHeightRef.current = e.nativeEvent.layout.height;
+          }}
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>Sleep Insights</Text>
+          </View>
+        </View>
+        <View style={styles.listHeaderContent}>
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>View by</Text>
+            <View style={styles.switchSegments}>
+              <TouchableOpacity
+                style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
+                onPress={() => setAnalysisMode('absolute')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.switchSegmentText,
+                    analysisMode === 'absolute' && styles.switchSegmentTextActive,
+                  ]}
+                >
+                  Absolute
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.switchSegment, analysisMode === 'percentage' && styles.switchSegmentActive]}
+                onPress={() => setAnalysisMode('percentage')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.switchSegmentText,
+                    analysisMode === 'percentage' && styles.switchSegmentTextActive,
+                  ]}
+                >
+                  Percentage
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          {!anySignificant && groups.length > 0 && (
+            <Text style={styles.switchEmptyHint}>Try the other view if this one is empty.</Text>
+          )}
+        </View>
+      </>
+    ),
+    [headerTopPadding, analysisMode, anySignificant, groups.length]
   );
 
   return (
@@ -347,74 +435,11 @@ const InsightsScreen = ({ navigation, route }) => {
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
           ListHeaderComponent={listHeader}
-          sections={sections.map((g) => ({
-            title: g.habitName,
-            data: g.data,
-            habitId: g.habitId,
-            habitName: g.habitName,
-            habit: g.habit,
-            progress: g.progress,
-            timesLogged: g.timesLogged ?? 0,
-            showTableHeader: g.data.some((d) => d.rowType === 'insight'),
-          }))}
+          sections={sections}
           keyExtractor={(item) => item.key}
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionWrapper}>
-              <View
-                style={[
-                  styles.habitContainer,
-                  styles.habitContainerHeader,
-                  focusedHabitId === section.habitId && styles.habitContainerFocused,
-                  !section.showTableHeader && styles.habitContainerNoTable,
-                ]}
-              >
-                <Text style={styles.habitName}>{section.habitName}</Text>
-                {section.showTableHeader ? (
-                  <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
-                    <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
-                    <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
-                    <View style={styles.headerChevronPlaceholder} />
-                  </View>
-                ) : null}
-              </View>
-            </View>
-          )}
-          renderItem={({ item, section, index }) => {
-            const isLast = index === (section.data?.length ?? 0) - 1;
-            if (item.rowType === 'building') {
-              return (
-                <View style={styles.sectionWrapper}>
-                  <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
-                    {item.progress.isBinary ? (
-                      <BinaryProgressBlock progress={item.progress} />
-                    ) : (
-                      <NumericProgressBlock progress={item.progress} />
-                    )}
-                  </View>
-                </View>
-              );
-            }
-            if (item.rowType === 'noLink') {
-              const n = item.timesLogged ?? 0;
-              return (
-                <View style={styles.sectionWrapper}>
-                  <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast, styles.noLinkPad]}>
-                    <Text style={styles.noLinkOneLine} numberOfLines={1}>
-                      No link found yet · Logged {n} time{n !== 1 ? 's' : ''}
-                    </Text>
-                  </View>
-                </View>
-              );
-            }
-            return (
-              <View style={styles.sectionWrapper}>
-                <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
-                  {renderInsightRow(item.insight, section.habitId)}
-                </View>
-              </View>
-            );
-          }}
+          renderSectionHeader={renderSectionHeader}
+          renderItem={renderItem}
+          keyExtractor={sectionListKeyExtractor}
           ListFooterComponent={
             <View style={styles.sectionWrapper}>
               <TouchableOpacity

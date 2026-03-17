@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const DateHeaderContext = createContext(null);
 
@@ -13,16 +13,28 @@ export function DateHeaderProvider({ children }) {
     setSelectedDateState(dateObj);
   }, []);
 
-  const value = {
-    selectedDate,
-    setSelectedDate,
-    loggedDates,
-    setLoggedDates,
-    datesWithUnsavedChanges,
-    setDatesWithUnsavedChanges,
-    isHeaderExpanded,
-    setHeaderExpanded,
-  };
+  const value = useMemo(
+    () => ({
+      selectedDate,
+      setSelectedDate,
+      loggedDates,
+      setLoggedDates,
+      datesWithUnsavedChanges,
+      setDatesWithUnsavedChanges,
+      isHeaderExpanded,
+      setHeaderExpanded,
+    }),
+    [
+      selectedDate,
+      setSelectedDate,
+      loggedDates,
+      setLoggedDates,
+      datesWithUnsavedChanges,
+      setDatesWithUnsavedChanges,
+      isHeaderExpanded,
+      setHeaderExpanded,
+    ]
+  );
 
   return (
     <DateHeaderContext.Provider value={value}>

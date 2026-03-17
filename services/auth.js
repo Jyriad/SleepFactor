@@ -5,16 +5,10 @@ import * as Linking from 'expo-linking';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const OAUTH_DEBUG = '[OAuthDebug]';
-
 /** Filled when a sleepfactor:// OAuth return URL is handled (success or error). */
 let lastOAuthRedirect = null;
 
-function oauthLog(step, payload = {}) {
-  try {
-    console.warn(OAUTH_DEBUG, step, JSON.stringify(payload));
-  } catch (_) {}
-}
+function oauthLog(_step, _payload = {}) {}
 
 /** Parse application/x-www-form-urlencoded query or fragment (custom schemes break Linking.parse). */
 function parseQueryString(raw) {
