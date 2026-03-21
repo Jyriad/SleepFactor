@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import dataQualityService from './dataQualityService';
 import healthMetricsService from './healthMetricsService';
+import { addCalendarDay } from '../utils/dateHelpers';
 import {
   calculateMedian,
   calculateQuartiles,
@@ -354,38 +355,50 @@ class InsightsService {
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
 
-    let query = supabase
-      .from('habit_logs')
-      .select(`
-        *,
-        habits!inner(name, type, unit, is_custom)
-      `)
-      .eq('user_id', userId)
-      .gte('date', startDateStr)
-      .lte('date', endDateStr)
-      .order('date', { ascending: true });
+    const PAGE_SIZE = 1000;
+    const allRows = [];
+    let offset = 0;
+    let hasMore = true;
 
-    // Only filter out excluded data if the column exists and we're not explicitly including excluded data
-    if (!includeExcluded) {
-      try {
-        // Try to filter by exclusion column - if it fails, the column doesn't exist and we'll get all data
-        query = query.neq('exclude_from_insights', true);
-      } catch (e) {
-        // Column doesn't exist, continue with unfiltered query
-      }
+    while (hasMore) {
+      const from = offset;
+      const to = offset + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from('habit_logs')
+        .select(`
+          *,
+          habits!inner(name, type, unit, is_custom)
+        `)
+        .eq('user_id', userId)
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: true })
+        .range(from, to);
+
+      if (error) throw error;
+
+      const page = data || [];
+      allRows.push(...page);
+      hasMore = page.length === PAGE_SIZE;
+      offset += PAGE_SIZE;
     }
 
-    const { data, error } = await query;
+    let logs = allRows;
 
-    if (error) throw error;
-
-    const logs = data || [];
+    // Filter out excluded rows in JS so we don't rely on Supabase .or() for boolean/null
+    if (!includeExcluded && logs.length > 0) {
+      const hasExclusionColumn = logs[0].hasOwnProperty('exclude_from_insights');
+      if (hasExclusionColumn) {
+        logs = logs.filter((row) => row.exclude_from_insights !== true);
+      }
+    }
 
     return logs;
   }
 
   /**
-   * Get sleep data within date range
+   * Get sleep data within date range.
+   * Paginates to avoid Supabase 1000-row limit so Insights pairing uses all sleep nights.
    * @param {string} userId - User ID
    * @param {Date} startDate - Start date
    * @param {Date} endDate - End date
@@ -396,30 +409,40 @@ class InsightsService {
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
 
-    // Build query dynamically to handle missing exclusion columns
-    let selectFields = '*';
-    let query = supabase
-      .from('sleep_data')
-      .select(selectFields)
-      .eq('user_id', userId)
-      .gte('date', startDateStr)
-      .lte('date', endDateStr)
-      .order('date', { ascending: true });
+    const PAGE_SIZE = 1000;
+    const allRows = [];
+    let offset = 0;
+    let hasMore = true;
 
-    // Only filter out excluded data if the column exists and we're not explicitly including excluded data
-    if (!includeExcluded) {
-      try {
-        // Try to filter by exclusion column - if it fails, the column doesn't exist and we'll get all data
-        query = query.neq('exclude_from_insights', true);
-      } catch (e) {
-        // Column doesn't exist, continue with unfiltered query
+    while (hasMore) {
+      const from = offset;
+      const to = offset + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from('sleep_data')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: true })
+        .range(from, to);
+
+      if (error) throw error;
+
+      const page = data || [];
+      allRows.push(...page);
+      hasMore = page.length === PAGE_SIZE;
+      offset += PAGE_SIZE;
+    }
+
+    // Filter out excluded rows in JS (same as getHabitLogs; avoid Supabase .or() for boolean/null)
+    if (!includeExcluded && allRows.length > 0) {
+      const hasExclusionColumn = allRows[0].hasOwnProperty('exclude_from_insights');
+      if (hasExclusionColumn) {
+        return allRows.filter((row) => row.exclude_from_insights !== true);
       }
     }
 
-    const { data, error } = await query;
-
-    if (error) throw error;
-    return data || [];
+    return allRows;
   }
 
   /**
@@ -603,15 +626,14 @@ class InsightsService {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
       } else if (habit.name === 'Bedtime Consistency') {
-        // For bedtime habits, the date corresponds directly to sleep data date
-        // (bedtime affects the sleep data for the same night)
+        // For bedtime habits, the date corresponds directly to sleep data date (same night)
         sleepDataDate = log.date;
+      } else if (habit.type === 'time') {
+        // Time habits (e.g. last meal): log on day D = evening of D; sleep that night is stored as wake date D+1
+        sleepDataDate = addCalendarDay(log.date);
       } else {
-        // For habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
-        const logDate = new Date(log.date);
-        const nextDay = new Date(logDate);
-        nextDay.setDate(nextDay.getDate() + 1);
-        sleepDataDate = nextDay.toISOString().split('T')[0];
+        // For other habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
+        sleepDataDate = addCalendarDay(log.date);
       }
 
       const sleep = sleepByDate[sleepDataDate];
@@ -676,7 +698,6 @@ class InsightsService {
         });
       }
     });
-
     if (isTimeHabit && dataPoints.length < this.MIN_DATA_POINTS) {
       return null;
     }
@@ -1523,17 +1544,13 @@ class InsightsService {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
       } else if (habit.name === 'Bedtime Consistency') {
-        // For bedtime habits, the date corresponds directly to sleep data date
-        // (bedtime affects the sleep data for the same night)
         sleepDataDate = log.date;
+      } else if (habit.type === 'time') {
+        sleepDataDate = addCalendarDay(log.date);
       } else {
         // For other habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
-        const logDate = new Date(log.date);
-        const nextDay = new Date(logDate);
-        nextDay.setDate(nextDay.getDate() + 1);
-        sleepDataDate = nextDay.toISOString().split('T')[0];
+        sleepDataDate = addCalendarDay(log.date);
       }
-
       if (sleepByDate[sleepDataDate]) {
         daysWithSleepData++;
         daysWithPairedData++;

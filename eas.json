@@ -12,9 +12,10 @@
         "buildType": "app-bundle"
       },
       "ios": {
-        "simulator": true,
+        "simulator": false,
         "buildConfiguration": "Debug",
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "image": "macos-sequoia-15.6-xcode-16.4"
       }
     },
     "production": {

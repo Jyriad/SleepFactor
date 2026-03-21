@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { signUp, signIn, signInWithGoogle } from '../services/auth';
+import {
+  signUp,
+  signIn,
+  signInWithGoogle,
+  signInWithApple,
+} from '../services/auth';
+import {
+  AppleAuthenticationButton,
+  AppleAuthenticationButtonType,
+  AppleAuthenticationButtonStyle,
+} from 'expo-apple-authentication';
+import { useSplash } from '../contexts/SplashContext';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
@@ -23,8 +34,13 @@ const BANNER_MAX_WIDTH = 200; // Slightly smaller so more content fits above the
 
 const AuthScreen = () => {
   const { width: windowWidth } = useWindowDimensions();
+  const splash = useSplash();
   const bannerWidth = Math.min(BANNER_MAX_WIDTH, windowWidth - spacing.xl * 2);
   const bannerHeight = bannerWidth / BANNER_ASPECT_RATIO;
+
+  useEffect(() => {
+    splash?.onReadyToHideSplash?.();
+  }, [splash]);
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -33,7 +49,7 @@ const AuthScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState({ google: false });
+  const [oauthLoading, setOauthLoading] = useState({ google: false, apple: false });
 
   const handleSubmit = async () => {
     setError('');
@@ -94,6 +110,21 @@ const AuthScreen = () => {
       setError(err.message || 'Failed to sign in with Google');
     } finally {
       setOauthLoading(prev => ({ ...prev, google: false }));
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setError('');
+    setOauthLoading(prev => ({ ...prev, apple: true }));
+    try {
+      const { error: appleError } = await signInWithApple();
+      if (appleError) {
+        setError(appleError);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to sign in with Apple');
+    } finally {
+      setOauthLoading(prev => ({ ...prev, apple: false }));
     }
   };
 
@@ -226,13 +257,34 @@ const AuthScreen = () => {
                 <View style={styles.divider} />
               </View>
 
-              {/* OAuth Buttons */}
+              {/* OAuth: Apple first on iOS (App Store guideline), then Google */}
+              {Platform.OS === 'ios' && (
+                <View
+                  style={[
+                    styles.appleButtonWrap,
+                    (oauthLoading.google || oauthLoading.apple) && styles.oauthDisabledWrap,
+                  ]}
+                  pointerEvents={
+                    oauthLoading.google || oauthLoading.apple ? 'none' : 'auto'
+                  }
+                >
+                  <AppleAuthenticationButton
+                    buttonType={AppleAuthenticationButtonType.SIGN_IN}
+                    buttonStyle={AppleAuthenticationButtonStyle.BLACK}
+                    cornerRadius={12}
+                    style={styles.appleButton}
+                    onPress={handleAppleSignIn}
+                  />
+                </View>
+              )}
+
               <Button
                 title="Continue with Google"
                 onPress={handleGoogleSignIn}
                 loading={oauthLoading.google}
                 variant="secondary"
                 style={styles.oauthButton}
+                disabled={oauthLoading.apple}
                 icon={<Ionicons name="logo-google" size={20} color={colors.primary} style={styles.icon} />}
               />
             </View>
@@ -368,6 +420,18 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.regular,
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
+  },
+  appleButtonWrap: {
+    width: '100%',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  appleButton: {
+    width: '100%',
+    height: 44,
+  },
+  oauthDisabledWrap: {
+    opacity: 0.55,
   },
   oauthButton: {
     marginTop: spacing.xs,

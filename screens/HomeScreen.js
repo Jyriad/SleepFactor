@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useSplash } from '../contexts/SplashContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
@@ -446,6 +447,7 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const splash = useSplash();
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
   const setSelectedDate = dateHeader?.setSelectedDate ?? (() => {});
@@ -520,6 +522,7 @@ const HomeScreen = () => {
   const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
   // Don't show "No sleep data" for today until we've completed at least one sync attempt
   const todaySyncAttemptedRef = useRef(false);
+  const splashReadySentRef = useRef(false);
 
   // Health sync hook
   const {
@@ -622,6 +625,7 @@ const HomeScreen = () => {
   }, [user?.id]);
 
   // Disk hydrate for current date (one multiGet): full dashboard or at least habit counts — cold start fast path.
+  // When no cache for today, try yesterday's dashboard so we show something immediately, then fetch today in background.
   useEffect(() => {
     if (!user?.id) return;
     const dateStr = getDateString(selectedDate) || getToday();
@@ -632,7 +636,7 @@ const HomeScreen = () => {
     }
     setHabitSummaryReady(false);
     let cancelled = false;
-    homeCacheService.hydrateHomeSnapshot(user.id, dateStr).then(({ dashboard, loggedCount, totalHabitCount }) => {
+    homeCacheService.hydrateHomeSnapshot(user.id, dateStr).then(async ({ dashboard, loggedCount, totalHabitCount }) => {
       if (cancelled) return;
       if (dashboard && isValidDashboardPayload(dashboard)) {
         applyDashboardPayload(dashboard, dateStr);
@@ -648,16 +652,49 @@ const HomeScreen = () => {
         setTotalHabitCount(totalHabitCount);
         setHabitSummaryReady(true);
         setLoading(false);
+        return;
+      }
+      // No cache for this date: if viewing today, try yesterday's dashboard so we show something
+      if (dateStr === getToday()) {
+        const yesterdayPayload = await homeCacheService.getPersistedDashboardPayload(user.id, getYesterday());
+        if (!cancelled && yesterdayPayload && isValidDashboardPayload(yesterdayPayload)) {
+          applyDashboardPayload(yesterdayPayload, dateStr);
+          homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, yesterdayPayload);
+          setLoading(false);
+          setHabitSummaryReady(true);
+          hadSleepDataRef.current = !!yesterdayPayload?.sleep_record;
+          if (yesterdayPayload?.sleep_record) sleepCardOpacity.setValue(1);
+          return;
+        }
+      }
+      // No usable cache: show skeleton and let focus effect fetch in background
+      if (!cancelled) {
+        setLoading(false);
+        setHabitSummaryReady(true);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [user?.id, selectedDate, getDateString, applyDashboardPayload, isValidDashboardPayload]);
+  }, [user?.id, selectedDate, getDateString, getToday, applyDashboardPayload, isValidDashboardPayload]);
 
   useEffect(() => {
     lastNightSubjectiveDataRef.current = lastNightSubjectiveData;
   }, [lastNightSubjectiveData]);
+
+  // Hide splash once Home has painted with content (cache or skeleton)
+  useEffect(() => {
+    if (!user?.id || splashReadySentRef.current) return;
+    if (!loading && habitSummaryReady) {
+      const id = InteractionManager.runAfterInteractions(() => {
+        if (!splashReadySentRef.current) {
+          splashReadySentRef.current = true;
+          splash?.onReadyToHideSplash?.();
+        }
+      });
+      return () => id.cancel();
+    }
+  }, [user?.id, loading, habitSummaryReady, splash]);
 
   const fetchDashboard = useCallback(async (opts = {}) => {
     const { background = false, retryAttempt = 0 } = opts;
@@ -871,9 +908,8 @@ const HomeScreen = () => {
             homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, cached);
           }
           setLoading(false);
-        } else {
-          setLoading(true);
         }
+        // Never block UI: when no cache we keep showing skeleton and fetch in background
         const alreadyFetchedForDate = fetchedDateKeysRef.current.has(dateStr);
         if (!alreadyFetchedForDate) {
           fetchedDateKeysRef.current.add(dateStr);
@@ -887,9 +923,9 @@ const HomeScreen = () => {
         }
         focusFetchDebounceRef.current = { dateStr, timestamp: now };
         // After saving subjective scores, force foreground fetch so we show fresh data.
-        // Otherwise use background when cache is usable and we've already fetched this date.
+        // Otherwise fetch in background so we never block the homepage.
         const forceForeground = subjectiveJustSaved && dateStr === getToday();
-        const shouldBackground = !forceForeground && hasUsableCache && alreadyFetchedForDate;
+        const shouldBackground = !forceForeground;
         fetchDashboard({ background: shouldBackground });
       });
       return () => { cancelled = true; };
