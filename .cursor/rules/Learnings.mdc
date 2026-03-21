@@ -66,7 +66,8 @@ alwaysApply: false
 
 **Bundle ID, credentials, and app name**
 
-- **Development** builds use `com.sleepfactor.app.dev` (from `app.config.js` when `EAS_BUILD_PROFILE=development`). **Production** uses `com.sleepfactor.app`.
+- **Development** builds use `com.sleepfactor.app.dev` (from `app.config.js` when `APP_VARIANT=development` or `EAS_BUILD_PROFILE=development`). **Production** uses `com.sleepfactor.app`.
+- **`eas.json`** should set **`build.development.env.APP_VARIANT`** = **`development`** and **`build.production.env.APP_VARIANT`** = **`production`** so EAS always evaluates `app.config.js` with the correct variant (avoids Android dev builds accidentally shipping as the prod app id when `EAS_BUILD_PROFILE` is not visible during config resolution).
 - When running **`eas credentials`**, choose the **development** build profile. If the UI shows the wrong bundle ID, prefix the command with `EAS_BUILD_PROFILE=development` so `app.config.js` resolves the dev bundle ID (`IS_DEV` is true).
 - **Provisioning profile must match the bundle ID.** If the build assigns a profile for `com.sleepfactor.app` to a target with `com.sleepfactor.app.dev`, signing fails. Configure credentials under the **development** profile until Expo shows credentials for **`com.sleepfactor.app.dev`** only.
 - **Xcode target name vs display name:** Keep root `name` as `"SleepFactor"` so the iOS target stays `SleepFactor` (EAS signing expects it). Use `ios.infoPlist.CFBundleDisplayName` for the **“SleepFactor Dev”** label under the icon on dev builds.

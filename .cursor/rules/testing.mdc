@@ -124,9 +124,11 @@ Rebuild and reinstall the **SleepFactor Dev** app when:
 # Android dev client (cloud build; ~10+ minutes)
 npx eas-cli build --platform android --profile development
 
-# iPhone dev client (cloud build; ~10+ minutes). Prefix so app config uses the dev bundle ID.
-EAS_BUILD_PROFILE=development npx eas-cli build --platform ios --profile development --clear-cache
+# iPhone dev client (cloud build; ~10+ minutes)
+npx eas-cli build --platform ios --profile development --clear-cache
 ```
+
+**Dev vs prod app id on the phone:** **`eas.json`** sets **`APP_VARIANT`** to **`development`** or **`production`** per build profile so **`app.config.js`** always picks the right bundle/package (`com.sleepfactor.app.dev` vs `com.sleepfactor.app`) and icon label (**SleepFactor Dev** vs **SleepFactor**). You do not need to prefix the shell with `EAS_BUILD_PROFILE=…` for that anymore.
 
 **iOS notes (summary):** Register the device (`npx eas-cli device:create`), use **`eas.json`** `development.ios` with **`simulator: false`** for a real device, and manage credentials for **`com.sleepfactor.app.dev`** when prompted for the **development** profile. Use **`npx eas-cli`** if `eas` is not installed globally. Deeper troubleshooting (signing, Nitro, Xcode image) lives in **`.cursor/rules/Learnings.mdc`** under *iOS development build*.
 
@@ -284,11 +286,11 @@ git push origin feature/your-feature-name
 npx eas-cli build --platform android --profile development
 
 # Rebuild dev client — iPhone (when native deps/permissions change)
-EAS_BUILD_PROFILE=development npx eas-cli build --platform ios --profile development --clear-cache
+npx eas-cli build --platform ios --profile development --clear-cache
 
 # EAS / credentials (use npx eas-cli if `eas` not on PATH)
 npx eas-cli credentials -p ios
-# When prompted, choose the development build profile; use EAS_BUILD_PROFILE=development if bundle ID looks wrong
+# When prompted, choose the development build profile (bundle ID com.sleepfactor.app.dev via eas.json APP_VARIANT)
 ```
 
 ## How Code Moves from Development to Production
