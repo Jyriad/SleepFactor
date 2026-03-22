@@ -19,7 +19,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
 import ScoreSlider from '../components/ScoreSlider';
-import { formatDateForDB, getToday } from '../utils/dateHelpers';
+import { formatDateForDB, formatDateTitle, getToday } from '../utils/dateHelpers';
 
 function getDateString(param) {
   if (!param) return null;
@@ -45,51 +45,25 @@ const SleepQualityLogScreen = () => {
   const [subjectiveDirty, setSubjectiveDirty] = useState(false);
   const [subjectiveSavedAt, setSubjectiveSavedAt] = useState(null);
 
-  const updateHomeLastNightCache = useCallback(async (nextPartialScores) => {
-    if (!user?.id) return;
-    try {
-      const todayStr = formatDateForDB(new Date());
-      const cached = await homeCacheService.getPersistedDashboardPayload(user.id, todayStr);
-      if (!cached || cached.error) {
-        return;
-      }
-      const currentLastNight = cached.last_night_subjective && typeof cached.last_night_subjective === 'object'
-        ? cached.last_night_subjective
-        : {};
-      const merged = { ...currentLastNight, ...nextPartialScores };
-      const hasAny = merged.tiredness_score != null || merged.dream_vividness_score != null;
-      await homeCacheService.setPersistedDashboardPayload(user.id, todayStr, {
-        ...cached,
-        last_night_subjective: hasAny ? merged : null,
-      });
-    } catch (_) {
-      // Best effort cache sync for immediate Home screen consistency.
-    }
-  }, [user?.id]);
-
   useEffect(() => {
     if (!user?.id || !dateStr) {
       setLoading(false);
       return;
     }
-    const todayStr = getToday();
-    const isViewingToday = dateStr === todayStr;
     let cancelled = false;
 
     (async () => {
-      // Seed from home dashboard cache when editing today, so we don't show default 5 while server load is in flight or fails on fresh app load.
-      if (isViewingToday) {
-        try {
-          const cached = await homeCacheService.getPersistedDashboardPayload(user.id, dateStr);
-          if (!cancelled && cached?.last_night_subjective && typeof cached.last_night_subjective === 'object') {
-            const sub = cached.last_night_subjective;
-            if (sub.tiredness_score != null) setTirednessScore(sub.tiredness_score);
-            if (sub.dream_vividness_score != null) setDreamVividnessScore(sub.dream_vividness_score);
-            const hasAny = sub.tiredness_score != null || sub.dream_vividness_score != null;
-            if (hasAny) setHasSavedScores(true);
-          }
-        } catch (_e) {}
-      }
+      // Seed from home dashboard cache for this date when available (avoids default slider values while the server loads).
+      try {
+        const cached = await homeCacheService.getPersistedDashboardPayload(user.id, dateStr);
+        if (!cancelled && cached?.last_night_subjective && typeof cached.last_night_subjective === 'object') {
+          const sub = cached.last_night_subjective;
+          if (sub.tiredness_score != null) setTirednessScore(sub.tiredness_score);
+          if (sub.dream_vividness_score != null) setDreamVividnessScore(sub.dream_vividness_score);
+          const hasAny = sub.tiredness_score != null || sub.dream_vividness_score != null;
+          if (hasAny) setHasSavedScores(true);
+        }
+      } catch (_e) {}
 
       const fetchWithRetry = async (attempt) => {
         const [userRow, sleepRow] = await Promise.all([
@@ -154,9 +128,12 @@ const SleepQualityLogScreen = () => {
     setSaving(true);
     try {
       await sleepDataService.updateSubjectiveScores(user.id, dateStr, scores);
-      await updateHomeLastNightCache(scores);
-      homeCacheService.setSubjectiveJustSavedForToday();
-      homeCacheService.setPendingSubjectiveScoresForToday(scores);
+      homeCacheService.clearLastAppliedDashboardPayload(user.id, dateStr);
+      await homeCacheService.clearPersistedDashboardPayload(user.id, dateStr);
+      if (dateStr === getToday()) {
+        homeCacheService.setSubjectiveJustSavedForToday();
+        homeCacheService.setPendingSubjectiveScoresForToday(scores);
+      }
       setHasSavedScores(true);
       setSubjectiveDirty(false);
       setSubjectiveSavedAt(new Date());
@@ -184,9 +161,10 @@ const SleepQualityLogScreen = () => {
   }, []);
 
   const handleRemoveScores = () => {
+    const dayLabel = formatDateTitle(dateStr);
     Alert.alert(
       'Remove scores',
-      'Remove refreshed feeling and dream strength for last night?',
+      `Remove refreshed feeling and dream strength for ${dayLabel}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -197,9 +175,12 @@ const SleepQualityLogScreen = () => {
             setSaving(true);
             try {
               await sleepDataService.updateSubjectiveScores(user.id, dateStr, { tiredness_score: null, dream_vividness_score: null });
-              await updateHomeLastNightCache({ tiredness_score: null, dream_vividness_score: null });
-              homeCacheService.setSubjectiveJustSavedForToday();
-              homeCacheService.setPendingSubjectiveScoresForToday(null);
+              homeCacheService.clearLastAppliedDashboardPayload(user.id, dateStr);
+              await homeCacheService.clearPersistedDashboardPayload(user.id, dateStr);
+              if (dateStr === getToday()) {
+                homeCacheService.setSubjectiveJustSavedForToday();
+                homeCacheService.setPendingSubjectiveScoresForToday(null);
+              }
               setTirednessScore(null);
               setDreamVividnessScore(null);
               setHasSavedScores(false);
@@ -215,8 +196,6 @@ const SleepQualityLogScreen = () => {
       ]
     );
   };
-
-  const isLastNight = dateStr === getToday();
 
   if (!dateStr) {
     return (
@@ -234,22 +213,6 @@ const SleepQualityLogScreen = () => {
     );
   }
 
-  if (!isLastNight) {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>How did you sleep?</Text>
-        </View>
-        <View style={styles.centered}>
-          <Text style={styles.bodyText}>You can only log refreshed feeling and dream strength for last night&apos;s sleep.</Text>
-        </View>
-      </View>
-    );
-  }
-
   if (loading) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -258,6 +221,9 @@ const SleepQualityLogScreen = () => {
             <Ionicons name="arrow-back" size={24} color={colors.white} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>How did you sleep?</Text>
+          <Text style={styles.headerSubtitle}>
+            {dateStr === getToday() ? 'This morning (today)' : `Morning of ${formatDateTitle(dateStr)}`}
+          </Text>
         </View>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -269,6 +235,7 @@ const SleepQualityLogScreen = () => {
   const showAny = trackTiredness || trackDreamVividness;
   const hasAnySelection = (trackTiredness && tirednessScore != null) || (trackDreamVividness && dreamVividnessScore != null);
   const canSave = hasAnySelection && !saving;
+  const screenDateLabel = formatDateTitle(dateStr);
   const subjectiveStatusText = !hasAnySelection
     ? 'Choose at least one score to save.'
     : saving
@@ -284,7 +251,9 @@ const SleepQualityLogScreen = () => {
           <Ionicons name="arrow-back" size={24} color={colors.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>How did you sleep?</Text>
-        <Text style={styles.headerSubtitle}>Last night</Text>
+        <Text style={styles.headerSubtitle}>
+          {dateStr === getToday() ? 'This morning (today)' : `Morning of ${screenDateLabel}`}
+        </Text>
       </View>
       {!showAny ? (
         <View style={styles.centered}>
@@ -292,6 +261,9 @@ const SleepQualityLogScreen = () => {
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <Text style={styles.introBody}>
+            These ratings are saved for {screenDateLabel}. You can come back anytime to update them.
+          </Text>
           {trackTiredness && (
             <ScoreSlider
               label="Refreshed feeling"
@@ -437,6 +409,12 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  introBody: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    marginBottom: spacing.regular,
+    lineHeight: 22,
   },
   metricHelperText: {
     marginTop: -spacing.sm,

@@ -495,7 +495,6 @@ const HomeScreen = () => {
   const [trackDreamVividness, setTrackDreamVividness] = useState(false);
   // When viewing "today", subjective scores live on today's sleep row (last night = wake date)
   const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
-  const lastNightSubjectiveDataRef = useRef(null);
   // Optimistic scores passed back from SleepQualityLog; prefer over stale RPC until server catches up
   const optimisticSubjectiveScoresRef = useRef(null);
   // Minimal habits list from dashboard RPC for passing to Habit Logging (instant names/icons)
@@ -587,8 +586,8 @@ const HomeScreen = () => {
         nextSubjective = (optimistic.tiredness_score != null || optimistic.dream_vividness_score != null) ? optimistic : null;
       }
     } else {
-      const keepCurrentSubjective = viewingToday && !hasPayloadScores && lastNightSubjectiveDataRef.current && (lastNightSubjectiveDataRef.current.tiredness_score != null || lastNightSubjectiveDataRef.current.dream_vividness_score != null);
-      nextSubjective = keepCurrentSubjective ? lastNightSubjectiveDataRef.current : (hasPayloadScores ? lastNight : null);
+      // Trust the payload: if the server/cache says no scores for this date, show none (avoid stale scores from another day or session).
+      nextSubjective = hasPayloadScores ? lastNight : null;
     }
     setLastNightSubjectiveData(nextSubjective);
     const loggedDatesRaw = payload.logged_dates;
@@ -658,12 +657,19 @@ const HomeScreen = () => {
       if (dateStr === getToday()) {
         const yesterdayPayload = await homeCacheService.getPersistedDashboardPayload(user.id, getYesterday());
         if (!cancelled && yesterdayPayload && isValidDashboardPayload(yesterdayPayload)) {
-          applyDashboardPayload(yesterdayPayload, dateStr);
-          homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, yesterdayPayload);
+          // Only reuse habit-related fields from yesterday's cache. Sleep + "how you felt" must not be copied onto today
+          // (they belong to yesterday's row and caused wrong scores on first open).
+          const placeholderDashboard = {
+            ...yesterdayPayload,
+            sleep_record: null,
+            last_night_subjective: null,
+          };
+          applyDashboardPayload(placeholderDashboard, dateStr);
+          homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, placeholderDashboard);
           setLoading(false);
           setHabitSummaryReady(true);
-          hadSleepDataRef.current = !!yesterdayPayload?.sleep_record;
-          if (yesterdayPayload?.sleep_record) sleepCardOpacity.setValue(1);
+          hadSleepDataRef.current = false;
+          sleepCardOpacity.setValue(0);
           return;
         }
       }
@@ -677,10 +683,6 @@ const HomeScreen = () => {
       cancelled = true;
     };
   }, [user?.id, selectedDate, getDateString, getToday, applyDashboardPayload, isValidDashboardPayload]);
-
-  useEffect(() => {
-    lastNightSubjectiveDataRef.current = lastNightSubjectiveData;
-  }, [lastNightSubjectiveData]);
 
   // Hide splash once Home has painted with content (cache or skeleton)
   useEffect(() => {
@@ -1718,10 +1720,15 @@ const HomeScreen = () => {
           />
         </View>
 
-        {/* How you felt - compact card just under habits, only when viewing today and tracking */}
-        {isToday(selectedDate) && (trackTiredness || trackDreamVividness) && (
+        {/* How you felt - compact card under habits for any selected day when tracking */}
+        {(trackTiredness || trackDreamVividness) && (
           <View style={styles.section}>
             <View style={styles.howYouFeltCard}>
+              {!isToday(selectedDate) && (
+                <Text style={styles.howYouFeltDateHint}>
+                  How you felt — {formatDateTitle(selectedDate)}
+                </Text>
+              )}
               {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ? (
                 <View style={styles.howYouFeltRows}>
                   {trackTiredness && lastNightSubjectiveData?.tiredness_score != null && (
@@ -1744,7 +1751,7 @@ const HomeScreen = () => {
               ) : null}
               <TouchableOpacity
                 style={styles.howDidYouFeelCTACompact}
-                onPress={() => navigation.navigate('SleepQualityLog', { date: getToday() })}
+                onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="happy-outline" size={16} color={colors.primary} />
@@ -2170,6 +2177,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  howYouFeltDateHint: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+    marginBottom: spacing.xs,
   },
   howYouFeltRows: {
     marginBottom: 2,
