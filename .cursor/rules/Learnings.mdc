@@ -80,6 +80,30 @@ alwaysApply: false
 
 - Do **not** put `bundleIdentifier` under `build.*.ios` in `eas.json` — it is **not** allowed and breaks `eas credentials`.
 
+---
+
+## Native Google Sign-In, EAS env, and Android dev credentials (March 2026)
+
+**`RNGoogleSignin` missing / pink “Unimplemented” / crash on Continue with Google**
+
+- The **JavaScript bundle** is not enough: **`@react-native-google-signin/google-signin`** and **`expo-apple-authentication`** must be compiled into the **installed** app (EAS **development** or **production** build). **Expo Go** and **old** dev clients built before those dependencies do not include the native module → **`TurboModuleRegistry… RNGoogleSignin could not be found`**. **Fix:** New **EAS dev client** install after adding native deps; open **SleepFactor Dev** (not Expo Go) for QR / dev-server testing.
+
+**Android `DEVELOPER_ERROR` (after account picker, no useful Metro logs)**
+
+- Almost always **Google Cloud ↔ signing key mismatch** for that **package name**. Native Google Sign-In still uses **`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`** (Web client), but Google validates **`applicationId`** + **SHA-1** of the keystore that signed the APK/AAB.
+- **`com.sleepfactor.app.dev`** is a **separate** Android app id from **`com.sleepfactor.app`**. First-time EAS credentials for dev often **generate a new keystore** → **new SHA-1**. **Fix:** **expo.dev** → **Credentials** → Android → **`com.sleepfactor.app.dev`** → copy **SHA-1** → **Google Cloud** → Android OAuth client for **`com.sleepfactor.app.dev`** → add fingerprint → wait a few minutes, retry.
+- If users only registered SHA-1 for **production**, dev sign-in fails until the **dev** SHA-1 is added (multiple fingerprints allowed).
+
+**EAS “Environment variables” on expo.dev**
+
+- **`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`:** same Web client value can be attached to **both** `development` and `production`.
+- **`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`:** must differ by environment — **development** = iOS OAuth client for **`com.sleepfactor.app.dev`**, **production** = iOS OAuth client for **`com.sleepfactor.app`** (native iOS Google Sign-In reads the matching client).
+- **`EXPO_PUBLIC_SUPABASE_URL`** and **`EXPO_PUBLIC_SUPABASE_ANON_KEY`:** if only defined for **`production`**, **development** EAS builds may not embed them → runtime Supabase errors. **Mirror the same values** into the **`development`** environment (unless using a separate Supabase project for dev).
+
+**Android install / launcher label vs iOS**
+
+- **`ios.infoPlist.CFBundleDisplayName`** controls the **iPhone** home screen name (**SleepFactor Dev**). **Android** defaults the visible app name to the root **`name`** field unless **`android.label`** is set per variant — so the **system install prompt** may still say **“SleepFactor”** even for a correct **dev** build. Optional UX: set **`android.label`** when `IS_DEV` so Android matches iOS naming.
+
 **iOS build failures — Swift / HealthKit / Nitro**
 
 - **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (e.g. `macos-sequoia-15.6-xcode-16.4` under `development.ios`) can help without a larger VM.
