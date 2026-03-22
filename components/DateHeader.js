@@ -293,7 +293,9 @@ const DateHeader = ({
                         </View>
                       )}
                       {hasSleep && (
-                        <Text style={[styles.datePillZzz, isSelected && styles.datePillZzzSelected]} pointerEvents="none">Zzz</Text>
+                        <View style={styles.datePillSleepIcon} pointerEvents="none">
+                          <Ionicons name="bed-outline" size={10} color={isSelected ? colors.primary : 'rgba(255, 255, 255, 0.9)'} />
+                        </View>
                       )}
                     </View>
                   </TouchableOpacity>
@@ -454,16 +456,10 @@ const styles = StyleSheet.create({
     bottom: 2,
     left: 2,
   },
-  datePillZzz: {
+  datePillSleepIcon: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    fontSize: 8,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  datePillZzzSelected: {
-    color: colors.primary,
   },
   datePillNumber: {
     fontSize: typography.sizes.small,

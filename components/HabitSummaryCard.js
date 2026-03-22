@@ -40,12 +40,13 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
-    padding: spacing.regular,
+    paddingHorizontal: spacing.regular,
+    paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
   },
   header: {
-    minHeight: 32,
+    minHeight: 28,
     justifyContent: 'center',
     marginBottom: 0,
   },
@@ -58,12 +59,12 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     marginTop: 2,
-    marginBottom: spacing.xs,
+    marginBottom: 2,
   },
   button: {
-    marginTop: spacing.xs,
-    paddingVertical: spacing.sm,
-    minHeight: 36,
+    marginTop: 2,
+    paddingVertical: spacing.xs,
+    minHeight: 34,
   },
   logHabitsButton: {
     backgroundColor: colors.primary,

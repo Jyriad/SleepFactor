@@ -215,6 +215,18 @@ export const getYesterday = () => {
 };
 
 /**
+ * Add one calendar day to a YYYY-MM-DD string. Timezone-safe: treats the string as a calendar
+ * date and returns the next calendar date (e.g. 2025-03-14 → 2025-03-15) without UTC/local shift.
+ * Use this when pairing habit logs with sleep (sleep is stored by wake date = next calendar day).
+ */
+export const addCalendarDay = (dateStr) => {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const next = new Date(y, m - 1, d + 1);
+  return formatDateForDB(next);
+};
+
+/**
  * Format date for homepage title display
  * Returns "Today", "Yesterday", or "Mon 15 Jan" format
  */

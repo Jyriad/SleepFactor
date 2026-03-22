@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../contexts/AuthContext';
+import SplashContext from '../contexts/SplashContext';
 import { colors } from '../constants/colors';
 import {
   hasCompletedOnboardingForUser,
@@ -43,14 +44,19 @@ const AppNavigator = ({ navigationRef }) => {
     if (loading) return;
     let cancelled = false;
     (async () => {
-      await clearLegacyGlobalOnboardingFlag();
       if (!user?.id) {
+        await clearLegacyGlobalOnboardingFlag();
         if (!cancelled) setOnboardingComplete(false);
         return;
       }
-      // Fast path: local onboarding flag first so splash/main tabs show without waiting on network
-      if (await hasCompletedOnboardingForUser(user.id)) {
-        if (!cancelled) setOnboardingComplete(true);
+      // Run legacy clear and onboarding check in parallel for faster first paint
+      const [_, completed] = await Promise.all([
+        clearLegacyGlobalOnboardingFlag(),
+        hasCompletedOnboardingForUser(user.id),
+      ]);
+      if (cancelled) return;
+      if (completed) {
+        setOnboardingComplete(true);
         return;
       }
       const skip = await shouldSkipOnboarding(user.id);
@@ -114,7 +120,7 @@ const AppNavigator = ({ navigationRef }) => {
 
   if (loading || onboardingComplete === null) {
     return (
-      <View style={styles.loadingContainer} onLayout={hideSplashOnce}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FFFFFF" />
       </View>
     );
@@ -148,10 +154,11 @@ const AppNavigator = ({ navigationRef }) => {
   };
 
   return (
-    <View style={styles.root} onLayout={hideSplashOnce}>
-      <NavigationContainer ref={navigationRef} onStateChange={onStateChange}>
-        <Suspense fallback={<LazyFallback />}>
-          <Stack.Navigator
+    <View style={styles.root}>
+      <SplashContext.Provider value={{ onReadyToHideSplash: hideSplashOnce }}>
+        <NavigationContainer ref={navigationRef} onStateChange={onStateChange}>
+          <Suspense fallback={<LazyFallback />}>
+            <Stack.Navigator
             screenOptions={{
               headerShown: false,
               animation: 'slide_from_right',
@@ -192,8 +199,9 @@ const AppNavigator = ({ navigationRef }) => {
               </>
             )}
           </Stack.Navigator>
-        </Suspense>
-      </NavigationContainer>
+          </Suspense>
+        </NavigationContainer>
+      </SplashContext.Provider>
     </View>
   );
 };

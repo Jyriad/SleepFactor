@@ -17,7 +17,8 @@ alwaysApply: false
 **Potential edge cases / unresolved**
 
 - Users with very large habit log history (many pages) may see slower Insights load; consider capping total pages or narrowing the date range if performance becomes an issue.
-- **Other tables:** `getSleepData` and any other Supabase fetches that use a wide date range and no pagination may also hit the 1000-row cap. If similar “missing recent data” or wrong counts appear elsewhere, check whether that endpoint needs pagination.
+- **Sleep data:** `getSleepData` is now paginated (same pattern as `getHabitLogs`) so Insights gets all sleep nights and binary yes/no paired counts are correct.
+- **Other tables:** Any other Supabase fetches that use a wide date range and no pagination may also hit the 1000-row cap. If similar “missing recent data” or wrong counts appear elsewhere, check whether that endpoint needs pagination.
 
 ---
 
@@ -30,3 +31,80 @@ alwaysApply: false
 - **Default export when adding components:** When adding a new component at the bottom of a file that already has `export default ScreenName`, do not remove or overwrite that export. If the default export is lost, other files that `import ScreenName from '...'` receive the module object instead of the component, and React reports "Element type is invalid: expected a string or a class/function but got: object" at the place that renders that component (e.g. HomeStackWrapper rendering HabitLoggingScreen).
 - **Insights (or any tab) reload on focus:** Calling `setLoading(true)` and a full fetch on every `useFocusEffect` makes switching back to the tab feel slow. If we already have data (e.g. `tabData.groups.length > 0`), show it immediately and optionally refetch in the background so the spinner does not reappear on every visit.
 - **Derived list data:** Building `sections` or other list input in render without `useMemo` creates a new array every render; the list then may do extra work. Compute with `useMemo` and the right dependency array (e.g. `[groups, analysisMode]`), and memoize the list header and any callbacks passed to the list so the list receives stable props.
+
+---
+
+## iOS development build (EAS) — March 2026
+
+**Testing on a physical iPhone (same idea as Android)**
+
+1. Install the **development** `.ipa` from the EAS build page (ad hoc / internal distribution).
+2. On the computer, run: `npx expo start --dev-client --tunnel` (from the project root).
+3. Open the **iPhone Camera** (or the dev client if it offers “Scan QR”) and scan the QR code from the terminal or Expo Dev Tools.
+4. The link should open the **SleepFactor Dev** (or similarly named) dev client and connect to the bundler — live reload works like Android.
+
+**EAS CLI**
+
+- Use `npx eas-cli …` if `eas` is not on PATH. `eas` is the `eas-cli` package.
+
+**`react-native-nitro-modules` (required for `@kingstinct/react-native-healthkit`)**
+
+- It is a **peer dependency** only; it may not be installed unless added explicitly. If EAS **pod install** fails with “Unable to find a specification for `NitroModules`”, run `npm install react-native-nitro-modules` and commit `package.json` / lockfile.
+- **Android EAS / Gradle (RN 0.76):** If `:react-native-nitro-modules:compileDebugKotlin` fails with `ReactModuleInfo` “None of the following functions can be called…”, add **`hasConstants = false`** to the `ReactModuleInfo(` call in `NitroModulesPackage.kt` (see **`patches/react-native-nitro-modules+0.35.2.patch`**). **`patch-package`** runs on **`postinstall`** so EAS and local `npm install` apply the fix. Pin **`react-native-nitro-modules`** to the patched version (e.g. `0.35.2`) so the patch keeps applying.
+
+**macOS local prerequisites**
+
+- If `git` / tools complain about **Xcode license**, run `sudo xcodebuild -license` once and accept.
+
+**Device registration**
+
+- Use `npx eas-cli device:create` and complete the flow so the iPhone UDID is registered for **internal / ad hoc** distribution.
+
+**`eas.json` — iOS development profile**
+
+- For installs on a **physical device**, set `"simulator": false` under the **development** profile’s `ios` block (simulator `true` is for Simulator-only builds).
+
+**Bundle ID, credentials, and app name**
+
+- **Development** builds use `com.sleepfactor.app.dev` (from `app.config.js` when `APP_VARIANT=development` or `EAS_BUILD_PROFILE=development`). **Production** uses `com.sleepfactor.app`.
+- **`eas.json`** should set **`build.development.env.APP_VARIANT`** = **`development`** and **`build.production.env.APP_VARIANT`** = **`production`** so EAS always evaluates `app.config.js` with the correct variant (avoids Android dev builds accidentally shipping as the prod app id when `EAS_BUILD_PROFILE` is not visible during config resolution).
+- When running **`eas credentials`**, choose the **development** build profile. If the UI shows the wrong bundle ID, prefix the command with `EAS_BUILD_PROFILE=development` so `app.config.js` resolves the dev bundle ID (`IS_DEV` is true).
+- **Provisioning profile must match the bundle ID.** If the build assigns a profile for `com.sleepfactor.app` to a target with `com.sleepfactor.app.dev`, signing fails. Configure credentials under the **development** profile until Expo shows credentials for **`com.sleepfactor.app.dev`** only.
+- **Xcode target name vs display name:** Keep root `name` as `"SleepFactor"` so the iOS target stays `SleepFactor` (EAS signing expects it). Use `ios.infoPlist.CFBundleDisplayName` for the **“SleepFactor Dev”** label under the icon on dev builds.
+
+**Apple `version` string**
+
+- `version` in app config must be **numeric segments only** (e.g. `1.327`). Do **not** append `" Dev"` — Apple rejects it. Dev vs prod is conveyed via bundle ID and display name.
+
+**EAS `eas.json` schema**
+
+- Do **not** put `bundleIdentifier` under `build.*.ios` in `eas.json` — it is **not** allowed and breaks `eas credentials`.
+
+---
+
+## Native Google Sign-In, EAS env, and Android dev credentials (March 2026)
+
+**`RNGoogleSignin` missing / pink “Unimplemented” / crash on Continue with Google**
+
+- The **JavaScript bundle** is not enough: **`@react-native-google-signin/google-signin`** and **`expo-apple-authentication`** must be compiled into the **installed** app (EAS **development** or **production** build). **Expo Go** and **old** dev clients built before those dependencies do not include the native module → **`TurboModuleRegistry… RNGoogleSignin could not be found`**. **Fix:** New **EAS dev client** install after adding native deps; open **SleepFactor Dev** (not Expo Go) for QR / dev-server testing.
+
+**Android `DEVELOPER_ERROR` (after account picker, no useful Metro logs)**
+
+- Almost always **Google Cloud ↔ signing key mismatch** for that **package name**. Native Google Sign-In still uses **`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`** (Web client), but Google validates **`applicationId`** + **SHA-1** of the keystore that signed the APK/AAB.
+- **`com.sleepfactor.app.dev`** is a **separate** Android app id from **`com.sleepfactor.app`**. First-time EAS credentials for dev often **generate a new keystore** → **new SHA-1**. **Fix:** **expo.dev** → **Credentials** → Android → **`com.sleepfactor.app.dev`** → copy **SHA-1** → **Google Cloud** → Android OAuth client for **`com.sleepfactor.app.dev`** → add fingerprint → wait a few minutes, retry.
+- If users only registered SHA-1 for **production**, dev sign-in fails until the **dev** SHA-1 is added (multiple fingerprints allowed).
+
+**EAS “Environment variables” on expo.dev**
+
+- **`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`:** same Web client value can be attached to **both** `development` and `production`.
+- **`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`:** must differ by environment — **development** = iOS OAuth client for **`com.sleepfactor.app.dev`**, **production** = iOS OAuth client for **`com.sleepfactor.app`** (native iOS Google Sign-In reads the matching client).
+- **`EXPO_PUBLIC_SUPABASE_URL`** and **`EXPO_PUBLIC_SUPABASE_ANON_KEY`:** if only defined for **`production`**, **development** EAS builds may not embed them → runtime Supabase errors. **Mirror the same values** into the **`development`** environment (unless using a separate Supabase project for dev).
+
+**Android install / launcher label vs iOS**
+
+- **`ios.infoPlist.CFBundleDisplayName`** controls the **iPhone** home screen name (**SleepFactor Dev**). **Android** defaults the visible app name to the root **`name`** field unless **`android.label`** is set per variant — so the **system install prompt** may still say **“SleepFactor”** even for a correct **dev** build. Optional UX: set **`android.label`** when `IS_DEV` so Android matches iOS naming.
+
+**iOS build failures — Swift / HealthKit / Nitro**
+
+- **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (e.g. `macos-sequoia-15.6-xcode-16.4` under `development.ios`) can help without a larger VM.
+- **`AnyMap` has no member `isBigInt` / `getBigInt`:** Nitro **0.33.8+** removed BigInt helpers on `AnyMap`; `@kingstinct/react-native-healthkit` **12.x** still calls them. **Pin `react-native-nitro-modules` to `0.33.7`** until HealthKit (and Expo/RN) are upgraded to versions that target newer Nitro. Do not upgrade Nitro past 0.33.7 blindly on Expo 52 + HealthKit 12 without verifying compatibility.

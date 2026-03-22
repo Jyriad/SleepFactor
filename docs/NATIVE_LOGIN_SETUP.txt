@@ -1,0 +1,151 @@
+================================================================================
+SLEEPFACTOR — NATIVE GOOGLE & SIGN IN WITH APPLE (WHAT YOU NEED TO DO)
+================================================================================
+The app code is ready. Social login uses your phone’s built-in Google / Apple
+sheets and talks to Supabase. You must create credentials in a few websites,
+paste values into a local file, then rebuild the app (not just “Reload”).
+
+--------------------------------------------------------------------------------
+A) GOOGLE CLOUD CONSOLE (console.cloud.google.com)
+--------------------------------------------------------------------------------
+1. Open your project (or create one).
+
+2. APIs & Services → Credentials → Create credentials → OAuth client ID.
+
+3. Create THREE clients (if you don’t already have them):
+
+   a) Web application  
+      - This gives you a “Client ID” (long string ending in .apps.googleusercontent.com).  
+      - You do NOT need the client secret for the mobile app’s native sign-in,  
+        but Supabase’s Google provider may still use a secret in the dashboard —  
+        keep whatever Supabase already had working for “web” Google.
+
+   b) iOS — “Create OAuth client ID” form (what to type in each box)  
+      This is the screen where Application type is “iOS”. Google is asking you to  
+      prove which real iPhone app is allowed to use this login.
+
+      • Application type  
+        Choose: iOS (from the dropdown). You already have this right if the form  
+        says “iOS” at the top.
+
+      • Name * (required)  
+        This is ONLY a label for you inside Google Cloud — users never see it.  
+        Examples: “SleepFactor iPhone (production)” or “SleepFactor iPhone (dev)”.  
+        Pick any clear name so you can find it later in the credentials list.
+
+      • Bundle ID * (required) — this must match SleepFactor exactly  
+        Google wants the same “bundle identifier” your iPhone app is built with.  
+        For SleepFactor the values are:  
+        – If you install the normal / App Store style build:  
+          com.sleepfactor.app  
+        – If you install the “development” build (often shows as “SleepFactor Dev”  
+          on the home screen):  
+          com.sleepfactor.app.dev  
+        Type ONE of those, with no spaces, exactly as written.  
+        If you use BOTH kinds of builds on different phones, create TWO separate  
+        iOS OAuth clients in Google (one per bundle ID), each with its own Client ID.  
+        For daily testing, most people start with the bundle ID of the build they  
+        actually install, then add the other later if needed.
+
+      • App Store ID (optional)  
+        Only needed if the app is already on the public App Store and Google asks  
+        for it. If you are not published yet, leave this blank.
+
+      • Team ID (optional on the form, but recommended)  
+        This is a 10-character code Apple gives your team (letters and numbers).  
+        Where to find it: log in to developer.apple.com → Account (or Membership  
+        details) — it is often shown as “Team ID”.  
+        If the field is optional and you are unsure, you can try leaving it blank  
+        first; if Google insists, add the Team ID from Apple.
+
+      • “Protect your OAuth client with Firebase App Check”  
+        Leave this UNCHECKED unless you are deliberately using Firebase App Check.  
+        For SleepFactor’s usual setup you do not need it.
+
+      If the “Create” button stays greyed out, Google still needs the Bundle ID  
+      (required field) filled in correctly — use one of the two bundle IDs above.
+
+      After you click Create, Google shows your new iOS client. Copy the  
+      “Client ID” (a long string ending in .apps.googleusercontent.com).  
+      You will paste that into EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in section B below.
+
+   c) Android  
+      - Package name: com.sleepfactor.app (production) or com.sleepfactor.app.dev (dev).  
+        If you use both installs, create TWO Android OAuth entries in Google — one  
+        package name each — even if Expo shows only one SHA-1 fingerprint (you can  
+        paste the same fingerprint on both when Expo uses one signing key).  
+      - SHA-1: for EAS cloud installs, copy it from your Expo account (project →  
+        credentials / Android), not from a “USB keystore” command.  
+      - After you save, Google shows an “Android client” ID (long .apps.googleusercontent.com  
+        string). That ID is for Google’s records — SleepFactor does NOT read it and  
+        you do NOT put it in .env.local. What the app needs there is still only the  
+        Web client ID (plus the iOS client ID on iPhone), same as before.
+
+4. For the Web client, add Authorized redirect URI (for Supabase):  
+   https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback  
+   (Replace YOUR_PROJECT_REF with your Supabase project reference, e.g. alskvzepqyqnchgdltrv.)
+
+--------------------------------------------------------------------------------
+B) YOUR COMPUTER — .env.local FILE
+--------------------------------------------------------------------------------
+1. Copy .env.example to .env.local (if you don’t already have .env.local).
+
+2. Add these lines (use your real values from Google Cloud):
+
+   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=paste-web-client-id-here.apps.googleusercontent.com
+   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=paste-ios-client-id-here.apps.googleusercontent.com
+
+   Important: Android OAuth client IDs (the ones Google shows after you create an  
+   “Android” credential) are NOT added here. They already did their job inside  
+   Google Cloud (package name + fingerprint). Only Web + iOS go in this file.
+
+3. Keep your existing Supabase lines in the same file:
+   EXPO_PUBLIC_SUPABASE_URL=...
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+
+4. For EAS cloud builds (TestFlight / Play): add the same EXPO_PUBLIC_* variables  
+   in EAS Secrets or in eas.json env so the build sees them.
+
+--------------------------------------------------------------------------------
+C) SUPABASE DASHBOARD (supabase.com → your project)
+--------------------------------------------------------------------------------
+1. Authentication → Providers → Google: ON.  
+   Use the same Google Web client settings you already used when web login worked.
+
+2. Authentication → Providers → Apple: ON.  
+   Follow Supabase’s wizard: Apple Developer Team ID, Key ID, private key (.p8),  
+   and Service ID if they ask for it. Save.
+
+3. Authentication → URL Configuration:  
+   Keep sleepfactor:// and your Site URL (e.g. https://sleepfactor.app) as before.
+
+--------------------------------------------------------------------------------
+D) APPLE DEVELOPER (developer.apple.com)
+--------------------------------------------------------------------------------
+1. Identifiers → your App ID (same bundle ID as the iOS app).  
+2. Enable capability: Sign In with Apple.  
+3. Save. Your next iOS build will include the entitlement.
+
+--------------------------------------------------------------------------------
+E) REBUILD THE APP (REQUIRED)
+--------------------------------------------------------------------------------
+Native login does NOT work with only “Reload” in Expo. You need a new native binary:
+
+• Local iOS:  npx expo run:ios  
+• Local Android: npx expo run:android  
+• Or: eas build --profile development   (then install the new build on your phone)
+
+After installing the new build, open the app and try “Sign in with Apple” (iPhone)  
+and “Continue with Google”.
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING (SHORT)
+--------------------------------------------------------------------------------
+• “Not configured” / Google errors: check .env.local and that you rebuilt.  
+• iOS Google: EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID must match the iOS OAuth client  
+  whose bundle ID matches your app (dev vs prod).  
+• Android Google: SHA-1 in Google Cloud must match the keystore of the APK/AAB you install.  
+• Apple: Sign in with Apple only works on a real iPhone/iPad (simulator is limited).  
+• Supabase Apple errors: re-check Apple provider fields in Supabase.
+
+================================================================================

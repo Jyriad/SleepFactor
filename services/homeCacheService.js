@@ -36,6 +36,13 @@ function getLastAppliedDashboardPayload(userId, dateStr) {
   }
 }
 
+function clearLastAppliedDashboardPayload(userId, dateStr) {
+  if (!userId || !dateStr) return;
+  try {
+    lastAppliedDashboardByKey.delete(cacheKey(userId, dateStr));
+  } catch (_) {}
+}
+
 function setSubjectiveJustSavedForToday() {
   subjectiveJustSavedForToday = true;
 }
@@ -185,6 +192,16 @@ async function getPersistedDashboardPayload(userId, date) {
  * @param {string|Date} date
  * @param {object} payload
  */
+async function clearPersistedDashboardPayload(userId, date) {
+  try {
+    const dateStr = dateStringToKey(date);
+    const key = `${PREFIX_DASHBOARD}${userId}_${dateStr}`;
+    await AsyncStorage.removeItem(key);
+  } catch (_) {
+    // ignore
+  }
+}
+
 async function setPersistedDashboardPayload(userId, date, payload) {
   try {
     const dateStr = dateStringToKey(date);
@@ -298,7 +315,9 @@ export default {
   getPersistedTotalHabitCount,
   setPersistedTotalHabitCount,
   getPersistedDashboardPayload,
+  clearPersistedDashboardPayload,
   setPersistedDashboardPayload,
+  clearLastAppliedDashboardPayload,
   hydrateHomeSnapshot,
   cleanupOldEntries,
   clearForUser,

@@ -5,15 +5,26 @@ const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
 // Import version from package.json
 import packageInfo from './package.json';
 const BASE_VERSION = process.env.APP_VERSION || packageInfo.version;
-// Append " Dev" suffix in development builds to distinguish from production
-const VERSION = IS_DEV ? `${BASE_VERSION} Dev` : BASE_VERSION;
+
+/** iOS Google Sign-In URL scheme derived from Google Cloud "iOS" OAuth client ID (set in .env / EAS). */
+const GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
+const googleIosUrlSchemeFromEnv =
+  GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN.endsWith('.apps.googleusercontent.com')
+    ? `com.googleusercontent.apps.${GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN.replace('.apps.googleusercontent.com', '')}`
+    : '';
+/** Always use the non-Firebase plugin path (this repo has no google-services.json). */
+const googleIosUrlScheme = googleIosUrlSchemeFromEnv.startsWith('com.googleusercontent.apps.')
+  ? googleIosUrlSchemeFromEnv
+  : 'com.googleusercontent.apps.unconfigured';
+// Apple requires CFBundleShortVersionString to be numeric only (e.g. 1.327), not "1.327 Dev".
+// Dev vs prod is distinguished by bundle ID and CFBundleDisplayName.
 
 export default {
-  // App name changes based on build variant
-  name: IS_DEV ? "SleepFactor Dev" : "SleepFactor",
+  // Always "SleepFactor" so EAS finds the iOS target; display name is set per-platform below
+  name: "SleepFactor",
   slug: "SleepFactor",
   scheme: "sleepfactor",
-  version: VERSION,
+  version: BASE_VERSION,
   orientation: "portrait",
   icon: "./assets/AppLogo.png",
   userInterfaceStyle: "light",
@@ -25,7 +36,11 @@ export default {
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app"
+    bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
+    usesAppleSignIn: true,
+    infoPlist: {
+      CFBundleDisplayName: IS_DEV ? "SleepFactor Dev" : "SleepFactor"
+    }
   },
   android: {
     adaptiveIcon: {
@@ -114,7 +129,9 @@ export default {
         sounds: [],
         androidMode: "default"
       }
-    ]
+    ],
+    ["@react-native-google-signin/google-signin", { iosUrlScheme: googleIosUrlScheme }],
+    "expo-apple-authentication"
   ],
   extra: {
     eas: {

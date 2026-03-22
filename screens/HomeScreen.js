@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useSplash } from '../contexts/SplashContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
@@ -446,6 +447,7 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const splash = useSplash();
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
   const setSelectedDate = dateHeader?.setSelectedDate ?? (() => {});
@@ -493,7 +495,6 @@ const HomeScreen = () => {
   const [trackDreamVividness, setTrackDreamVividness] = useState(false);
   // When viewing "today", subjective scores live on today's sleep row (last night = wake date)
   const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
-  const lastNightSubjectiveDataRef = useRef(null);
   // Optimistic scores passed back from SleepQualityLog; prefer over stale RPC until server catches up
   const optimisticSubjectiveScoresRef = useRef(null);
   // Minimal habits list from dashboard RPC for passing to Habit Logging (instant names/icons)
@@ -520,6 +521,7 @@ const HomeScreen = () => {
   const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
   // Don't show "No sleep data" for today until we've completed at least one sync attempt
   const todaySyncAttemptedRef = useRef(false);
+  const splashReadySentRef = useRef(false);
 
   // Health sync hook
   const {
@@ -584,8 +586,8 @@ const HomeScreen = () => {
         nextSubjective = (optimistic.tiredness_score != null || optimistic.dream_vividness_score != null) ? optimistic : null;
       }
     } else {
-      const keepCurrentSubjective = viewingToday && !hasPayloadScores && lastNightSubjectiveDataRef.current && (lastNightSubjectiveDataRef.current.tiredness_score != null || lastNightSubjectiveDataRef.current.dream_vividness_score != null);
-      nextSubjective = keepCurrentSubjective ? lastNightSubjectiveDataRef.current : (hasPayloadScores ? lastNight : null);
+      // Trust the payload: if the server/cache says no scores for this date, show none (avoid stale scores from another day or session).
+      nextSubjective = hasPayloadScores ? lastNight : null;
     }
     setLastNightSubjectiveData(nextSubjective);
     const loggedDatesRaw = payload.logged_dates;
@@ -622,6 +624,7 @@ const HomeScreen = () => {
   }, [user?.id]);
 
   // Disk hydrate for current date (one multiGet): full dashboard or at least habit counts — cold start fast path.
+  // When no cache for today, try yesterday's dashboard so we show something immediately, then fetch today in background.
   useEffect(() => {
     if (!user?.id) return;
     const dateStr = getDateString(selectedDate) || getToday();
@@ -632,7 +635,7 @@ const HomeScreen = () => {
     }
     setHabitSummaryReady(false);
     let cancelled = false;
-    homeCacheService.hydrateHomeSnapshot(user.id, dateStr).then(({ dashboard, loggedCount, totalHabitCount }) => {
+    homeCacheService.hydrateHomeSnapshot(user.id, dateStr).then(async ({ dashboard, loggedCount, totalHabitCount }) => {
       if (cancelled) return;
       if (dashboard && isValidDashboardPayload(dashboard)) {
         applyDashboardPayload(dashboard, dateStr);
@@ -648,16 +651,52 @@ const HomeScreen = () => {
         setTotalHabitCount(totalHabitCount);
         setHabitSummaryReady(true);
         setLoading(false);
+        return;
+      }
+      // No cache for this date: if viewing today, try yesterday's dashboard so we show something
+      if (dateStr === getToday()) {
+        const yesterdayPayload = await homeCacheService.getPersistedDashboardPayload(user.id, getYesterday());
+        if (!cancelled && yesterdayPayload && isValidDashboardPayload(yesterdayPayload)) {
+          // Only reuse habit-related fields from yesterday's cache. Sleep + "how you felt" must not be copied onto today
+          // (they belong to yesterday's row and caused wrong scores on first open).
+          const placeholderDashboard = {
+            ...yesterdayPayload,
+            sleep_record: null,
+            last_night_subjective: null,
+          };
+          applyDashboardPayload(placeholderDashboard, dateStr);
+          homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, placeholderDashboard);
+          setLoading(false);
+          setHabitSummaryReady(true);
+          hadSleepDataRef.current = false;
+          sleepCardOpacity.setValue(0);
+          return;
+        }
+      }
+      // No usable cache: show skeleton and let focus effect fetch in background
+      if (!cancelled) {
+        setLoading(false);
+        setHabitSummaryReady(true);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [user?.id, selectedDate, getDateString, applyDashboardPayload, isValidDashboardPayload]);
+  }, [user?.id, selectedDate, getDateString, getToday, applyDashboardPayload, isValidDashboardPayload]);
 
+  // Hide splash once Home has painted with content (cache or skeleton)
   useEffect(() => {
-    lastNightSubjectiveDataRef.current = lastNightSubjectiveData;
-  }, [lastNightSubjectiveData]);
+    if (!user?.id || splashReadySentRef.current) return;
+    if (!loading && habitSummaryReady) {
+      const id = InteractionManager.runAfterInteractions(() => {
+        if (!splashReadySentRef.current) {
+          splashReadySentRef.current = true;
+          splash?.onReadyToHideSplash?.();
+        }
+      });
+      return () => id.cancel();
+    }
+  }, [user?.id, loading, habitSummaryReady, splash]);
 
   const fetchDashboard = useCallback(async (opts = {}) => {
     const { background = false, retryAttempt = 0 } = opts;
@@ -871,9 +910,8 @@ const HomeScreen = () => {
             homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, cached);
           }
           setLoading(false);
-        } else {
-          setLoading(true);
         }
+        // Never block UI: when no cache we keep showing skeleton and fetch in background
         const alreadyFetchedForDate = fetchedDateKeysRef.current.has(dateStr);
         if (!alreadyFetchedForDate) {
           fetchedDateKeysRef.current.add(dateStr);
@@ -887,9 +925,9 @@ const HomeScreen = () => {
         }
         focusFetchDebounceRef.current = { dateStr, timestamp: now };
         // After saving subjective scores, force foreground fetch so we show fresh data.
-        // Otherwise use background when cache is usable and we've already fetched this date.
+        // Otherwise fetch in background so we never block the homepage.
         const forceForeground = subjectiveJustSaved && dateStr === getToday();
-        const shouldBackground = !forceForeground && hasUsableCache && alreadyFetchedForDate;
+        const shouldBackground = !forceForeground;
         fetchDashboard({ background: shouldBackground });
       });
       return () => { cancelled = true; };
@@ -1682,10 +1720,15 @@ const HomeScreen = () => {
           />
         </View>
 
-        {/* How you felt - compact card just under habits, only when viewing today and tracking */}
-        {isToday(selectedDate) && (trackTiredness || trackDreamVividness) && (
+        {/* How you felt - compact card under habits for any selected day when tracking */}
+        {(trackTiredness || trackDreamVividness) && (
           <View style={styles.section}>
             <View style={styles.howYouFeltCard}>
+              {!isToday(selectedDate) && (
+                <Text style={styles.howYouFeltDateHint}>
+                  How you felt — {formatDateTitle(selectedDate)}
+                </Text>
+              )}
               {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ? (
                 <View style={styles.howYouFeltRows}>
                   {trackTiredness && lastNightSubjectiveData?.tiredness_score != null && (
@@ -1708,7 +1751,7 @@ const HomeScreen = () => {
               ) : null}
               <TouchableOpacity
                 style={styles.howDidYouFeelCTACompact}
-                onPress={() => navigation.navigate('SleepQualityLog', { date: getToday() })}
+                onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="happy-outline" size={16} color={colors.primary} />
@@ -2134,6 +2177,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  howYouFeltDateHint: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+    marginBottom: spacing.xs,
   },
   howYouFeltRows: {
     marginBottom: 2,
