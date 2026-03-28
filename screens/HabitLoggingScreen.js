@@ -12,7 +12,6 @@ import {
   InteractionManager,
   FlatList,
 } from 'react-native';
-import Constants from 'expo-constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -43,6 +42,7 @@ import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/date
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
+import ConsumptionLoggedList from '../components/ConsumptionLoggedList';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -743,7 +743,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           isDrugHabit={isDrugHabit}
           isCaffeineOrAlcohol={isCaffeineOrAlcohol}
           isCollapsed={isCollapsed}
-          consumptionEventsForHabit={consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS}
           habitLogValue={habit.type === 'drug' || habit.type === 'quick_consumption' ? (consumptionEvents[habit.id] ?? EMPTY_CONSUMPTION_EVENTS) : (habitLogs[habit.id] || '')}
           consumptionEventsLoading={consumptionEventsLoading}
           yesNoCounts={habitLogCountsByValue[habit.id]}
@@ -774,8 +773,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     ]
   );
 
-  const statusBarHeight = Constants.statusBarHeight ?? 24;
-  const minimalHeaderTop = insets.top > 0 ? statusBarHeight : 0;
+  const minimalHeaderTop = insets.top;
 
   return (
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
@@ -837,7 +835,7 @@ const styles = StyleSheet.create({
   minimalHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 8,
+    paddingTop: 2,
     paddingBottom: 12,
     paddingHorizontal: 4,
   },
@@ -1038,6 +1036,7 @@ const HabitLoggingRow = React.memo(function HabitLoggingRow({
               onConsumptionAdded={() => onConsumptionAdded(habit.id)}
               onOpenLogConsumption={(params) => onOpenLogConsumption(params, habit.id)}
               yesNoCounts={yesNoCounts}
+              hideQuickConsumptionLoggedList={isCaffeineOrAlcohol}
             />
             {isCaffeineOrAlcohol && (
               <DrugLevelContainer
@@ -1046,7 +1045,18 @@ const HabitLoggingRow = React.memo(function HabitLoggingRow({
                 selectedDate={selectedDate}
                 compact
                 levelRefreshKey={levelRefreshKey}
-              />
+              >
+                <ConsumptionLoggedList
+                  habit={habit}
+                  value={habitLogValue}
+                  onChange={(v) => onHabitChange(habit.id, v)}
+                  selectedDate={selectedDate}
+                  userId={userId}
+                  onConsumptionAdded={() => onConsumptionAdded(habit.id)}
+                  onOpenLogConsumption={(params) => onOpenLogConsumption(params, habit.id)}
+                  embedded
+                />
+              </DrugLevelContainer>
             )}
           </>
         ) : null}

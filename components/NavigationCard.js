@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
-const NavigationCard = ({ icon, title, subtitle, stats, onPress }) => {
+const NavigationCard = ({ icon, title, subtitle, stats, onPress, bottomContent }) => {
   return (
     <TouchableOpacity
       style={styles.card}
@@ -16,6 +16,7 @@ const NavigationCard = ({ icon, title, subtitle, stats, onPress }) => {
       <View style={styles.textContainer}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>{subtitle}</Text>
+        {bottomContent}
         {stats && stats.length > 0 && (
           <View style={styles.statsContainer}>
             {stats.map((stat, index) => (

@@ -4,7 +4,6 @@ import { supabase } from './supabase';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import {
-  signInWithGoogleNative,
   signOutGoogleIfPossible,
   signInWithApple,
 } from './nativeSocialAuth';
@@ -454,12 +453,7 @@ async function signInWithGoogleWebOAuth() {
   }
 }
 
-export const signInWithGoogle = async () => {
-  if (Platform.OS !== 'web') {
-    return signInWithGoogleNative();
-  }
-  return signInWithGoogleWebOAuth();
-};
+export const signInWithGoogle = async () => signInWithGoogleWebOAuth();
 
 export const signInWithFacebook = async () => {
   try {

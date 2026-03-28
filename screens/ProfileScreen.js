@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -42,6 +42,8 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
+import AuthProviderBadges from '../components/AuthProviderBadges';
+import { getAccountIdentifier } from '../utils/authDisplay';
 import useHealthSync from '../hooks/useHealthSync';
 import sleepDataService from '../services/sleepDataService';
 import habitReminderNotifications from '../services/habitReminderNotifications';
@@ -73,7 +75,29 @@ const ProfileScreen = () => {
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const navigation = useNavigation();
   const { user } = useAuth();
+  /** Server user so linked providers show on the Account card (same as Supabase dashboard). */
+  const [resolvedProfileUser, setResolvedProfileUser] = useState(user);
   const { preferences, updatePreference, savePreferences } = useUserPreferences();
+
+  useEffect(() => {
+    setResolvedProfileUser(user);
+  }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const { data, error } = await supabase.auth.getUser();
+        if (cancelled || error || !data?.user) return;
+        setResolvedProfileUser(data.user);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const accountForProfile = resolvedProfileUser || user;
 
   const [caffeineHalfLife, setCaffeineHalfLife] = useState('');
   const [alcoholHalfLife, setAlcoholHalfLife] = useState('');
@@ -423,7 +447,18 @@ const ProfileScreen = () => {
             <NavigationCard
               icon="person"
               title="Account Details"
-              subtitle="Manage password and view account statistics"
+              subtitle={
+                getAccountIdentifier(accountForProfile) ||
+                'Open for email, sign-in methods, and statistics'
+              }
+              bottomContent={
+                <View>
+                  <AuthProviderBadges user={accountForProfile} compact />
+                  <Text style={styles.accountCardHint}>
+                    Manage password and view account statistics
+                  </Text>
+                </View>
+              }
               onPress={() => navigation.navigate('Account')}
             />
           </View>
@@ -1113,6 +1148,12 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
     marginBottom: spacing.regular,
+  },
+  accountCardHint: {
+    fontSize: typography.sizes.xs,
+    color: colors.textLight,
+    marginTop: spacing.sm,
+    lineHeight: 16,
   },
   sectionSubTitle: {
     fontSize: typography.sizes.small,

@@ -1,47 +1,61 @@
-import React, { useState, useRef } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   useWindowDimensions,
-  ScrollView,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BannerLogoLight from '../../assets/BannerLogoLight.svg';
+import { useAuth } from '../../contexts/AuthContext';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
+import OnboardingSignOutLink from './OnboardingSignOutLink';
 
 const BANNER_ASPECT_RATIO = 250 / 100;
-const BANNER_MAX_WIDTH = 200;
+const BANNER_MAX_WIDTH = 168;
 
-const CAROUSEL_SLIDES = [
-  {
-    title: 'Auto-Sync',
-    body: 'Your wearables do the work',
-    sub: 'HealthKit / Health Connect',
-  },
-  {
-    title: 'Smart Logging',
-    body: 'Track caffeine and alcohol with pharmaceutical precision.',
-    sub: '',
-  },
+/** One short line each — numbered list, no cards, fits typical phones without scrolling */
+const WELCOME_LINES = [
+  'Track your sleep automatically from your wearable.',
+  'Log caffeine, alcohol, and other habits.',
+  'See what helps or hurts your sleep.',
 ];
 
 const WelcomeScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
-  const bannerWidth = Math.min(BANNER_MAX_WIDTH, windowWidth - spacing.xl * 2);
+  const contentWidth = windowWidth - spacing.xl * 2;
+  const bannerWidth = Math.min(BANNER_MAX_WIDTH, contentWidth);
   const bannerHeight = bannerWidth / BANNER_ASPECT_RATIO;
-  const [carouselIndex, setCarouselIndex] = useState(0);
-  const scrollRef = useRef(null);
 
-  const onScroll = (e) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const index = Math.round(x / windowWidth);
-    if (index >= 0 && index < CAROUSEL_SLIDES.length) {
-      setCarouselIndex(index);
-    }
-  };
+  const goToAuth = () => navigation.navigate('OnboardingAuth');
+  const continueSetup = () => navigation.replace('OnboardingHealth');
+
+  if (user?.id) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.content}>
+          <BannerLogoLight
+            width={bannerWidth}
+            height={bannerHeight}
+            style={styles.banner}
+            accessibilityLabel="SleepFactor"
+          />
+          <Text style={styles.resumeTitle}>You&apos;re signed in</Text>
+          <Text style={styles.resumeBody}>
+            Continue setup, or tap Leave to sign out and go back to the start.
+          </Text>
+          <Button title="Continue setup" onPress={continueSetup} style={styles.primaryButton} />
+          <View style={styles.signOutWrap}>
+            <OnboardingSignOutLink />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -52,36 +66,25 @@ const WelcomeScreen = ({ navigation }) => {
           style={styles.banner}
           accessibilityLabel="SleepFactor"
         />
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          pagingEnabled
-          onMomentumScrollEnd={onScroll}
-          showsHorizontalScrollIndicator={false}
-          style={styles.carousel}
-          contentContainerStyle={[styles.carouselContent, { width: windowWidth * CAROUSEL_SLIDES.length }]}
-        >
-          {CAROUSEL_SLIDES.map((slide, i) => (
-            <View key={i} style={[styles.slide, { width: windowWidth }]}>
-              <Text style={styles.slideTitle}>{slide.title}</Text>
-              <Text style={styles.slideBody}>{slide.body}</Text>
-              {slide.sub ? <Text style={styles.slideSub}>{slide.sub}</Text> : null}
-            </View>
-          ))}
-        </ScrollView>
-        <View style={styles.dots}>
-          {CAROUSEL_SLIDES.map((_, i) => (
-            <View
+        <View style={styles.pointsBlock}>
+          {WELCOME_LINES.map((line, i) => (
+            <Text
               key={i}
-              style={[styles.dot, i === carouselIndex && styles.dotActive]}
-            />
+              style={styles.pointLine}
+              accessible
+              accessibilityRole="text"
+            >
+              <Text style={styles.pointNum}>{i + 1}. </Text>
+              <Text style={styles.pointText}>{line}</Text>
+            </Text>
           ))}
         </View>
-        <Button
-          title="Get Started"
-          onPress={() => navigation.navigate('OnboardingAuth')}
-          style={styles.getStartedButton}
-        />
+        <View style={styles.footer}>
+          <Button title="Get started" onPress={goToAuth} style={styles.primaryButton} />
+          <TouchableOpacity onPress={goToAuth} style={styles.signInLink} accessibilityRole="button">
+            <Text style={styles.signInLinkText}>Already have an account? Sign in</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -95,61 +98,69 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
+    paddingTop: spacing.md,
     alignItems: 'center',
   },
   banner: {
     alignSelf: 'center',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
   },
-  carousel: {
-    flexGrow: 0,
-    marginBottom: spacing.regular,
+  pointsBlock: {
+    alignSelf: 'stretch',
+    marginBottom: spacing.md,
   },
-  carouselContent: {
-    flexDirection: 'row',
+  pointLine: {
+    marginBottom: spacing.sm,
+    lineHeight: typography.lineHeights.small,
   },
-  slide: {
-    paddingHorizontal: spacing.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
+  pointNum: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
   },
-  slideTitle: {
+  pointText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+  },
+  footer: {
+    alignSelf: 'stretch',
+    marginTop: 'auto',
+    paddingBottom: spacing.sm,
+    maxWidth: 360,
+    width: '100%',
+  },
+  primaryButton: {
+    minWidth: 200,
+    alignSelf: 'stretch',
+  },
+  signInLink: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  signInLinkText: {
+    fontSize: typography.sizes.small,
+    color: colors.primary,
+    fontWeight: typography.weights.medium,
+    textAlign: 'center',
+  },
+  resumeTitle: {
     fontSize: typography.sizes.large,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.sm,
     textAlign: 'center',
+    marginBottom: spacing.sm,
   },
-  slideBody: {
+  resumeBody: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: typography.lineHeights.body,
-  },
-  slideSub: {
-    fontSize: typography.sizes.small,
-    color: colors.textLight,
-    marginTop: spacing.xs,
-    textAlign: 'center',
-  },
-  dots: {
-    flexDirection: 'row',
-    gap: 8,
     marginBottom: spacing.xl,
+    paddingHorizontal: spacing.sm,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.border,
-  },
-  dotActive: {
-    backgroundColor: colors.primary,
-    width: 24,
-  },
-  getStartedButton: {
-    minWidth: 200,
+  signOutWrap: {
+    marginTop: spacing.lg,
+    alignItems: 'center',
   },
 });
 

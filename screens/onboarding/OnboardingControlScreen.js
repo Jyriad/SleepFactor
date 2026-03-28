@@ -36,11 +36,11 @@ const OnboardingControlScreen = ({ navigation }) => {
   return (
     <OnboardingStepLayout
       step={5}
-      totalSteps={10}
+      totalSteps={8}
       title="Control Variables (Baseline)"
       onNext={() => navigation.navigate('OnboardingConfidence')}
       onBack={() => navigation.goBack()}
-      onSkip={() => navigation.navigate('OnboardingHealth')}
+      onSkip={() => navigation.navigate('OnboardingNotification')}
     >
       <Text style={styles.body}>
         To find the truth, we need to keep some things constant. Control variables are factors you hold steady.

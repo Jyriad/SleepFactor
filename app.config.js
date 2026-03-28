@@ -6,8 +6,13 @@ const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
 import packageInfo from './package.json';
 const BASE_VERSION = process.env.APP_VERSION || packageInfo.version;
 
-/** iOS Google Sign-In URL scheme derived from Google Cloud "iOS" OAuth client ID (set in .env / EAS). */
-const GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
+/** iOS Google Sign-In URL scheme: dev vs prod OAuth client (EAS prebuild uses IS_DEV). */
+const GOOGLE_IOS_DEV = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID_DEV || '';
+const GOOGLE_IOS_PROD = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID_PROD || '';
+const GOOGLE_IOS_LEGACY = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
+const GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN = IS_DEV
+  ? (GOOGLE_IOS_DEV || GOOGLE_IOS_LEGACY)
+  : (GOOGLE_IOS_PROD || GOOGLE_IOS_LEGACY);
 const googleIosUrlSchemeFromEnv =
   GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN.endsWith('.apps.googleusercontent.com')
     ? `com.googleusercontent.apps.${GOOGLE_IOS_CLIENT_ID_FOR_PLUGIN.replace('.apps.googleusercontent.com', '')}`

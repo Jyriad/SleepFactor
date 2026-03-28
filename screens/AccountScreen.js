@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,16 +12,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
+import AuthProviderBadges from '../components/AuthProviderBadges';
+import { getAccountIdentifier, getLinkedIdentityProviders } from '../utils/authDisplay';
 
 const AccountScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
+  /** Fresh user from server so identities match Supabase dashboard (session cache can omit them). */
+  const [resolvedUser, setResolvedUser] = useState(user);
   const [loading, setLoading] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -33,8 +37,28 @@ const AccountScreen = () => {
   });
 
   useEffect(() => {
+    setResolvedUser(user);
+  }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const { data, error } = await supabase.auth.getUser();
+        if (cancelled || error || !data?.user) return;
+        setResolvedUser(data.user);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  useEffect(() => {
     loadUserStats();
   }, [user]);
+
+  const accountUser = resolvedUser || user;
 
   const loadUserStats = async () => {
     if (!user) return;
@@ -97,14 +121,15 @@ const AccountScreen = () => {
   };
 
   const handlePasswordReset = async () => {
-    if (!user?.email) {
+    const emailForReset = accountUser?.email;
+    if (!emailForReset) {
       Alert.alert('Error', 'No email address found for this account');
       return;
     }
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(emailForReset, {
         redirectTo: 'sleepfactor://reset-password'
       });
 
@@ -162,6 +187,28 @@ const AccountScreen = () => {
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
+          {/* Sign-in & contact (matches Supabase-style provider display) */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Account details</Text>
+            <View style={styles.infoCard}>
+              <View>
+                <Text style={styles.infoLabel}>Email or phone</Text>
+                <Text style={styles.accountPrimaryValue} selectable>
+                  {getAccountIdentifier(accountUser) || '—'}
+                </Text>
+              </View>
+              {getLinkedIdentityProviders(accountUser).length > 0 && (
+                <View style={styles.accountSignInBlock}>
+                  <Text style={styles.infoLabel}>Sign-in methods</Text>
+                  <AuthProviderBadges
+                    user={accountUser}
+                    style={{ marginTop: spacing.xs }}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
+
           {/* Account Information */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Account Security</Text>
@@ -346,6 +393,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  accountSignInBlock: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  accountPrimaryValue: {
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    fontWeight: typography.weights.semibold,
+    marginTop: spacing.xs,
   },
   infoRow: {
     flexDirection: 'row',

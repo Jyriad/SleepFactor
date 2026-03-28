@@ -7,6 +7,7 @@ import HealthConnectPrompt from '../../components/HealthConnectPrompt';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import OnboardingSignOutLink from './OnboardingSignOutLink';
 
 const OnboardingHealthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -15,7 +16,7 @@ const OnboardingHealthScreen = ({ navigation }) => {
   const checkOpacity = useSharedValue(0);
 
   const advanceToNext = () => {
-    navigation.navigate('OnboardingHabitSelection');
+    navigation.navigate('OnboardingVariables');
   };
 
   const handlePermissionsGranted = () => {
@@ -28,7 +29,7 @@ const OnboardingHealthScreen = ({ navigation }) => {
   };
 
   const handleDismiss = () => {
-    navigation.navigate('OnboardingHabitSelection');
+    navigation.navigate('OnboardingVariables');
   };
 
   const checkStyle = useAnimatedStyle(() => ({
@@ -39,8 +40,8 @@ const OnboardingHealthScreen = ({ navigation }) => {
   if (showSuccess) {
     return (
       <OnboardingStepLayout
-        step={7}
-        totalSteps={10}
+        step={1}
+        totalSteps={8}
         title="Health connected"
         onNext={advanceToNext}
         onBack={() => setShowSuccess(false)}
@@ -64,6 +65,9 @@ const OnboardingHealthScreen = ({ navigation }) => {
         <Ionicons name="arrow-back" size={24} color={colors.primary} />
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
+      <View style={[styles.signOutTop, { top: insets.top + spacing.sm }]}>
+        <OnboardingSignOutLink />
+      </View>
       <HealthConnectPrompt
         onPermissionsGranted={handlePermissionsGranted}
         onDismiss={handleDismiss}
@@ -90,6 +94,13 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.primary,
     fontWeight: typography.weights.medium,
+  },
+  signOutTop: {
+    position: 'absolute',
+    right: spacing.regular,
+    zIndex: 10,
+    maxWidth: '52%',
+    alignItems: 'flex-end',
   },
   successWrap: {
     flex: 1,

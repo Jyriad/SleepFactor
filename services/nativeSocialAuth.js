@@ -10,9 +10,33 @@ import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
   isGoogleNativeConfigured,
+  logGoogleNativeAuthDiagnostics,
 } from '../config/googleNativeAuth';
 
 let googleConfigured = false;
+
+/**
+ * Read JWT payload only (no signature verify). Used so Supabase gets the same `nonce`
+ * Google put in the ID token when present — avoids "passed nonce and nonce in id_token...".
+ */
+function getJwtPayload(idToken) {
+  try {
+    const parts = idToken.split('.');
+    if (parts.length < 2) return null;
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = base64.length % 4;
+    if (pad) base64 += '='.repeat(4 - pad);
+    const decoded =
+      typeof atob === 'function'
+        ? atob(base64)
+        : // Metro / Node may provide Buffer
+          globalThis.Buffer?.from(base64, 'base64').toString('utf8');
+    if (!decoded) return null;
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
 
 function loadGoogleSignIn() {
   return require('@react-native-google-signin/google-signin');
@@ -22,6 +46,14 @@ function ensureGoogleConfigured() {
   if (googleConfigured) return;
   if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error('Missing EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID');
+  }
+  if (__DEV__) {
+    logGoogleNativeAuthDiagnostics('before GoogleSignin.configure');
+    console.log('[SleepFactor GoogleAuth] passing to GoogleSignin.configure', {
+      iosClientIdTail: GOOGLE_IOS_CLIENT_ID
+        ? GOOGLE_IOS_CLIENT_ID.replace('.apps.googleusercontent.com', '')
+        : '(omitted — empty)',
+    });
   }
   const { GoogleSignin } = loadGoogleSignIn();
   GoogleSignin.configure({
@@ -79,9 +111,16 @@ export async function signInWithGoogleNative() {
       };
     }
 
+    const payload = getJwtPayload(idToken);
+    const nonceInToken =
+      payload && typeof payload.nonce === 'string' && payload.nonce.length > 0
+        ? payload.nonce
+        : undefined;
+
     const { data, error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
       token: idToken,
+      ...(nonceInToken ? { nonce: nonceInToken } : {}),
     });
     if (error) {
       return { data: null, error: error.message };

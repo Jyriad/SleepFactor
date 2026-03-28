@@ -105,11 +105,14 @@ const InsightsScreen = ({ navigation, route }) => {
   const [tabData, setTabData] = useState({ groups: [] });
   const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const [analysisMode, setAnalysisMode] = useState('absolute');
+  /** habit = one section per habit; metric = one section per sleep metric (habits as rows). */
+  const [layoutMode, setLayoutMode] = useState('habit');
   const [expandedRowKey, setExpandedRowKey] = useState(null);
   const sectionListRef = useRef(null);
   const headerHeightRef = useRef(100);
 
   const focusedHabitId = route.params?.focusedHabitId;
+  const groups = tabData.groups || [];
 
   useEffect(() => {
     if (!user?.id) return;
@@ -145,23 +148,6 @@ const InsightsScreen = ({ navigation, route }) => {
       };
     }, [user, loadTab])
   );
-
-  useEffect(() => {
-    if (loading || !focusedHabitId || !tabData.groups.length) return;
-    const sectionIndex = tabData.groups.findIndex((g) => g.habitId === focusedHabitId);
-    if (sectionIndex >= 0 && sectionListRef.current) {
-      setTimeout(() => {
-        sectionListRef.current?.scrollToLocation({
-          sectionIndex,
-          itemIndex: 0,
-          viewPosition: 0,
-          animated: true,
-        });
-      }, 400);
-    }
-  }, [loading, focusedHabitId, tabData.groups.length]);
-
-  const groups = tabData.groups || [];
 
   const sections = useMemo(() => {
     const sectionDataForGroup = (g) => {
@@ -205,17 +191,89 @@ const InsightsScreen = ({ navigation, route }) => {
       .filter((s) => s.data.length > 0);
   }, [groups, analysisMode]);
 
-  const anySignificant = useMemo(
-    () => sections.some((s) => s.data.some((d) => d.rowType === 'insight')),
-    [sections]
-  );
+  /** Sections grouped by sleep metric (only metrics with ≥1 significant insight). */
+  const metricSections = useMemo(() => {
+    const byMetric = new Map();
+    for (const g of groups) {
+      const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
+      for (const insight of insights) {
+        const mk = insight.metricKey;
+        if (!byMetric.has(mk)) byMetric.set(mk, []);
+        byMetric.get(mk).push({
+          insight,
+          habitId: g.habitId,
+          habitName: g.habitName,
+        });
+      }
+    }
+    const ordered = [];
+    for (const m of availableMetrics) {
+      const rows = byMetric.get(m.key);
+      if (!rows?.length) continue;
+      rows.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
+      ordered.push({
+        title: m.label,
+        metricKey: m.key,
+        data: rows.map((r, idx) => ({
+          rowType: 'insight',
+          key: `met-${m.key}-${r.habitId}-${idx}`,
+          insight: r.insight,
+          habitId: r.habitId,
+          habitName: r.habitName,
+        })),
+        showTableHeader: true,
+      });
+    }
+    return ordered;
+  }, [groups, analysisMode, availableMetrics]);
+
+  const activeSections = layoutMode === 'habit' ? sections : metricSections;
+
+  const anySignificant = useMemo(() => {
+    if (layoutMode === 'habit') {
+      return sections.some((s) => s.data.some((d) => d.rowType === 'insight'));
+    }
+    return metricSections.length > 0;
+  }, [layoutMode, sections, metricSections]);
+
+  const metricViewEmpty =
+    layoutMode === 'metric' && metricSections.length === 0 && groups.length > 0;
+
+  useEffect(() => {
+    if (loading || !focusedHabitId || !groups.length) return;
+    let sectionIndex = -1;
+    let itemIndex = 0;
+    if (layoutMode === 'habit') {
+      sectionIndex = groups.findIndex((g) => g.habitId === focusedHabitId);
+    } else {
+      sectionIndex = metricSections.findIndex((s) =>
+        s.data.some((d) => d.habitId === focusedHabitId)
+      );
+      if (sectionIndex >= 0) {
+        itemIndex = metricSections[sectionIndex].data.findIndex(
+          (d) => d.habitId === focusedHabitId
+        );
+        if (itemIndex < 0) itemIndex = 0;
+      }
+    }
+    if (sectionIndex >= 0 && sectionListRef.current) {
+      setTimeout(() => {
+        sectionListRef.current?.scrollToLocation({
+          sectionIndex,
+          itemIndex,
+          viewPosition: 0,
+          animated: true,
+        });
+      }, 400);
+    }
+  }, [loading, focusedHabitId, groups, layoutMode, metricSections]);
 
   const getMetricInfo = useCallback(
     (metricKey) => availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0],
     [availableMetrics]
   );
 
-  const renderInsightRow = useCallback((insight, habitId) => {
+  const renderInsightRow = useCallback((insight, habitId, primaryLabel) => {
     const rowKey = `${habitId}-${insight.metricKey}`;
     const isExpanded = expandedRowKey === rowKey;
     const isPositive = insight.direction === 'positive';
@@ -225,24 +283,42 @@ const InsightsScreen = ({ navigation, route }) => {
     const impactStyle = getImpactTagStyle(insight.impactLevel || 'minimal', isPositive);
     const metricColor = getSleepMetricColor(insight.metricKey);
     const sleepMetricInfo = getMetricInfo(insight.metricKey);
+    const firstCell = primaryLabel ?? insight.metricLabel;
+    const isMetricHabitNameCell = primaryLabel != null;
+
+    const rowAccentStyle =
+      layoutMode === 'habit'
+        ? { borderLeftColor: metricColor, borderLeftWidth: 4 }
+        : { borderLeftWidth: 0 };
 
     return (
-      <View key={insight.metricKey}>
+      <View>
         <TouchableOpacity
-          style={[styles.tableRow, { borderLeftColor: metricColor, borderLeftWidth: 4 }]}
+          style={[styles.tableRow, layoutMode === 'metric' && styles.tableRowMetricLayout, rowAccentStyle]}
           onPress={() => setExpandedRowKey((prev) => (prev === rowKey ? null : rowKey))}
           activeOpacity={0.7}
         >
-          <Text style={styles.tableCellMetric} numberOfLines={1}>
-            {insight.metricLabel}
+          <Text
+            style={[styles.tableCellMetric, isMetricHabitNameCell && styles.tableCellMetricNameMetric]}
+            numberOfLines={isMetricHabitNameCell ? 2 : 1}
+          >
+            {firstCell}
           </Text>
           <View style={[styles.tag, { backgroundColor: correlationStyle.backgroundColor }]}>
-            <Text style={[styles.tagTextSmall, { color: correlationStyle.color }]} numberOfLines={1}>
+            <Text
+              style={[styles.tagTextSmall, { color: correlationStyle.color }]}
+              numberOfLines={2}
+              textAlign="center"
+            >
               {correlationLabel}
             </Text>
           </View>
           <View style={[styles.tag, { backgroundColor: impactStyle.backgroundColor }]}>
-            <Text style={[styles.tagTextSmall, { color: impactStyle.color }]} numberOfLines={1}>
+            <Text
+              style={[styles.tagTextSmall, { color: impactStyle.color }]}
+              numberOfLines={2}
+              textAlign="center"
+            >
               {impactLabel}
             </Text>
           </View>
@@ -281,7 +357,7 @@ const InsightsScreen = ({ navigation, route }) => {
         )}
       </View>
     );
-  }, [expandedRowKey, analysisMode, getMetricInfo, loadTab]);
+  }, [expandedRowKey, analysisMode, getMetricInfo, loadTab, layoutMode]);
 
   const renderEmptyState = useCallback(() => (
     <View style={styles.emptyState}>
@@ -294,29 +370,41 @@ const InsightsScreen = ({ navigation, route }) => {
   ), []);
 
   const renderSectionHeader = useCallback(
-    ({ section }) => (
-      <View style={styles.sectionWrapper}>
-        <View
-          style={[
-            styles.habitContainer,
-            styles.habitContainerHeader,
-            focusedHabitId === section.habitId && styles.habitContainerFocused,
-            !section.showTableHeader && styles.habitContainerNoTable,
-          ]}
-        >
-          <Text style={styles.habitName}>{section.habitName}</Text>
-          {section.showTableHeader ? (
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
-              <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
-              <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
-              <View style={styles.headerChevronPlaceholder} />
-            </View>
-          ) : null}
+    ({ section }) => {
+      const isMetricLayout = layoutMode === 'metric';
+      const sectionTitle = isMetricLayout ? section.title : section.habitName;
+      const focusMatch =
+        focusedHabitId != null &&
+        (isMetricLayout
+          ? section.data?.some((d) => d.habitId === focusedHabitId)
+          : focusedHabitId === section.habitId);
+
+      return (
+        <View style={styles.sectionWrapper}>
+          <View
+            style={[
+              styles.habitContainer,
+              styles.habitContainerHeader,
+              focusMatch && styles.habitContainerFocused,
+              !section.showTableHeader && styles.habitContainerNoTable,
+            ]}
+          >
+            <Text style={styles.habitName}>{sectionTitle}</Text>
+            {section.showTableHeader ? (
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>
+                  {isMetricLayout ? 'Habit' : 'Sleep metric'}
+                </Text>
+                <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
+                <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
+                <View style={styles.headerChevronPlaceholder} />
+              </View>
+            ) : null}
+          </View>
         </View>
-      </View>
-    ),
-    [focusedHabitId]
+      );
+    },
+    [focusedHabitId, layoutMode]
   );
 
   const renderItem = useCallback(
@@ -347,15 +435,17 @@ const InsightsScreen = ({ navigation, route }) => {
           </View>
         );
       }
+      const habitIdForRow = layoutMode === 'metric' ? item.habitId : section.habitId;
+      const primaryLabel = layoutMode === 'metric' ? item.habitName : undefined;
       return (
         <View style={styles.sectionWrapper}>
           <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
-            {renderInsightRow(item.insight, section.habitId)}
+            {renderInsightRow(item.insight, habitIdForRow, primaryLabel)}
           </View>
         </View>
       );
     },
-    [renderInsightRow]
+    [renderInsightRow, layoutMode]
   );
 
   const sectionListKeyExtractor = useCallback((item) => item.key, []);
@@ -374,8 +464,45 @@ const InsightsScreen = ({ navigation, route }) => {
           </View>
         </View>
         <View style={styles.listHeaderContent}>
+          <View style={[styles.switchRow, styles.switchRowWrap]}>
+            <View style={styles.switchLabelCol}>
+              <Text style={styles.switchLabel}>Group by</Text>
+            </View>
+            <View style={styles.switchSegments}>
+              <TouchableOpacity
+                style={[styles.switchSegment, layoutMode === 'habit' && styles.switchSegmentActive]}
+                onPress={() => setLayoutMode('habit')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.switchSegmentText,
+                    layoutMode === 'habit' && styles.switchSegmentTextActive,
+                  ]}
+                >
+                  Habits
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.switchSegment, layoutMode === 'metric' && styles.switchSegmentActive]}
+                onPress={() => setLayoutMode('metric')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.switchSegmentText,
+                    layoutMode === 'metric' && styles.switchSegmentTextActive,
+                  ]}
+                >
+                  Sleep metrics
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>View by</Text>
+            <View style={styles.switchLabelCol}>
+              <Text style={styles.switchLabel}>View by</Text>
+            </View>
             <View style={styles.switchSegments}>
               <TouchableOpacity
                 style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
@@ -413,7 +540,7 @@ const InsightsScreen = ({ navigation, route }) => {
         </View>
       </>
     ),
-    [headerTopPadding, analysisMode, anySignificant, groups.length]
+    [headerTopPadding, analysisMode, anySignificant, groups.length, layoutMode]
   );
 
   return (
@@ -435,11 +562,20 @@ const InsightsScreen = ({ navigation, route }) => {
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
           ListHeaderComponent={listHeader}
-          sections={sections}
-          keyExtractor={(item) => item.key}
+          sections={activeSections}
           renderSectionHeader={renderSectionHeader}
           renderItem={renderItem}
           keyExtractor={sectionListKeyExtractor}
+          ListEmptyComponent={
+            metricViewEmpty ? (
+              <View style={styles.metricEmptyWrap}>
+                <Text style={styles.metricEmptyText}>
+                  No correlations in this layout for the current view. Try Absolute or Percentage, or switch
+                  back to Habits.
+                </Text>
+              </View>
+            ) : null
+          }
           ListFooterComponent={
             <View style={styles.sectionWrapper}>
               <TouchableOpacity
@@ -514,6 +650,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.regular,
     gap: spacing.sm,
+  },
+  switchRowWrap: {
+    marginBottom: spacing.xs,
+  },
+  switchLabelCol: {
+    width: 82,
+    flexShrink: 0,
+    justifyContent: 'center',
   },
   switchLabel: {
     fontSize: typography.sizes.small,
@@ -683,6 +827,9 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     gap: spacing.sm,
   },
+  tableRowMetricLayout: {
+    paddingLeft: 0,
+  },
   tableRowMuted: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -703,19 +850,26 @@ const styles = StyleSheet.create({
   },
   tableCellMetric: {
     flex: 2,
+    minWidth: 0,
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.regular || '400',
     color: colors.textSecondary,
+  },
+  tableCellMetricNameMetric: {
+    fontSize: typography.sizes.xs,
+    lineHeight: typography.lineHeights.xs,
   },
   tag: {
     paddingVertical: 2,
     paddingHorizontal: 6,
     borderRadius: 6,
     flex: 1,
+    minWidth: 0,
   },
   tagTextSmall: {
     fontSize: 10,
     fontWeight: typography.weights.medium,
+    lineHeight: 14,
   },
   rowChevron: {
     width: 28,
@@ -809,6 +963,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  metricEmptyWrap: {
+    paddingHorizontal: spacing.regular,
+    paddingVertical: spacing.xl,
+  },
+  metricEmptyText: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });
 

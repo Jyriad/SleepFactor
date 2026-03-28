@@ -40,7 +40,7 @@ const STRIP_LABEL_HEIGHT = 20;
 /** Strip (7-day row + label) lives inside the drawer. Collapsed = label + strip + handle so no layout jump on close. */
 const COLLAPSED_DRAWER_HEIGHT = STRIP_LABEL_HEIGHT + STRIP_ROW_HEIGHT + HANDLE_HEIGHT;
 const CLOSE_ANIMATION_DURATION_MS = 220;
-const TOP_ROW_HEIGHT = 36;
+const TOP_ROW_HEIGHT = 32;
 const DAY_CELL_SIZE = 36;
 const DAY_CELL_PADDING = 4;
 const DAY_CELL_BORDER_RADIUS = 8;
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 0,
     minHeight: TOP_ROW_HEIGHT,
