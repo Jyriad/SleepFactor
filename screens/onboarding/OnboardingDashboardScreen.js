@@ -13,6 +13,7 @@ import SleepInsightsHomeCard from '../../components/SleepInsightsHomeCard';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
+import OnboardingSignOutLink from './OnboardingSignOutLink';
 
 const COACH_STEPS = [
   {
@@ -51,6 +52,9 @@ const OnboardingDashboardScreen = ({ navigation, onComplete }) => {
         showsVerticalScrollIndicator={false}
       >
         <SafeAreaView edges={['top']} style={styles.safe}>
+          <View style={styles.signOutBar}>
+            <OnboardingSignOutLink />
+          </View>
           <View style={styles.dateStrip}>
             <Text style={styles.dateText}>Today</Text>
           </View>
@@ -120,6 +124,10 @@ const styles = StyleSheet.create({
   safe: {
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.sm,
+  },
+  signOutBar: {
+    alignItems: 'flex-end',
+    marginBottom: spacing.xs,
   },
   dateStrip: {
     marginBottom: spacing.sm,

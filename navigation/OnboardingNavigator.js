@@ -54,12 +54,12 @@ export default function OnboardingNavigator({ onComplete }) {
           />
         )}
       </Stack.Screen>
+      <Stack.Screen name="OnboardingHealth" component={OnboardingHealthScreen} />
       <Stack.Screen name="OnboardingVariables" component={OnboardingVariablesScreen} />
+      <Stack.Screen name="OnboardingHabitSelection" component={OnboardingHabitSelectionScreen} />
       <Stack.Screen name="OnboardingCorrelation" component={OnboardingCorrelationScreen} />
       <Stack.Screen name="OnboardingControl" component={OnboardingControlScreen} />
       <Stack.Screen name="OnboardingConfidence" component={OnboardingConfidenceScreen} />
-      <Stack.Screen name="OnboardingHealth" component={OnboardingHealthScreen} />
-      <Stack.Screen name="OnboardingHabitSelection" component={OnboardingHabitSelectionScreen} />
       <Stack.Screen name="OnboardingNotification" component={OnboardingNotificationScreen} />
       <Stack.Screen name="OnboardingDashboard">
         {(props) => (

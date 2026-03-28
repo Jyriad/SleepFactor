@@ -1,7 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
+import { useAuth } from '../../contexts/AuthContext';
+import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
@@ -16,8 +18,16 @@ const MOCK_SEGMENTS = [
 ];
 
 const OnboardingVariablesScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const lineOpacity = useSharedValue(0);
   const lineScale = useSharedValue(0.3);
+
+  const handleSkipEducation = async () => {
+    if (user?.id) {
+      await ensureOnboardingHabits(user.id);
+    }
+    navigation.navigate('OnboardingCorrelation');
+  };
 
   useEffect(() => {
     lineOpacity.value = withRepeat(
@@ -45,12 +55,12 @@ const OnboardingVariablesScreen = ({ navigation }) => {
 
   return (
     <OnboardingStepLayout
-      step={3}
-      totalSteps={10}
+      step={2}
+      totalSteps={8}
       title="The Variables"
-      onNext={() => navigation.navigate('OnboardingCorrelation')}
+      onNext={() => navigation.navigate('OnboardingHabitSelection')}
       onBack={() => navigation.goBack()}
-      onSkip={() => navigation.navigate('OnboardingHealth')}
+      onSkip={handleSkipEducation}
     >
       <View style={styles.splitRow}>
         <View style={styles.leftColumn}>

@@ -57,8 +57,8 @@ const OnboardingNotificationScreen = ({ navigation }) => {
 
   return (
     <OnboardingStepLayout
-      step={9}
-      totalSteps={10}
+      step={7}
+      totalSteps={8}
       title="Reminders"
       onNext={handleEnable}
       onBack={() => navigation.goBack()}

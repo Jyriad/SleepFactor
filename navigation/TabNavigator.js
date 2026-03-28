@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +35,9 @@ function HomeTabScreen({ route }) {
  */
 const TabNavigator = () => {
   const insets = useSafeAreaInsets();
+  // Android: explicit height + bottom inset so icons clear gesture/nav bar.
+  // iOS: omit height/paddingBottom so @react-navigation/bottom-tabs uses the
+  // standard ~49pt row + safe-area only (avoids the previous extra 60pt row + +5pt buffer).
   const tabBarBottomPadding = Math.max(insets.bottom, 5) + 5;
 
   return (
@@ -46,8 +50,12 @@ const TabNavigator = () => {
         tabBarStyle: {
           backgroundColor: colors.background,
           borderTopWidth: 0,
-          height: 60 + tabBarBottomPadding,
-          paddingBottom: tabBarBottomPadding,
+          ...(Platform.OS === 'ios'
+            ? {}
+            : {
+                height: 60 + tabBarBottomPadding,
+                paddingBottom: tabBarBottomPadding,
+              }),
         },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
         tabBarHideOnKeyboard: true,

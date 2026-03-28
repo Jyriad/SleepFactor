@@ -47,11 +47,11 @@ const OnboardingConfidenceScreen = ({ navigation }) => {
   return (
     <OnboardingStepLayout
       step={6}
-      totalSteps={10}
+      totalSteps={8}
       title="Correlation Strength & Confidence"
-      onNext={() => navigation.navigate('OnboardingHealth')}
+      onNext={() => navigation.navigate('OnboardingNotification')}
       onBack={() => navigation.goBack()}
-      onSkip={() => navigation.navigate('OnboardingHealth')}
+      onSkip={() => navigation.navigate('OnboardingNotification')}
     >
       <Text style={styles.body}>
         Strong (high confidence) = tight clusters of data. Weak (low confidence) = scattered points — we need more days of logging to verify.

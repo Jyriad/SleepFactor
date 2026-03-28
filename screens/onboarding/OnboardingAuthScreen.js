@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import AuthScreen from '../AuthScreen';
+import { colors } from '../../constants/colors';
 import { markOnboardingCompletedForUser } from '../../services/onboardingStorage';
 import {
   shouldSkipOnboarding,
@@ -26,11 +28,28 @@ const OnboardingAuthScreen = ({ navigation, onReturningUserSkip }) => {
         onReturningUserSkip?.();
         return;
       }
-      navigation.replace('OnboardingVariables');
+      navigation.replace('OnboardingHealth');
     })();
   }, [user?.id, navigation, onReturningUserSkip]);
 
+  if (user?.id) {
+    return (
+      <View style={styles.signedInGate}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   return <AuthScreen />;
 };
+
+const styles = StyleSheet.create({
+  signedInGate: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+});
 
 export default OnboardingAuthScreen;

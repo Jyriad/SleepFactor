@@ -1,40 +1,34 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Modal,
-  ScrollView,
   TouchableWithoutFeedback,
-  TextInput,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { getPresetById } from '../constants/drugPresets';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
-import { formatVolume, getVolumeUnitLabel } from '../utils/unitConversion';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
-import Button from './Button';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
 import EditConsumptionOptionModal from './EditConsumptionOptionModal';
+import ConsumptionLoggedList from './ConsumptionLoggedList';
 
-const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption }) => {
+const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption, hideLoggedList = false }) => {
   const { preferences } = useUserPreferences();
   const measurementRegion = preferences.measurementRegion || 'metric';
-  const measurementSystem = preferences.measurementSystem || 'metric';
   const consumptionEvents = value || []; // Use value prop directly as controlled component
 
   // Check if "None" has been explicitly selected (special none event exists)
   const hasNoneEvent = consumptionEvents.some(event => event.drink_type === 'none');
   const isNoneSelected = hasNoneEvent;
 
-  const [selectedConsumptionType, setSelectedConsumptionType] = useState(null);
   // Initialize from cache so first paint shows options when cache is warm (no "Loading options..." flash)
   const [consumptionOptions, setConsumptionOptions] = useState(() => {
     if (!habit?.id) return [];
@@ -48,7 +42,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedOption, setSelectedOption] = useState(null); // For long-press edit option modal only
 
@@ -81,12 +74,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
     loadConsumptionOptions();
   }, [habit?.id, measurementRegion]);
-
-  const resetTimeForm = () => {
-    const now = new Date();
-    setSelectedHour(now.getHours());
-    setSelectedMinute(now.getMinutes());
-  };
 
   // Modal handlers
   const handleCreateOption = async (newOption) => {
@@ -235,22 +222,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     }
   };
 
-  // User ID should be passed as prop
-
-  // Default volumes for common drinks (fallback if not in database)
-  const getDefaultVolume = (drinkName, habitType) => {
-    const name = drinkName.toLowerCase();
-    if (habitType === 'quick_consumption') {
-      if (name.includes('espresso')) return 30;
-      if (name.includes('coffee') || name.includes('tea') || name.includes('energy')) return 240;
-      if (name.includes('cola') || name.includes('soda')) return 355;
-      if (name.includes('beer')) return 355;
-      if (name.includes('wine') || name.includes('cocktail') || name.includes('margarita') || name.includes('martini')) return 148;
-      if (name.includes('shot')) return 44;
-    }
-    return null; // No default volume
-  };
-
   const selectConsumptionOption = (option) => {
     const isNoneOption = option.drug_amount === 0;
 
@@ -363,111 +334,6 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
     onOpenLogConsumption?.({ habit, selectedOption: optionWithDefaults, selectedDate, editingEvent: null });
   };
 
-  const deleteConsumptionEvent = async (eventId) => {
-    try {
-      // Delete from database
-      const { error: deleteError } = await supabase
-        .from('habit_consumption_events')
-        .delete()
-        .eq('id', eventId);
-
-      if (deleteError) {
-        Alert.alert('Error', 'Failed to delete consumption');
-        return;
-      }
-
-      // Remove from local state
-      onChange(consumptionEvents.filter(event => event.id !== eventId));
-
-      // Notify parent so drug level and consumption list refresh
-      if (onConsumptionAdded) onConsumptionAdded();
-
-      // Update bedtime drug level
-      try {
-        await updateBedtimeDrugLevel(habit?.id, selectedDate);
-      } catch (levelError) {
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to delete consumption');
-    }
-  };
-
-  const editConsumptionEvent = (event) => {
-    const resolvedOption = resolveConsumptionType(event.drink_type);
-    onOpenLogConsumption?.({ habit, selectedOption: resolvedOption ?? undefined, selectedDate, editingEvent: event });
-  };
-
-  const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const resolveConsumptionType = (type) => {
-    // type can be UUID (new) or string (legacy)
-    if (!type) return null;
-
-    // Check if consumptionOptions is loaded
-    if (!consumptionOptions || consumptionOptions.length === 0) {
-      return null;
-    }
-
-    // First try to find by UUID
-    let option = consumptionOptions.find(opt => opt.id === type);
-    if (option) return option;
-
-    // If not found and it's a UUID format, return null
-    if (typeof type === 'string' && type.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)) {
-      return null; // It's a UUID but not in our options - might be deleted
-    }
-
-    // Try to find by legacy string matching
-    // Map common legacy names to system options
-    const legacyMappings = {
-      'espresso': 'Espresso',
-      'instant_coffee': 'Instant Coffee',
-      'energy_drink': 'Energy Drink',
-      'soft_drink': 'Soft Drink',
-      'beer': 'Beer',
-      'wine': 'Wine',
-      'liquor': 'Liquor',
-      'cocktail': 'Cocktail'
-    };
-
-    const mappedName = legacyMappings[type];
-    if (mappedName) {
-      option = consumptionOptions.find(opt => opt.name === mappedName);
-      if (option) return option;
-    }
-
-    // Last resort: try to match by name with underscores
-    option = consumptionOptions.find(opt =>
-      opt.name.toLowerCase().replace(/\s+/g, '_') === type
-    );
-
-    return option || null;
-  };
-
-  const getConsumptionTypeIcon = (type) => {
-    const option = resolveConsumptionType(type);
-    return option?.icon || 'help-circle';
-  };
-
-  const getConsumptionTypeName = (type) => {
-    if (type === 'none') return 'None';
-    if (type == null) return 'Quick add'; // null/undefined = one-time quick add
-    const option = resolveConsumptionType(type);
-    return option?.name || type;
-  };
-
-  // Label for active ingredient in UI (caffeine = mg, alcohol = units)
-  const getActiveIngredientLabel = () => {
-    const name = (habit?.name || '').toLowerCase();
-    if (name.includes('caffeine')) return 'caffeine';
-    if (name.includes('alcohol')) return 'alcohol';
-    return null;
-  };
-
-
   return (
     <View style={styles.container}>
       {/* Quick Consumption Buttons - compact horizontal layout */}
@@ -514,86 +380,16 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
         )}
       </View>
 
-      {/* Loading state for consumption options */}
-      {loadingOptions ? (
-        <View style={styles.loggedItemsContainer}>
-          <Text style={styles.loadingText}>Loading consumption options...</Text>
-        </View>
-      ) : (
-        <>
-          {/* Logged Consumption Items or None Message */}
-          {hasNoneEvent ? (
-            <View style={styles.loggedItemsContainer}>
-              <Text style={styles.loggedItemsTitle}>
-                No consumption logged today
-              </Text>
-            </View>
-          ) : consumptionEvents.length > 0 ? (
-            <View style={styles.loggedItemsContainer}>
-              <Text style={styles.loggedItemsTitle}>
-                Logged Today ({consumptionEvents.length})
-              </Text>
-              {consumptionEvents.map((event) => {
-            try {
-              const resolvedOption = resolveConsumptionType(event.drink_type);
-              // Volume consumed (drink amount)
-              const volumePart = event.volume
-                ? formatVolume(event.volume, measurementSystem) || `${event.volume} ml`
-                : null;
-              // Active ingredient amount (caffeine mg or alcohol units)
-              const unit = habit?.unit || 'units';
-              const amountPart = `${Number(event.amount) === event.amount ? event.amount.toFixed(event.amount % 1 === 0 ? 0 : 1) : event.amount} ${unit}`;
-              const ingredientLabel = getActiveIngredientLabel();
-              const activeIngredientPart = ingredientLabel ? `${amountPart} ${ingredientLabel}` : amountPart;
-
-              return (
-                <View key={event.id} style={styles.loggedItemRow}>
-                  <Text style={styles.loggedItemText}>
-                    {formatTime(event.consumed_at)} {getConsumptionTypeName(event.drink_type) || 'Unknown'}
-                    {volumePart ? ` ${volumePart}` : ''}{volumePart ? ' · ' : ' '}{activeIngredientPart}
-                  </Text>
-                  <View style={styles.loggedItemActions}>
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => editConsumptionEvent(event)}
-                    >
-                      <Ionicons name="pencil" size={14} color={colors.primary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => {
-                        Alert.alert(
-                          'Delete Consumption',
-                          'Are you sure you want to delete this consumption entry?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            {
-                              text: 'Delete',
-                              style: 'destructive',
-                              onPress: () => deleteConsumptionEvent(event.id)
-                            }
-                          ]
-                        );
-                      }}
-                    >
-                      <Ionicons name="trash" size={14} color={colors.error} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            } catch (error) {
-              return (
-                <View key={event.id || Math.random()} style={styles.loggedItemRow}>
-                  <Text style={styles.loggedItemText}>
-                    Error loading consumption entry
-                  </Text>
-                </View>
-              );
-            }
-          })}
-        </View>
-      ) : null}
-        </>
+      {!hideLoggedList && (
+        <ConsumptionLoggedList
+          habit={habit}
+          value={consumptionEvents}
+          onChange={onChange}
+          selectedDate={selectedDate}
+          userId={userId}
+          onConsumptionAdded={onConsumptionAdded}
+          onOpenLogConsumption={onOpenLogConsumption}
+        />
       )}
 
       {/* Plus Menu Modal */}
@@ -672,6 +468,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.xs,
     alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
   },
   quickButton: {
     backgroundColor: colors.cardBackground,
@@ -819,38 +619,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.bold,
     color: colors.white,
-  },
-  loggedItemsContainer: {
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  loggedItemsTitle: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-  },
-  loggedItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 0,
-    marginBottom: 0,
-  },
-  loggedItemText: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    flex: 1,
-    lineHeight: typography.sizes.small,
-  },
-  loggedItemActions: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-  actionButton: {
-    padding: 2,
   },
   modalOverlay: {
     flex: 1,

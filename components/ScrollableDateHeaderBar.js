@@ -1,6 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import Constants from 'expo-constants';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,7 +8,6 @@ import { spacing } from '../constants';
 import DateHeader from './DateHeader';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 
-const HEADER_INNER_PADDING = 12;
 const HEADER_BOTTOM_RADIUS = 12;
 
 /**
@@ -22,8 +20,8 @@ const ScrollableDateHeaderBar = ({ rightElement = null, showBackButton: showBack
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
-  const statusBarHeight = Constants.statusBarHeight ?? 24;
-  const topPadding = insets.top > 0 ? statusBarHeight : 0;
+  // Use safe-area inset only (not expo statusBarHeight) so iOS isn’t over-padded vs the notch.
+  const topPadding = insets.top;
 
   const isHabitLogging = showBackButtonProp || route.name === 'HabitLogging';
   const handleBack = onBackPress ?? (() => navigation.goBack());
@@ -69,7 +67,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   headerInner: {
-    paddingTop: 8,
+    paddingTop: 2,
   },
   backButton: {
     padding: spacing.xs,

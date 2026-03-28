@@ -432,7 +432,6 @@ const AVERAGE_SLEEP_PERCENTAGES = {
   awake_minutes: 4, // ~4% of awake time during sleep period
   awakenings_count: 1.5, // Average number of awakenings per night
 };
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getToday, getYesterday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo, formatDateForDB } from '../utils/dateHelpers';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
@@ -445,7 +444,6 @@ import dataQualityService from '../services/dataQualityService';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const splash = useSplash();
   const dateHeader = useDateHeader();
@@ -659,10 +657,17 @@ const HomeScreen = () => {
         if (!cancelled && yesterdayPayload && isValidDashboardPayload(yesterdayPayload)) {
           // Only reuse habit-related fields from yesterday's cache. Sleep + "how you felt" must not be copied onto today
           // (they belong to yesterday's row and caused wrong scores on first open).
+          // Do not reuse yesterday's habit_counts on today's placeholder — it showed wrong "x out of y" until fetch.
           const placeholderDashboard = {
             ...yesterdayPayload,
             sleep_record: null,
             last_night_subjective: null,
+            habit_counts: {
+              logged_count: 0,
+              total_active_count: yesterdayPayload.habit_counts?.total_active_count ?? 0,
+            },
+            habits_logged: false,
+            todays_habits_logged: false,
           };
           applyDashboardPayload(placeholderDashboard, dateStr);
           homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, placeholderDashboard);
@@ -1639,7 +1644,7 @@ const HomeScreen = () => {
   );
 
   return (
-    <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
+    <View style={styles.bodyWrap}>
       <ScrollableDateHeaderBar rightElement={streakIndicator} />
       <ScrollView
         style={styles.scrollView}

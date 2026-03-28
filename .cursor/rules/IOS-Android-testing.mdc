@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+When telling me how to test a change, confirm if the results should be the same across IOS and Android, or whether the change only applies to one or the other.

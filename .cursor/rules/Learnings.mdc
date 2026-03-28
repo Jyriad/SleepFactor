@@ -97,7 +97,7 @@ alwaysApply: false
 **EAS “Environment variables” on expo.dev**
 
 - **`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`:** same Web client value can be attached to **both** `development` and `production`.
-- **`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`:** must differ by environment — **development** = iOS OAuth client for **`com.sleepfactor.app.dev`**, **production** = iOS OAuth client for **`com.sleepfactor.app`** (native iOS Google Sign-In reads the matching client).
+- **Google iOS clients:** set **`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID_DEV`** and **`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID_PROD`** together. **`config/googleNativeAuth.js`** reads embedded `app.config` via **`requireOptionalNativeModule('ExponentConstants').manifest`** (same as **`expo-constants`**); do **not** use **`NativeModules.ExponentConstants`** alone — it is **empty in bridgeless / New Arch**. Fallback: **`npm run start:dev-client`** / **`start:dev-client-tunnel`** set **`APP_VARIANT=development`**. **Tunnel:** keep **`@expo/ngrok`** in **`devDependencies`** and run **`npm install`**. **`services/nativeSocialAuth.js`:** **`signInWithIdToken`** for Google must include **`nonce`** when the Google **ID token JWT** contains a **`nonce`** claim (decode payload; omit if absent) to satisfy Supabase GoTrue. EAS prebuild registers the URL scheme per profile. Optional legacy **`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`** fills gaps if one side is empty.
 - **`EXPO_PUBLIC_SUPABASE_URL`** and **`EXPO_PUBLIC_SUPABASE_ANON_KEY`:** if only defined for **`production`**, **development** EAS builds may not embed them → runtime Supabase errors. **Mirror the same values** into the **`development`** environment (unless using a separate Supabase project for dev).
 
 **Android install / launcher label vs iOS**
@@ -108,3 +108,49 @@ alwaysApply: false
 
 - **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (e.g. `macos-sequoia-15.6-xcode-16.4` under `development.ios`) can help without a larger VM.
 - **`AnyMap` has no member `isBigInt` / `getBigInt`:** Nitro **0.33.8+** removed BigInt helpers on `AnyMap`; `@kingstinct/react-native-healthkit` **12.x** still calls them. **Pin `react-native-nitro-modules` to `0.33.7`** until HealthKit (and Expo/RN) are upgraded to versions that target newer Nitro. Do not upgrade Nitro past 0.33.7 blindly on Expo 52 + HealthKit 12 without verifying compatibility.
+
+---
+
+## Google auth regressions & final stable path (March 2026)
+
+**What we learned**
+
+- **Three different Google failures can appear and each has a different root cause:**
+  1) **“missing URL scheme … com.googleusercontent.apps…”** = installed iOS binary scheme does not match chosen iOS client ID (dev vs prod mismatch).  
+  2) **“nonces mismatch” / “passed nonce and nonce in id_token …”** = Supabase GoTrue nonce validation behavior with native Google ID tokens can fail even when IDs are correct.  
+  3) **“invalid flow state, no valid flow state found”** with `grant_type=pkce` = PKCE flow state/code verifier not found on return.
+
+- **Bridgeless (New Architecture) detail:** `NativeModules.ExponentConstants` can be empty even when Expo constants are available. For embedded app config reads, use the same approach as Expo (`requireOptionalNativeModule('ExponentConstants')`) rather than relying only on `NativeModules`.
+
+- **Tunnel startup reliability:** if `expo start --tunnel` throws **`Cannot read properties of undefined (reading 'body')`**, ensure `@expo/ngrok` is present in project `devDependencies` and run `npm install`.
+
+- **Stable unblock for Google login:** reverting mobile Google to **default Supabase browser OAuth** (instead of native `signInWithIdToken`) removed nonce-related native issues in this project.
+
+- **PKCE state issue on iOS deep-link return:** if OAuth returns `sleepfactor:?code=...` and code exchange fails with **invalid flow state**, switching Supabase client auth `flowType` from **`pkce`** to **`implicit`** avoids code-verifier lookup and fixed login in this project.
+
+- **Practical final setup that worked:**  
+  - Google on mobile/web uses Supabase OAuth browser flow in `services/auth.js`.  
+  - Supabase client in `services/supabase.js` uses `flowType: 'implicit'` with AsyncStorage persistence.  
+  - Apple sign-in remains native.
+
+- **User-facing note:** “Food map” shown in Google account consent is from Google Cloud OAuth consent screen branding (project/app name), not from SleepFactor code.
+
+---
+
+## Sign in with Apple + Supabase (March 2026)
+
+**What we learned**
+
+- **Dashboard fields:** Supabase **Authentication → Providers → Apple** may show only **Client IDs** (one field) and **Secret Key (for OAuth)** — not separate Team ID / Key ID / private key boxes. The **Secret Key** is the Apple **client secret** (JWT) built from Team ID, Key ID, and the `.p8` signing key; Apple requires rotating that secret about **every 6 months** (Supabase shows an orange warning). Use Supabase’s doc helper or their generator; **Safari can break** the in-browser generator — prefer Chrome/Firefox.
+
+- **Client IDs is a comma-separated allow list:** The help text is explicit: native bundle IDs **and/or** Services IDs. You must list **every** identity Apple may put in the ID token **`aud` (audience)** claim:
+  - **Services ID** (e.g. `com.sleepfactor.app.login`) — used for web/OAuth and registered with Apple’s **Website URLs** pointing at `https://<project-ref>.supabase.co` and redirect `https://<project-ref>.supabase.co/auth/v1/callback`.
+  - **All iOS app bundle IDs** that use native Sign in with Apple — for SleepFactor: **`com.sleepfactor.app`** (production) and **`com.sleepfactor.app.dev`** (EAS development / dev client). Omitting the dev bundle ID causes: **`Unacceptable audience in id_token: [com.sleepfactor.app.dev]`** when testing a dev build.
+
+- **Example one-line value:** `com.sleepfactor.app.login,com.sleepfactor.app,com.sleepfactor.app.dev` (order does not matter; commas, no duplicate entries).
+
+- **Apple Developer (minimal checklist):** App ID(s) → **Sign in with Apple** capability on. **Services ID** → Sign in with Apple **Configure** → Primary App ID = main app (`com.sleepfactor.app`) → domain = `<project-ref>.supabase.co`, return URL = Supabase callback above. **Key** with Sign in with Apple → download `.p8` once; use Key ID + Team ID when generating the OAuth secret for Supabase.
+
+- **After fixing Client IDs only:** Changing Supabase provider settings does **not** require a new iOS build — retry sign-in immediately. New builds are still needed when changing native entitlements, bundle ID, or app config plugins.
+
+- **Platform note:** Native Sign in with Apple is **iOS-only** in practice for this stack; Android uses other auth paths. Docs: `docs/NATIVE_LOGIN_SETUP.txt`, Supabase [Login with Apple](https://supabase.com/docs/guides/auth/social-login/auth-apple).

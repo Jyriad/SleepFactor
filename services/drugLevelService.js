@@ -1,10 +1,9 @@
 import { supabase } from './supabase';
 import sleepDataService from './sleepDataService';
+import { formatDateForDB } from '../utils/dateHelpers';
 import {
   getBedtimeDrugLevel,
-  getCurrentDrugLevel,
   calculateTotalDrugLevel,
-  decayLevelToTime,
   generateDrugLevelTimeline,
   habitUsesCaffeineMgFloor,
   applyCaffeineMgFloor,
@@ -71,11 +70,9 @@ export function invalidateLevelNowCache(userId, habitId) {
 }
 
 /**
- * Get current drug level using last stored bedtime level (decayed to now) + today's consumption.
- * Falls back to full event-based calculation when no previous drug_levels row or no bedtime_at.
- * @param {string} userId - User ID
- * @param {Object} habit - Habit with id, name, unit, half_life_hours
- * @returns {Promise<{ level: number, unit: string }>}
+ * Same event window and formula as getLevelTimelineForDate for local calendar "today".
+ * Purely event-based: decay from all prior consumption in the lookback window (no drug_levels carryover),
+ * so "level right now" matches the line chart exactly.
  */
 export async function getLevelNow(userId, habit) {
   const cached = getCachedLevelNow(userId, habit?.id);
@@ -86,142 +83,9 @@ export async function getLevelNow(userId, habit) {
   const unit = habit?.unit || 'units';
   const minMg = caffeineAbsoluteMinMg(habit);
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-
-  // Fetch most recent drug_levels row for this habit (before or equal to today)
-  const todayStr = now.toISOString().split('T')[0];
-  const { data: lastLevelRows, error: levelError } = await supabase
-    .from('drug_levels')
-    .select('level_value, bedtime_at, date')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .lte('date', todayStr)
-    .order('date', { ascending: false })
-    .limit(1);
-
-  if (levelError || !lastLevelRows || lastLevelRows.length === 0) {
-    return fallbackLevelFromEvents(userId, habit, halfLife, unit);
-  }
-
-  const last = lastLevelRows[0];
-  const bedtimeAt = last.bedtime_at ? new Date(last.bedtime_at) : null;
-
-  // If no bedtime_at, fall back to full event calculation
-  if (!bedtimeAt || bedtimeAt > now) {
-    return fallbackLevelFromEvents(userId, habit, halfLife, unit);
-  }
-
-  // Carryover: decay last bedtime level to now
-  const carryover = decayLevelToTime(
-    Number(last.level_value),
-    bedtimeAt,
-    now,
-    halfLife,
-    minMg
-  );
-
-  // Today's events from midnight to now
-  const { data: todayEvents, error: eventsError } = await supabase
-    .from('habit_consumption_events')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .gte('consumed_at', todayStart.toISOString())
-    .lte('consumed_at', now.toISOString())
-    .order('consumed_at', { ascending: true });
-
-  if (eventsError) {
-    let level = minMg != null ? applyCaffeineMgFloor(carryover) : carryover;
-    const result = { level, unit };
-    setCachedLevelNow(userId, habit.id, result);
-    return result;
-  }
-
-  const fromToday = (todayEvents && todayEvents.length > 0)
-    ? calculateTotalDrugLevel(todayEvents, now, halfLife, THRESHOLD_PERCENT, minMg)
-    : 0;
-
-  let level = carryover + fromToday;
-  if (minMg != null) level = applyCaffeineMgFloor(level);
-  const result = { level, unit };
-  setCachedLevelNow(userId, habit.id, result);
-  return result;
-}
-
-/**
- * Fallback: fetch events from past N days and compute current level from events only.
- */
-async function fallbackLevelFromEvents(userId, habit, halfLife, unit) {
-  const minMg = caffeineAbsoluteMinMg(habit);
-  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
-  const historyStart = new Date(now);
-  historyStart.setDate(historyStart.getDate() - historyDays);
-
-  const { data: events, error } = await supabase
-    .from('habit_consumption_events')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .gte('consumed_at', historyStart.toISOString())
-    .lte('consumed_at', now.toISOString())
-    .order('consumed_at', { ascending: true });
-
-  if (error || !events || events.length === 0) {
-    const result = { level: 0, unit };
-    setCachedLevelNow(userId, habit.id, result);
-    return result;
-  }
-
-  let level = getCurrentDrugLevel(events, halfLife, THRESHOLD_PERCENT, minMg);
-  if (minMg != null) level = applyCaffeineMgFloor(level);
-  const result = { level, unit };
-  setCachedLevelNow(userId, habit.id, result);
-  return result;
-}
-
-/**
- * Get timeline data for "level over today" for the line chart.
- * Uses the same logic as getLevelNow: carryover from last stored bedtime (decayed to each time)
- * plus level from consumption events. This keeps the graph in sync with the "level right now" number.
- * @param {string} userId - User ID
- * @param {Object} habit - Habit with id, half_life_hours, unit
- * @returns {Promise<{ dataPoints: Array<{ time: Date, level: number }>, unit: string }>}
- */
-export async function getLevelTimelineForToday(userId, habit) {
-  const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
-  const unit = habit?.unit || 'units';
-  const minMg = caffeineAbsoluteMinMg(habit);
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-  const todayEnd = new Date(todayStart);
-  todayEnd.setDate(todayEnd.getDate() + 1);
-
-  // Fetch most recent drug_levels row (same as getLevelNow) for carryover
-  const { data: lastLevelRows, error: levelError } = await supabase
-    .from('drug_levels')
-    .select('level_value, bedtime_at')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .lte('date', todayStr)
-    .order('date', { ascending: false })
-    .limit(1);
-
-  let carryoverLevel = 0;
-  let carryoverBedtimeAt = null;
-  if (!levelError && lastLevelRows?.length > 0) {
-    const last = lastLevelRows[0];
-    const bedtimeAt = last.bedtime_at ? new Date(last.bedtime_at) : null;
-    if (bedtimeAt && bedtimeAt <= now) {
-      carryoverLevel = Number(last.level_value);
-      carryoverBedtimeAt = bedtimeAt;
-    }
-  }
-
-  // Events that can affect today: from (todayStart - historyDays) through now
-  const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
-  const fetchStart = new Date(todayStart);
+  const fetchStart = new Date(dayStart);
   fetchStart.setDate(fetchStart.getDate() - historyDays);
 
   const { data: events, error } = await supabase
@@ -233,49 +97,25 @@ export async function getLevelTimelineForToday(userId, habit) {
     .lte('consumed_at', now.toISOString())
     .order('consumed_at', { ascending: true });
 
-  if (error) {
-    return { dataPoints: [], unit };
+  if (error || !events || events.length === 0) {
+    const result = { level: 0, unit };
+    setCachedLevelNow(userId, habit.id, result);
+    return result;
   }
 
-  const eventList = events || [];
-  // When we have carryover from last bedtime, only add level from events after that time;
-  // otherwise we double-count (carryover already includes decay from earlier events).
-  const eventsForIncrement = carryoverBedtimeAt
-    ? eventList.filter((e) => new Date(e.consumed_at) > carryoverBedtimeAt)
-    : eventList;
-  const intervalMinutes = 30;
-  const intervalMs = intervalMinutes * 60 * 1000;
-  const dataPoints = [];
-  let currentTime = new Date(todayStart);
+  let level = calculateTotalDrugLevel(events, now, halfLife, THRESHOLD_PERCENT, minMg);
+  if (minMg != null) level = applyCaffeineMgFloor(level);
+  const result = { level, unit };
+  setCachedLevelNow(userId, habit.id, result);
+  return result;
+}
 
-  while (currentTime <= todayEnd) {
-    let carryoverAtTime = 0;
-    if (carryoverBedtimeAt && currentTime >= carryoverBedtimeAt) {
-      carryoverAtTime = decayLevelToTime(
-        carryoverLevel,
-        carryoverBedtimeAt,
-        currentTime,
-        halfLife,
-        minMg
-      );
-    }
-    const eventLevelAtTime = calculateTotalDrugLevel(
-      eventsForIncrement,
-      currentTime,
-      halfLife,
-      THRESHOLD_PERCENT,
-      minMg
-    );
-    let level = carryoverAtTime + eventLevelAtTime;
-    if (minMg != null) level = applyCaffeineMgFloor(level);
-    dataPoints.push({
-      time: new Date(currentTime),
-      level,
-    });
-    currentTime = new Date(currentTime.getTime() + intervalMs);
-  }
-
-  return { dataPoints, unit };
+/**
+ * Get timeline data for "level over today" for the line chart.
+ * Delegates to the same path as any other calendar day so the curve matches the readout.
+ */
+export async function getLevelTimelineForToday(userId, habit) {
+  return getLevelTimelineForDate(userId, habit, formatDateForDB(new Date()));
 }
 
 /**
@@ -343,15 +183,17 @@ export async function getLevelAtBedtime(userId, habit, dateStr) {
   }
 
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
-  const historyStart = new Date(targetBedtime);
-  historyStart.setDate(historyStart.getDate() - historyDays);
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dayStart = new Date(y, m - 1, d, 0, 0, 0);
+  const fetchStart = new Date(dayStart);
+  fetchStart.setDate(fetchStart.getDate() - historyDays);
 
   const { data: events, error } = await supabase
     .from('habit_consumption_events')
     .select('*')
     .eq('user_id', userId)
     .eq('habit_id', habit.id)
-    .gte('consumed_at', historyStart.toISOString())
+    .gte('consumed_at', fetchStart.toISOString())
     .lte('consumed_at', targetBedtime.toISOString())
     .order('consumed_at', { ascending: true });
 

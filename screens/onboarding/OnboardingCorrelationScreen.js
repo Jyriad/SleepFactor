@@ -24,11 +24,11 @@ const OnboardingCorrelationScreen = ({ navigation }) => {
   return (
     <OnboardingStepLayout
       step={4}
-      totalSteps={10}
+      totalSteps={8}
       title="Correlation vs. Causation"
       onNext={() => navigation.navigate('OnboardingControl')}
       onBack={() => navigation.goBack()}
-      onSkip={() => navigation.navigate('OnboardingHealth')}
+      onSkip={() => navigation.navigate('OnboardingNotification')}
     >
       <Text style={styles.body}>
         A correlation means two things move together — but that doesn&apos;t always mean one caused the other.

@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
+import OnboardingSignOutLink from './OnboardingSignOutLink';
 
 export default function OnboardingStepLayout({
   step,
@@ -23,11 +24,14 @@ export default function OnboardingStepLayout({
         <Text style={styles.stepIndicator}>
           {step} of {totalSteps}
         </Text>
-        {showSkip && onSkip ? (
-          <TouchableOpacity onPress={onSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.skipText}>Skip</Text>
-          </TouchableOpacity>
-        ) : null}
+        <View style={styles.headerRight}>
+          <OnboardingSignOutLink />
+          {showSkip && onSkip ? (
+            <TouchableOpacity onPress={onSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={styles.skipText}>Skip</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       <View style={styles.content}>{children}</View>
@@ -60,6 +64,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.regular,
+    gap: spacing.sm,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
   stepIndicator: {
     fontSize: typography.sizes.small,

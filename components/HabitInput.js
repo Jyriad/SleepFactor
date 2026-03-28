@@ -160,7 +160,7 @@ function TimeHabitInput({ value, onChange, selectedDate }) {
   );
 }
 
-const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption, yesNoCounts }) => {
+const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption, yesNoCounts, hideQuickConsumptionLoggedList = false }) => {
   const effectiveOnChange = onHabitChange != null
     ? useCallback((v) => onHabitChange(habit.id, v), [onHabitChange, habit.id])
     : onChange;
@@ -254,6 +254,7 @@ const HabitInput = ({ habit, value, onChange, onHabitChange, unit, selectedDate,
             userId={userId}
             onConsumptionAdded={onConsumptionAdded}
             onOpenLogConsumption={onOpenLogConsumption}
+            hideLoggedList={hideQuickConsumptionLoggedList}
           />
         );
 

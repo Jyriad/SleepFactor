@@ -21,12 +21,12 @@ const OnboardingHabitSelectionScreen = ({ navigation }) => {
     setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleNext = async () => {
+  const proceedToEducation = async () => {
     if (!user?.id) return;
     setSaving(true);
     try {
       await ensureOnboardingHabits(user.id);
-      navigation.navigate('OnboardingNotification');
+      navigation.navigate('OnboardingCorrelation');
     } finally {
       setSaving(false);
     }
@@ -34,11 +34,12 @@ const OnboardingHabitSelectionScreen = ({ navigation }) => {
 
   return (
     <OnboardingStepLayout
-      step={8}
-      totalSteps={10}
+      step={3}
+      totalSteps={8}
       title="What do you want to master first?"
-      onNext={handleNext}
+      onNext={proceedToEducation}
       onBack={() => navigation.goBack()}
+      onSkip={proceedToEducation}
       showSkip={true}
       nextLabel="Next"
       nextLoading={saving}

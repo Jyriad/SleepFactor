@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
+import { formatDateForDB } from '../utils/dateHelpers';
 import { formatDrugLevel } from '../utils/drugHalfLife';
 import drugLevelService from '../services/drugLevelService';
 import DrugLevelLineChart from './DrugLevelLineChart';
@@ -17,7 +18,7 @@ const CHART_HEIGHT = 160;
  * Used on Home (Caffeine / Alcohol) and in Log tab inside the habit block.
  * When selectedDate is passed and is not today, shows level at bedtime (same figure used for insight analysis).
  */
-const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = false, levelRefreshKey = 0 }) => {
+const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = false, levelRefreshKey = 0, children = null }) => {
   const { formatTime } = useUserPreferences();
   const [expanded, setExpanded] = useState(false);
   const [levelNow, setLevelNow] = useState(null);
@@ -29,9 +30,9 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
   const timelineRequestIdRef = useRef(0);
 
   const dateStr = selectedDate instanceof Date
-    ? selectedDate.toISOString().split('T')[0]
+    ? formatDateForDB(selectedDate)
     : (typeof selectedDate === 'string' ? selectedDate.split('T')[0] : null);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = formatDateForDB(new Date());
   const isViewingToday = !dateStr || dateStr === todayStr;
 
   useEffect(() => {
@@ -115,11 +116,6 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
         activeOpacity={0.7}
       >
         <View style={styles.headerLeft}>
-          <Ionicons
-            name={name.toLowerCase().includes('caffeine') ? 'cafe-outline' : 'wine-outline'}
-            size={compact ? 18 : 20}
-            color={colors.textSecondary}
-          />
           <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1}>
             {name}: {loading ? '...' : displayLevel} {isViewingToday ? 'right now' : 'at bedtime'}
           </Text>
@@ -132,32 +128,39 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
       </TouchableOpacity>
       {expanded && (
         <View style={styles.expandedContent}>
-          {timelineLoading ? (
-            <View style={styles.chartPlaceholder}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.chartPlaceholderText}>
-                {isViewingToday ? 'Loading level over today...' : 'Loading level for this day...'}
-              </Text>
+          {children ? (
+            <View style={styles.expandedPrefix}>
+              {children}
             </View>
-          ) : timeline?.dataPoints?.length > 0 && timelineForDate === (dateStr || todayStr) ? (
-            <DrugLevelLineChart
-              key={dateStr || todayStr}
-              dataPoints={timeline.dataPoints}
-              unit={timeline.unit || habit?.unit}
-              width={CHART_WIDTH}
-              height={CHART_HEIGHT}
-              formatTimeLabel={formatTime}
-              crosshairTime={isViewingToday ? new Date() : bedtimeAt}
-              crosshairLevel={levelNow?.level ?? 0}
-              crosshairLabel={isViewingToday ? 'Now' : 'Bedtime'}
-            />
-          ) : (
-            <View style={styles.chartPlaceholder}>
-              <Text style={styles.chartPlaceholderText}>
-                {isViewingToday ? 'No level data for today' : 'No level data for this day'}
-              </Text>
-            </View>
-          )}
+          ) : null}
+          <View style={styles.chartBlock}>
+            {timelineLoading ? (
+              <View style={styles.chartPlaceholder}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.chartPlaceholderText}>
+                  {isViewingToday ? 'Loading level over today...' : 'Loading level for this day...'}
+                </Text>
+              </View>
+            ) : timeline?.dataPoints?.length > 0 && timelineForDate === (dateStr || todayStr) ? (
+              <DrugLevelLineChart
+                key={dateStr || todayStr}
+                dataPoints={timeline.dataPoints}
+                unit={timeline.unit || habit?.unit}
+                width={CHART_WIDTH}
+                height={CHART_HEIGHT}
+                formatTimeLabel={formatTime}
+                crosshairTime={isViewingToday ? new Date() : bedtimeAt}
+                crosshairLevel={levelNow?.level ?? 0}
+                crosshairLabel={isViewingToday ? 'Now' : 'Bedtime'}
+              />
+            ) : (
+              <View style={styles.chartPlaceholder}>
+                <Text style={styles.chartPlaceholderText}>
+                  {isViewingToday ? 'No level data for today' : 'No level data for this day'}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       )}
     </View>
@@ -186,8 +189,8 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
     flex: 1,
+    minWidth: 0,
   },
   title: {
     fontSize: typography.sizes.body,
@@ -203,7 +206,18 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    alignItems: 'stretch',
+  },
+  expandedPrefix: {
+    width: '100%',
+    marginBottom: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  chartBlock: {
     alignItems: 'center',
+    width: '100%',
   },
   chartPlaceholder: {
     height: CHART_HEIGHT,
