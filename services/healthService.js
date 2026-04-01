@@ -8,12 +8,20 @@ let healthKitService = null;
 if (Platform.OS === 'android') {
   try {
     healthConnectService = require('./healthConnectService').default;
+    if (!healthConnectService) {
+      // Module present but no default export
+    }
   } catch (error) {
+    // Failed to load Android health module
   }
 } else if (Platform.OS === 'ios') {
   try {
     healthKitService = require('./healthKitService').default;
+    if (!healthKitService) {
+      // Module present but no default export
+    }
   } catch (error) {
+    // Failed to load iOS health module
   }
 }
 
@@ -68,19 +76,41 @@ class HealthService {
    * @returns {Promise<boolean>} True if permissions granted
    */
   async requestPermissions() {
+    const detail = await this.requestPermissionsDetailed();
+    return detail.ok;
+  }
+
+  /**
+   * @returns {Promise<{ ok: boolean, reason: string, platform: string, step?: string, errorMessage?: string }>}
+   */
+  async requestPermissionsDetailed() {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
 
       if (this.platform === 'android' && healthConnectService) {
-        return await healthConnectService.requestPermissions();
-      } else if (this.platform === 'ios' && healthKitService) {
-        return await healthKitService.requestPermissions();
+        return await healthConnectService.requestPermissionsDetailed();
       }
-      return false;
+      if (this.platform === 'ios' && healthKitService) {
+        return await healthKitService.requestPermissionsDetailed();
+      }
+
+      return {
+        ok: false,
+        reason: 'native_module_unavailable',
+        platform: this.platform,
+        step: 'healthService',
+      };
     } catch (error) {
-      return false;
+      const msg = error?.message || String(error);
+      return {
+        ok: false,
+        reason: 'service_error',
+        platform: this.platform,
+        errorMessage: msg,
+        step: 'healthService',
+      };
     }
   }
 

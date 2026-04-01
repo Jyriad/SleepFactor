@@ -42,8 +42,6 @@ const SleepQualityLogScreen = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasSavedScores, setHasSavedScores] = useState(false);
-  const [subjectiveDirty, setSubjectiveDirty] = useState(false);
-  const [subjectiveSavedAt, setSubjectiveSavedAt] = useState(null);
 
   useEffect(() => {
     if (!user?.id || !dateStr) {
@@ -106,8 +104,6 @@ const SleepQualityLogScreen = () => {
           setHasSavedScores(hasT || hasD);
         }
 
-        setSubjectiveDirty(false);
-        setSubjectiveSavedAt(null);
       } catch (_e) {
       } finally {
         if (!cancelled) setLoading(false);
@@ -135,8 +131,6 @@ const SleepQualityLogScreen = () => {
         homeCacheService.setPendingSubjectiveScoresForToday(scores);
       }
       setHasSavedScores(true);
-      setSubjectiveDirty(false);
-      setSubjectiveSavedAt(new Date());
     } catch (e) {
       Alert.alert('Error', 'Could not save. Please try again.');
     } finally {
@@ -150,14 +144,10 @@ const SleepQualityLogScreen = () => {
 
   const handleTirednessChange = useCallback((score) => {
     setTirednessScore(score);
-    setSubjectiveDirty(true);
-    setSubjectiveSavedAt(null);
   }, []);
 
   const handleDreamVividnessChange = useCallback((score) => {
     setDreamVividnessScore(score);
-    setSubjectiveDirty(true);
-    setSubjectiveSavedAt(null);
   }, []);
 
   const handleRemoveScores = () => {
@@ -184,8 +174,6 @@ const SleepQualityLogScreen = () => {
               setTirednessScore(null);
               setDreamVividnessScore(null);
               setHasSavedScores(false);
-              setSubjectiveDirty(false);
-              setSubjectiveSavedAt(null);
             } catch (e) {
               Alert.alert('Error', 'Could not remove. Please try again.');
             } finally {
@@ -200,11 +188,13 @@ const SleepQualityLogScreen = () => {
   if (!dateStr) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>How did you sleep?</Text>
+        <View style={styles.headerWrap}>
+          <View style={[styles.headerInner, { paddingTop: insets.top }]}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color={colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>How did you sleep?</Text>
+          </View>
         </View>
         <View style={styles.centered}>
           <Text style={styles.bodyText}>Invalid date.</Text>
@@ -216,14 +206,16 @@ const SleepQualityLogScreen = () => {
   if (loading) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>How did you sleep?</Text>
-          <Text style={styles.headerSubtitle}>
-            {dateStr === getToday() ? 'This morning (today)' : `Morning of ${formatDateTitle(dateStr)}`}
-          </Text>
+        <View style={styles.headerWrap}>
+          <View style={[styles.headerInner, { paddingTop: insets.top }]}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color={colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>How did you sleep?</Text>
+            <Text style={styles.headerSubtitle}>
+              {dateStr === getToday() ? 'This morning (today)' : `Morning of ${formatDateTitle(dateStr)}`}
+            </Text>
+          </View>
         </View>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -236,34 +228,26 @@ const SleepQualityLogScreen = () => {
   const hasAnySelection = (trackTiredness && tirednessScore != null) || (trackDreamVividness && dreamVividnessScore != null);
   const canSave = hasAnySelection && !saving;
   const screenDateLabel = formatDateTitle(dateStr);
-  const subjectiveStatusText = !hasAnySelection
-    ? 'Choose at least one score to save.'
-    : saving
-      ? 'Saving your changes...'
-      : subjectiveDirty
-        ? 'Unsaved changes'
-        : (subjectiveSavedAt ? 'Saved' : ' ');
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>How did you sleep?</Text>
-        <Text style={styles.headerSubtitle}>
-          {dateStr === getToday() ? 'This morning (today)' : `Morning of ${screenDateLabel}`}
-        </Text>
+      <View style={styles.headerWrap}>
+        <View style={[styles.headerInner, { paddingTop: insets.top }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>How did you sleep?</Text>
+          <Text style={styles.headerSubtitle}>
+            {dateStr === getToday() ? 'This morning (today)' : `Morning of ${screenDateLabel}`}
+          </Text>
+        </View>
       </View>
       {!showAny ? (
         <View style={styles.centered}>
-          <Text style={styles.bodyText}>Turn on &quot;Track refreshed feeling&quot; or &quot;Track dream strength&quot; in Profile to log how you felt.</Text>
+          <Text style={styles.bodyText}>Turn on the morning check-in options in Profile to log how you felt.</Text>
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Text style={styles.introBody}>
-            These ratings are saved for {screenDateLabel}. You can come back anytime to update them.
-          </Text>
           {trackTiredness && (
             <ScoreSlider
               label="Refreshed feeling"
@@ -273,9 +257,6 @@ const SleepQualityLogScreen = () => {
               leftLabel="Not refreshed"
               rightLabel="Very refreshed"
             />
-          )}
-          {trackTiredness && (
-            <Text style={styles.metricHelperText}>Why we ask: this helps us find which habits are linked to feeling more refreshed in the morning.</Text>
           )}
           {trackDreamVividness && (
             <ScoreSlider
@@ -287,23 +268,7 @@ const SleepQualityLogScreen = () => {
               rightLabel="Very strong"
             />
           )}
-          {trackDreamVividness && (
-            <Text style={styles.metricHelperText}>Why we ask: this helps us spot patterns between your routines and dream intensity.</Text>
-          )}
           <View style={styles.actions}>
-            <View style={styles.subjectiveStatusRow}>
-              <Ionicons
-                name={subjectiveSavedAt && !subjectiveDirty && !saving ? 'checkmark-circle' : 'information-circle-outline'}
-                size={14}
-                color={subjectiveSavedAt && !subjectiveDirty && !saving ? colors.success : colors.textSecondary}
-              />
-              <Text style={[
-                styles.subjectiveStatusText,
-                subjectiveSavedAt && !subjectiveDirty && !saving && styles.subjectiveStatusTextSaved,
-              ]}>
-                {subjectiveStatusText}
-              </Text>
-            </View>
             <TouchableOpacity onPress={handleSkip} style={styles.skipButton} disabled={saving}>
               <Text style={styles.skipButtonText}>Back</Text>
             </TouchableOpacity>
@@ -330,10 +295,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  header: {
+  headerWrap: {
     backgroundColor: colors.primary,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
+  headerInner: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: spacing.regular,
+    paddingBottom: spacing.sm,
   },
   backButton: {
     padding: spacing.sm,
@@ -355,31 +326,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: spacing.regular,
-    paddingBottom: spacing.xxl,
+    paddingHorizontal: spacing.regular,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
   },
   actions: {
-    marginTop: spacing.regular,
-    gap: spacing.sm,
-  },
-  subjectiveStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 0,
     gap: spacing.xs,
-    minHeight: 18,
-  },
-  subjectiveStatusText: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
-  },
-  subjectiveStatusTextSaved: {
-    color: colors.success,
   },
   skipButton: {
     alignSelf: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.regular,
   },
   skipButtonText: {
@@ -392,9 +349,9 @@ const styles = StyleSheet.create({
   },
   removeScoresButton: {
     alignSelf: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.regular,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   removeScoresButtonText: {
     fontSize: typography.sizes.body,

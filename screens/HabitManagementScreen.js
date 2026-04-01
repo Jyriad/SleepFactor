@@ -1501,7 +1501,6 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   cardContent: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'stretch',
   },
@@ -1516,7 +1515,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
   },
   cardMainContent: {
-    flex: 1,
+    alignSelf: 'stretch',
   },
   deleteButton: {
     padding: spacing.xs,

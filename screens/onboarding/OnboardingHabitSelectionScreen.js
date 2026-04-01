@@ -6,6 +6,7 @@ import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 
 const HABIT_OPTIONS = [
   { id: 'caffeine', name: 'Caffeine', icon: 'cafe-outline', sub: 'Coffee, tea, energy drinks' },
@@ -34,9 +35,9 @@ const OnboardingHabitSelectionScreen = ({ navigation }) => {
 
   return (
     <OnboardingStepLayout
-      step={3}
-      totalSteps={8}
-      title="What do you want to master first?"
+      step={7}
+      totalSteps={ONBOARDING_STEP_TOTAL}
+      title="Your starting habits"
       onNext={proceedToEducation}
       onBack={() => navigation.goBack()}
       onSkip={proceedToEducation}

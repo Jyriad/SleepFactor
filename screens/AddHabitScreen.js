@@ -8,8 +8,10 @@ import {
   StyleSheet,
   Alert,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -21,6 +23,7 @@ import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 const AddHabitScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { onSuccess } = route.params || {};
 
@@ -122,12 +125,21 @@ const AddHabitScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        bounces={true}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: spacing.xl + insets.bottom },
+          ]}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Habit Name</Text>
           <TextInput
@@ -204,26 +216,27 @@ const AddHabitScreen = () => {
             </Text>
           </View>
         )}
-      </ScrollView>
 
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.cancelButton]}
-          onPress={handleClose}
-          disabled={saving}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.saveButton]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>
-            {saving ? 'Adding...' : 'Add Habit'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+        <View style={[styles.actions, { marginTop: spacing.lg }]}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.cancelButton]}
+            onPress={handleClose}
+            disabled={saving}
+          >
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.saveButton]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            <Text style={styles.saveButtonText}>
+              {saving ? 'Adding...' : 'Add Habit'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -249,12 +262,15 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: spacing.xs,
   },
+  keyboardAvoid: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
   content: {
     padding: spacing.regular,
-    paddingBottom: 100, // Space so bottom content clears the navigation footer
+    flexGrow: 1,
   },
   inputGroup: {
     marginBottom: spacing.regular,

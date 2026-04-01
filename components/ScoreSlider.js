@@ -81,7 +81,7 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel 
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
   },
   label: {
     fontSize: typography.sizes.medium,

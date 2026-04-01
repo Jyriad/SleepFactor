@@ -204,7 +204,9 @@ export default function DatePickerCalendar({
                   </View>
                 )}
                 {hasSleep && (
-                  <Text style={[styles.calZzz, isSelected && styles.calZzzSelected]} pointerEvents="none">Zzz</Text>
+                  <View style={styles.calSleepIcon} pointerEvents="none">
+                    <Ionicons name="bed-outline" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
+                  </View>
                 )}
               </TouchableOpacity>
             </View>
@@ -216,8 +218,10 @@ export default function DatePickerCalendar({
 }
 
 const styles = StyleSheet.create({
+  // Horizontal padding comes from DateHeader container only — avoids double inset so the
+  // month grid lines up with the 7-day strip above when the header is expanded.
   calendarWrap: {
-    paddingHorizontal: spacing.regular,
+    paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: spacing.lg,
   },
@@ -278,16 +282,10 @@ const styles = StyleSheet.create({
     bottom: 2,
     left: 2,
   },
-  calZzz: {
+  calSleepIcon: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    fontSize: 8,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  calZzzSelected: {
-    color: colors.primary,
   },
   calDateText: {
     fontSize: typography.sizes.small,

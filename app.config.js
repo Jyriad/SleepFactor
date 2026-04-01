@@ -31,11 +31,11 @@ export default {
   scheme: "sleepfactor",
   version: BASE_VERSION,
   orientation: "portrait",
-  icon: "./assets/AppLogo.png",
+  icon: "./assets/branding/app-icon/1024x1024/icon-cotton-blue.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
-    image: "./assets/AppLogo.png",
+    image: "./assets/branding/splash/primary-logo-all-black.png",
     resizeMode: "contain",
     backgroundColor: "#FFFFFF"
   },
@@ -49,7 +49,8 @@ export default {
   },
   android: {
     adaptiveIcon: {
-      foregroundImage: "./assets/AppLogo.png",
+      foregroundImage:
+        "./assets/branding/app-icon/1024x1024-safe-padding/icon-cotton-blue.png",
       backgroundColor: "#1E3A8A"
     },
     edgeToEdgeEnabled: true,
@@ -73,16 +74,24 @@ export default {
     ]
   },
   web: {
-    favicon: "./assets/AppLogo.png"
+    favicon: "./assets/branding/web/pwa-icon-192.png"
   },
   plugins: [
+    [
+      "@sentry/react-native/expo",
+      {
+        url: "https://sentry.io/",
+        project: "react-native",
+        organization: "sleepfactor"
+      }
+    ],
     [
       "expo-splash-screen",
       {
         backgroundColor: "#FFFFFF",
-        image: "./assets/AppLogo.png",
+        image: "./assets/branding/splash/primary-logo-all-black.png",
         resizeMode: "contain",
-        imageWidth: 200
+        imageWidth: 280
       }
     ],
     "./plugins/withAndroidSplashIconBackground.js",
@@ -129,7 +138,7 @@ export default {
     [
       "expo-notifications",
       {
-        icon: "./assets/AppLogo.png",
+        icon: "./assets/branding/app-icon/1024x1024/icon-cotton-blue.png",
         color: "#1E3A8A",
         sounds: [],
         androidMode: "default"

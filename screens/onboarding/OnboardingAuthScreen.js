@@ -8,6 +8,7 @@ import {
   shouldSkipOnboarding,
   markServerOnboardingCompleted,
 } from '../../services/onboardingEligibilityService';
+import { consumePendingOnboardingGoals } from '../../services/onboardingGoalStorage';
 
 /**
  * Wraps AuthScreen for onboarding. After sign-in, returning users skip to main app;
@@ -28,7 +29,8 @@ const OnboardingAuthScreen = ({ navigation, onReturningUserSkip }) => {
         onReturningUserSkip?.();
         return;
       }
-      navigation.replace('OnboardingHealth');
+      await consumePendingOnboardingGoals(user.id);
+      navigation.replace('OnboardingIntroStat');
     })();
   }, [user?.id, navigation, onReturningUserSkip]);
 
@@ -40,7 +42,7 @@ const OnboardingAuthScreen = ({ navigation, onReturningUserSkip }) => {
     );
   }
 
-  return <AuthScreen />;
+  return <AuthScreen defaultToSignUp />;
 };
 
 const styles = StyleSheet.create({

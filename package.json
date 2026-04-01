@@ -9,7 +9,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "backfill:caffeine-amounts": "node scripts/backfill-caffeine-consumption-amounts.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",
@@ -24,6 +25,7 @@
     "@react-navigation/native": "^7.1.24",
     "@react-navigation/native-stack": "^7.8.5",
     "@react-navigation/stack": "^7.8.4",
+    "@sentry/react-native": "^8.6.0",
     "@shopify/react-native-skia": "1.5.0",
     "@supabase/supabase-js": "^2.99.3",
     "d3-scale": "^4.0.2",

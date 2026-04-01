@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import ScatterPlot from './ScatterChart';
+import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import DataPointDetailModal from './DataPointDetailModal';
 import { transformToEfficiencyData, calculateCorrelation } from '../utils/statistics';
 import { generateNumericalHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
@@ -117,9 +118,14 @@ const NumericalHabitInsight = ({
             </View>
           </View>
           <View style={styles.progressContainer}>
-            <Text style={styles.progressLabel}>
-              {analyzedEnoughData ? 'No clear link (yet)' : 'Building your data'}
-            </Text>
+            <View style={styles.progressLabelRow}>
+              <Text style={[styles.progressLabel, styles.progressLabelText]}>
+                {analyzedEnoughData ? 'No clear link (yet)' : 'Building your data'}
+              </Text>
+              {!analyzedEnoughData ? (
+                <InsightMinimumDataHelp variant="numeric" />
+              ) : null}
+            </View>
             <View style={styles.progressBarBackground}>
               <View
                 style={[
@@ -463,11 +469,11 @@ const NumericalHabitInsight = ({
           </View>
           <View style={styles.expandedTagsRow}>
             <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
+              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
             </View>
             {confidenceLevel !== 'none' && (
               <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
+                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
               </View>
             )}
           </View>
@@ -876,6 +882,17 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
+  progressLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  progressLabelText: {
+    flex: 1,
+    marginBottom: 0,
+  },
   progressBarBackground: {
     height: 8,
     backgroundColor: colors.border,
@@ -943,16 +960,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  // Match Insights tab table tags (InsightsScreen tag / tagTextSmall)
   stabilityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 12,
-    gap: spacing.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    flexShrink: 1,
+    maxWidth: '100%',
   },
   stabilityBadgeText: {
-    fontSize: typography.sizes.xs,
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: typography.weights.medium,
   },
   expandHint: {

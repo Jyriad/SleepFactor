@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
-import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import insightsService from '../services/insightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
@@ -30,7 +29,6 @@ const DetailedInsightsScreen = ({ navigation }) => {
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const { user } = useAuth();
-  const { preferences } = useUserPreferences();
 
   useFocusEffect(
     React.useCallback(() => {
@@ -78,7 +76,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
 
   useEffect(() => {
     loadInsights({ backgroundRefresh: false });
-  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, preferences.showNoSignificanceHabits]);
+  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType]);
 
   useFocusEffect(
     useCallback(() => {
@@ -92,7 +90,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
         return;
       }
       loadInsights({ backgroundRefresh: true });
-    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, preferences.showNoSignificanceHabits, insights.validInsights])
+    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, insights.validInsights])
   );
 
   const loadInsights = async (options = {}) => {
@@ -168,7 +166,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
           sleepMetric={metricInfo}
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
-          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
+          allowExpandNoSignificance
           isExpanded={isExpanded}
           onToggleExpand={() => handleInsightToggle(insightId)}
         />
@@ -182,7 +180,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
           onRefresh={loadInsights}
-          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
+          allowExpandNoSignificance
           isExpanded={isExpanded}
           onToggleExpand={() => handleInsightToggle(insightId)}
         />
@@ -392,7 +390,9 @@ const DetailedInsightsScreen = ({ navigation }) => {
           data={validInsights}
           keyExtractor={(item, index) => `${item.habit?.id}-${selectedMetric}-${selectedAnalysisType}-${index}`}
           ListHeaderComponent={listHeader}
-          renderItem={({ item }) => renderInsightCard(item)}
+          renderItem={({ item }) => (
+            <View style={styles.insightRowWrap}>{renderInsightCard(item)}</View>
+          )}
           ListEmptyComponent={validInsights.length === 0 && !insights?.placeholders?.length ? renderEmptyState() : null}
           contentContainerStyle={validInsights.length === 0 ? styles.contentContainerEmpty : styles.flatListContent}
         />
@@ -407,8 +407,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   contentArea: {
-    flex: 1,
     backgroundColor: colors.background,
+    width: '100%',
   },
   headerWrap: {
     backgroundColor: colors.primary,
@@ -493,13 +493,16 @@ const styles = StyleSheet.create({
   flatListContent: {
     paddingBottom: 112,
   },
+  insightRowWrap: {
+    paddingHorizontal: spacing.regular,
+  },
   contentContainerEmpty: {
     paddingBottom: 112,
     flexGrow: 1,
   },
   content: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: 112,
+    paddingBottom: spacing.md,
   },
   insightsSection: {
     marginBottom: spacing.xl,
@@ -507,7 +510,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
     textAlign: 'center',
   },
   emptyState: {

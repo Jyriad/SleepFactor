@@ -7,7 +7,7 @@ import { useUserPreferences } from '../contexts/UserPreferencesContext';
 
 const SLEEP_BAR_RADIUS = 8;
 
-const SleepTimeline = ({ sleepData }) => {
+const SleepTimeline = ({ sleepData, compact = false }) => {
   const { formatTime } = useUserPreferences();
 
   if (!sleepData) return null;
@@ -201,7 +201,7 @@ const SleepTimeline = ({ sleepData }) => {
     const endTime = formatTime(sleepEnd);
     return (
       <View key={keyPrefix} style={styles.timelineContainer}>
-        <View style={styles.timelineBar}>
+        <View style={[styles.timelineBar, compact && styles.timelineBarCompact]}>
           {segments.map((segment, index) => {
             const isFirst = index === 0;
             const isLast = index === segments.length - 1;
@@ -225,18 +225,17 @@ const SleepTimeline = ({ sleepData }) => {
             );
           })}
         </View>
-        <View style={styles.moonIcon}>
-          <Ionicons name="moon" size={14} color="#FFFFFF" />
+        <View style={[styles.moonIcon, compact && styles.moonIconCompact]}>
+          <Ionicons name="moon" size={compact ? 12 : 14} color="#FFFFFF" />
         </View>
         <View style={styles.timeLabels}>
-          <Text style={styles.timeLabel}>{startTime}</Text>
-          <Text style={styles.timeLabel}>{endTime}</Text>
+          <Text style={[styles.timeLabel, compact && styles.timeLabelCompact]}>{startTime}</Text>
+          <Text style={[styles.timeLabel, compact && styles.timeLabelCompact]}>{endTime}</Text>
         </View>
       </View>
     );
   };
 
-  // Multiple sessions: two separate pill-shaped bars, side-by-side, proportionally sized with a gap
   const renderMultiSessionBar = () => {
     const { sessions } = timelineData;
     return (
@@ -247,6 +246,7 @@ const SleepTimeline = ({ sleepData }) => {
               key={`session-${i}`}
               style={[
                 styles.standaloneSessionBar,
+                compact && styles.standaloneSessionBarCompact,
                 { flex: sess.totalDurationMinutes },
                 i > 0 && styles.standaloneSessionBarGap,
               ]}
@@ -276,8 +276,8 @@ const SleepTimeline = ({ sleepData }) => {
                 })}
               </View>
               {i === 0 && (
-                <View style={styles.moonIcon}>
-                  <Ionicons name="moon" size={14} color="#FFFFFF" />
+                <View style={[styles.moonIcon, compact && styles.moonIconCompact]}>
+                  <Ionicons name="moon" size={compact ? 12 : 14} color="#FFFFFF" />
                 </View>
               )}
             </View>
@@ -294,7 +294,7 @@ const SleepTimeline = ({ sleepData }) => {
                 i === sessions.length - 1 && styles.multiSessionLabelCellLast,
               ]}
             >
-              <Text style={styles.timeLabel}>
+              <Text style={[styles.timeLabel, compact && styles.timeLabelCompact]}>
                 {formatTime(sess.sleepStart)} – {formatTime(sess.sleepEnd)}
               </Text>
             </View>
@@ -305,7 +305,7 @@ const SleepTimeline = ({ sleepData }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.containerCompact]}>
       {timelineData.multipleSessions
         ? renderMultiSessionBar()
         : renderOneTimeline(timelineData.segments, timelineData.sleepStart, timelineData.sleepEnd, 'single')}
@@ -316,6 +316,24 @@ const SleepTimeline = ({ sleepData }) => {
 const styles = StyleSheet.create({
   container: {
     marginTop: spacing.md,
+  },
+  containerCompact: {
+    marginTop: spacing.xs,
+    marginBottom: 0,
+  },
+  timelineBarCompact: {
+    height: 28,
+  },
+  standaloneSessionBarCompact: {
+    height: 28,
+    minWidth: 32,
+  },
+  moonIconCompact: {
+    top: 6,
+    left: 6,
+  },
+  timeLabelCompact: {
+    fontSize: 10,
   },
   timelineContainer: {
     marginBottom: spacing.sm,

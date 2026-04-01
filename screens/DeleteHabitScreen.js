@@ -4,8 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  ScrollView,
+  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -13,11 +15,10 @@ import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
-import { Alert } from 'react-native';
-
 const DeleteHabitScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { habit, onSuccess } = route.params || {};
 
@@ -63,36 +64,49 @@ const DeleteHabitScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        <View style={styles.warningIconContainer}>
-          <Ionicons name="warning" size={48} color={colors.error} />
-        </View>
-        <Text style={styles.warningText}>
-          Are you sure you want to delete "{habit?.name || 'this habit'}"?
-        </Text>
-        <Text style={styles.descriptionText}>
-          This will permanently delete the habit and all associated data. This action cannot be undone.
-        </Text>
-      </View>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: spacing.xl + insets.bottom },
+        ]}
+        showsVerticalScrollIndicator={false}
+        bounces={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.body}>
+          <View style={styles.messageBlock}>
+            <View style={styles.warningIconContainer}>
+              <Ionicons name="warning" size={48} color={colors.error} />
+            </View>
+            <Text style={styles.warningText}>
+              Are you sure you want to delete "{habit?.name || 'this habit'}"?
+            </Text>
+            <Text style={styles.descriptionText}>
+              This will permanently delete the habit and all associated data. This action cannot be undone.
+            </Text>
+          </View>
 
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.cancelButton]}
-          onPress={handleClose}
-          disabled={deleting}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.deleteButton]}
-          onPress={handleConfirm}
-          disabled={deleting}
-        >
-          <Text style={styles.deleteButtonText}>
-            {deleting ? 'Deleting...' : 'Delete'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.cancelButton]}
+              onPress={handleClose}
+              disabled={deleting}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={handleConfirm}
+              disabled={deleting}
+            >
+              <Text style={styles.deleteButtonText}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -118,11 +132,22 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: spacing.xs,
   },
-  content: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  body: {
+    flexGrow: 1,
     padding: spacing.regular,
+    justifyContent: 'space-between',
+  },
+  messageBlock: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: spacing.lg,
   },
   warningIconContainer: {
     marginBottom: spacing.regular,

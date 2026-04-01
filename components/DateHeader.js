@@ -34,15 +34,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const STRIP_DAYS = 7;
-const HANDLE_HEIGHT = 14;
-const STRIP_ROW_HEIGHT = 58;
-const STRIP_LABEL_HEIGHT = 20;
+const HANDLE_HEIGHT = 12;
+const STRIP_ROW_HEIGHT = 50;
+const STRIP_LABEL_HEIGHT = 16;
 /** Strip (7-day row + label) lives inside the drawer. Collapsed = label + strip + handle so no layout jump on close. */
 const COLLAPSED_DRAWER_HEIGHT = STRIP_LABEL_HEIGHT + STRIP_ROW_HEIGHT + HANDLE_HEIGHT;
 const CLOSE_ANIMATION_DURATION_MS = 220;
-const TOP_ROW_HEIGHT = 32;
-const DAY_CELL_SIZE = 36;
-const DAY_CELL_PADDING = 4;
+const DAY_CELL_SIZE = 34;
+const DAY_CELL_PADDING = 3;
 const DAY_CELL_BORDER_RADIUS = 8;
 
 const CALENDAR_HEADER_H = 28;
@@ -83,6 +82,20 @@ const DateHeader = ({
     isWithinLast7Days(stripCenterDate)
       ? getDateStripArrayLast7Days()
       : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
+  const stripLabel = (() => {
+    if (isWithinLast7Days(stripCenterDate)) return 'This week';
+    if (stripDates.length === 0) return 'This week';
+    const start = stripDates[0].date;
+    const end = stripDates[stripDates.length - 1].date;
+    const s = new Date(start + 'T12:00:00');
+    const e = new Date(end + 'T12:00:00');
+    const sm = s.toLocaleDateString('en-US', { month: 'short' });
+    const em = e.toLocaleDateString('en-US', { month: 'short' });
+    const sd = s.getDate();
+    const ed = e.getDate();
+    if (sm === em) return `${sm} ${sd}–${ed}`;
+    return `${sm} ${sd} – ${em} ${ed}`;
+  })();
   const displayTitle = formatDateTitle(selectedDate);
   const showToday = showTodayButton && displayTitle !== 'Today';
 
@@ -250,7 +263,7 @@ const DateHeader = ({
 
         <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
           <View style={styles.stripSection}>
-            <Text style={styles.stripSectionLabel}>This week</Text>
+            <Text style={styles.stripSectionLabel}>{stripLabel}</Text>
             <View style={styles.stripRow}>
               {stripDates.map((dateItem) => {
                 const isSelected = dateItem.date === selectedDateStr;
@@ -340,10 +353,9 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 0,
-    minHeight: TOP_ROW_HEIGHT,
   },
   leftSlot: {
     minWidth: 72,
@@ -387,7 +399,7 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     fontWeight: typography.weights.semibold,
     color: 'rgba(255, 255, 255, 0.85)',
-    marginBottom: 2,
+    marginBottom: 0,
     paddingHorizontal: DAY_CELL_PADDING / 2,
   },
   stripRow: {
@@ -395,8 +407,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingHorizontal: DAY_CELL_PADDING / 2,
-    paddingTop: 4,
-    paddingBottom: DAY_CELL_PADDING / 2,
+    paddingTop: 2,
+    paddingBottom: 2,
     minHeight: STRIP_ROW_HEIGHT,
   },
   stripItem: {
@@ -416,7 +428,7 @@ const styles = StyleSheet.create({
     minHeight: HANDLE_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   dragHandleBar: {
     width: 36,
@@ -428,7 +440,7 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     fontWeight: typography.weights.medium,
     color: 'rgba(255, 255, 255, 0.9)',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   stripDayNameSelected: {
     color: colors.white,

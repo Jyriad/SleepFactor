@@ -4,9 +4,10 @@ import {
   Text,
   StyleSheet,
   useWindowDimensions,
-  TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import BannerLogoLight from '../../assets/BannerLogoLight.svg';
 import { useAuth } from '../../contexts/AuthContext';
 import { colors } from '../../constants/colors';
@@ -14,15 +15,19 @@ import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 
-const BANNER_ASPECT_RATIO = 250 / 100;
+// Matches BannerLogoLight.svg viewBox (primary wordmark, all black)
+const BANNER_ASPECT_RATIO = 1284.55 / 226.95;
 const BANNER_MAX_WIDTH = 168;
 
-/** One short line each — numbered list, no cards, fits typical phones without scrolling */
-const WELCOME_LINES = [
-  'Track your sleep automatically from your wearable.',
-  'Log caffeine, alcohol, and other habits.',
-  'See what helps or hurts your sleep.',
-];
+function EquationBox({ title, subtitle, children }) {
+  return (
+    <View style={styles.eqBox}>
+      <Text style={styles.eqBoxTitle}>{title}</Text>
+      <View style={styles.eqIconRow}>{children}</View>
+      <Text style={styles.eqBoxSub}>{subtitle}</Text>
+    </View>
+  );
+}
 
 const WelcomeScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -32,7 +37,7 @@ const WelcomeScreen = ({ navigation }) => {
   const bannerHeight = bannerWidth / BANNER_ASPECT_RATIO;
 
   const goToAuth = () => navigation.navigate('OnboardingAuth');
-  const continueSetup = () => navigation.replace('OnboardingHealth');
+  const continueSetup = () => navigation.replace('OnboardingIntroStat');
 
   if (user?.id) {
     return (
@@ -59,33 +64,49 @@ const WelcomeScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View style={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <BannerLogoLight
           width={bannerWidth}
           height={bannerHeight}
           style={styles.banner}
           accessibilityLabel="SleepFactor"
         />
-        <View style={styles.pointsBlock}>
-          {WELCOME_LINES.map((line, i) => (
-            <Text
-              key={i}
-              style={styles.pointLine}
-              accessible
-              accessibilityRole="text"
-            >
-              <Text style={styles.pointNum}>{i + 1}. </Text>
-              <Text style={styles.pointText}>{line}</Text>
-            </Text>
-          ))}
-        </View>
+        <Text style={styles.headline}>
+          Ever wondered what factors are impacting your sleep? SleepFactor can help.
+        </Text>
+
+        <EquationBox
+          title="Sleep data"
+          subtitle="Automatically sync sleep data from your wearable"
+        >
+          <Ionicons name="logo-apple" size={28} color={colors.textPrimary} />
+          <Ionicons name="logo-google" size={28} color={colors.textPrimary} />
+          <Ionicons name="watch-outline" size={28} color={colors.primary} />
+        </EquationBox>
+
+        <Text style={styles.op}>+</Text>
+
+        <EquationBox title="Log your habits" subtitle="Tell SleepFactor which habits you do each day">
+          <Ionicons name="list-outline" size={32} color={colors.primary} />
+        </EquationBox>
+
+        <Text style={styles.op}>=</Text>
+
+        <EquationBox
+          title="Insights"
+          subtitle="We analyse correlations between the habits you do and your sleep"
+        >
+          <Ionicons name="analytics-outline" size={32} color={colors.primary} />
+        </EquationBox>
+
         <View style={styles.footer}>
           <Button title="Get started" onPress={goToAuth} style={styles.primaryButton} />
-          <TouchableOpacity onPress={goToAuth} style={styles.signInLink} accessibilityRole="button">
-            <Text style={styles.signInLinkText}>Already have an account? Sign in</Text>
-          </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -95,53 +116,65 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    flex: 1,
+  scrollContent: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
     alignItems: 'center',
   },
   banner: {
     alignSelf: 'center',
     marginBottom: spacing.md,
   },
-  pointsBlock: {
+  headline: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    lineHeight: typography.lineHeights.body,
+    marginBottom: spacing.lg,
     alignSelf: 'stretch',
-    marginBottom: spacing.md,
   },
-  pointLine: {
-    marginBottom: spacing.sm,
-    lineHeight: typography.lineHeights.small,
+  eqBox: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.cardBackground,
+    borderRadius: 14,
+    padding: spacing.regular,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  pointNum: {
-    fontSize: typography.sizes.small,
+  eqBoxTitle: {
+    fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.primary,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
-  pointText: {
+  eqIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  eqBoxSub: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
+    lineHeight: typography.lineHeights.small,
+  },
+  op: {
+    fontSize: 28,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
+    marginVertical: spacing.sm,
+    textAlign: 'center',
   },
   footer: {
     alignSelf: 'stretch',
-    marginTop: 'auto',
-    paddingBottom: spacing.sm,
+    marginTop: spacing.xl,
     maxWidth: 360,
     width: '100%',
   },
   primaryButton: {
-    minWidth: 200,
     alignSelf: 'stretch',
-  },
-  signInLink: {
-    marginTop: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  signInLinkText: {
-    fontSize: typography.sizes.small,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
-    textAlign: 'center',
   },
   resumeTitle: {
     fontSize: typography.sizes.large,
@@ -157,6 +190,12 @@ const styles = StyleSheet.create({
     lineHeight: typography.lineHeights.body,
     marginBottom: spacing.xl,
     paddingHorizontal: spacing.sm,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    alignItems: 'center',
   },
   signOutWrap: {
     marginTop: spacing.lg,

@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSplash } from '../contexts/SplashContext';
+import { useTutorialOptional } from '../contexts/TutorialContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
@@ -207,7 +208,11 @@ const SleepDataCard = React.memo(({
 
             {Object.entries(SLEEP_METRIC_CONFIG).map(([key, config], index) => {
               const metric = metrics[key];
-              return metric && metric.percentage > 0 ? (
+              const minutesRaw = sleepData[key] ?? 0;
+              // Show row when we have any minutes for that stage, not only when % rounds to >0
+              // (avoids hiding e.g. Deep sleep when total_sleep is inflated vs stage sum).
+              const shouldShow = metric && (minutesRaw > 0 || metric.percentage > 0);
+              return shouldShow ? (
                 renderSleepMetricRow(config.label, metric.minutes, metric.percentage, metric.comparison, config.color, null, key, index % 2 === 0)
               ) : null;
             })}
@@ -445,6 +450,8 @@ import dataQualityService from '../services/dataQualityService';
 const HomeScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const tutorial = useTutorialOptional();
+  const habitTutorialRef = useRef(null);
   const splash = useSplash();
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
@@ -469,6 +476,19 @@ const HomeScreen = () => {
   const [loading, setLoading] = useState(true);
   /** Habit card + Log Habits: show as soon as we have disk or network dashboard (avoid spinner on cold start). */
   const [habitSummaryReady, setHabitSummaryReady] = useState(false);
+
+  const homeSpotlight =
+    tutorial?.storageStatus === 'pending' && tutorial?.phase === 'home';
+
+  useEffect(() => {
+    if (!homeSpotlight || !habitTutorialRef.current) return;
+    const id = requestAnimationFrame(() => {
+      habitTutorialRef.current?.measureInWindow((x, y, width, height) => {
+        tutorial?.registerLogHabitsLayout?.({ x, y, width, height });
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [homeSpotlight, habitSummaryReady, tutorial]);
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
@@ -556,6 +576,13 @@ const HomeScreen = () => {
   const applyDashboardPayload = useCallback((payload, dateStr) => {
     if (!isValidDashboardPayload(payload)) return;
     const sleepRecord = payload.sleep_record && typeof payload.sleep_record === 'object' && payload.sleep_record.id != null ? payload.sleep_record : null;
+    if (dateStr === getToday()) {
+      console.log('[SleepFactor Home] applyDashboardPayload (today)', {
+        calendarDate: dateStr,
+        sleepDataDate: sleepRecord?.date ?? null,
+        hasSleepRow: !!sleepRecord,
+      });
+    }
     setSleepData(sleepRecord);
     setIsExcluded(sleepRecord?.exclude_from_insights || false);
     setExclusionReason(sleepRecord?.exclusion_reason || null);
@@ -605,7 +632,7 @@ const HomeScreen = () => {
       } catch (_) {}
     }
     setHabitSummaryReady(true);
-  }, [isValidDashboardPayload]);
+  }, [isValidDashboardPayload, getToday]);
 
   // Restore from in-memory cache on mount so we never show loading when returning to Home (survives remounts)
   React.useLayoutEffect(() => {
@@ -785,8 +812,52 @@ const HomeScreen = () => {
         if (!background) setLoading(false);
         return;
       }
+      let dashboardPayload = data;
+      if (dateStr === getToday()) {
+        const hasSleep =
+          dashboardPayload.sleep_record &&
+          typeof dashboardPayload.sleep_record === 'object' &&
+          dashboardPayload.sleep_record.id != null;
+        if (!hasSleep) {
+          const yStr = getYesterday();
+          try {
+            const yRpc = supabase.rpc('get_home_dashboard_data', {
+              p_user_id: user.id,
+              p_date: yStr,
+            });
+            const { data: yData, error: yErr } = await yRpc;
+            if (!yErr && yData && !yData.error && isValidDashboardPayload(yData)) {
+              const ySleep =
+                yData.sleep_record &&
+                typeof yData.sleep_record === 'object' &&
+                yData.sleep_record.id != null
+                  ? yData.sleep_record
+                  : null;
+              if (ySleep) {
+                dashboardPayload = { ...dashboardPayload, sleep_record: ySleep };
+                console.log('[SleepFactor Home] Using previous night’s sleep row for today’s “Last night” card', {
+                  requestedDate: dateStr,
+                  sleepRowDate: ySleep.date,
+                });
+              } else {
+                console.log('[SleepFactor Home] No sleep row for today or yesterday', {
+                  today: dateStr,
+                  yesterdayChecked: yStr,
+                });
+              }
+            } else {
+              console.log('[SleepFactor Home] Yesterday dashboard fetch skipped or invalid', {
+                yesterday: yStr,
+                error: yErr?.message || yData?.error,
+              });
+            }
+          } catch (mergeErr) {
+            console.warn('[SleepFactor Home] Yesterday sleep fallback failed', mergeErr?.message || mergeErr);
+          }
+        }
+      }
       try {
-        const serialized = JSON.stringify(data);
+        const serialized = JSON.stringify(dashboardPayload);
         const prevSerialized = lastDashboardPayloadByDateRef.current.get(dateStr);
         const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
         if (prevSerialized === serialized && isAlreadyRenderedForDate) {
@@ -794,9 +865,9 @@ const HomeScreen = () => {
           return;
         }
       } catch (_) {}
-      applyDashboardPayload(data, dateStr);
-      homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, data);
-      await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, data);
+      applyDashboardPayload(dashboardPayload, dateStr);
+      homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, dashboardPayload);
+      await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, dashboardPayload);
       if (!background) setLoading(false);
       // Defer insight calculation so dashboard and sleep card paint first
       InteractionManager.runAfterInteractions(() => {
@@ -826,6 +897,10 @@ const HomeScreen = () => {
       }
       if (!background) setLoading(false);
     } finally {
+      if (dateStr === getToday()) {
+        todaySyncAttemptedRef.current = true;
+        console.log('[SleepFactor Home] Today’s dashboard fetch cycle finished', { dateStr });
+      }
       const current = inFlightDashboardByDateRef.current.get(dateStr);
       if (current === runPromise) {
         inFlightDashboardByDateRef.current.delete(dateStr);
@@ -835,7 +910,7 @@ const HomeScreen = () => {
 
     inFlightDashboardByDateRef.current.set(dateStr, runPromise);
     await runPromise;
-  }, [user?.id, selectedDate, getDateString, applyDashboardPayload, isValidDashboardPayload]);
+  }, [user?.id, selectedDate, getDateString, getToday, getYesterday, applyDashboardPayload, isValidDashboardPayload]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -1011,7 +1086,7 @@ const HomeScreen = () => {
 
     // Reset autoSyncLoading if we already have sleep data for today (handles stuck state from navigation)
     const todayDateString = getToday();
-    if (autoSyncLoading && sleepData && sleepData.date === todayDateString) {
+    if (autoSyncLoading && sleepData && isToday(selectedDate)) {
       setAutoSyncLoading(false);
       return;
     }
@@ -1166,6 +1241,7 @@ const HomeScreen = () => {
   }, [healthSyncInitialized, needsPermissions, hasPermissions]);
 
   const handleLogHabits = () => {
+    tutorial?.notifyOpenedHabitLogging?.();
     if (Platform.OS === 'android') {
       StatusBar.setBackgroundColor(colors.primary);
       StatusBar.setTranslucent?.(true);
@@ -1292,7 +1368,7 @@ const HomeScreen = () => {
           await fetchDashboard({ background: true });
           Alert.alert(
             'No Data Available',
-            'No sleep data was found in Health Connect for the selected date range.'
+            'No sleep data was found in Google Health Connect for the selected date range.'
           );
         } else {
           await fetchDashboard({ background: true });
@@ -1548,7 +1624,7 @@ const HomeScreen = () => {
   const getDataSourceDisplay = (source) => {
     switch (source) {
       case 'health_connect':
-        return 'Health Connect';
+        return 'Google Health Connect';
       case 'healthkit':
         return 'Apple Health';
       case 'manual':
@@ -1715,7 +1791,17 @@ const HomeScreen = () => {
         )}
 
         {/* Habit Summary Card - Always visible with stable layout; skeleton when loading */}
-        <View style={styles.section}>
+        <View
+          style={styles.section}
+          ref={habitTutorialRef}
+          collapsable={false}
+          onLayout={() => {
+            if (!homeSpotlight || !habitTutorialRef.current) return;
+            habitTutorialRef.current.measureInWindow((x, y, width, height) => {
+              tutorial?.registerLogHabitsLayout?.({ x, y, width, height });
+            });
+          }}
+        >
           <HabitSummaryCard
             date={selectedDate}
             habitCount={habitCount}
@@ -1759,12 +1845,7 @@ const HomeScreen = () => {
                 onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
                 activeOpacity={0.7}
               >
-                <Ionicons name="happy-outline" size={16} color={colors.primary} />
-                <Text style={styles.howDidYouFeelCTATextCompact}>
-                  {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null)
-                    ? 'Edit how you felt +'
-                    : 'Add how you felt +'}
-                </Text>
+                <Text style={styles.howDidYouFeelCTATextCompact}>How did you sleep?</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1951,6 +2032,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    paddingTop: spacing.md, // Breathing room below the date header so first card doesn’t touch it
     paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   todayReminderSlot: {

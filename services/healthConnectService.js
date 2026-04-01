@@ -100,31 +100,59 @@ class HealthConnectService {
    * @returns {Promise<boolean>} True if permissions granted
    */
   async requestPermissions() {
+    const detail = await this.requestPermissionsDetailed();
+    return detail.ok;
+  }
+
+  /**
+   * @returns {Promise<{ ok: boolean, reason: string, step?: string, errorMessage?: string, platform: 'android' }>}
+   */
+  async requestPermissionsDetailed() {
+    const base = { ok: false, reason: 'unknown', platform: 'android' };
     try {
       if (!this.isInitialized) {
         const initSuccess = await this.initialize();
         if (!initSuccess) {
-          return false;
+          return { ...base, reason: 'health_connect_init_failed', step: 'initialize' };
         }
       }
 
-      const grantedPermissions = await requestPermission(this.permissions);
+      let grantedPermissions;
+      try {
+        grantedPermissions = await requestPermission(this.permissions);
+      } catch (error) {
+        const msg = error?.message || String(error);
+        return {
+          ...base,
+          reason: 'authorization_error',
+          step: 'requestPermission',
+          errorMessage: msg,
+        };
+      }
 
-      // Check if we got the essential sleep permission
       let hasSleepPermission = false;
 
       if (Array.isArray(grantedPermissions)) {
         hasSleepPermission = grantedPermissions.some(
-          perm => perm.recordType === 'SleepSession' && perm.accessType === 'read'
+          (perm) => perm.recordType === 'SleepSession' && perm.accessType === 'read'
         );
       } else if (typeof grantedPermissions === 'boolean') {
-        // Some libraries return just a boolean
         hasSleepPermission = grantedPermissions;
       }
 
-      return hasSleepPermission;
+      if (hasSleepPermission) {
+        return { ok: true, reason: 'sleep_read_granted', platform: 'android' };
+      }
+
+      return { ...base, reason: 'sleep_not_granted', step: 'requestPermission' };
     } catch (error) {
-      return false;
+      const msg = error?.message || String(error);
+      return {
+        ...base,
+        reason: 'unexpected_error',
+        step: 'requestPermissionsDetailed',
+        errorMessage: msg,
+      };
     }
   }
 

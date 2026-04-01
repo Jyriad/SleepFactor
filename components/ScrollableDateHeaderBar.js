@@ -62,12 +62,12 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: HEADER_BOTTOM_RADIUS,
     borderBottomRightRadius: HEADER_BOTTOM_RADIUS,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 0,
     zIndex: 10,
     elevation: 10,
   },
   headerInner: {
-    paddingTop: 2,
+    paddingTop: 0,
   },
   backButton: {
     padding: spacing.xs,

@@ -112,8 +112,11 @@ Stores predefined and user-customizable consumption options for drug habits.
 - `icon` (TEXT, Nullable) - Icon name for UI display
 - `is_custom` (BOOLEAN) - True for user-created options, false for system defaults
 - `serving_options` (JSONB, Nullable) - Available serving multipliers as array (default: [0.5, 1, 1.5, 2])
-- `default_volume` (INTEGER, Nullable) - Default volume/amount of drink in serving units (e.g., 240 for coffee cup)
+- `default_volume` (INTEGER, Nullable) - Legacy mirror of reference size (ml for liquids, count for discrete units); kept for older clients
 - `serving_unit` (TEXT) - Unit of measurement for servings (ml, spoons, pills, shots, etc.)
+- `intake_basis` (TEXT) - How to interpret `drug_amount`: `volume_ml` (per `reference_volume_ml`), `serving_count` (per `reference_serving_count`), or `direct_amount`
+- `reference_volume_ml` (NUMERIC, Nullable) - Liquid reference size in ml that `drug_amount` applies to
+- `reference_serving_count` (NUMERIC, Nullable) - Number of discrete units (pills, spoons, etc.) that `drug_amount` applies to
 - `drug_unit` (TEXT) - Unit for the drug_amount field (mg for caffeine, ml for alcohol, etc.)
 - `is_active` (BOOLEAN) - Whether this option is available for use
 - `created_at` (TIMESTAMPTZ) - Timestamp when record was created
@@ -131,7 +134,20 @@ Stores predefined and user-customizable consumption options for drug habits.
 
 ---
 
-### 6. `insights_cache`
+### 6. `habit_consumption_events`
+Individual consumption logs for quick-consumption (caffeine/alcohol) habits.
+
+**Columns (in addition to ids and timestamps):**
+- `amount` (NUMERIC) - Total active ingredient for this log (e.g. mg caffeine)
+- `volume` (NUMERIC, Nullable) - Legacy column: ml consumed for liquid logs; new rows sync with `logged_volume_ml` when applicable
+- `drink_type` (TEXT / UUID) - Option id or legacy type string; `none` for “no consumption” marker
+- `logged_intake_basis` (TEXT, Nullable) - `volume_ml`, `serving_count`, or `direct_amount`
+- `logged_volume_ml` (NUMERIC, Nullable) - Ml logged when basis is `volume_ml`
+- `logged_serving_count` (NUMERIC, Nullable) - Total discrete units logged when basis is `serving_count`
+
+---
+
+### 7. `insights_cache`
 Stores pre-calculated correlation insights between habits and sleep metrics.
 
 **Columns:**
@@ -197,6 +213,7 @@ The schema is defined in:
 - `supabase/migrations/20250106000000_add_consumption_types.sql`
 - `supabase/migrations/20250107000000_fix_habit_type_constraint.sql`
 - `supabase/migrations/20250108000000_add_consumption_options.sql`
+- `supabase/migrations/20260330120000_consumption_intake_basis.sql`
 
 To apply migrations:
 ```bash

@@ -19,6 +19,8 @@ import AuthScreen from '../screens/AuthScreen';
 import TabNavigator from './TabNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import { TutorialProvider } from '../contexts/TutorialContext';
+import TutorialOverlay from '../components/TutorialOverlay';
 
 const AccountScreen = lazy(() => import('../screens/AccountScreen'));
 const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
@@ -82,12 +84,9 @@ const AppNavigator = ({ navigationRef }) => {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  const handleOnboardingFlowComplete = useCallback(async () => {
-    if (user?.id) {
-      await markOnboardingCompletedForUser(user.id);
-    }
+  const handleOnboardingFlowComplete = useCallback(() => {
     setOnboardingComplete(true);
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => {
     if (!navigationRef.current || loading) return;
@@ -157,49 +156,54 @@ const AppNavigator = ({ navigationRef }) => {
     <View style={styles.root}>
       <SplashContext.Provider value={{ onReadyToHideSplash: hideSplashOnce }}>
         <NavigationContainer ref={navigationRef} onStateChange={onStateChange}>
-          <Suspense fallback={<LazyFallback />}>
-            <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-              animation: 'slide_from_right',
-              animationDuration: 220,
-            }}
-            initialRouteName={initialRoute}
-          >
-            {isAuthenticated && user ? (
-              <>
-                <Stack.Screen
-                  name="MainTabs"
-                  component={TabNavigator}
-                  options={{ statusBarTranslucent: true }}
-                />
-                <Stack.Screen
-                  name="AddHabit"
-                  component={AddHabitScreen}
-                  options={{ presentation: 'modal' }}
-                />
-                <Stack.Screen
-                  name="EditHabit"
-                  component={EditHabitScreen}
-                  options={{ presentation: 'modal' }}
-                />
-                <Stack.Screen
-                  name="DeleteHabit"
-                  component={DeleteHabitScreen}
-                  options={{ presentation: 'modal' }}
-                />
-                <Stack.Screen name="Account" component={AccountScreen} />
-                <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} />
-                <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} />
-              </>
-            ) : (
-              <>
-                <Stack.Screen name="Auth" component={AuthScreen} />
-                <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-              </>
-            )}
-          </Stack.Navigator>
-          </Suspense>
+          <TutorialProvider>
+            <View style={styles.mainShell}>
+              <Suspense fallback={<LazyFallback />}>
+                <Stack.Navigator
+                  screenOptions={{
+                    headerShown: false,
+                    animation: 'slide_from_right',
+                    animationDuration: 220,
+                  }}
+                  initialRouteName={initialRoute}
+                >
+                  {isAuthenticated && user ? (
+                    <>
+                      <Stack.Screen
+                        name="MainTabs"
+                        component={TabNavigator}
+                        options={{ statusBarTranslucent: true }}
+                      />
+                      <Stack.Screen
+                        name="AddHabit"
+                        component={AddHabitScreen}
+                        options={{ presentation: 'modal' }}
+                      />
+                      <Stack.Screen
+                        name="EditHabit"
+                        component={EditHabitScreen}
+                        options={{ presentation: 'modal' }}
+                      />
+                      <Stack.Screen
+                        name="DeleteHabit"
+                        component={DeleteHabitScreen}
+                        options={{ presentation: 'modal' }}
+                      />
+                      <Stack.Screen name="Account" component={AccountScreen} />
+                      <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} />
+                      <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} />
+                    </>
+                  ) : (
+                    <>
+                      <Stack.Screen name="Auth" component={AuthScreen} />
+                      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+                    </>
+                  )}
+                </Stack.Navigator>
+              </Suspense>
+              <TutorialOverlay />
+            </View>
+          </TutorialProvider>
         </NavigationContainer>
       </SplashContext.Provider>
     </View>
@@ -208,6 +212,9 @@ const AppNavigator = ({ navigationRef }) => {
 
 const styles = StyleSheet.create({
   root: {
+    flex: 1,
+  },
+  mainShell: {
     flex: 1,
   },
   loadingContainer: {

@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 
 const NOTIFICATION_PREF_KEY = 'onboarding_notification_preference';
 
@@ -44,7 +45,7 @@ const OnboardingNotificationScreen = ({ navigation }) => {
     try {
       const granted = await requestNotificationPermission();
       await setNotificationPreference(granted ? 'morning_and_evening' : 'skipped');
-      navigation.navigate('OnboardingDashboard');
+      navigation.navigate('OnboardingClosing');
     } finally {
       setRequesting(false);
     }
@@ -52,13 +53,13 @@ const OnboardingNotificationScreen = ({ navigation }) => {
 
   const handleSkip = async () => {
     await setNotificationPreference('skipped');
-    navigation.navigate('OnboardingDashboard');
+    navigation.navigate('OnboardingClosing');
   };
 
   return (
     <OnboardingStepLayout
-      step={7}
-      totalSteps={8}
+      step={11}
+      totalSteps={ONBOARDING_STEP_TOTAL}
       title="Reminders"
       onNext={handleEnable}
       onBack={() => navigation.goBack()}

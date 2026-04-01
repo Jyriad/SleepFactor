@@ -17,12 +17,25 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
-import { getDefaultVolumeForOptionInRegion } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
+import {
+  getLastCustomAmountForOption,
+  setLastCustomAmountForOption,
+} from '../services/consumptionCustomAmountStorage';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { formatVolume, getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
+import {
+  INTAKE_BASIS,
+  resolveIntakeBasis,
+  getReferenceVolumeMlForOption,
+  getReferenceServingCount,
+  amountFromVolumeMl,
+  amountFromServingCount,
+  getLoggedVolumeMl,
+  getLoggedServingCount,
+} from '../utils/consumptionIntake';
 
 const LogConsumptionScreen = () => {
   const navigation = useNavigation();
@@ -62,18 +75,62 @@ const LogConsumptionScreen = () => {
   const [customAmountDisplayValue, setCustomAmountDisplayValue] = useState(selectedOption?.drug_amount ?? customDrugAmount ?? 0);
 
   useEffect(() => {
-    setCustomAmountDisplayValue(selectedOption?.drug_amount ?? customDrugAmount ?? 0);
-  }, [selectedOption?.drug_amount, customDrugAmount]);
+    if (showCustomVolume) {
+      setCustomAmountDisplayValue(customDrugAmount ?? 0);
+      return;
+    }
+    setCustomAmountDisplayValue(selectedOption?.drug_amount ?? 0);
+  }, [selectedOption?.drug_amount, customDrugAmount, showCustomVolume]);
 
   // Prefill form when editing an existing event
   useEffect(() => {
     if (!editingEvent || !selectedOption) return;
     const resolvedOption = selectedOption;
-    const volumeMl = editingEvent.volume != null ? Number(editingEvent.volume) : null;
-    const effectiveDefaultVol = getDefaultVolumeForOptionInRegion(resolvedOption.name, habit?.name, measurementRegion) ?? resolvedOption.default_volume ?? null;
-
+    const basis = resolveIntakeBasis(resolvedOption);
     let useCustom = editingEvent.serving === 'custom';
     let presetServing = editingEvent.serving && editingEvent.serving !== 'custom' ? editingEvent.serving : 1;
+
+    if (basis === INTAKE_BASIS.SERVING_COUNT) {
+      const refCount = getReferenceServingCount(resolvedOption);
+      const totalCount = getLoggedServingCount(editingEvent);
+      if (totalCount != null && totalCount > 0 && refCount) {
+        const tolerance = 0.05;
+        let matched = false;
+        for (const mult of [0.5, 1, 2]) {
+          const expected = refCount * mult;
+          if (Math.abs(totalCount - expected) <= tolerance) {
+            presetServing = mult;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) useCustom = true;
+      } else if (totalCount != null && totalCount > 0) {
+        useCustom = true;
+      }
+
+      if (useCustom) {
+        setSelectedServing('custom');
+        setShowCustomVolume(true);
+        setCustomDrugAmount(editingEvent.amount ?? 0);
+        setCustomAmountDisplayValue(editingEvent.amount ?? 0);
+        const countStr = totalCount != null && totalCount > 0 ? String(totalCount) : String(refCount || 1);
+        setCustomVolume(countStr);
+        customVolumeRef.current = countStr;
+      } else {
+        setSelectedServing(presetServing);
+        setShowCustomVolume(false);
+        setCustomVolume('');
+        setCustomDrugAmount(0);
+      }
+      return;
+    }
+
+    const volumeMl = getLoggedVolumeMl(editingEvent);
+    const effectiveDefaultVol =
+      getReferenceVolumeMlForOption(resolvedOption, habit?.name, measurementRegion) ??
+      resolvedOption.default_volume ??
+      null;
 
     if (volumeMl != null && volumeMl > 0 && effectiveDefaultVol) {
       const tolerance = 2;
@@ -108,7 +165,7 @@ const LogConsumptionScreen = () => {
       setCustomVolume('');
       setCustomDrugAmount(0);
     }
-  }, [editingEvent?.id]); // Run once when editingEvent is set
+  }, [editingEvent?.id, selectedOption?.id, habit?.name, measurementRegion, measurementSystem]);
 
   useEffect(() => {
     if (!habit?.id) {
@@ -131,31 +188,85 @@ const LogConsumptionScreen = () => {
     return () => { cancelled = true; };
   }, [habit?.id, measurementRegion]);
 
-  const getEffectiveDefaultVolume = useCallback((option) => {
-    if (!option) return null;
-    const regionVol = getDefaultVolumeForOptionInRegion(option.name, habit?.name, measurementRegion);
-    return regionVol ?? option.default_volume ?? null;
-  }, [habit?.name, measurementRegion]);
+  const calculateCustomDrugAmountFromText = useCallback(
+    (text) => {
+      if (!selectedOption || !selectedOption.drug_amount) return 0;
+      const basis = resolveIntakeBasis(selectedOption);
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const n = parseFloat(String(text).replace(',', '.'));
+        if (n == null || Number.isNaN(n) || n <= 0) return 0;
+        return amountFromServingCount(selectedOption, n);
+      }
+      const inputUnit = getVolumeUnitLabel(measurementSystem);
+      const volumeMl = parseVolumeInputToMl(text, measurementSystem, inputUnit);
+      return amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeMl);
+    },
+    [selectedOption, habit?.name, measurementRegion, measurementSystem]
+  );
 
-  const calculateCustomDrugAmount = useCallback((volumeMl) => {
-    if (!selectedOption || !selectedOption.drug_amount) return 0;
-    if (volumeMl == null || volumeMl <= 0) return 0;
-    const refVolume = getEffectiveDefaultVolume(selectedOption) ?? selectedOption?.default_volume;
-    if (refVolume) {
-      const calculated = (volumeMl / refVolume) * selectedOption.drug_amount;
-      return Math.round(calculated * 10) / 10;
-    }
-    return Math.round(volumeMl * 10) / 10;
-  }, [selectedOption, getEffectiveDefaultVolume]);
+  const selectedIntakeBasis = useMemo(
+    () => (selectedOption ? resolveIntakeBasis(selectedOption) : null),
+    [selectedOption?.id, selectedOption?.serving_unit, selectedOption?.intake_basis]
+  );
 
   const effectiveDefaultVolForDisplay = useMemo(
-    () => (selectedOption ? getEffectiveDefaultVolume(selectedOption) : null),
-    [selectedOption?.id, selectedOption?.name, habit?.name, measurementRegion, getEffectiveDefaultVolume]
+    () =>
+      selectedOption && selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML
+        ? getReferenceVolumeMlForOption(selectedOption, habit?.name, measurementRegion)
+        : null,
+    [selectedOption?.id, selectedOption?.name, habit?.name, measurementRegion, selectedIntakeBasis]
   );
-  const customVolumePlaceholder = useMemo(
-    () => (effectiveDefaultVolForDisplay ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem) : '100'),
-    [effectiveDefaultVolForDisplay, measurementSystem]
+
+  const refServingForDisplay = useMemo(
+    () =>
+      selectedOption && selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT
+        ? getReferenceServingCount(selectedOption)
+        : null,
+    [selectedOption?.id, selectedIntakeBasis]
   );
+
+  const customVolumePlaceholder = useMemo(() => {
+    if (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null) {
+      return String(refServingForDisplay);
+    }
+    return effectiveDefaultVolForDisplay ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem) : '100';
+  }, [selectedIntakeBasis, refServingForDisplay, effectiveDefaultVolForDisplay, measurementSystem]);
+
+  const getDefaultCustomInputValue = useCallback(() => {
+    if (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT) {
+      return String(refServingForDisplay ?? 1);
+    }
+    return effectiveDefaultVolForDisplay
+      ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem)
+      : '';
+  }, [selectedIntakeBasis, refServingForDisplay, effectiveDefaultVolForDisplay, measurementSystem]);
+
+  const applyCustomInputValue = useCallback(
+    (value) => {
+      const resolved = String(value ?? '').trim();
+      const finalValue = resolved || getDefaultCustomInputValue();
+      setCustomVolume(finalValue);
+      customVolumeRef.current = finalValue;
+      const calculatedAmount = calculateCustomDrugAmountFromText(finalValue);
+      setCustomDrugAmount(calculatedAmount);
+      setCustomAmountDisplayValue(calculatedAmount);
+    },
+    [getDefaultCustomInputValue, calculateCustomDrugAmountFromText]
+  );
+
+  const handleSelectCustomServing = useCallback(async () => {
+    setSelectedServing('custom');
+    setShowCustomVolume(true);
+
+    const fallback = getDefaultCustomInputValue();
+    if (!selectedOption?.id || !userId) {
+      applyCustomInputValue(fallback);
+      return;
+    }
+
+    const remembered = await getLastCustomAmountForOption(userId, selectedOption.id);
+    applyCustomInputValue(remembered ?? fallback);
+  }, [getDefaultCustomInputValue, selectedOption?.id, userId, applyCustomInputValue]);
 
   const resolveConsumptionType = useCallback((type) => {
     if (!type || !consumptionOptions?.length) return null;
@@ -235,19 +346,19 @@ const LogConsumptionScreen = () => {
   }, [userId]);
 
   const handleCustomVolumeBlur = useCallback(() => {
-    const inputUnit = getVolumeUnitLabel(measurementSystem);
-    const volumeMl = parseVolumeInputToMl(customVolumeRef.current, measurementSystem, inputUnit);
-    const calculatedAmount = calculateCustomDrugAmount(volumeMl);
+    const calculatedAmount = calculateCustomDrugAmountFromText(customVolumeRef.current ?? '');
     setCustomAmountDisplayValue(calculatedAmount);
-  }, [measurementSystem, selectedOption?.id, calculateCustomDrugAmount]);
+  }, [calculateCustomDrugAmountFromText]);
 
-  const handleCustomVolumeChange = useCallback((text) => {
-    customVolumeRef.current = text;
-    const inputUnit = getVolumeUnitLabel(measurementSystem);
-    const volumeMl = parseVolumeInputToMl(text, measurementSystem, inputUnit);
-    const calculatedAmount = calculateCustomDrugAmount(volumeMl);
-    setCustomAmountDisplayValue(calculatedAmount);
-  }, [measurementSystem, selectedOption?.id, calculateCustomDrugAmount]);
+  const handleCustomVolumeChange = useCallback(
+    (text) => {
+      setCustomVolume(text);
+      customVolumeRef.current = text;
+      const calculatedAmount = calculateCustomDrugAmountFromText(text);
+      setCustomAmountDisplayValue(calculatedAmount);
+    },
+    [calculateCustomDrugAmountFromText]
+  );
 
   const formatTimeLabel = useCallback((d) => {
     if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '—';
@@ -285,26 +396,55 @@ const LogConsumptionScreen = () => {
     let baseAmount = resolvedOption?.drug_amount ?? (habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1);
     let drinkType = consumptionType;
     let totalAmount = 0;
-    let volumeConsumed;
+    let volumeConsumed = null;
+    let loggedIntakeBasis = INTAKE_BASIS.DIRECT_AMOUNT;
+    let loggedVolumeMl = null;
+    let loggedServingCount = null;
     let servingMultiplier;
 
     if (selectedServing === 'custom' && selectedOption) {
-      const inputUnit = getVolumeUnitLabel(measurementSystem);
-      const volumeStr = customVolumeRef.current ?? customVolume;
-      volumeConsumed = parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit) || selectedOption?.default_volume || 0;
-      totalAmount = calculateCustomDrugAmount(volumeConsumed);
+      const basis = resolveIntakeBasis(selectedOption);
+      const raw = customVolumeRef.current ?? customVolume;
+      await setLastCustomAmountForOption(userId, selectedOption.id, raw);
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const count = parseFloat(String(raw).replace(',', '.')) || 0;
+        totalAmount = amountFromServingCount(selectedOption, count);
+        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
+        loggedServingCount = count > 0 ? count : null;
+      } else {
+        const inputUnit = getVolumeUnitLabel(measurementSystem);
+        const volumeStr = raw;
+        volumeConsumed =
+          parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit) || selectedOption?.default_volume || 0;
+        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
+        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
+        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
+      }
       servingMultiplier = 'custom';
     } else if (selectedOption) {
       servingMultiplier = selectedServing || 1;
-      const effectiveDefaultVol = getEffectiveDefaultVolume(selectedOption) ?? resolvedOption?.default_volume;
-      const refVolume = effectiveDefaultVol || selectedOption?.default_volume || resolvedOption?.default_volume || 1;
-      volumeConsumed = effectiveDefaultVol ? effectiveDefaultVol * servingMultiplier : 0;
-      totalAmount = refVolume ? (baseAmount * (volumeConsumed / refVolume)) : baseAmount * servingMultiplier;
+      const basis = resolveIntakeBasis(selectedOption);
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const refCount = getReferenceServingCount(selectedOption);
+        const totalCount = refCount * servingMultiplier;
+        totalAmount = amountFromServingCount(selectedOption, totalCount);
+        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
+        loggedServingCount = totalCount;
+      } else {
+        const refMl =
+          getReferenceVolumeMlForOption(selectedOption, habit?.name, measurementRegion) ??
+          selectedOption?.default_volume ??
+          resolvedOption?.default_volume ??
+          1;
+        volumeConsumed = refMl ? refMl * servingMultiplier : 0;
+        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
+        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
+        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
+      }
     } else {
       totalAmount = parseFloat(quickAddAmount) || baseAmount;
-      volumeConsumed = null;
-      servingMultiplier = 'custom';
       drinkType = null;
+      servingMultiplier = 'custom';
     }
 
     if (resolvedOption) drinkType = resolvedOption.id;
@@ -329,14 +469,28 @@ const LogConsumptionScreen = () => {
         user_id: userId,
         consumed_at: consumptionTime.toISOString(),
         amount: totalAmount,
-        volume: volumeConsumed,
+        volume: loggedVolumeMl,
         drink_type: drinkType,
+        logged_intake_basis: loggedIntakeBasis,
+        logged_volume_ml: loggedVolumeMl,
+        logged_serving_count: loggedServingCount,
       })
       .select()
       .single();
 
     if (error) {
-      Alert.alert('Error', 'Failed to add consumption');
+      console.error('[LogConsumption] Failed to add consumption', {
+        error,
+        habitId: habit?.id,
+        userId,
+        selectedOptionId: selectedOption?.id,
+        drinkType,
+        loggedIntakeBasis,
+        loggedVolumeMl,
+        loggedServingCount,
+        totalAmount,
+      });
+      Alert.alert('Error', `Failed to add consumption: ${error.message || 'Unknown error'}`);
       return;
     }
     try {
@@ -344,28 +498,66 @@ const LogConsumptionScreen = () => {
     } catch (e) {}
     onSaveSuccess?.();
     navigation.goBack();
-  }, [habit, userId, selectedOption, selectedServing, customVolume, quickAddAmount, measurementSystem, resolveConsumptionType, getEffectiveDefaultVolume, calculateCustomDrugAmount, selectedDateObj, updateBedtimeDrugLevel, onSaveSuccess, navigation]);
+  }, [
+    habit,
+    userId,
+    selectedOption,
+    selectedServing,
+    customVolume,
+    quickAddAmount,
+    measurementSystem,
+    measurementRegion,
+    resolveConsumptionType,
+    selectedDateObj,
+    updateBedtimeDrugLevel,
+    onSaveSuccess,
+    navigation,
+  ]);
 
   const updateConsumptionEvent = useCallback(async (eventId, consumptionType, consumptionTime) => {
     if (!habit?.id || !userId) return;
     const resolvedOption = resolveConsumptionType(consumptionType);
-    let baseAmount = resolvedOption?.drug_amount ?? (habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1);
     let totalAmount = 0;
-    let volumeConsumed;
-    let servingMultiplier;
+    let loggedIntakeBasis = INTAKE_BASIS.DIRECT_AMOUNT;
+    let loggedVolumeMl = null;
+    let loggedServingCount = null;
 
     if (selectedServing === 'custom' && selectedOption) {
-      const inputUnit = getVolumeUnitLabel(measurementSystem);
-      const volumeStr = customVolumeRef.current ?? customVolume;
-      volumeConsumed = parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit) || resolvedOption?.default_volume || 0;
-      totalAmount = calculateCustomDrugAmount(volumeConsumed);
-      servingMultiplier = 'custom';
-    } else {
-      servingMultiplier = selectedServing || 1;
-      const effectiveDefaultVol = resolvedOption ? (getDefaultVolumeForOptionInRegion(resolvedOption.name, habit?.name, measurementRegion) ?? resolvedOption.default_volume) : null;
-      const refVolume = effectiveDefaultVol || resolvedOption?.default_volume || 1;
-      volumeConsumed = effectiveDefaultVol ? effectiveDefaultVol * servingMultiplier : 0;
-      totalAmount = refVolume ? (baseAmount * (volumeConsumed / refVolume)) : baseAmount * servingMultiplier;
+      const basis = resolveIntakeBasis(selectedOption);
+      const raw = customVolumeRef.current ?? customVolume;
+      await setLastCustomAmountForOption(userId, selectedOption.id, raw);
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const count = parseFloat(String(raw).replace(',', '.')) || 0;
+        totalAmount = amountFromServingCount(selectedOption, count);
+        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
+        loggedServingCount = count > 0 ? count : null;
+      } else {
+        const inputUnit = getVolumeUnitLabel(measurementSystem);
+        const volumeConsumed =
+          parseVolumeInputToMl(raw, measurementSystem, inputUnit) || resolvedOption?.default_volume || 0;
+        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
+        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
+        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
+      }
+    } else if (selectedOption) {
+      const servingMultiplier = selectedServing || 1;
+      const basis = resolveIntakeBasis(selectedOption);
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const refCount = getReferenceServingCount(selectedOption);
+        const totalCount = refCount * servingMultiplier;
+        totalAmount = amountFromServingCount(selectedOption, totalCount);
+        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
+        loggedServingCount = totalCount;
+      } else {
+        const refMl =
+          getReferenceVolumeMlForOption(selectedOption, habit?.name, measurementRegion) ??
+          resolvedOption?.default_volume ??
+          1;
+        const volumeConsumed = refMl ? refMl * servingMultiplier : 0;
+        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
+        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
+        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
+      }
     }
 
     const { error: updateError } = await supabase
@@ -373,13 +565,27 @@ const LogConsumptionScreen = () => {
       .update({
         consumed_at: consumptionTime.toISOString(),
         amount: totalAmount,
-        volume: volumeConsumed,
+        volume: loggedVolumeMl,
         drink_type: resolvedOption?.id || consumptionType,
+        logged_intake_basis: loggedIntakeBasis,
+        logged_volume_ml: loggedVolumeMl,
+        logged_serving_count: loggedServingCount,
       })
       .eq('id', eventId);
 
     if (updateError) {
-      Alert.alert('Error', 'Failed to update consumption');
+      console.error('[LogConsumption] Failed to update consumption', {
+        error: updateError,
+        eventId,
+        habitId: habit?.id,
+        userId,
+        selectedOptionId: selectedOption?.id,
+        loggedIntakeBasis,
+        loggedVolumeMl,
+        loggedServingCount,
+        totalAmount,
+      });
+      Alert.alert('Error', `Failed to update consumption: ${updateError.message || 'Unknown error'}`);
       return;
     }
     try {
@@ -387,7 +593,20 @@ const LogConsumptionScreen = () => {
     } catch (e) {}
     onSaveSuccess?.();
     navigation.goBack();
-  }, [habit, userId, selectedOption, selectedServing, customVolume, measurementSystem, resolveConsumptionType, calculateCustomDrugAmount, selectedDateObj, updateBedtimeDrugLevel, onSaveSuccess, navigation]);
+  }, [
+    habit,
+    userId,
+    selectedOption,
+    selectedServing,
+    customVolume,
+    measurementSystem,
+    measurementRegion,
+    resolveConsumptionType,
+    selectedDateObj,
+    updateBedtimeDrugLevel,
+    onSaveSuccess,
+    navigation,
+  ]);
 
   const performQuickSave = useCallback(async (consumptionTime) => {
     if (editingEvent) {
@@ -501,14 +720,34 @@ const LogConsumptionScreen = () => {
             <View style={styles.servingSection}>
               <Text style={styles.servingLabel}>
                 {selectedOption.name}
-                {effectiveDefaultVolForDisplay ? ` ${formatVolume(effectiveDefaultVolForDisplay, measurementSystem)}` : ''}
-                {selectedOption.drug_amount ? `${effectiveDefaultVolForDisplay ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}` : ''}
-                {(effectiveDefaultVolForDisplay || selectedOption.drug_amount) ? ' per serving' : ''}
+                {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null
+                  ? ` ${refServingForDisplay} ${selectedOption.serving_unit || 'units'}`
+                  : ''}
+                {selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && effectiveDefaultVolForDisplay
+                  ? ` ${formatVolume(effectiveDefaultVolForDisplay, measurementSystem)}`
+                  : ''}
+                {selectedOption.drug_amount
+                  ? `${(effectiveDefaultVolForDisplay || (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null)) ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}`
+                  : ''}
+                {(effectiveDefaultVolForDisplay ||
+                  (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null) ||
+                  selectedOption.drug_amount)
+                  ? ' per serving'
+                  : ''}
               </Text>
               <View style={styles.servingButtons}>
                 {[0.5, 1, 2].map((serving) => {
-                  const totalDrugAmount = selectedOption.drug_amount * serving;
-                  const totalVolume = effectiveDefaultVolForDisplay ? Math.round(effectiveDefaultVolForDisplay * serving) : null;
+                  const refVol = effectiveDefaultVolForDisplay;
+                  const refSrv = refServingForDisplay;
+                  let totalDrugAmount = selectedOption.drug_amount * serving;
+                  let totalVolume = refVol ? Math.round(refVol * serving) : null;
+                  let servingSizeLine = '';
+                  if (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refSrv != null) {
+                    const totalCount = refSrv * serving;
+                    totalDrugAmount = amountFromServingCount(selectedOption, totalCount);
+                    const n = Number.isInteger(totalCount) ? totalCount : Math.round(totalCount * 10) / 10;
+                    servingSizeLine = `${n} ${selectedOption.serving_unit || ''}`.trim();
+                  }
                   return (
                     <TouchableOpacity
                       key={serving}
@@ -522,8 +761,10 @@ const LogConsumptionScreen = () => {
                     >
                       <Text style={[styles.servingButtonText, selectedServing === serving && !showCustomVolume && styles.servingButtonTextSelected]}>{serving}x</Text>
                       <Text style={[styles.servingAmountText, selectedServing === serving && !showCustomVolume && styles.servingAmountTextSelected]}>
-                        {totalVolume ? formatVolume(totalVolume, measurementSystem) : ''}
-                        {(totalVolume || totalDrugAmount) && (totalVolume && totalDrugAmount) ? '\n' : ''}
+                        {selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && totalVolume
+                          ? formatVolume(totalVolume, measurementSystem)
+                          : servingSizeLine}
+                        {((selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && totalVolume) || servingSizeLine) && totalDrugAmount ? '\n' : ''}
                         {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
                       </Text>
                     </TouchableOpacity>
@@ -531,14 +772,7 @@ const LogConsumptionScreen = () => {
                 })}
                 <TouchableOpacity
                   style={[styles.servingButton, showCustomVolume && styles.servingButtonSelected]}
-                  onPress={() => {
-                    setSelectedServing('custom');
-                    setShowCustomVolume(true);
-                    const defaultVolume = effectiveDefaultVolForDisplay ? mlToUserUnit(effectiveDefaultVolForDisplay, measurementSystem) : '';
-                    setCustomVolume(defaultVolume);
-                    customVolumeRef.current = defaultVolume;
-                    setCustomDrugAmount(selectedOption.drug_amount || 0);
-                  }}
+                  onPress={handleSelectCustomServing}
                 >
                   <Text style={[styles.servingButtonText, showCustomVolume && styles.servingButtonTextSelected]}>Other</Text>
                   <Text style={[styles.servingAmountText, showCustomVolume && styles.servingAmountTextSelected]}>Custom{'\n'}Amount</Text>
@@ -547,19 +781,25 @@ const LogConsumptionScreen = () => {
 
               {showCustomVolume && (
                 <View style={styles.customVolumeSection}>
-                  <Text style={styles.customVolumeLabel}>Custom Volume:</Text>
+                  <Text style={styles.customVolumeLabel}>
+                    {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT ? 'Custom amount:' : 'Custom volume:'}
+                  </Text>
                   <View style={styles.customVolumeInputRow} collapsable={false}>
                     <TextInput
                       style={styles.customVolumeInput}
-                      defaultValue={customVolume}
+                      value={customVolume}
                       onChangeText={handleCustomVolumeChange}
                       onBlur={handleCustomVolumeBlur}
                       placeholder={customVolumePlaceholder}
-                      keyboardType="phone-pad"
+                      keyboardType="decimal-pad"
                       autoCorrect={false}
-                      maxLength={4}
+                      maxLength={6}
                     />
-                    <Text style={styles.customVolumeUnit}>{getVolumeUnitLabel(measurementSystem)}</Text>
+                    <Text style={styles.customVolumeUnit}>
+                      {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT
+                        ? selectedOption.serving_unit || 'units'
+                        : getVolumeUnitLabel(measurementSystem)}
+                    </Text>
                     <Text style={styles.customVolumeArrow}>→</Text>
                     <View style={styles.customAmountWithLabel}>
                       <Text style={styles.customVolumeResult}>

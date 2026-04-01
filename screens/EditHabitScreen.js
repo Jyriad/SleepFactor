@@ -5,8 +5,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ScrollView,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -14,11 +18,11 @@ import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
-import { Alert } from 'react-native';
 
 const EditHabitScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { habit, onSuccess } = route.params || {};
 
@@ -96,60 +100,74 @@ const EditHabitScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        <Text style={styles.label}>Habit Name</Text>
-        <TextInput
-          style={styles.textInput}
-          placeholder="Enter habit name"
-          placeholderTextColor={colors.textLight}
-          value={habitName}
-          onChangeText={setHabitName}
-          maxLength={50}
-        />
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: spacing.xl + insets.bottom },
+          ]}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.label}>Habit Name</Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder="Enter habit name"
+            placeholderTextColor={colors.textLight}
+            value={habitName}
+            onChangeText={setHabitName}
+            maxLength={50}
+          />
 
-        {/* Half-life input for drug habits */}
-        {habit?.type === 'quick_consumption' && (
-          <>
-            <Text style={[styles.label, styles.halfLifeLabel]}>
-              Half-Life (hours)
-              <Text style={styles.halfLifeHelp}>
-                {'  '}How long it takes for the substance to reduce by half in your system
+          {habit?.type === 'quick_consumption' && (
+            <>
+              <Text style={[styles.label, styles.halfLifeLabel]}>
+                Half-Life (hours)
+                <Text style={styles.halfLifeHelp}>
+                  {'  '}How long it takes for the substance to reduce by half in your system
+                </Text>
               </Text>
-            </Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="e.g., 5 (for caffeine)"
-              placeholderTextColor={colors.textLight}
-              value={halfLifeHours}
-              onChangeText={setHalfLifeHours}
-              keyboardType="numeric"
-              maxLength={10}
-            />
-            <Text style={styles.halfLifeExamples}>
-              Common half-lives: Caffeine (4-6 hours), Alcohol (4-5 hours)
-            </Text>
-          </>
-        )}
-      </View>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g., 5 (for caffeine)"
+                placeholderTextColor={colors.textLight}
+                value={halfLifeHours}
+                onChangeText={setHalfLifeHours}
+                keyboardType="numeric"
+                maxLength={10}
+              />
+              <Text style={styles.halfLifeExamples}>
+                Common half-lives: Caffeine (4-6 hours), Alcohol (4-5 hours)
+              </Text>
+            </>
+          )}
 
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.cancelButton]}
-          onPress={handleClose}
-          disabled={saving}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.saveButton]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>
-            {saving ? 'Updating...' : 'Update Habit'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <View style={[styles.actions, { marginTop: spacing.lg }]}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.cancelButton]}
+              onPress={handleClose}
+              disabled={saving}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.saveButton]}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              <Text style={styles.saveButtonText}>
+                {saving ? 'Updating...' : 'Update Habit'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -175,8 +193,14 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: spacing.xs,
   },
-  content: {
+  keyboardAvoid: {
     flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     padding: spacing.regular,
   },
   label: {

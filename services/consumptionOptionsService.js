@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { INTAKE_BASIS, isLiquidServingUnit } from '../utils/consumptionIntake';
 
 /**
  * Service for managing consumption options (Beer, Wine, Espresso, etc.)
@@ -132,28 +133,45 @@ class ConsumptionOptionsService {
       }
 
       if (volumeMl !== null && (volumeMl <= 0 || volumeMl > 10000)) {
-        return { success: false, error: 'Volume must be between 1 and 10000 ml' };
+        return { success: false, error: 'Reference size must be between 1 and 10000' };
       }
 
-      // Auto-determine drug_unit based on habit type if not provided
-      let finalDrugUnit = drugUnit;
-      if (!finalDrugUnit) {
-        const { data: habit } = await supabase
-          .from('habits')
-          .select('name')
-          .eq('id', habitId)
-          .single();
+      const { data: habit } = await supabase
+        .from('habits')
+        .select('name')
+        .eq('id', habitId)
+        .single();
 
-        if (habit) {
-          const habitName = habit.name.toLowerCase();
-          if (habitName.includes('caffeine')) {
-            finalDrugUnit = 'mg';
-          } else if (habitName.includes('alcohol')) {
-            finalDrugUnit = 'ml';
-          } else {
-            finalDrugUnit = 'units';
-          }
+      let finalDrugUnit = drugUnit;
+      if (!finalDrugUnit && habit?.name) {
+        const habitName = habit.name.toLowerCase();
+        if (habitName.includes('caffeine')) {
+          finalDrugUnit = 'mg';
+        } else if (habitName.includes('alcohol')) {
+          finalDrugUnit = 'ml';
+        } else {
+          finalDrugUnit = 'units';
         }
+      }
+
+      const habitNameLower = (habit?.name || '').toLowerCase();
+      const isAlcoholHabit = habitNameLower.includes('alcohol');
+      const liquid = isAlcoholHabit || isLiquidServingUnit(servingUnit);
+      let intakeBasis = INTAKE_BASIS.VOLUME_ML;
+      let referenceVolumeMl = null;
+      let referenceServingCount = null;
+      let defaultVolumeRow = null;
+      if (isAlcoholHabit) {
+        referenceVolumeMl = volumeMl;
+        defaultVolumeRow = volumeMl;
+      } else if (liquid) {
+        referenceVolumeMl = volumeMl != null && volumeMl > 0 ? volumeMl : null;
+        defaultVolumeRow = volumeMl != null && volumeMl > 0 ? Math.round(volumeMl) : null;
+      } else {
+        intakeBasis = INTAKE_BASIS.SERVING_COUNT;
+        const cnt = volumeMl != null && volumeMl > 0 ? Number(volumeMl) : 1;
+        referenceServingCount = Math.max(cnt, 0.001);
+        defaultVolumeRow = referenceServingCount;
       }
 
       const { data, error } = await supabase
@@ -164,9 +182,12 @@ class ConsumptionOptionsService {
           name: name.trim(),
           drug_amount: drugAmount,
           icon: icon,
-          default_volume: volumeMl,
+          default_volume: defaultVolumeRow,
           serving_unit: servingUnit,
           drug_unit: finalDrugUnit,
+          intake_basis: intakeBasis,
+          reference_volume_ml: referenceVolumeMl,
+          reference_serving_count: referenceServingCount,
           is_custom: true,
           is_active: true,
           region: 'custom'
@@ -197,20 +218,91 @@ class ConsumptionOptionsService {
       }
 
       if (volumeMl !== null && (volumeMl <= 0 || volumeMl > 10000)) {
-        return { success: false, error: 'Volume must be between 1 and 10000 ml' };
+        return { success: false, error: 'Reference size must be between 1 and 10000' };
+      }
+
+      const baseUpdate = {
+        name: name.trim(),
+        drug_amount: drugAmount,
+        updated_at: new Date().toISOString(),
+      };
+      if (icon !== null) baseUpdate.icon = icon;
+      if (drugUnit !== null) baseUpdate.drug_unit = drugUnit;
+
+      if (volumeMl === null && servingUnit === null) {
+        const { data, error } = await supabase
+          .from('consumption_options')
+          .update(baseUpdate)
+          .eq('id', optionId)
+          .select()
+          .single();
+
+        if (error) throw error;
+        this._invalidateByOptionId(optionId);
+        return { success: true, data };
+      }
+
+      const { data: existingOpt, error: exErr } = await supabase
+        .from('consumption_options')
+        .select('habit_id, serving_unit, default_volume, reference_volume_ml, reference_serving_count')
+        .eq('id', optionId)
+        .single();
+      if (exErr) throw exErr;
+
+      const { data: habitForOpt } = await supabase
+        .from('habits')
+        .select('name')
+        .eq('id', existingOpt.habit_id)
+        .maybeSingle();
+
+      const effUnit = servingUnit !== null ? servingUnit : existingOpt.serving_unit;
+      const isAlcoholHabit = (habitForOpt?.name || '').toLowerCase().includes('alcohol');
+      const liquid = isAlcoholHabit || isLiquidServingUnit(effUnit);
+
+      let effNumeric = volumeMl;
+      if (effNumeric === null) {
+        if (liquid) {
+          effNumeric =
+            existingOpt.reference_volume_ml != null && Number(existingOpt.reference_volume_ml) > 0
+              ? Number(existingOpt.reference_volume_ml)
+              : existingOpt.default_volume != null && Number(existingOpt.default_volume) > 0
+                ? Number(existingOpt.default_volume)
+                : null;
+        } else {
+          effNumeric =
+            existingOpt.reference_serving_count != null && Number(existingOpt.reference_serving_count) > 0
+              ? Number(existingOpt.reference_serving_count)
+              : existingOpt.default_volume != null && Number(existingOpt.default_volume) > 0
+                ? Number(existingOpt.default_volume)
+                : 1;
+        }
+      }
+
+      let intakeBasis = INTAKE_BASIS.VOLUME_ML;
+      let referenceVolumeMl = null;
+      let referenceServingCount = null;
+      let defaultVolumeRow = null;
+      if (isAlcoholHabit) {
+        referenceVolumeMl = effNumeric;
+        defaultVolumeRow = effNumeric;
+      } else if (liquid) {
+        referenceVolumeMl = effNumeric != null && effNumeric > 0 ? effNumeric : null;
+        defaultVolumeRow = effNumeric != null && effNumeric > 0 ? Math.round(effNumeric) : null;
+      } else {
+        intakeBasis = INTAKE_BASIS.SERVING_COUNT;
+        const cnt = effNumeric != null && effNumeric > 0 ? Number(effNumeric) : 1;
+        referenceServingCount = Math.max(cnt, 0.001);
+        defaultVolumeRow = referenceServingCount;
       }
 
       const updateData = {
-        name: name.trim(),
-        drug_amount: drugAmount,
-        updated_at: new Date().toISOString()
+        ...baseUpdate,
+        intake_basis: intakeBasis,
+        reference_volume_ml: referenceVolumeMl,
+        reference_serving_count: referenceServingCount,
+        default_volume: defaultVolumeRow,
       };
-
-      // Only include fields that are not null
-      if (icon !== null) updateData.icon = icon;
-      if (volumeMl !== null) updateData.default_volume = volumeMl;
       if (servingUnit !== null) updateData.serving_unit = servingUnit;
-      if (drugUnit !== null) updateData.drug_unit = drugUnit;
 
       const { data, error } = await supabase
         .from('consumption_options')

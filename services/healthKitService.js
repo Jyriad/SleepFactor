@@ -1,15 +1,89 @@
 import {
   isHealthDataAvailable,
   requestAuthorization,
-  getMostRecentQuantitySample,
   queryQuantitySamples,
-  getMostRecentCategorySample,
   queryCategorySamples,
-  HKQuantityTypeIdentifier,
-  HKCategoryTypeIdentifier,
-  HKCategoryValueSleepAnalysis,
-  useHealthkitAuthorization,
+  CategoryValueSleepAnalysis,
 } from '@kingstinct/react-native-healthkit';
+
+/**
+ * Apple's HK* type strings for react-native-healthkit v12+ (identifiers are strings, not HKQuantityTypeIdentifier.* objects).
+ * @see https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier
+ */
+const SLEEP_ANALYSIS = 'HKCategoryTypeIdentifierSleepAnalysis';
+
+/**
+ * Map HealthKit sleep analysis value to timeline stage (matches Health Connect / SleepTimeline).
+ * Skips "in bed" — only classified sleep + awake, same as Android hypnogram.
+ */
+function mapSleepCategoryValueToStageType(value) {
+  const v = typeof value === 'number' && !Number.isNaN(value) ? value : Number.parseInt(String(value), 10);
+  const n = Number.isNaN(v) ? value : v;
+  switch (n) {
+    case CategoryValueSleepAnalysis.asleepUnspecified:
+    case CategoryValueSleepAnalysis.asleepCore:
+      return 'light';
+    case CategoryValueSleepAnalysis.asleepDeep:
+      return 'deep';
+    case CategoryValueSleepAnalysis.asleepREM:
+      return 'rem';
+    case CategoryValueSleepAnalysis.awake:
+      return 'awake';
+    default:
+      return null;
+  }
+}
+
+const READ_HEALTH_OBJECT_TYPES = [
+  'HKQuantityTypeIdentifierBodyMassIndex',
+  'HKQuantityTypeIdentifierBodyFatPercentage',
+  'HKQuantityTypeIdentifierHeight',
+  'HKQuantityTypeIdentifierBodyMass',
+  'HKQuantityTypeIdentifierLeanBodyMass',
+  'HKQuantityTypeIdentifierStepCount',
+  'HKQuantityTypeIdentifierDistanceWalkingRunning',
+  'HKQuantityTypeIdentifierDistanceCycling',
+  'HKQuantityTypeIdentifierDistanceWheelchair',
+  'HKQuantityTypeIdentifierBasalEnergyBurned',
+  'HKQuantityTypeIdentifierActiveEnergyBurned',
+  'HKQuantityTypeIdentifierFlightsClimbed',
+  'HKQuantityTypeIdentifierNikeFuel',
+  'HKQuantityTypeIdentifierAppleExerciseTime',
+  'HKQuantityTypeIdentifierPushCount',
+  'HKQuantityTypeIdentifierDistanceSwimming',
+  'HKQuantityTypeIdentifierSwimmingStrokeCount',
+  'HKQuantityTypeIdentifierRestingHeartRate',
+  'HKQuantityTypeIdentifierWalkingHeartRateAverage',
+  'HKQuantityTypeIdentifierHeartRate',
+  'HKQuantityTypeIdentifierBodyTemperature',
+  'HKQuantityTypeIdentifierBasalBodyTemperature',
+  'HKQuantityTypeIdentifierBloodPressureSystolic',
+  'HKQuantityTypeIdentifierBloodPressureDiastolic',
+  'HKQuantityTypeIdentifierRespiratoryRate',
+  'HKQuantityTypeIdentifierOxygenSaturation',
+  'HKQuantityTypeIdentifierPeripheralPerfusionIndex',
+  'HKQuantityTypeIdentifierBloodGlucose',
+  'HKQuantityTypeIdentifierNumberOfTimesFallen',
+  'HKQuantityTypeIdentifierElectrodermalActivity',
+  'HKQuantityTypeIdentifierInhalerUsage',
+  'HKQuantityTypeIdentifierInsulinDelivery',
+  'HKQuantityTypeIdentifierBloodAlcoholContent',
+  'HKQuantityTypeIdentifierForcedVitalCapacity',
+  'HKQuantityTypeIdentifierForcedExpiratoryVolume1',
+  'HKQuantityTypeIdentifierPeakExpiratoryFlowRate',
+  SLEEP_ANALYSIS,
+  'HKCategoryTypeIdentifierMindfulSession',
+  'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+];
+
+const QUANTITY_METRIC_TO_ID = {
+  steps: 'HKQuantityTypeIdentifierStepCount',
+  active_energy: 'HKQuantityTypeIdentifierActiveEnergyBurned',
+  heart_rate_max: 'HKQuantityTypeIdentifierHeartRate',
+  heart_rate_resting: 'HKQuantityTypeIdentifierRestingHeartRate',
+  exercise_minutes: 'HKQuantityTypeIdentifierAppleExerciseTime',
+  distance_walking: 'HKQuantityTypeIdentifierDistanceWalkingRunning',
+};
 
 /**
  * iOS HealthKit service implementation
@@ -17,47 +91,6 @@ import {
 class HealthKitService {
   constructor() {
     this.isInitialized = false;
-    this.readPermissions = [
-      HKQuantityTypeIdentifier.bodyMassIndex,
-      HKQuantityTypeIdentifier.bodyFatPercentage,
-      HKQuantityTypeIdentifier.height,
-      HKQuantityTypeIdentifier.bodyMass,
-      HKQuantityTypeIdentifier.leanBodyMass,
-      HKQuantityTypeIdentifier.stepCount,
-      HKQuantityTypeIdentifier.distanceWalkingRunning,
-      HKQuantityTypeIdentifier.distanceCycling,
-      HKQuantityTypeIdentifier.distanceWheelchair,
-      HKQuantityTypeIdentifier.basalEnergyBurned,
-      HKQuantityTypeIdentifier.activeEnergyBurned,
-      HKQuantityTypeIdentifier.flightsClimbed,
-      HKQuantityTypeIdentifier.nikeFuel,
-      HKQuantityTypeIdentifier.appleExerciseTime,
-      HKQuantityTypeIdentifier.pushCount,
-      HKQuantityTypeIdentifier.distanceSwimming,
-      HKQuantityTypeIdentifier.swimmingStrokeCount,
-      HKQuantityTypeIdentifier.restingHeartRate,
-      HKQuantityTypeIdentifier.walkingHeartRateAverage,
-      HKQuantityTypeIdentifier.heartRate,
-      HKQuantityTypeIdentifier.bodyTemperature,
-      HKQuantityTypeIdentifier.basalBodyTemperature,
-      HKQuantityTypeIdentifier.bloodPressureSystolic,
-      HKQuantityTypeIdentifier.bloodPressureDiastolic,
-      HKQuantityTypeIdentifier.respiratoryRate,
-      HKQuantityTypeIdentifier.oxygenSaturation,
-      HKQuantityTypeIdentifier.peripheralPerfusionIndex,
-      HKQuantityTypeIdentifier.bloodGlucose,
-      HKQuantityTypeIdentifier.numberOfTimesFallen,
-      HKQuantityTypeIdentifier.electrodermalActivity,
-      HKQuantityTypeIdentifier.inhalerUsage,
-      HKQuantityTypeIdentifier.insulinDelivery,
-      HKQuantityTypeIdentifier.bloodAlcoholContent,
-      HKQuantityTypeIdentifier.forcedVitalCapacity,
-      HKQuantityTypeIdentifier.forcedExpiratoryVolume1,
-      HKQuantityTypeIdentifier.peakExpiratoryFlowRate,
-      HKCategoryTypeIdentifier.sleepAnalysis,
-      HKCategoryTypeIdentifier.mindfulSession,
-      HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
-    ];
   }
 
   /**
@@ -92,19 +125,47 @@ class HealthKitService {
    * @returns {Promise<boolean>} True if permissions granted
    */
   async requestPermissions() {
+    const detail = await this.requestPermissionsDetailed();
+    return detail.ok;
+  }
+
+  /**
+   * Same as requestPermissions but returns why it failed (for UX + debugging).
+   * @returns {Promise<{ ok: boolean, reason: string, step?: string, errorMessage?: string, platform: 'ios' }>}
+   */
+  async requestPermissionsDetailed() {
+    const base = { ok: false, reason: 'unknown', platform: 'ios' };
     try {
       if (!this.isInitialized) {
         const initSuccess = await this.initialize();
         if (!initSuccess) {
-          return false;
+          return { ...base, reason: 'health_data_unavailable', step: 'initialize' };
         }
       }
 
-      await requestAuthorization(this.readPermissions, []);
-      // If we reach here without throwing, permissions were granted
-      return true;
+      try {
+        await requestAuthorization({
+          toRead: READ_HEALTH_OBJECT_TYPES,
+          toShare: [],
+        });
+        return { ok: true, reason: 'authorization_completed', platform: 'ios' };
+      } catch (error) {
+        const msg = error?.message || String(error);
+        return {
+          ...base,
+          reason: 'authorization_error',
+          step: 'requestAuthorization',
+          errorMessage: msg,
+        };
+      }
     } catch (error) {
-      return false;
+      const msg = error?.message || String(error);
+      return {
+        ...base,
+        reason: 'unexpected_error',
+        step: 'requestPermissionsDetailed',
+        errorMessage: msg,
+      };
     }
   }
 
@@ -118,16 +179,16 @@ class HealthKitService {
         return false;
       }
 
-      // Try to query a small amount of sleep data to test permissions
       const testDate = new Date();
       testDate.setHours(0, 0, 0, 0);
 
-      const samples = await queryCategorySamples(HKCategoryTypeIdentifier.sleepAnalysis, {
+      await queryCategorySamples(SLEEP_ANALYSIS, {
         limit: 1,
-        from: testDate,
+        filter: {
+          date: { startDate: testDate },
+        },
       });
 
-      // If we can query without error, we have permissions
       return true;
     } catch (error) {
       return false;
@@ -152,18 +213,21 @@ class HealthKitService {
       const endTime = new Date(endDate);
       endTime.setHours(23, 59, 59, 999);
 
-      // Query sleep analysis samples
-      const sleepSamples = await queryCategorySamples(HKCategoryTypeIdentifier.sleepAnalysis, {
-        from: startTime,
-        to: endTime,
+      const sleepSamples = await queryCategorySamples(SLEEP_ANALYSIS, {
+        limit: 0,
+        filter: {
+          date: {
+            startDate: startTime,
+            endDate: endTime,
+          },
+        },
       });
 
-      // Group samples by date (sleep date is the date when sleep ends)
       const sleepDataByDate = {};
 
-      sleepSamples.forEach(sample => {
+      sleepSamples.forEach((sample) => {
         const sleepEndDate = new Date(sample.endDate);
-        const dateKey = sleepEndDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateKey = sleepEndDate.toISOString().split('T')[0];
 
         if (!sleepDataByDate[dateKey]) {
           sleepDataByDate[dateKey] = [];
@@ -171,7 +235,6 @@ class HealthKitService {
         sleepDataByDate[dateKey].push(sample);
       });
 
-      // Transform each date's sleep data
       const transformedData = [];
       for (const [dateKey, samples] of Object.entries(sleepDataByDate)) {
         const transformed = this.transformSleepDataForDate(dateKey, samples);
@@ -198,29 +261,51 @@ class HealthKitService {
         return null;
       }
 
-      // HealthKit sleep analysis categories:
-      // 0: HKCategoryValueSleepAnalysisAsleep (asleep)
-      // 1: HKCategoryValueSleepAnalysisInBed (in bed)
-      // 2: HKCategoryValueSleepAnalysisAwake (awake)
+      const sorted = [...samples].sort(
+        (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+      );
 
       let totalSleepMinutes = 0;
+      let deepSleepMinutes = 0;
+      let lightSleepMinutes = 0;
+      let remSleepMinutes = 0;
       let awakeMinutes = 0;
       let awakeningsCount = 0;
       let inBedStart = null;
       let inBedEnd = null;
 
-      // Track awake periods for awakenings count
       let lastAwakeStart = null;
 
-      samples.forEach(sample => {
+      let sessionStart = null;
+      let sessionEnd = null;
+      const sleepStages = [];
+
+      sorted.forEach((sample) => {
         const startTime = new Date(sample.startDate);
         const endTime = new Date(sample.endDate);
         const durationMs = endTime.getTime() - startTime.getTime();
         const durationMinutes = Math.round(durationMs / (1000 * 60));
+        const v = sample.value;
 
-        switch (sample.value) {
-          case HKCategoryValueSleepAnalysis.InBed:
-            // In bed time (includes awake time in bed)
+        if (!sessionStart || startTime < sessionStart) {
+          sessionStart = startTime;
+        }
+        if (!sessionEnd || endTime > sessionEnd) {
+          sessionEnd = endTime;
+        }
+
+        const timelineStage = mapSleepCategoryValueToStageType(v);
+        if (timelineStage) {
+          sleepStages.push({
+            stage: timelineStage,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+            durationMinutes,
+          });
+        }
+
+        switch (v) {
+          case CategoryValueSleepAnalysis.inBed:
             if (!inBedStart || startTime < inBedStart) {
               inBedStart = startTime;
             }
@@ -230,32 +315,39 @@ class HealthKitService {
             totalSleepMinutes += durationMinutes;
             break;
 
-          case HKCategoryValueSleepAnalysis.Asleep:
-            // Actual sleep time
+          case CategoryValueSleepAnalysis.asleepUnspecified:
+            lightSleepMinutes += durationMinutes;
             totalSleepMinutes += durationMinutes;
             break;
 
-          case HKCategoryValueSleepAnalysis.Awake:
-            // Awake time (in bed or out of bed)
+          case CategoryValueSleepAnalysis.asleepCore:
+            lightSleepMinutes += durationMinutes;
+            totalSleepMinutes += durationMinutes;
+            break;
+
+          case CategoryValueSleepAnalysis.asleepDeep:
+            deepSleepMinutes += durationMinutes;
+            totalSleepMinutes += durationMinutes;
+            break;
+
+          case CategoryValueSleepAnalysis.asleepREM:
+            remSleepMinutes += durationMinutes;
+            totalSleepMinutes += durationMinutes;
+            break;
+
+          case CategoryValueSleepAnalysis.awake:
             awakeMinutes += durationMinutes;
 
-            // Count awakenings (transitions to awake while in bed period)
             if (!lastAwakeStart) {
               lastAwakeStart = startTime;
               awakeningsCount += 1;
             }
             break;
+          default:
+            break;
         }
       });
 
-      // HealthKit doesn't provide detailed sleep stages (deep, light, REM)
-      // We could estimate these from heart rate variability or other data,
-      // but for now we'll leave them as 0
-      const deepSleepMinutes = 0;
-      const lightSleepMinutes = 0;
-      const remSleepMinutes = 0;
-
-      // HealthKit doesn't provide sleep scores in the standard API
       const sleepScore = null;
 
       return {
@@ -268,6 +360,9 @@ class HealthKitService {
         awakenings_count: awakeningsCount,
         sleep_score: sleepScore,
         source: 'healthkit',
+        sleep_stages: sleepStages.length > 0 ? sleepStages : null,
+        sleep_start_time: sessionStart ? sessionStart.toISOString() : null,
+        sleep_end_time: sessionEnd ? sessionEnd.toISOString() : null,
       };
     } catch (error) {
       return null;
@@ -280,9 +375,7 @@ class HealthKitService {
    */
   async revokePermissions() {
     try {
-      // For HealthKit, we can't directly revoke permissions from the app
-      // The user needs to revoke permissions in iOS Settings > Privacy & Security > Health
-      return true; // Return true since we can't determine if they actually revoked
+      return true;
     } catch (error) {
       return false;
     }
@@ -306,7 +399,6 @@ class HealthKitService {
       startTime.setHours(0, 0, 0, 0);
       const endTime = new Date(endDate);
       endTime.setHours(23, 59, 59, 999);
-
 
       const results = {};
 
@@ -333,50 +425,40 @@ class HealthKitService {
    * @returns {Promise<Array>} Array of {date, value} objects
    */
   async fetchHealthMetric(metric, startTime, endTime) {
-    const metricMappings = {
-      steps: HKQuantityTypeIdentifier.stepCount,
-      active_energy: HKQuantityTypeIdentifier.activeEnergyBurned,
-      heart_rate_max: HKQuantityTypeIdentifier.heartRate,
-      heart_rate_resting: HKQuantityTypeIdentifier.restingHeartRate,
-      exercise_minutes: HKQuantityTypeIdentifier.appleExerciseTime,
-      distance_walking: HKQuantityTypeIdentifier.distanceWalkingRunning
-    };
-
-    const quantityType = metricMappings[metric];
+    const quantityType = QUANTITY_METRIC_TO_ID[metric];
     if (!quantityType) {
       return [];
     }
 
     try {
       const samples = await queryQuantitySamples(quantityType, {
-        from: startTime,
-        to: endTime,
+        limit: 0,
+        filter: {
+          date: {
+            startDate: startTime,
+            endDate: endTime,
+          },
+        },
       });
 
-
-      // Aggregate by date
       const dailyData = {};
 
-      samples.forEach(sample => {
+      samples.forEach((sample) => {
         const sampleDate = new Date(sample.startDate).toISOString().split('T')[0];
 
         if (!dailyData[sampleDate]) {
           dailyData[sampleDate] = [];
         }
 
-        // Extract quantity value
         const value = sample.quantity;
 
-        // Convert units as needed
         let processedValue = value;
 
         switch (metric) {
           case 'distance_walking':
-            // Convert to kilometers if needed (HealthKit typically returns meters)
             processedValue = value / 1000;
             break;
           case 'exercise_minutes':
-            // Convert seconds to minutes
             processedValue = value / 60;
             break;
           default:
@@ -388,7 +470,6 @@ class HealthKitService {
         }
       });
 
-      // Aggregate daily values
       const aggregatedData = [];
       for (const [date, values] of Object.entries(dailyData)) {
         let finalValue = 0;
@@ -398,15 +479,12 @@ class HealthKitService {
           case 'active_energy':
           case 'distance_walking':
           case 'exercise_minutes':
-            // Sum for cumulative metrics
             finalValue = values.reduce((sum, val) => sum + val, 0);
             break;
           case 'heart_rate_max':
-            // Max for heart rate
             finalValue = Math.max(...values);
             break;
           case 'heart_rate_resting':
-            // Average for resting heart rate
             finalValue = values.reduce((sum, val) => sum + val, 0) / values.length;
             break;
         }
@@ -414,7 +492,7 @@ class HealthKitService {
         if (finalValue > 0) {
           aggregatedData.push({
             date,
-            value: Math.round(finalValue * 100) / 100 // Round to 2 decimal places
+            value: Math.round(finalValue * 100) / 100,
           });
         }
       }
@@ -433,12 +511,17 @@ class HealthKitService {
    */
   async getTimeOfMaxHeartRatePerDay(startTime, endTime) {
     try {
-      const samples = await queryQuantitySamples(HKQuantityTypeIdentifier.heartRate, {
-        from: startTime,
-        to: endTime,
+      const samples = await queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', {
+        limit: 0,
+        filter: {
+          date: {
+            startDate: startTime,
+            endDate: endTime,
+          },
+        },
       });
       const byDay = {};
-      samples.forEach(sample => {
+      samples.forEach((sample) => {
         const recordDate = new Date(sample.startDate).toISOString().split('T')[0];
         const bpm = sample.quantity || 0;
         if (bpm <= 0) return;

@@ -12,6 +12,26 @@ import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
 import morningCheckinNotifications from './services/morningCheckinNotifications';
 import { colors } from './constants/colors';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://629f28b06683444c9359d1c780ba77a9@o4511135557615616.ingest.de.sentry.io/4511135562268752',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: true,
+
+  // Configure Session Replay
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1,
+  integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
 
 // Keep native splash visible until we hide it after the first screen has laid out
 SplashScreen.preventAutoHideAsync();
@@ -24,7 +44,7 @@ if (Platform.OS === 'android') {
   }
 }
 
-export default function App() {
+export default Sentry.wrap(function App() {
   const navigationRef = useRef();
   const [pendingDeepLink, setPendingDeepLink] = useState(null);
 
@@ -119,4 +139,4 @@ export default function App() {
       </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
-}
+});

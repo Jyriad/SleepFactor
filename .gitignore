@@ -58,3 +58,5 @@ debug_bedtime_backfill.js
 test_bedtime_habits.js
 check-*.js
 check-*.mjs
+
+.env.local

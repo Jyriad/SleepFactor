@@ -4,6 +4,7 @@ import ScatterPlot from '../../components/ScatterChart';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CHART_WIDTH = Math.min(SCREEN_WIDTH - spacing.xl * 4, 280);
@@ -23,8 +24,8 @@ const OnboardingCorrelationScreen = ({ navigation }) => {
 
   return (
     <OnboardingStepLayout
-      step={4}
-      totalSteps={8}
+      step={8}
+      totalSteps={ONBOARDING_STEP_TOTAL}
       title="Correlation vs. Causation"
       onNext={() => navigation.navigate('OnboardingControl')}
       onBack={() => navigation.goBack()}
