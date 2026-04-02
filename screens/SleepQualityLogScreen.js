@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   headerWrap: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',

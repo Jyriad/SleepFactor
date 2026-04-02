@@ -29,15 +29,8 @@ function sanitizeUrlForLog(url) {
   }
 }
 
-function oauthLog(step, payload = {}) {
-  if (typeof __DEV__ === 'undefined' || !__DEV__) return;
-  try {
-    const safe = { ...payload };
-    if (typeof safe.url === 'string') safe.url = sanitizeUrlForLog(safe.url);
-    if (typeof safe.from === 'string') safe.from = sanitizeUrlForLog(safe.from);
-    if (typeof safe.to === 'string') safe.to = sanitizeUrlForLog(safe.to);
-    console.log('[OAuthDebug]', step, safe);
-  } catch (_) {}
+function oauthLog(_step, _payload = {}) {
+  /* Verbose OAuth tracing removed — re-enable locally if needed. */
 }
 
 /**

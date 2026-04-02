@@ -29,7 +29,8 @@ const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading 
       <Button
         title={loading ? '...' : "Log Habits"}
         onPress={onPress}
-        style={[styles.button, styles.logHabitsButton]}
+        size="compact"
+        style={styles.button}
         disabled={loading}
       />
     </View>
@@ -63,11 +64,6 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 2,
-    paddingVertical: spacing.xs,
-    minHeight: 34,
-  },
-  logHabitsButton: {
-    backgroundColor: colors.primary,
   },
 });
 

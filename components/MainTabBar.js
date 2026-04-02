@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useRef, useState } from 'react';
-import { CommonActions } from '@react-navigation/native';
+import { CommonActions, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { BottomTabBarHeightCallbackContext } from '@react-navigation/bottom-tabs';
 import {
   View,
@@ -11,8 +11,9 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import TabBarBlurBackground from './TabBarBlurBackground';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, appFont } from '../constants';
 import { formatDateForDB } from '../utils/dateHelpers';
 
 const TAB_ICONS = {
@@ -22,15 +23,16 @@ const TAB_ICONS = {
   Profile: { focused: 'person', outline: 'person-outline' },
 };
 
-const FAB_SIZE = 50;
-/** How far the + button sits above the top of the white bar (smaller = button lower, shorter footer). */
-const FAB_PROTRUSION = 10;
-/** Curved nav outline — a bit thicker than a hairline */
-const NAV_OUTLINE_WIDTH = 2.5;
+/** Native blur strength (iOS full-range; Android scaled via blurReductionFactor) */
+const TAB_BAR_BLUR_INTENSITY = Platform.OS === 'ios' ? 72 : 48;
+/** Light veil on top of blur — keep low so glass effect stays visible */
+const TAB_BAR_FROST_OVERLAY = 'rgba(255, 255, 255, 0.28)';
+/** When native blur is unavailable: translucent “frost” (not near-opaque white) */
+const TAB_BAR_BLUR_FALLBACK = 'rgba(255, 255, 255, 0.78)';
 
 /**
- * Custom bottom tab bar: four tabs with a centered floating + button (Log).
- * Tap + opens today’s habit logging. Long-press opens quick links (caffeine, alcohol, sleep check-in).
+ * Custom bottom tab bar: five slots — Home, Insights, Log, Habits, Profile.
+ * Log opens today’s habit logging; long-press opens quick links (caffeine, alcohol, sleep check-in).
  */
 const MENU_NAV_DELAY_MS = 120;
 /** After closing the modal, ignore + taps briefly so the same touch doesn’t open habit logging. */
@@ -107,8 +109,15 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
   }, [closeMenu, goToHabitLogging]);
 
   const routes = state.routes;
-  const leftRoutes = routes.slice(0, 2);
-  const rightRoutes = routes.slice(2, 4);
+  const homeRoute = routes.find((r) => r.name === 'Home');
+  const homeTabIndex = routes.findIndex((r) => r.name === 'Home');
+  const focusedInHomeStack = homeRoute
+    ? getFocusedRouteNameFromRoute(homeRoute)
+    : undefined;
+  const isLogFocused =
+    homeTabIndex >= 0 &&
+    state.index === homeTabIndex &&
+    focusedInHomeStack === 'HabitLogging';
 
   const renderTab = (route, indexInFullList) => {
     const { options } = descriptors[route.key];
@@ -164,14 +173,36 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
     );
   };
 
+  const logColor = isLogFocused ? colors.tabActive : colors.tabInactive;
+  const logIconName = isLogFocused ? 'add' : 'add-outline';
+
+  const renderLogTab = () => (
+    <TouchableOpacity
+      key="log-tab"
+      accessibilityRole="button"
+      accessibilityState={isLogFocused ? { selected: true } : {}}
+      accessibilityLabel="Log habits for today"
+      accessibilityHint="Opens today’s habit logging. Long press for more log options."
+      onPress={onFabPress}
+      onLongPress={onFabLongPress}
+      delayLongPress={380}
+      style={styles.tabItem}
+      activeOpacity={0.7}
+    >
+      <Ionicons name={logIconName} size={24} color={logColor} />
+      <Text style={[styles.tabLabel, { color: logColor }]} numberOfLines={1}>
+        Log
+      </Text>
+    </TouchableOpacity>
+  );
+
   const bottomInset = Math.max(insets.bottom, 0);
 
   const onBarLayout = useCallback(
     (e) => {
       const h = e.nativeEvent.layout.height;
       if (typeof h === 'number' && h > 0) {
-        // Pad scroll areas by the amount of the + button that extends above the white bar.
-        setTabBarHeight?.(h + FAB_PROTRUSION);
+        setTabBarHeight?.(h);
       }
     },
     [setTabBarHeight]
@@ -182,28 +213,28 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
       style={styles.wrapper}
       onLayout={onBarLayout}
     >
-      <View style={[styles.barOuter, { paddingBottom: bottomInset }]}>
-        <View
-          style={[styles.fabWrap, { top: -FAB_PROTRUSION }]}
-          pointerEvents="box-none"
-        >
-          <TouchableOpacity
-            style={styles.fab}
-            onPress={onFabPress}
-            onLongPress={onFabLongPress}
-            delayLongPress={380}
-            activeOpacity={0.85}
-            accessibilityLabel="Log habits for today"
-            accessibilityHint="Opens today’s habit logging. Long press for more log options."
-          >
-            <Ionicons name="add" size={28} color={colors.white} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.barRow}>
-          <View style={styles.sideCluster}>{leftRoutes.map((r, i) => renderTab(r, i))}</View>
-          <View style={styles.fabSlot} />
-          <View style={styles.sideCluster}>{rightRoutes.map((r, i) => renderTab(r, i + 2))}</View>
+      <View style={styles.barShadowWrap}>
+        <View style={[styles.barClip, { paddingBottom: bottomInset }]}>
+          <TabBarBlurBackground
+            intensity={TAB_BAR_BLUR_INTENSITY}
+            tint="light"
+            fallbackBackgroundColor={TAB_BAR_BLUR_FALLBACK}
+            experimentalBlurMethod={
+              Platform.OS === 'android' ? 'dimezisBlurView' : undefined
+            }
+            blurReductionFactor={Platform.OS === 'android' ? 5 : undefined}
+          />
+          <View
+            pointerEvents="none"
+            style={[styles.barFrostOverlay, StyleSheet.absoluteFillObject]}
+          />
+          <View style={styles.barRow}>
+            {renderTab(routes[0], 0)}
+            {renderTab(routes[1], 1)}
+            {renderLogTab()}
+            {renderTab(routes[2], 2)}
+            {renderTab(routes[3], 3)}
+          </View>
         </View>
       </View>
 
@@ -242,28 +273,30 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: 'transparent',
   },
-  barOuter: {
+  barShadowWrap: {
     width: '100%',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: NAV_OUTLINE_WIDTH,
-    borderLeftWidth: NAV_OUTLINE_WIDTH,
-    borderRightWidth: NAV_OUTLINE_WIDTH,
-    borderBottomWidth: 0,
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-    overflow: 'visible',
+    backgroundColor: 'transparent',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 4,
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
       },
       android: {
-        elevation: 8,
+        elevation: 10,
       },
     }),
+  },
+  barClip: {
+    width: '100%',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0, 0, 0, 0.08)',
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+  },
+  barFrostOverlay: {
+    backgroundColor: TAB_BAR_FROST_OVERLAY,
   },
   barRow: {
     flexDirection: 'row',
@@ -272,15 +305,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingTop: 2,
     paddingBottom: 6,
-  },
-  sideCluster: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  fabSlot: {
-    width: FAB_SIZE + spacing.sm,
   },
   tabItem: {
     flex: 1,
@@ -291,35 +315,10 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   tabLabel: {
+    ...appFont,
     fontSize: 11,
     fontWeight: '500',
     marginTop: 2,
-  },
-  fabWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  fab: {
-    width: FAB_SIZE,
-    height: FAB_SIZE,
-    borderRadius: FAB_SIZE / 2,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
   },
   menuBackdrop: {
     flex: 1,
@@ -342,6 +341,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   menuTitle: {
+    ...appFont,
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.semibold,
     color: colors.textSecondary,
@@ -359,6 +359,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
   },
   menuRowText: {
+    ...appFont,
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     fontWeight: '500',

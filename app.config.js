@@ -35,7 +35,7 @@ export default {
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
-    image: "./assets/branding/splash/primary-logo-all-black.png",
+    image: "./assets/branding/splash/primary-logo-white-background.png",
     resizeMode: "contain",
     backgroundColor: "#FFFFFF"
   },
@@ -51,7 +51,7 @@ export default {
     adaptiveIcon: {
       foregroundImage:
         "./assets/branding/app-icon/1024x1024-safe-padding/icon-cotton-blue.png",
-      backgroundColor: "#1E3A8A"
+      backgroundColor: "#2469B2"
     },
     edgeToEdgeEnabled: true,
     package: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
@@ -77,6 +77,7 @@ export default {
     favicon: "./assets/branding/web/pwa-icon-192.png"
   },
   plugins: [
+    "expo-font",
     [
       "@sentry/react-native/expo",
       {
@@ -89,7 +90,7 @@ export default {
       "expo-splash-screen",
       {
         backgroundColor: "#FFFFFF",
-        image: "./assets/branding/splash/primary-logo-all-black.png",
+        image: "./assets/branding/splash/primary-logo-white-background.png",
         resizeMode: "contain",
         imageWidth: 280
       }
@@ -139,7 +140,7 @@ export default {
       "expo-notifications",
       {
         icon: "./assets/branding/app-icon/1024x1024/icon-cotton-blue.png",
-        color: "#1E3A8A",
+        color: "#2469B2",
         sounds: [],
         androidMode: "default"
       }

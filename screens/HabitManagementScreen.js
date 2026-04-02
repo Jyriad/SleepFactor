@@ -79,14 +79,14 @@ const HabitManagementScreen = () => {
   // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
   useEffect(() => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
     }
   }, []);
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
       }
     }, [])
   );
@@ -1420,7 +1420,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerWrap: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',

@@ -5,6 +5,9 @@ import {
   queryCategorySamples,
   CategoryValueSleepAnalysis,
 } from '@kingstinct/react-native-healthkit';
+import { formatDateForDB } from '../utils/dateHelpers';
+import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
+import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 /**
  * Apple's HK* type strings for react-native-healthkit v12+ (identifiers are strings, not HKQuantityTypeIdentifier.* objects).
@@ -32,6 +35,71 @@ function mapSleepCategoryValueToStageType(value) {
     default:
       return null;
   }
+}
+
+/**
+ * @param {Array} samples - HK sleep analysis samples
+ * @param {number} gapMs
+ * @returns {Array<Array>} Clusters (each cluster is a subset of samples)
+ */
+function clusterSamplesByStartGap(samples, gapMs) {
+  if (!samples || samples.length === 0) return [];
+  const sorted = [...samples].sort(
+    (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+  );
+  const clusters = [];
+  let cur = [];
+  let clusterEnd = null;
+  for (const s of sorted) {
+    const st = new Date(s.startDate);
+    const en = new Date(s.endDate);
+    if (cur.length === 0) {
+      cur.push(s);
+      clusterEnd = en;
+      continue;
+    }
+    if (st.getTime() - clusterEnd.getTime() > gapMs) {
+      clusters.push(cur);
+      cur = [s];
+      clusterEnd = en;
+    } else {
+      cur.push(s);
+      if (en > clusterEnd) clusterEnd = en;
+    }
+  }
+  if (cur.length > 0) clusters.push(cur);
+  return clusters;
+}
+
+/**
+ * Cluster only classified (asleep/awake) samples by inter-segment gap; used to separate nights.
+ * @returns {Array<Array>} Each inner array is classified samples only.
+ */
+function clusterClassifiedSamplesByGap(classifiedSamples, gapMs) {
+  return clusterSamplesByStartGap(classifiedSamples, gapMs);
+}
+
+/**
+ * Attach any overlapping samples (e.g. inBed) that fall inside the classified window.
+ * @param {Array} allSamples - Full HK result set for the query
+ * @param {Array} classifiedCluster - One cluster of classified-only samples
+ * @returns {Array}
+ */
+function expandClusterWithOverlappingSamples(allSamples, classifiedCluster) {
+  if (!classifiedCluster || classifiedCluster.length === 0) return [];
+  let winStart = Infinity;
+  let winEnd = -Infinity;
+  for (const s of classifiedCluster) {
+    const st = new Date(s.startDate).getTime();
+    const en = new Date(s.endDate).getTime();
+    winStart = Math.min(winStart, st);
+    winEnd = Math.max(winEnd, en);
+  }
+  return allSamples.filter((s) => {
+    const st = new Date(s.startDate).getTime();
+    const en = new Date(s.endDate).getTime();
+    return st < winEnd && en > winStart;
+  });
 }
 
 const READ_HEALTH_OBJECT_TYPES = [
@@ -223,25 +291,26 @@ class HealthKitService {
         },
       });
 
-      const sleepDataByDate = {};
-
-      sleepSamples.forEach((sample) => {
-        const sleepEndDate = new Date(sample.endDate);
-        const dateKey = sleepEndDate.toISOString().split('T')[0];
-
-        if (!sleepDataByDate[dateKey]) {
-          sleepDataByDate[dateKey] = [];
-        }
-        sleepDataByDate[dateKey].push(sample);
-      });
-
+      const sessionSampleGroups = this._buildHealthKitSessionSampleGroups(sleepSamples);
       const transformedData = [];
-      for (const [dateKey, samples] of Object.entries(sleepDataByDate)) {
-        const transformed = this.transformSleepDataForDate(dateKey, samples);
+      for (let i = 0; i < sessionSampleGroups.length; i++) {
+        const transformed = this.transformSleepCluster(sessionSampleGroups[i], {
+          clusterIndex: i,
+          strategy: 'classified_gap_or_fallback',
+        });
         if (transformed) {
           transformedData.push(transformed);
         }
       }
+
+      transformedData.sort((a, b) => {
+        const da = a.date || '';
+        const db = b.date || '';
+        if (da !== db) return da.localeCompare(db);
+        const ta = a.sleep_start_time ? new Date(a.sleep_start_time).getTime() : 0;
+        const tb = b.sleep_start_time ? new Date(b.sleep_start_time).getTime() : 0;
+        return ta - tb;
+      });
 
       return transformedData;
     } catch (error) {
@@ -250,12 +319,32 @@ class HealthKitService {
   }
 
   /**
-   * Transform HealthKit sleep data for a specific date
-   * @param {string} dateKey - Date in YYYY-MM-DD format
-   * @param {Array} samples - Array of sleep analysis samples for that date
-   * @returns {Object} Transformed data matching sleep_data table schema
+   * Split raw HK samples into per-session groups using classified-segment gaps (not UTC calendar buckets).
+   * @param {Array} allSamples
+   * @returns {Array<Array>}
    */
-  transformSleepDataForDate(dateKey, samples) {
+  _buildHealthKitSessionSampleGroups(allSamples) {
+    if (!allSamples || allSamples.length === 0) return [];
+    const classified = allSamples.filter((s) => mapSleepCategoryValueToStageType(s.value) != null);
+    if (classified.length === 0) {
+      return clusterSamplesByStartGap(allSamples, SLEEP_SESSION_GAP_MS).filter(
+        (g) => g && g.length > 0
+      );
+    }
+    const classifiedClusters = clusterClassifiedSamplesByGap(classified, SLEEP_SESSION_GAP_MS);
+    return classifiedClusters
+      .map((c) => expandClusterWithOverlappingSamples(allSamples, c))
+      .filter((g) => g && g.length > 0);
+  }
+
+  /**
+   * Transform one sleep session (cluster) from HealthKit samples.
+   * Wake / storage date = local calendar date of session end (same notion as "the morning you woke up").
+   * @param {Array} samples
+   * @param {{ clusterIndex?: number, strategy?: string }} [meta]
+   * @returns {Object|null}
+   */
+  transformSleepCluster(samples, meta = {}) {
     try {
       if (!samples || samples.length === 0) {
         return null;
@@ -350,8 +439,50 @@ class HealthKitService {
 
       const sleepScore = null;
 
+      /** Local wake / row date: morning you got up (Health Connect uses the same idea). */
+      const assignedWakeDate = sessionEnd ? formatDateForDB(sessionEnd) : formatDateForDB(sessionStart);
+
+      const stagesSorted =
+        sleepStages.length > 0
+          ? [...sleepStages].sort(
+              (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+            )
+          : [];
+      let maxGapBetweenStagesMinutes = 0;
+      for (let i = 1; i < stagesSorted.length; i++) {
+        const gapMs =
+          new Date(stagesSorted[i].startTime).getTime() -
+          new Date(stagesSorted[i - 1].endTime).getTime();
+        const gapMin = gapMs / (1000 * 60);
+        if (gapMin > maxGapBetweenStagesMinutes) maxGapBetweenStagesMinutes = gapMin;
+      }
+      const sessionSpanMs =
+        sessionStart && sessionEnd ? sessionEnd.getTime() - sessionStart.getTime() : 0;
+      const timelineSpanMs =
+        stagesSorted.length > 0
+          ? new Date(stagesSorted[stagesSorted.length - 1].endTime).getTime() -
+            new Date(stagesSorted[0].startTime).getTime()
+          : 0;
+
+      sleepDebugLog('healthkit_transform', {
+        platform: 'ios',
+        clusterIndex: meta.clusterIndex,
+        strategy: meta.strategy,
+        assignedWakeDate,
+        localWakeDateFromSessionEnd: sessionEnd ? formatDateForDB(sessionEnd) : null,
+        sampleCount: sorted.length,
+        classifiedStageCount: sleepStages.length,
+        sessionSpanHours: Math.round((sessionSpanMs / 3600000) * 10) / 10,
+        timelineFirstToLastClassifiedHours: Math.round((timelineSpanMs / 3600000) * 10) / 10,
+        maxGapBetweenStagesMinutes: Math.round(maxGapBetweenStagesMinutes),
+        suspicious:
+          maxGapBetweenStagesMinutes >= 120 ||
+          sessionSpanMs / 3600000 > 14 ||
+          timelineSpanMs / 3600000 > 14,
+      });
+
       return {
-        date: dateKey,
+        date: assignedWakeDate,
         total_sleep_minutes: totalSleepMinutes,
         deep_sleep_minutes: deepSleepMinutes,
         light_sleep_minutes: lightSleepMinutes,

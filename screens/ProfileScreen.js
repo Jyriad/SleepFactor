@@ -52,7 +52,8 @@ import morningCheckinNotifications from '../services/morningCheckinNotifications
 import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
-import SquareLogoDark from '../assets/SquareLogoDark.svg';
+/** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
+import SquareLogoCotton from '../assets/SquareLogoCotton.svg';
 import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
@@ -202,14 +203,14 @@ const ProfileScreen = () => {
   // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
   useEffect(() => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
     }
   }, []);
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
       }
     }, [])
   );
@@ -362,7 +363,7 @@ const ProfileScreen = () => {
         <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
           <View style={styles.header}>
             <View style={styles.headerRow}>
-              <SquareLogoDark
+              <SquareLogoCotton
                 width={40}
                 height={40}
                 style={styles.headerLogo}
@@ -930,7 +931,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   headerWrap: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',

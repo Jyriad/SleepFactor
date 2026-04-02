@@ -653,7 +653,7 @@ const LogConsumptionScreen = () => {
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
         if (StatusBar.setTranslucent) StatusBar.setTranslucent(true);
       }
     }, [])
@@ -912,7 +912,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.regular,
     paddingBottom: spacing.regular,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',

@@ -33,7 +33,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
       }
       return () => {
         // Do not set status bar to white on blur: we stay in MainTabs, so the next screen keeps it blue and avoids a white flash.
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   headerWrap: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',

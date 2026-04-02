@@ -58,7 +58,7 @@ const ScrollableDateHeaderBar = ({ rightElement = null, showBackButton: showBack
 
 const styles = StyleSheet.create({
   headerBlock: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: HEADER_BOTTOM_RADIUS,
     borderBottomRightRadius: HEADER_BOTTOM_RADIUS,
     overflow: 'hidden',

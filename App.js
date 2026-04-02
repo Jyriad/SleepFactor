@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Platform, StatusBar } from 'react-native';
+import { AppState, Platform, StatusBar, Text, TextInput } from 'react-native';
+import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -12,6 +13,7 @@ import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
 import morningCheckinNotifications from './services/morningCheckinNotifications';
 import { colors } from './constants/colors';
+import { FONT_FAMILY } from './constants/fonts';
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
@@ -38,7 +40,7 @@ SplashScreen.preventAutoHideAsync();
 
 // Set status bar to blue as soon as the app bundle loads so the first paint never shows white
 if (Platform.OS === 'android') {
-  StatusBar.setBackgroundColor(colors.primary);
+  StatusBar.setBackgroundColor(colors.primaryDark);
   if (StatusBar.setTranslucent) {
     StatusBar.setTranslucent(true);
   }
@@ -47,6 +49,16 @@ if (Platform.OS === 'android') {
 export default Sentry.wrap(function App() {
   const navigationRef = useRef();
   const [pendingDeepLink, setPendingDeepLink] = useState(null);
+  const [fontsLoaded] = useFonts({
+    [FONT_FAMILY]: require('./assets/fonts/OverusedGrotesk-VF.ttf'),
+  });
+
+  // VF default wght is 300 (Light) — set Regular (400) so text without an explicit weight isn’t Light.
+  if (fontsLoaded) {
+    const base = { fontFamily: FONT_FAMILY, fontWeight: '400' };
+    Text.defaultProps = { ...(Text.defaultProps || {}), style: base };
+    TextInput.defaultProps = { ...(TextInput.defaultProps || {}), style: base };
+  }
 
   useEffect(() => {
     // Password reset deep links only. Google OAuth return is handled in services/auth
@@ -126,8 +138,12 @@ export default Sentry.wrap(function App() {
     return () => sub?.remove();
   }, []);
 
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.primary }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.primaryDark }}>
       <BottomSheetModalProvider>
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <UserPreferencesProvider>

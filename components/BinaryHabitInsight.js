@@ -1049,7 +1049,7 @@ const styles = StyleSheet.create({
   barTrack: {
     flex: 1,
     height: 24,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.background,
     borderRadius: 6,
     overflow: 'hidden',
     justifyContent: 'center',

@@ -146,7 +146,7 @@ const AppNavigator = ({ navigationRef }) => {
         name === 'MainTabs' &&
         ['Home', 'Habits', 'Insights', 'Profile'].includes(currentScreenName);
       if (isInMainTabs) {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
         StatusBar.setTranslucent?.(true);
       }
     }
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
   },
 });
 

@@ -10,7 +10,6 @@ import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
   isGoogleNativeConfigured,
-  logGoogleNativeAuthDiagnostics,
 } from '../config/googleNativeAuth';
 
 let googleConfigured = false;
@@ -46,14 +45,6 @@ function ensureGoogleConfigured() {
   if (googleConfigured) return;
   if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error('Missing EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID');
-  }
-  if (__DEV__) {
-    logGoogleNativeAuthDiagnostics('before GoogleSignin.configure');
-    console.log('[SleepFactor GoogleAuth] passing to GoogleSignin.configure', {
-      iosClientIdTail: GOOGLE_IOS_CLIENT_ID
-        ? GOOGLE_IOS_CLIENT_ID.replace('.apps.googleusercontent.com', '')
-        : '(omitted — empty)',
-    });
   }
   const { GoogleSignin } = loadGoogleSignIn();
   GoogleSignin.configure({

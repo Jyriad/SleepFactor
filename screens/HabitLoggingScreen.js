@@ -232,7 +232,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
         StatusBar.setTranslucent?.(true);
       }
     }, [])
@@ -937,7 +937,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   minimalHeaderBlock: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: MINIMAL_HEADER_RADIUS,
     borderBottomRightRadius: MINIMAL_HEADER_RADIUS,
     overflow: 'hidden',

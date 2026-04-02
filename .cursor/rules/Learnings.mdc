@@ -105,6 +105,12 @@ alwaysApply: false
 
 - **`ios.infoPlist.CFBundleDisplayName`** controls the **iPhone** home screen name (**SleepFactor Dev**). **Android** defaults the visible app name to the root **`name`** field unless **`android.label`** is set per variant — so the **system install prompt** may still say **“SleepFactor”** even for a correct **dev** build. Optional UX: set **`android.label`** when `IS_DEV` so Android matches iOS naming.
 
+**Android EAS / Gradle — `@sentry/react-native` codegen (April 2026)**
+
+- **Symptom:** Gradle fails with **implicit dependency** between codegen tasks, e.g. `:sentry-react-native:generateCodegenArtifactsFromSchema` vs `:sentry_react-native:generateCodegenSchemaFromJavaScript` (hyphen vs underscore in the project name).
+- **Cause:** **`@sentry/react-native`** is registered **twice** on Android: Expo’s **`useExpoModules()`** includes it as **`sentry-react-native`**, while React Native’s autolinking (from the same `expo-modules-autolinking` **react-native-config** output) includes it as **`sentry_react-native`** (`nameCleansed`). Same `android/` folder, two Gradle subprojects → codegen tasks and outputs no longer line up under Gradle 8 validation.
+- **Fix:** In **`package.json`** → **`expo.autolinking.exclude`**, add **`"@sentry/react-native"`**. That removes it from Expo’s **resolve** / **`useExpoModules`** only. It does **not** remove it from **react-native-config**, so RN autolinking still links the native module once. The **`@sentry/react-native/expo`** config plugin is unchanged.
+
 **iOS build failures — Swift / HealthKit / Nitro**
 
 - **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (e.g. `macos-sequoia-15.6-xcode-16.4` under `development.ios`) can help without a larger VM.

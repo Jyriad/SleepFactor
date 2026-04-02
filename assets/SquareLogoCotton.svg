@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Blue Zodiac: for light backgrounds (same mark as SquareLogoDark). Dark UI: SquareLogoCotton.svg. -->
+<!-- Cotton Blue (#2469B2): use on dark backgrounds (e.g. profile header). Zodiac square for light backgrounds: SquareLogoDark / SquareLogoLight. -->
 <svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
   <defs>
     <style>
@@ -8,7 +8,7 @@
       }
 
       .cls-2 {
-        fill: #11294c;
+        fill: #2469b2;
       }
     </style>
   </defs>

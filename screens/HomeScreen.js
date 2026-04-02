@@ -29,6 +29,7 @@ import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import Button from '../components/Button';
 // Sleep Data Rendering Components
 const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   <HealthConnectPrompt
@@ -576,13 +577,6 @@ const HomeScreen = () => {
   const applyDashboardPayload = useCallback((payload, dateStr) => {
     if (!isValidDashboardPayload(payload)) return;
     const sleepRecord = payload.sleep_record && typeof payload.sleep_record === 'object' && payload.sleep_record.id != null ? payload.sleep_record : null;
-    if (dateStr === getToday()) {
-      console.log('[SleepFactor Home] applyDashboardPayload (today)', {
-        calendarDate: dateStr,
-        sleepDataDate: sleepRecord?.date ?? null,
-        hasSleepRow: !!sleepRecord,
-      });
-    }
     setSleepData(sleepRecord);
     setIsExcluded(sleepRecord?.exclude_from_insights || false);
     setExclusionReason(sleepRecord?.exclusion_reason || null);
@@ -835,24 +829,10 @@ const HomeScreen = () => {
                   : null;
               if (ySleep) {
                 dashboardPayload = { ...dashboardPayload, sleep_record: ySleep };
-                console.log('[SleepFactor Home] Using previous night’s sleep row for today’s “Last night” card', {
-                  requestedDate: dateStr,
-                  sleepRowDate: ySleep.date,
-                });
-              } else {
-                console.log('[SleepFactor Home] No sleep row for today or yesterday', {
-                  today: dateStr,
-                  yesterdayChecked: yStr,
-                });
               }
-            } else {
-              console.log('[SleepFactor Home] Yesterday dashboard fetch skipped or invalid', {
-                yesterday: yStr,
-                error: yErr?.message || yData?.error,
-              });
             }
-          } catch (mergeErr) {
-            console.warn('[SleepFactor Home] Yesterday sleep fallback failed', mergeErr?.message || mergeErr);
+          } catch (_mergeErr) {
+            /* Yesterday fallback optional; ignore */
           }
         }
       }
@@ -899,7 +879,6 @@ const HomeScreen = () => {
     } finally {
       if (dateStr === getToday()) {
         todaySyncAttemptedRef.current = true;
-        console.log('[SleepFactor Home] Today’s dashboard fetch cycle finished', { dateStr });
       }
       const current = inFlightDashboardByDateRef.current.get(dateStr);
       if (current === runPromise) {
@@ -915,7 +894,7 @@ const HomeScreen = () => {
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
         StatusBar.setTranslucent?.(true);
       }
       return () => {
@@ -1243,7 +1222,7 @@ const HomeScreen = () => {
   const handleLogHabits = () => {
     tutorial?.notifyOpenedHabitLogging?.();
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
       StatusBar.setTranslucent?.(true);
     }
     const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
@@ -1252,7 +1231,7 @@ const HomeScreen = () => {
 
   const handleLogTodaysHabits = () => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
       StatusBar.setTranslucent?.(true);
     }
     const today = new Date();
@@ -1262,7 +1241,7 @@ const HomeScreen = () => {
 
   const handleLogYesterdaysHabits = useCallback(() => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
       StatusBar.setTranslucent?.(true);
     }
     const y = new Date();
@@ -1840,13 +1819,12 @@ const HomeScreen = () => {
                   )}
                 </View>
               ) : null}
-              <TouchableOpacity
-                style={styles.howDidYouFeelCTACompact}
+              <Button
+                title="How did you sleep?"
+                variant="outline"
+                size="compact"
                 onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.howDidYouFeelCTATextCompact}>How did you sleep?</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         )}
@@ -2243,14 +2221,14 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   dataSourceInfo: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
     marginTop: -spacing.sm, // Reduce gap since it's within the header
   },
   freshnessIndicator: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.small,
     color: colors.primary,
     fontWeight: typography.weights.medium,
   },
@@ -2266,7 +2244,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   howYouFeltDateHint: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
@@ -2274,54 +2252,6 @@ const styles = StyleSheet.create({
   howYouFeltRows: {
     marginBottom: 2,
     gap: 2,
-  },
-  howDidYouFeelCTACompact: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.regular,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  howDidYouFeelCTATextCompact: {
-    fontSize: typography.sizes.small,
-    color: colors.primary,
-    fontWeight: typography.weights.semibold,
-  },
-  howDidYouFeelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  howDidYouFeelText: {
-    fontSize: typography.sizes.body,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
-  },
-  howDidYouFeelCTA: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.regular,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  howDidYouFeelCTAText: {
-    fontSize: typography.sizes.body,
-    color: colors.primary,
-    fontWeight: typography.weights.semibold,
   },
   metricRow: {
     flexDirection: 'row',
