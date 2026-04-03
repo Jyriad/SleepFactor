@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1080 343.43">
+  <defs>
+    <style>
+      .cls-1 {
+        filter: url(#drop-shadow-2);
+      }
+
+      .cls-2 {
+        filter: url(#drop-shadow-6);
+      }
+
+      .cls-3, .cls-4 {
+        font-family: OverusedGrotesk-Bold, 'Overused Grotesk';
+        font-size: 26.7px;
+        font-variation-settings: 'wght' 700, 'slnt' 0;
+        font-weight: 700;
+      }
+
+      .cls-3, .cls-5, .cls-6 {
+        fill: #0f2a4b;
+      }
+
+      .cls-7 {
+        filter: url(#drop-shadow-5);
+      }
+
+      .cls-8, .cls-4, .cls-9 {
+        fill: #f3f4f5;
+      }
+
+      .cls-8, .cls-6 {
+        font-family: OverusedGrotesk-Medium, 'Overused Grotesk';
+        font-size: 21.66px;
+        font-variation-settings: 'wght' 500, 'slnt' 0;
+        font-weight: 500;
+      }
+
+      .cls-10 {
+        filter: url(#drop-shadow-4);
+      }
+
+      .cls-11 {
+        filter: url(#drop-shadow-1);
+      }
+
+      .cls-12 {
+        fill: #b0cdea;
+      }
+
+      .cls-13 {
+        fill: #6798ce;
+      }
+
+      .cls-14 {
+        filter: url(#drop-shadow-3);
+      }
+
+      .cls-15 {
+        fill: #246ab3;
+      }
+
+      .cls-16 {
+        fill: #223f80;
+      }
+    </style>
+    <filter id="drop-shadow-1" x="-21.84" y="-20.05" width="408.72" height="222.48" filterUnits="userSpaceOnUse">
+      <feOffset dx="9" dy="10"/>
+      <feGaussianBlur result="blur" stdDeviation="10"/>
+      <feFlood flood-color="#010101" flood-opacity=".2"/>
+      <feComposite in2="blur" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <filter id="drop-shadow-2" x="344.16" y="-20.05" width="408.96" height="222.48" filterUnits="userSpaceOnUse">
+      <feOffset dx="9" dy="10"/>
+      <feGaussianBlur result="blur-2" stdDeviation="10"/>
+      <feFlood flood-color="#010101" flood-opacity=".2"/>
+      <feComposite in2="blur-2" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <filter id="drop-shadow-3" x="710.4" y="-20.05" width="408.72" height="222.48" filterUnits="userSpaceOnUse">
+      <feOffset dx="9" dy="10"/>
+      <feGaussianBlur result="blur-3" stdDeviation="10"/>
+      <feFlood flood-color="#010101" flood-opacity=".2"/>
+      <feComposite in2="blur-3" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <filter id="drop-shadow-4" x="-21.84" y="160.67" width="408.72" height="222.48" filterUnits="userSpaceOnUse">
+      <feOffset dx="9" dy="10"/>
+      <feGaussianBlur result="blur-4" stdDeviation="10"/>
+      <feFlood flood-color="#010101" flood-opacity=".2"/>
+      <feComposite in2="blur-4" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <filter id="drop-shadow-5" x="344.16" y="160.67" width="408.96" height="222.48" filterUnits="userSpaceOnUse">
+      <feOffset dx="9" dy="10"/>
+      <feGaussianBlur result="blur-5" stdDeviation="10"/>
+      <feFlood flood-color="#010101" flood-opacity=".2"/>
+      <feComposite in2="blur-5" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <filter id="drop-shadow-6" x="710.4" y="160.67" width="408.72" height="222.48" filterUnits="userSpaceOnUse">
+      <feOffset dx="9" dy="10"/>
+      <feGaussianBlur result="blur-6" stdDeviation="10"/>
+      <feFlood flood-color="#010101" flood-opacity=".2"/>
+      <feComposite in2="blur-6" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+  </defs>
+  <g class="cls-11">
+    <rect class="cls-5" x="-.75" width="348.56" height="162.29" rx="3.27" ry="3.27"/>
+  </g>
+  <g class="cls-1">
+    <rect class="cls-15" x="365.34" width="348.56" height="162.29" rx="3.27" ry="3.27"/>
+  </g>
+  <g class="cls-14">
+    <rect class="cls-9" x="731.44" width="348.56" height="162.29" rx="3.27" ry="3.27"/>
+  </g>
+  <g class="cls-10">
+    <rect class="cls-16" x="-.75" y="180.86" width="348.56" height="162.29" rx="3.27" ry="3.27"/>
+  </g>
+  <g class="cls-7">
+    <rect class="cls-13" x="365.34" y="180.86" width="348.56" height="162.29" rx="3.27" ry="3.27"/>
+  </g>
+  <g class="cls-2">
+    <rect class="cls-12" x="731.44" y="180.86" width="348.56" height="162.29" rx="3.27" ry="3.27"/>
+  </g>
+  <text class="cls-4" transform="translate(23.97 107.92)"><tspan x="0" y="0">Blue Zodiac</tspan></text>
+  <text class="cls-8" transform="translate(23.97 140.53)"><tspan x="0" y="0">#11294B</tspan></text>
+  <text class="cls-8" transform="translate(128 140.53)"><tspan x="0" y="0">RGB (17, 41, 75)</tspan></text>
+  <text class="cls-4" transform="translate(389.07 107.92)"><tspan x="0" y="0">Cotton Blue</tspan></text>
+  <text class="cls-8" transform="translate(389.07 140.53)"><tspan x="0" y="0">#2469B2</tspan></text>
+  <text class="cls-8" transform="translate(493.1 140.53)"><tspan x="0" y="0">RGB (36, 105, 178)</tspan></text>
+  <text class="cls-3" transform="translate(754.1 107.92)"><tspan x="0" y="0">White Gray</tspan></text>
+  <text class="cls-6" transform="translate(754.1 140.53)"><tspan x="0" y="0">#F3F4F5</tspan></text>
+  <text class="cls-6" transform="translate(858.12 140.53)"><tspan x="0" y="0">RGB (243, 244, 245)</tspan></text>
+  <text class="cls-4" transform="translate(23.97 280.3)"><tspan x="0" y="0">Bay Of Many</tspan></text>
+  <text class="cls-8" transform="translate(23.97 312.91)"><tspan x="0" y="0">#243D80</tspan></text>
+  <text class="cls-8" transform="translate(128 312.91)"><tspan x="0" y="0">RGB (36, 61, 128)</tspan></text>
+  <text class="cls-4" transform="translate(389.07 280.3)"><tspan x="0" y="0">Livid</tspan></text>
+  <text class="cls-8" transform="translate(389.07 312.91)"><tspan x="0" y="0">#6698CF</tspan></text>
+  <text class="cls-8" transform="translate(493.1 312.91)"><tspan x="0" y="0">RGB (102, 152, 207)</tspan></text>
+  <text class="cls-3" transform="translate(754.1 280.3)"><tspan x="0" y="0">Birthday Blue</tspan></text>
+  <text class="cls-6" transform="translate(754.1 312.91)"><tspan x="0" y="0">#B0CDEB</tspan></text>
+  <text class="cls-6" transform="translate(858.12 312.91)"><tspan x="0" y="0">RGB (176, 205, 235)</tspan></text>
+</svg>

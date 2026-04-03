@@ -162,7 +162,7 @@ const HomeStackWrapper = ({ initialNavigate }) => {
                 component={HabitLoggingRouteWrapper}
                 options={{
                   animation: 'none',
-                  contentStyle: { backgroundColor: colors.primary },
+                  contentStyle: { backgroundColor: colors.primaryDark },
                 }}
               />
               <Stack.Screen
@@ -199,11 +199,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 100,
     elevation: 100,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
   },
   placeholderScreen: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
   },
 });
 

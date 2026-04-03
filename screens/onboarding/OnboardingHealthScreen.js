@@ -1,60 +1,22 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import HealthConnectPrompt from '../../components/HealthConnectPrompt';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
-import OnboardingStepLayout from './OnboardingStepLayout';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 
 const OnboardingHealthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const [showSuccess, setShowSuccess] = useState(false);
-  const checkScale = useSharedValue(0);
-  const checkOpacity = useSharedValue(0);
-
-  const advanceToNext = () => {
-    navigation.navigate('OnboardingVariables');
-  };
 
   const handlePermissionsGranted = () => {
-    setShowSuccess(true);
-    checkScale.value = withSequence(
-      withTiming(1.2, { duration: 200 }),
-      withTiming(1, { duration: 150 })
-    );
-    checkOpacity.value = withTiming(1, { duration: 300 });
+    navigation.replace('OnboardingHealthLab');
   };
 
   const handleDismiss = () => {
-    navigation.navigate('OnboardingVariables');
+    navigation.replace('OnboardingNewBeginning');
   };
-
-  const checkStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: checkScale.value }],
-    opacity: checkOpacity.value,
-  }));
-
-  if (showSuccess) {
-    return (
-      <OnboardingStepLayout
-        step={1}
-        totalSteps={8}
-        title="Health connected"
-        onNext={advanceToNext}
-        onBack={() => setShowSuccess(false)}
-        showSkip={false}
-      >
-        <View style={styles.successWrap}>
-          <Animated.View style={[styles.successCircle, checkStyle]}>
-            <Ionicons name="checkmark" size={48} color={colors.white} />
-          </Animated.View>
-        </View>
-      </OnboardingStepLayout>
-    );
-  }
 
   return (
     <View style={styles.fullPrompt}>
@@ -101,20 +63,6 @@ const styles = StyleSheet.create({
     zIndex: 10,
     maxWidth: '52%',
     alignItems: 'flex-end',
-  },
-  successWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: spacing.xxl,
-  },
-  successCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.success,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });
 

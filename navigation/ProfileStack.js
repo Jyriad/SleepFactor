@@ -9,7 +9,7 @@ const STACK_OPTIONS = {
   headerShown: false,
   animation: 'slide_from_right',
   animationDuration: 220,
-  contentStyle: { backgroundColor: colors.primary },
+  contentStyle: { backgroundColor: colors.primaryDark },
 };
 
 const ProfileStack = () => (

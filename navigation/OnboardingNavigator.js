@@ -3,27 +3,36 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { markOnboardingCompletedForUser } from '../services/onboardingStorage';
 import { markServerOnboardingCompleted } from '../services/onboardingEligibilityService';
+import { setTutorialPending } from '../services/tutorialStorage';
 
 import WelcomeScreen from '../screens/onboarding/WelcomeScreen';
 import OnboardingAuthScreen from '../screens/onboarding/OnboardingAuthScreen';
-import OnboardingVariablesScreen from '../screens/onboarding/OnboardingVariablesScreen';
-import OnboardingCorrelationScreen from '../screens/onboarding/OnboardingCorrelationScreen';
-import OnboardingControlScreen from '../screens/onboarding/OnboardingControlScreen';
-import OnboardingConfidenceScreen from '../screens/onboarding/OnboardingConfidenceScreen';
-import OnboardingHealthScreen from '../screens/onboarding/OnboardingHealthScreen';
-import OnboardingHabitSelectionScreen from '../screens/onboarding/OnboardingHabitSelectionScreen';
+import OnboardingIntroStatScreen from '../screens/onboarding/OnboardingIntroStatScreen';
+import OnboardingGoalQuizScreen from '../screens/onboarding/OnboardingGoalQuizScreen';
+import OnboardingHowSleepFactorWorksScreen from '../screens/onboarding/OnboardingHowSleepFactorWorksScreen';
+import OnboardingLetsGetSetupScreen from '../screens/onboarding/OnboardingLetsGetSetupScreen';
+import OnboardingSleepSourcePickerScreen from '../screens/onboarding/OnboardingSleepSourcePickerScreen';
+import OnboardingHealthLabScreen from '../screens/onboarding/OnboardingHealthLabScreen';
+import OnboardingConnectedSuccessScreen from '../screens/onboarding/OnboardingConnectedSuccessScreen';
+import OnboardingNewBeginningScreen from '../screens/onboarding/OnboardingNewBeginningScreen';
+import OnboardingAlcoholCaffeineScreen from '../screens/onboarding/OnboardingAlcoholCaffeineScreen';
+import OnboardingStarterHabitsScreen from '../screens/onboarding/OnboardingStarterHabitsScreen';
+import OnboardingWearableMetricsScreen from '../screens/onboarding/OnboardingWearableMetricsScreen';
+import OnboardingSleepFactorEducationScreen from '../screens/onboarding/OnboardingSleepFactorEducationScreen';
 import OnboardingNotificationScreen from '../screens/onboarding/OnboardingNotificationScreen';
-import OnboardingDashboardScreen from '../screens/onboarding/OnboardingDashboardScreen';
+import OnboardingClosingScreen from '../screens/onboarding/OnboardingClosingScreen';
+import AddHabitScreen from '../screens/AddHabitScreen';
 
 const Stack = createNativeStackNavigator();
 
 export default function OnboardingNavigator({ onComplete }) {
   const { user } = useAuth();
 
-  const handleOnboardingComplete = async () => {
+  const finishSlides = async () => {
     if (user?.id) {
       await markServerOnboardingCompleted(user.id);
       await markOnboardingCompletedForUser(user.id);
+      await setTutorialPending(user.id);
     }
     onComplete();
   };
@@ -48,26 +57,29 @@ export default function OnboardingNavigator({ onComplete }) {
       <Stack.Screen name="Welcome" component={WelcomeScreen} />
       <Stack.Screen name="OnboardingAuth">
         {(props) => (
-          <OnboardingAuthScreen
-            {...props}
-            onReturningUserSkip={handleReturningUserSkip}
-          />
+          <OnboardingAuthScreen {...props} onReturningUserSkip={handleReturningUserSkip} />
         )}
       </Stack.Screen>
-      <Stack.Screen name="OnboardingHealth" component={OnboardingHealthScreen} />
-      <Stack.Screen name="OnboardingVariables" component={OnboardingVariablesScreen} />
-      <Stack.Screen name="OnboardingHabitSelection" component={OnboardingHabitSelectionScreen} />
-      <Stack.Screen name="OnboardingCorrelation" component={OnboardingCorrelationScreen} />
-      <Stack.Screen name="OnboardingControl" component={OnboardingControlScreen} />
-      <Stack.Screen name="OnboardingConfidence" component={OnboardingConfidenceScreen} />
+      <Stack.Screen name="OnboardingIntroStat" component={OnboardingIntroStatScreen} />
+      <Stack.Screen name="OnboardingGoalQuiz" component={OnboardingGoalQuizScreen} />
+      <Stack.Screen name="OnboardingHowSleepFactorWorks" component={OnboardingHowSleepFactorWorksScreen} />
+      <Stack.Screen name="OnboardingLetsGetSetup" component={OnboardingLetsGetSetupScreen} />
+      <Stack.Screen name="OnboardingSleepSourcePicker" component={OnboardingSleepSourcePickerScreen} />
+      <Stack.Screen name="OnboardingHealthLab" component={OnboardingHealthLabScreen} />
+      <Stack.Screen name="OnboardingConnectedSuccess" component={OnboardingConnectedSuccessScreen} />
+      <Stack.Screen name="OnboardingNewBeginning" component={OnboardingNewBeginningScreen} />
+      <Stack.Screen name="OnboardingAlcoholCaffeine" component={OnboardingAlcoholCaffeineScreen} />
+      <Stack.Screen name="OnboardingStarterHabits" component={OnboardingStarterHabitsScreen} />
+      <Stack.Screen
+        name="OnboardingAddHabit"
+        component={AddHabitScreen}
+        options={{ presentation: 'modal' }}
+      />
+      <Stack.Screen name="OnboardingWearableMetrics" component={OnboardingWearableMetricsScreen} />
+      <Stack.Screen name="OnboardingSleepFactorEducation" component={OnboardingSleepFactorEducationScreen} />
       <Stack.Screen name="OnboardingNotification" component={OnboardingNotificationScreen} />
-      <Stack.Screen name="OnboardingDashboard">
-        {(props) => (
-          <OnboardingDashboardScreen
-            {...props}
-            onComplete={handleOnboardingComplete}
-          />
-        )}
+      <Stack.Screen name="OnboardingClosing">
+        {(props) => <OnboardingClosingScreen {...props} onSlidesFinished={finishSlides} />}
       </Stack.Screen>
     </Stack.Navigator>
   );

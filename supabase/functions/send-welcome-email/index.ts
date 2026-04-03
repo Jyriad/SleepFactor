@@ -98,7 +98,7 @@ function buildWelcomeEmailHtml(displayName: string, logoUrl: string): string {
   return `
 <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width: 600px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; font-size: 16px; line-height: 1.5; color: #1F2937;">
   <tr>
-    <td style="background-color: #1E3A8A; padding: 24px 24px 20px; text-align: left;">
+    <td style="background-color: #11294B; padding: 24px 24px 20px; text-align: left;">
       <img src="${escapeHtml(logoUrl)}" alt="SleepFactor" width="200" height="40" style="display: block; height: 40px; width: auto; max-width: 200px;" />
     </td>
   </tr>
@@ -111,7 +111,7 @@ function buildWelcomeEmailHtml(displayName: string, logoUrl: string): string {
   </tr>
   <tr>
     <td style="padding: 16px 24px 24px; background-color: #FAFAFA; border-top: 1px solid #E5E7EB;">
-      <p style="margin: 0; font-size: 14px; color: #6B7280;">You signed up at <a href="https://www.sleepfactor.app" style="color: #2563EB; text-decoration: none;">sleepfactor.app</a></p>
+      <p style="margin: 0; font-size: 14px; color: #6B7280;">You signed up at <a href="https://www.sleepfactor.app" style="color: #2469B2; text-decoration: none;">sleepfactor.app</a></p>
     </td>
   </tr>
 </table>

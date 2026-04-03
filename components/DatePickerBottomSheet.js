@@ -104,7 +104,7 @@ export default function DatePickerBottomSheet() {
 
 const styles = StyleSheet.create({
   background: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
   },
   content: {
     flex: 1,

@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import healthService from './healthService';
 import sleepDataService from './sleepDataService';
@@ -5,6 +6,7 @@ import bedtimeHabitsService from './bedtimeHabitsService';
 import syncAttemptTracker from './syncAttemptTracker';
 import { supabase } from './supabase';
 import { formatDateForDB } from '../utils/dateHelpers';
+import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 const LAST_SYNC_STORAGE_KEY = 'sleepSyncLastSuccessAt';
 
@@ -27,7 +29,6 @@ class SleepSyncService {
     try {
       const healthServiceInitialized = await healthService.initialize();
       this.isInitialized = healthServiceInitialized;
-      // Restore last sync time from storage (survives app kill)
       try {
         const stored = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
         if (stored) {
@@ -103,6 +104,17 @@ class SleepSyncService {
         }
       }
       allStages.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      const mergedSpanMs =
+        earliestStart && latestEnd ? latestEnd.getTime() - earliestStart.getTime() : 0;
+      const mergedSpanHours = mergedSpanMs / 3600000;
+      if (sessions.length > 1 || mergedSpanHours > 11) {
+        sleepDebugLog('merge_sleep_by_date', {
+          date,
+          mergedSessionCount: sessions.length,
+          mergedSpanHours: Math.round(mergedSpanHours * 10) / 10,
+          totalSleepMinutesSum: total_sleep_minutes,
+        });
+      }
       const mergedRecord = {
         date,
         total_sleep_minutes,
@@ -133,15 +145,12 @@ class SleepSyncService {
     try {
       const data = await sleepDataService.getSleepDataForRange(startDate, endDate);
 
-      // Ensure data is an array before mapping
       if (!Array.isArray(data)) {
         return new Set();
       }
 
-      // Return set of dates that already have data
       return new Set(data.map(record => record.date));
     } catch (error) {
-      // This can happen when user is not authenticated or during app startup
       return new Set();
     }
   }
@@ -155,7 +164,6 @@ class SleepSyncService {
    * @returns {Promise<Object>} Sync result with success status and data
    */
   async syncSleepData({ daysBack = 7, force = false, silent = false } = {}) {
-    // If a sync is already in progress, return early to prevent race conditions
     if (this.isSyncing && !force) {
       return {
         success: true,
@@ -165,7 +173,6 @@ class SleepSyncService {
       };
     }
 
-    // Queue this sync operation to ensure serialization
     return this.syncQueue = this.syncQueue.then(async () => {
       this.isSyncing = true;
       try {
@@ -177,29 +184,138 @@ class SleepSyncService {
   }
 
   /**
-   * Internal method that performs the actual sync
+   * Merge raw rows, upsert to Supabase, update bedtime habits and trackers.
+   * @private
+   */
+  async _runSleepIngestion(rawSleepData, startDateString, endDateString, force, noDataMessage) {
+    const existingDates = await this.getExistingSleepDates(startDateString, endDateString);
+
+    if (!rawSleepData || rawSleepData.length === 0) {
+      const today = formatDateForDB(new Date());
+      await syncAttemptTracker.markNoData(today);
+
+      return {
+        success: true,
+        data: [],
+        syncedRecords: 0,
+        resultType: 'SUCCESS_NO_DATA',
+        message: noDataMessage,
+        dateRange: { startDate: startDateString, endDate: endDateString }
+      };
+    }
+
+    const mergedByDate = this._mergeSleepRecordsByDate(rawSleepData);
+
+    let recordsToProcess = mergedByDate;
+    if (!force && existingDates.size > 0) {
+      recordsToProcess = mergedByDate.filter(record => !existingDates.has(record.date));
+    }
+
+    if (recordsToProcess.length === 0) {
+      const today = formatDateForDB(new Date());
+      await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
+      return {
+        success: true,
+        data: [],
+        syncedRecords: 0,
+        resultType: 'SUCCESS_ALREADY_SYNCED',
+        message: 'All sleep data already synced',
+        dateRange: { startDate: startDateString, endDate: endDateString }
+      };
+    }
+
+    const savedRecords = [];
+    const errors = [];
+
+    for (const transformedData of recordsToProcess) {
+      try {
+        if (transformedData) {
+          if (!transformedData.source) {
+            transformedData.source = healthService.getSourceIdentifier();
+          }
+          const savedRecord = await sleepDataService.upsertSleepData(transformedData);
+          savedRecords.push(savedRecord);
+        }
+      } catch (error) {
+        errors.push({ record: transformedData, error: error.message });
+      }
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        if (savedRecords.length > 0) {
+          await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, savedRecords);
+        }
+
+        const today = formatDateForDB(new Date());
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        const weekAgoString = formatDateForDB(weekAgo);
+
+        const recentSleepData = await sleepDataService.getSleepDataForRange(weekAgoString, today, user.id);
+        if (recentSleepData && recentSleepData.length > 0) {
+          await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, recentSleepData);
+        }
+      }
+    } catch (_e) {
+      // Don't fail the sync if bedtime habits update fails
+    }
+
+    this.lastSyncTimestamp = new Date();
+    try {
+      await AsyncStorage.setItem(LAST_SYNC_STORAGE_KEY, this.lastSyncTimestamp.toISOString());
+    } catch (_e) {
+      // Non-blocking
+    }
+
+    const today = formatDateForDB(new Date());
+    for (const record of savedRecords) {
+      await syncAttemptTracker.clearNoData(record.date);
+      await syncAttemptTracker.recordAttempt({
+        date: record.date,
+        outcome: 'success'
+      });
+    }
+    const todayInSaved = savedRecords.some(r => r.date === today);
+    if (!todayInSaved) {
+      await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
+    }
+
+    return {
+      success: true,
+      data: savedRecords,
+      syncedRecords: savedRecords.length,
+      resultType: savedRecords.length > 0 ? 'SUCCESS_WITH_DATA' : 'SUCCESS_NO_DATA',
+      errors: errors.length,
+      dateRange: { startDate: startDateString, endDate: endDateString },
+      lastSyncTimestamp: this.lastSyncTimestamp.toISOString()
+    };
+  }
+
+  /**
    * @private
    */
   async _performSync({ daysBack = 7, force = false, silent = false } = {}) {
     try {
-      // Initialize health service first - if this succeeds, Health Connect is available
       if (!healthService.isInitialized) {
         const initialized = await healthService.initialize();
         if (!initialized) {
           return {
             success: false,
-            error: 'Unable to connect to Health Connect. Please make sure Health Connect is installed and try again.',
+            error:
+              Platform.OS === 'android'
+                ? 'Unable to connect to Google Health Connect. Please make sure Health Connect is installed and try again.'
+                : 'Unable to access Apple Health on this device.',
             data: null
           };
         }
       }
 
-      // Initialize sleep sync service if needed
       if (!this.isInitialized) {
         await this.initialize();
       }
 
-      // Check permissions
       const hasPermissions = await healthService.hasPermissions();
       if (!hasPermissions) {
         return {
@@ -210,7 +326,6 @@ class SleepSyncService {
         };
       }
 
-      // Calculate date range for sync (local time so "today" matches user's timezone)
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(endDate.getDate() - daysBack);
@@ -218,145 +333,34 @@ class SleepSyncService {
       const startDateString = formatDateForDB(startDate);
       const endDateString = formatDateForDB(endDate);
 
-
-      // Check which dates already have sleep data to avoid unnecessary syncing
-      const existingDates = await this.getExistingSleepDates(startDateString, endDateString);
-
-      // Fetch sleep data from health platform
       const rawSleepData = await healthService.syncSleepData({
         startDate: startDateString,
         endDate: endDateString
       });
 
+      const emptyMsg =
+        Platform.OS === 'android'
+          ? 'No sleep data available in Google Health Connect'
+          : 'No sleep data available in Apple Health';
 
-      if (!rawSleepData || rawSleepData.length === 0) {
-        // Mark that Health Connect has no data for the date range
-        const today = formatDateForDB(new Date());
-        await syncAttemptTracker.markNoData(today);
-        
-        return {
-          success: true,
-          data: [],
-          syncedRecords: 0,
-          resultType: 'SUCCESS_NO_DATA', // Clear distinction: success but no data available
-          message: 'No sleep data available in Health Connect',
-          dateRange: { startDate: startDateString, endDate: endDateString }
-        };
-      }
-
-      // Merge multiple sessions per date into one record (combined totals + sleep_sessions for UI)
-      const mergedByDate = this._mergeSleepRecordsByDate(rawSleepData);
-
-      // Filter out dates that already exist (unless forcing)
-      let recordsToProcess = mergedByDate;
-      if (!force && existingDates.size > 0) {
-        recordsToProcess = mergedByDate.filter(record => !existingDates.has(record.date));
-      }
-
-      if (recordsToProcess.length === 0) {
-        const today = formatDateForDB(new Date());
-        await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
-        return {
-          success: true,
-          data: [],
-          syncedRecords: 0,
-          resultType: 'SUCCESS_ALREADY_SYNCED', // All data already in database
-          message: 'All sleep data already synced',
-          dateRange: { startDate: startDateString, endDate: endDateString }
-        };
-      }
-
-      // Save merged records (one per date)
-      const savedRecords = [];
-      const errors = [];
-
-      for (const transformedData of recordsToProcess) {
-        try {
-          if (transformedData) {
-            if (!transformedData.source) {
-              transformedData.source = healthService.getSourceIdentifier();
-            }
-            const savedRecord = await sleepDataService.upsertSleepData(transformedData);
-            savedRecords.push(savedRecord);
-          }
-        } catch (error) {
-          errors.push({ record: transformedData, error: error.message });
-        }
-      }
-
-      // Update bedtime habits - always try to sync recent data when user initiates sync
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          if (savedRecords.length > 0) {
-            // Process newly synced sleep data
-            await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, savedRecords);
-          }
-
-          // Always try to ensure bedtime habits are up to date for recent data
-          // This handles cases where sync is clicked but no new data exists
-          const today = formatDateForDB(new Date());
-          const weekAgo = new Date();
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          const weekAgoString = formatDateForDB(weekAgo);
-
-          // Get recent sleep data and ensure bedtime habits are populated
-          const recentSleepData = await sleepDataService.getSleepDataForRange(weekAgoString, today, user.id);
-          if (recentSleepData && recentSleepData.length > 0) {
-            await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, recentSleepData);
-          }
-        }
-      } catch (error) {
-        // Don't fail the sync if bedtime habits update fails
-      }
-
-      // Update last sync timestamp (in-memory and persisted)
-      this.lastSyncTimestamp = new Date();
-      try {
-        await AsyncStorage.setItem(LAST_SYNC_STORAGE_KEY, this.lastSyncTimestamp.toISOString());
-      } catch (e) {
-        // Non-blocking
-      }
-
-      // Clear "no_data" markers for dates we successfully synced
-      const today = formatDateForDB(new Date());
-      for (const record of savedRecords) {
-        await syncAttemptTracker.clearNoData(record.date);
-        await syncAttemptTracker.recordAttempt({
-          date: record.date,
-          outcome: 'success'
-        });
-      }
-      // Ensure today is recorded when sync ran (in case today was not in savedRecords but was in range)
-      const todayInSaved = savedRecords.some(r => r.date === today);
-      if (!todayInSaved) {
-        await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
-      }
-
-      const result = {
-        success: true,
-        data: savedRecords,
-        syncedRecords: savedRecords.length,
-        resultType: savedRecords.length > 0 ? 'SUCCESS_WITH_DATA' : 'SUCCESS_NO_DATA',
-        errors: errors.length,
-        dateRange: { startDate: startDateString, endDate: endDateString },
-        lastSyncTimestamp: this.lastSyncTimestamp.toISOString()
-      };
-
-      return result;
-
+      return this._runSleepIngestion(
+        rawSleepData,
+        startDateString,
+        endDateString,
+        force,
+        emptyMsg
+      );
     } catch (error) {
-      // Record error attempt
       const today = formatDateForDB(new Date());
-      await syncAttemptTracker.recordAttempt({ 
-        date: today, 
-        outcome: 'error' 
+      await syncAttemptTracker.recordAttempt({
+        date: today,
+        outcome: 'error'
       });
-      
+
       return {
         success: false,
         resultType: 'ERROR',
-        error: healthService.getErrorMessage(error),
+        error: this.getErrorMessage(error),
         data: null
       };
     }
@@ -400,10 +404,30 @@ class SleepSyncService {
    * @returns {Promise<boolean>} True if permissions granted
    */
   async requestPermissions() {
+    const detail = await this.requestPermissionsDetailed();
+    return detail.ok;
+  }
+
+  /**
+   * Same as requestPermissions with structured failure info for UX and logs.
+   * @returns {Promise<{ ok: boolean, reason: string, platform: string, step?: string, errorMessage?: string }>}
+   */
+  async requestPermissionsDetailed() {
     try {
-      return await healthService.requestPermissions();
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      const result = await healthService.requestPermissionsDetailed();
+      return result;
     } catch (error) {
-      return false;
+      const msg = error?.message || String(error);
+      return {
+        ok: false,
+        reason: 'service_error',
+        platform: Platform.OS,
+        errorMessage: msg,
+        step: 'sleepSyncService',
+      };
     }
   }
 
@@ -413,12 +437,9 @@ class SleepSyncService {
    */
   async disconnect() {
     try {
-
-      // Revoke permissions from the health platform
       const revoked = await healthService.revokePermissions();
 
       if (revoked) {
-        // Clear any stored sync timestamps or cached data
         this.lastSyncTimestamp = null;
         this.isInitialized = false;
         try {
@@ -453,19 +474,16 @@ class SleepSyncService {
    */
   async needsSync() {
     try {
-      // If we've never synced, we definitely need to sync
       if (!this.lastSyncTimestamp) {
         return true;
       }
 
-      // If it's been more than 6 hours since last sync, we should sync
       const sixHoursAgo = new Date();
       sixHoursAgo.setHours(sixHoursAgo.getHours() - 6);
       if (this.lastSyncTimestamp < sixHoursAgo) {
         return true;
       }
 
-      // Check if we have recent sleep data (last 2 days)
       const today = formatDateForDB(new Date());
       const twoDaysAgo = new Date();
       twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
@@ -474,10 +492,8 @@ class SleepSyncService {
       const recentSleepData = await sleepDataService.getSleepDataForRange(twoDaysAgoString, today);
       const hasRecentData = recentSleepData && recentSleepData.length > 0;
 
-      // If we don't have recent data, we need to sync
       return !hasRecentData;
     } catch (error) {
-      // If we can't check, assume we need to sync
       return true;
     }
   }
@@ -489,6 +505,59 @@ class SleepSyncService {
    */
   getErrorMessage(error) {
     return healthService.getErrorMessage(error);
+  }
+}
+
+/**
+ * Alert title + message when health permission request did not succeed (from requestPermissionsDetailed).
+ * @param {{ ok?: boolean, reason?: string, platform?: string, errorMessage?: string }} result
+ * @returns {{ title: string, message: string } | null}
+ */
+export function getHealthPermissionFailureAlertCopy(result) {
+  if (!result || result.ok) return null;
+  const isIos = result.platform === 'ios';
+
+  switch (result.reason) {
+    case 'health_data_unavailable':
+      return {
+        title: 'Apple Health isn’t available',
+        message: isIos
+          ? 'This iPhone can’t use Apple Health the way SleepFactor needs (for example some restricted setups). You can skip for now and keep using the app without automatic sleep sync.'
+          : 'Google Health Connect isn’t available on this device yet. You can skip for now.',
+      };
+    case 'health_connect_init_failed':
+      return {
+        title: 'Couldn’t use Health Connect',
+        message:
+          'Google Health Connect couldn’t be opened from the app. Install or enable Health Connect from the Play Store, then try again — or skip for now.',
+      };
+    case 'sleep_not_granted':
+      return {
+        title: 'Sleep access needed',
+        message:
+          'SleepFactor needs permission to read sleep from Health Connect. Tap Try Again and allow sleep — or skip for now.',
+      };
+    case 'native_module_unavailable':
+      return {
+        title: 'Health isn’t included in this build',
+        message: isIos
+          ? 'This install doesn’t include the Apple Health connection. Rebuild the iOS app (see project docs) so HealthKit is part of the binary, then try again — or skip for now.'
+          : 'This install doesn’t include the Health Connect native module. Rebuild the app — or skip for now.',
+      };
+    case 'authorization_error':
+      return {
+        title: 'Couldn’t open Health access',
+        message: isIos
+          ? 'We couldn’t show Apple’s permission screen, so you may not have been asked to allow anything yet. That usually means the Health step failed before you could choose — not that you tapped Don’t Allow.\n\nIf this app doesn’t appear under Settings → Privacy & Security → Health, reinstall or rebuild so Health support is included. You can skip for now and connect later from Profile.'
+          : 'We couldn’t complete the Health Connect permission step. Try again, confirm Health Connect is installed, or skip for now.',
+      };
+    default:
+      return {
+        title: 'Couldn’t connect health data',
+        message: isIos
+          ? 'Something went wrong while connecting to Apple Health. Try again, or skip for now.'
+          : 'Something went wrong while connecting to Google Health Connect. Try again or skip for now.',
+      };
   }
 }
 

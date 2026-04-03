@@ -1,4 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import {
   View,
   Text,
@@ -17,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
+import { useTutorialOptional } from '../contexts/TutorialContext';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
@@ -40,6 +48,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
+import GlassChromeBar from '../components/GlassChromeBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
 import ConsumptionLoggedList from '../components/ConsumptionLoggedList';
@@ -52,6 +61,22 @@ const EMPTY_CONSUMPTION_EVENTS = [];
 // getDateString used across the screen; same logic as cache service for consistency
 const getDateString = (date) => getDateStr(date);
 const collapsedConsumptionKey = (uid) => `habit_logging_collapsed_${uid}`;
+
+/** Resolve caffeine / alcohol row for quick-open from the main tab bar long-press menu */
+function findDrugHabitForQuickKind(habits, kind) {
+  const isDrug = (h) => h.type === 'drug' || h.type === 'quick_consumption';
+  if (kind === 'caffeine') {
+    return habits.find(
+      (h) => isDrug(h) && (h.name || '').toLowerCase().includes('caffeine')
+    );
+  }
+  if (kind === 'alcohol') {
+    return habits.find(
+      (h) => isDrug(h) && (h.name || '').toLowerCase().includes('alcohol')
+    );
+  }
+  return undefined;
+}
 
 function normalizeHabitForPayload(h) {
   return {
@@ -113,6 +138,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const navigation = navigationProp ?? navigationFromHook;
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const tutorial = useTutorialOptional();
+  const tutorialToastSentRef = useRef(false);
+  const [tutorialPulseId, setTutorialPulseId] = useState(null);
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
   const setSelectedDate = dateHeader?.setSelectedDate ?? (() => {});
@@ -130,6 +158,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const [consumptionEventsLoading, setConsumptionEventsLoading] = useState(false);
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const [collapsedConsumption, setCollapsedConsumption] = useState({});
+  /** Space below absolute glass date header */
+  const [habitLogGlassHeaderHeight, setHabitLogGlassHeaderHeight] = useState(140);
   const selectedDateRef = useRef(selectedDate);
   const appliedQuickConsumptionDefaultsRef = useRef(new Set());
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
@@ -140,6 +170,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const [habitListRefreshGen, setHabitListRefreshGen] = useState(0);
   const skipInMemoryNextLoadRef = useRef(false);
   const refreshConsumptionEventsRef = useRef(() => {});
+  const flatListRef = useRef(null);
+  const tabBarQuickActionHandledRef = useRef(null);
 
   // After add/edit/delete habit, refetch list so new habits (e.g. time) appear — same trigger as Habit Management.
   useFocusEffect(
@@ -203,7 +235,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
         StatusBar.setTranslucent?.(true);
       }
     }, [])
@@ -566,6 +598,57 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     });
   }, [navigation, user?.id]);
 
+  // Main tab bar long-press: open habit logging scrolled to caffeine/alcohol with that section expanded
+  useEffect(() => {
+    const token = route.params?.pendingActionToken;
+    const pendingKind = route.params?.pendingQuickLog;
+    if (!token || loading || !habits.length) return;
+    if (pendingKind !== 'caffeine' && pendingKind !== 'alcohol') return;
+    if (tabBarQuickActionHandledRef.current === token) return;
+
+    const clearTabBarParams = () => {
+      navigation.setParams({
+        pendingQuickLog: undefined,
+        pendingActionToken: undefined,
+      });
+    };
+
+    tabBarQuickActionHandledRef.current = token;
+    clearTabBarParams();
+
+    const habit = findDrugHabitForQuickKind(habits, pendingKind);
+    if (!habit) {
+      Alert.alert(
+        'No matching habit',
+        pendingKind === 'caffeine'
+          ? 'Add a caffeine habit from the Habits tab to log caffeine here.'
+          : 'Add an alcohol habit from the Habits tab to log alcohol here.'
+      );
+      return;
+    }
+
+    const idx = habits.findIndex((h) => h.id === habit.id);
+    if (idx < 0) return;
+
+    setCollapsedConsumption((prev) => {
+      const next = { ...prev, [habit.id]: false };
+      if (user?.id) {
+        AsyncStorage.setItem(collapsedConsumptionKey(user.id), JSON.stringify(next)).catch(() => {});
+      }
+      return next;
+    });
+
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({
+          index: idx,
+          animated: true,
+          viewPosition: 0.1,
+        });
+      }, 150);
+    });
+  }, [route.params?.pendingActionToken, route.params?.pendingQuickLog, loading, habits, navigation, user?.id]);
+
   const toggleConsumptionCollapsed = useCallback((habitId) => {
     setCollapsedConsumption((prev) => {
       const next = { ...prev, [habitId]: !prev[habitId] };
@@ -589,6 +672,30 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       return value !== undefined && value !== null && value !== '';
     }
   };
+
+  const loggingTutorial =
+    tutorial?.storageStatus === 'pending' && tutorial?.phase === 'logging';
+
+  useEffect(() => {
+    if (!loggingTutorial) {
+      setTutorialPulseId(null);
+      tutorialToastSentRef.current = false;
+      return;
+    }
+    const targets = habits.slice(0, Math.min(4, habits.length));
+    const next = targets.find((h) => !isHabitLoggedToday(h));
+    setTutorialPulseId(next?.id ?? null);
+  }, [loggingTutorial, habits, habitLogs, consumptionEvents]);
+
+  useEffect(() => {
+    if (!loggingTutorial || tutorialToastSentRef.current) return;
+    const targets = habits.slice(0, Math.min(4, habits.length));
+    if (targets.length === 0) return;
+    if (targets.every((h) => isHabitLoggedToday(h))) {
+      tutorialToastSentRef.current = true;
+      tutorial?.showPostLogToast?.();
+    }
+  }, [loggingTutorial, habits, habitLogs, consumptionEvents, tutorial]);
 
   const handleHabitChange = useCallback((habitId, value) => {
     const habit = habits.find(h => h.id === habitId);
@@ -754,6 +861,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           onOpenLogConsumption={handleOpenLogConsumption}
           toggleConsumptionCollapsed={toggleConsumptionCollapsed}
           isLogged={isHabitLoggedToday(habit)}
+          highlightPulse={loggingTutorial && tutorialPulseId === habit.id}
         />
       );
     },
@@ -770,6 +878,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       handleConsumptionAdded,
       handleOpenLogConsumption,
       toggleConsumptionCollapsed,
+      loggingTutorial,
+      tutorialPulseId,
     ]
   );
 
@@ -779,13 +889,15 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
       {loading ? (
         <>
-          <View style={[styles.minimalHeaderBlock, { paddingTop: minimalHeaderTop }]}>
-            <View style={styles.minimalHeaderInner}>
-              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.minimalBackButton}>
-                <Ionicons name="chevron-back" size={24} color={colors.white} />
-              </TouchableOpacity>
-              <Text style={styles.minimalHeaderTitle}>Log habits</Text>
-            </View>
+          <View style={styles.minimalHeaderOverlay}>
+            <GlassChromeBar bottomRadius={12}>
+              <View style={[styles.minimalHeaderInner, { paddingTop: minimalHeaderTop }]}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.minimalBackButton}>
+                  <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+                <Text style={styles.minimalHeaderTitle}>Log habits</Text>
+              </View>
+            </GlassChromeBar>
           </View>
           <View style={styles.minimalLoadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -796,10 +908,15 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       <ScrollableDateHeaderBar
         showBackButton={!!routeProp}
         onBackPress={routeProp ? () => navigation.goBack() : undefined}
+        onLayoutHeight={setHabitLogGlassHeaderHeight}
       />
       <FlatList
+        ref={flatListRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: habitLogGlassHeaderHeight + spacing.xs },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -809,6 +926,11 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         keyExtractor={keyExtractor}
         ListEmptyComponent={HabitLoggingEmptyComponent}
         renderItem={renderItem}
+        onScrollToIndexFailed={({ index }) => {
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
+          }, 200);
+        }}
       />
       </>
       )}
@@ -816,26 +938,24 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   );
 };
 
-const MINIMAL_HEADER_RADIUS = 12;
-
 const styles = StyleSheet.create({
   bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,
   },
-  minimalHeaderBlock: {
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: MINIMAL_HEADER_RADIUS,
-    borderBottomRightRadius: MINIMAL_HEADER_RADIUS,
-    overflow: 'hidden',
-    marginBottom: 8,
-    zIndex: 10,
-    elevation: 10,
+  minimalHeaderOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    ...Platform.select({
+      android: { elevation: 24 },
+    }),
   },
   minimalHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 2,
     paddingBottom: 12,
     paddingHorizontal: 4,
   },
@@ -845,7 +965,7 @@ const styles = StyleSheet.create({
   minimalHeaderTitle: {
     fontSize: typography.sizes.large,
     fontWeight: typography.weights.semibold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   minimalLoadingContainer: {
     flex: 1,
@@ -954,6 +1074,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: spacing.regular,
   },
+  tutorialPulseOutline: {
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+});
+
+const PulseTutorialWrap = React.memo(function PulseTutorialWrap({ active, children }) {
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    if (active) {
+      scale.value = withRepeat(
+        withSequence(withTiming(1.02, { duration: 550 }), withTiming(1, { duration: 550 })),
+        -1,
+        false
+      );
+    } else {
+      scale.value = withTiming(1, { duration: 120 });
+    }
+  }, [active, scale]);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  if (!active) return children;
+  return (
+    <Animated.View style={[animStyle, styles.tutorialPulseOutline]}>
+      {children}
+    </Animated.View>
+  );
 });
 
 const HabitLoggingRow = React.memo(function HabitLoggingRow({
@@ -972,8 +1119,9 @@ const HabitLoggingRow = React.memo(function HabitLoggingRow({
   onOpenLogConsumption,
   toggleConsumptionCollapsed,
   isLogged,
+  highlightPulse = false,
 }) {
-  return (
+  const row = (
     <View style={[
       styles.habitRow,
       isDrugHabit && styles.habitRowFullWidth,
@@ -1063,6 +1211,7 @@ const HabitLoggingRow = React.memo(function HabitLoggingRow({
       </View>
     </View>
   );
+  return <PulseTutorialWrap active={highlightPulse}>{row}</PulseTutorialWrap>;
 });
 
 export default HabitLoggingScreen;

@@ -45,13 +45,16 @@ import NavigationCard from '../components/NavigationCard';
 import AuthProviderBadges from '../components/AuthProviderBadges';
 import { getAccountIdentifier } from '../utils/authDisplay';
 import useHealthSync from '../hooks/useHealthSync';
+import sleepSyncService from '../services/sleepSyncService';
 import sleepDataService from '../services/sleepDataService';
 import habitReminderNotifications from '../services/habitReminderNotifications';
 import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
+/** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
+import GlassChromeBar from '../components/GlassChromeBar';
 import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
@@ -115,7 +118,6 @@ const ProfileScreen = () => {
   const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
   const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
   const [morningCheckinPickerMinute, setMorningCheckinPickerMinute] = useState(0);
-  const [showDeleteDataModal, setShowDeleteDataModal] = useState(false);
   const [sleepDataModalVisible, setSleepDataModalVisible] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
@@ -202,14 +204,14 @@ const ProfileScreen = () => {
   // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
   useEffect(() => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
     }
   }, []);
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
       }
     }, [])
   );
@@ -271,11 +273,10 @@ const ProfileScreen = () => {
     );
   };
 
-  const getDataSourceDisplay = (hasPermissions) => {
+  const getDataSourceDisplay = (connected) => {
     if (!isInitialized) return 'Initializing...';
-    if (!hasPermissions) return 'Not connected — tap for options';
-
-    return Platform.OS === 'android' ? 'Health Connect' : 'Apple Health';
+    if (!connected) return 'Not connected — tap for options';
+    return Platform.OS === 'android' ? 'Google Health Connect' : 'Apple Health';
   };
 
   const openSystemPermissions = async () => {
@@ -293,8 +294,8 @@ const ProfileScreen = () => {
 
   const handleDisconnect = () => {
     Alert.alert(
-      'Disconnect Data Source',
-      'This will revoke access to your health data. You can reconnect anytime by granting permissions again.',
+      'Disconnect data source',
+      'This will revoke in-app access to your sleep data. You may also remove access in system settings.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -302,14 +303,18 @@ const ProfileScreen = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              // For now, we'll just clear the permissions state
-              // In a real implementation, we'd call the revokePermissions method
-              Alert.alert(
-                'Disconnect Instructions',
-                'To disconnect from your health data source, please revoke permissions in your device settings:\n\n' +
-                '• Android: Health Connect app → Settings → Connected apps\n' +
-                '• iOS: Settings → Privacy & Security → Health → SleepFactor'
-              );
+              const result = await sleepSyncService.disconnect();
+              if (result.success) {
+                await refreshPermissionState();
+                Alert.alert(
+                  'System settings',
+                  Platform.OS === 'android'
+                    ? 'To fully remove access: open Health Connect → App permissions → SleepFactor.'
+                    : 'To fully remove access: Settings → Privacy & Security → Health → SleepFactor.'
+                );
+              } else {
+                Alert.alert('Could not disconnect', result.error || 'Please try again.');
+              }
             } catch (error) {
               Alert.alert('Error', 'Failed to disconnect');
             }
@@ -349,77 +354,6 @@ const ProfileScreen = () => {
     }
   };
 
-  const handleDeleteSleepData = () => {
-    Alert.alert(
-      'Delete All Sleep Data',
-      'This will permanently delete all your sleep data from our servers. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const deletedCount = await sleepDataService.deleteAllSleepData();
-              Alert.alert('Success', `Deleted ${deletedCount} sleep data records`);
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete sleep data');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleDeleteHabitLogs = () => {
-    Alert.alert(
-      'Delete All Habit Logs',
-      'This will permanently delete all your habit tracking data from our servers. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const deletedCount = await sleepDataService.deleteAllHabitLogs();
-              // Clear cached data
-              await clearUserCaches(user.id);
-              Alert.alert('Success', `Deleted ${deletedCount} habit records and cleared caches`);
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete habit logs');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleDeleteAllData = () => {
-    Alert.alert(
-      'Delete All Data',
-      'This will permanently delete ALL your data (sleep records and habit logs) from our servers. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Everything',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const sleepDeleted = await sleepDataService.deleteAllSleepData();
-              const habitDeleted = await sleepDataService.deleteAllHabitLogs();
-              // Clear cached data
-              await clearUserCaches(user.id);
-              Alert.alert('Success', `Deleted ${sleepDeleted} sleep records and ${habitDeleted} habit records`);
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete all data');
-            }
-          },
-        },
-      ]
-    );
-  };
-
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScrollView
@@ -427,19 +361,21 @@ const ProfileScreen = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollViewContent}
       >
-        <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-          <View style={styles.header}>
-            <View style={styles.headerRow}>
-              <SquareLogoDark
-                width={40}
-                height={40}
-                style={styles.headerLogo}
-                accessibilityLabel="SleepFactor"
-              />
-              <Text style={styles.title}>Profile</Text>
+        <GlassChromeBar style={styles.headerGlassOuter}>
+          <View style={{ paddingTop: headerTopPadding }}>
+            <View style={styles.header}>
+              <View style={styles.headerRow}>
+                <SquareLogoDark
+                  width={40}
+                  height={40}
+                  style={styles.headerLogo}
+                  accessibilityLabel="SleepFactor"
+                />
+                <Text style={styles.title}>Profile</Text>
+              </View>
             </View>
           </View>
-        </View>
+        </GlassChromeBar>
         <View style={styles.content}>
           {/* Account Navigation */}
           <View style={styles.section}>
@@ -474,6 +410,13 @@ const ProfileScreen = () => {
               accessibilityLabel="Sleep data source, tap to manage sync and permissions"
             >
               <View style={styles.dataSourceRow}>
+                <View style={styles.dataSourceLogoWrap}>
+                  <Ionicons
+                    name={Platform.OS === 'android' ? 'logo-google' : 'logo-apple'}
+                    size={28}
+                    color={colors.textPrimary}
+                  />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Sleep data source</Text>
                   <Text style={styles.value}>{getDataSourceDisplay(hasPermissions)}</Text>
@@ -520,13 +463,13 @@ const ProfileScreen = () => {
                   />
                   <Text style={styles.sleepDataStatusText}>
                     {hasPermissions
-                      ? `Connected · ${Platform.OS === 'android' ? 'Health Connect' : 'Apple Health'}`
+                      ? `Connected · ${Platform.OS === 'android' ? 'Google Health Connect' : 'Apple Health'}`
                       : 'Not connected'}
                   </Text>
                 </View>
                 <Text style={styles.sleepDataModalBody}>
                   {Platform.OS === 'android'
-                    ? 'Sleep is read from Health Connect. Grant access in SleepFactor first, then sync. You can fine-tune what SleepFactor may read in system settings or in the Health Connect app (connected apps).'
+                    ? 'Sleep is read through Google Health Connect. Grant access in SleepFactor first, then sync. You can adjust what we may read in Health Connect (app permissions).'
                     : 'Sleep is read from Apple Health. Grant access when prompted, then sync. You can change access anytime in Settings → Privacy & Security → Health → SleepFactor.'}
                 </Text>
 
@@ -588,48 +531,12 @@ const ProfileScreen = () => {
             </SafeAreaView>
           </Modal>
 
-          {/* Data Quality */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Data Quality</Text>
-            <Text style={styles.sectionDescription}>
-              Exclude specific nights from insights from Sleep or Habit data review — only you choose what to leave out.
-            </Text>
-            <Text style={[styles.sectionSubTitle, { marginTop: spacing.lg }]}>Advanced</Text>
-            <View style={[styles.infoCard, styles.toggleCard]}>
-              <View style={styles.toggleRow}>
-                <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Show habits without significance</Text>
-                  <Text style={styles.description}>
-                    Show habits with "no statistical significance yet" to help debug data issues
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleSwitch,
-                    preferences.showNoSignificanceHabits && styles.toggleSwitchOn,
-                  ]}
-                  onPress={() => updatePreference('showNoSignificanceHabits', !preferences.showNoSignificanceHabits)}
-                >
-                  <View
-                    style={[
-                      styles.toggleKnob,
-                      preferences.showNoSignificanceHabits && styles.toggleKnobOn,
-                    ]}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-
           {/* Settings */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
             <Text style={[styles.sectionSubTitle, { marginTop: 0 }]}>Display</Text>
             <View style={[styles.infoCard, styles.measurementCard]}>
               <Text style={styles.label}>Units for drinks</Text>
-              <Text style={styles.description}>
-                Affects how serving sizes are displayed (e.g. 12 fl oz vs 355 ml). Your existing data stays the same when you switch.
-              </Text>
               <View style={styles.measurementContainer}>
                 <TouchableOpacity
                   style={[
@@ -791,14 +698,11 @@ const ProfileScreen = () => {
             <Text style={styles.sectionSubTitle}>Morning check-in</Text>
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <Text style={styles.morningCheckinIntro}>
-                Optional daily prompts. The time below is when you’ll be asked for both.
+                Optional daily prompts for your subjective sleep measures
               </Text>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Track refreshed feeling each morning</Text>
-                  <Text style={styles.description}>
-                    Rate how refreshed you felt when you first woke up (1-10, 10 = very refreshed)
-                  </Text>
+                  <Text style={styles.label}>How refreshed you felt</Text>
                 </View>
                 <TouchableOpacity
                   style={[styles.toggleSwitch, trackTiredness && styles.toggleSwitchOn]}
@@ -824,10 +728,7 @@ const ProfileScreen = () => {
               </View>
               <View style={[styles.toggleRow, styles.toggleRowSpaced]}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Track dream strength each morning</Text>
-                  <Text style={styles.description}>
-                    Rate how strong your dreams felt (1-10, 10 = very strong)
-                  </Text>
+                  <Text style={styles.label}>How strong your dreams felt</Text>
                 </View>
                 <TouchableOpacity
                   style={[styles.toggleSwitch, trackDreamVividness && styles.toggleSwitchOn]}
@@ -1021,81 +922,8 @@ const ProfileScreen = () => {
             style={styles.logoutButton}
           />
 
-          {/* Data Management - at bottom to reduce accidental taps */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Data Management</Text>
-            <Text style={styles.sectionDescription}>
-              Permanently delete your data from our servers. You can choose what to delete (sleep data, habit logs, or everything). This cannot be undone.
-            </Text>
-            <Button
-              title="Delete data"
-              onPress={() => setShowDeleteDataModal(true)}
-              variant="destructive"
-              style={styles.deleteDataButton}
-            />
-          </View>
         </View>
       </ScrollView>
-
-      {/* Delete data modal */}
-      <Modal
-        visible={showDeleteDataModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDeleteDataModal(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowDeleteDataModal(false)}>
-          <View style={styles.reminderTimeModalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.deleteDataModalContent}>
-                <Text style={styles.deleteDataModalTitle}>What do you want to delete?</Text>
-                <Text style={styles.deleteDataModalDescription}>
-                  All options permanently remove data and cannot be undone.
-                </Text>
-                <TouchableOpacity
-                  style={styles.deleteDataOption}
-                  onPress={() => {
-                    setShowDeleteDataModal(false);
-                    handleDeleteSleepData();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.deleteDataOptionText}>Sleep data only</Text>
-                  <Text style={styles.deleteDataOptionSubtext}>All synced sleep records</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.deleteDataOption}
-                  onPress={() => {
-                    setShowDeleteDataModal(false);
-                    handleDeleteHabitLogs();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.deleteDataOptionText}>Habit logs only</Text>
-                  <Text style={styles.deleteDataOptionSubtext}>All habit tracking data</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.deleteDataOption}
-                  onPress={() => {
-                    setShowDeleteDataModal(false);
-                    handleDeleteAllData();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.deleteDataOptionText}>All data</Text>
-                  <Text style={styles.deleteDataOptionSubtext}>Sleep records and habit logs</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton, { marginTop: spacing.regular }]}
-                  onPress={() => setShowDeleteDataModal(false)}
-                >
-                  <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -1105,11 +933,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  headerWrap: {
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.xs,
   },
   header: {
@@ -1129,7 +953,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   scrollView: {
     flex: 1,
@@ -1173,6 +997,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  dataSourceLogoWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: colors.border + '66',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dataSourceHint: {
     fontSize: typography.sizes.small,
@@ -1278,14 +1110,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
   },
-  sectionDescription: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginBottom: spacing.regular,
-  },
-  deleteDataButton: {
-    marginTop: spacing.xs,
-  },
   syncButton: {
     marginTop: spacing.regular,
   },
@@ -1330,46 +1154,6 @@ const styles = StyleSheet.create({
     padding: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  deleteDataModalContent: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    width: '90%',
-    maxWidth: 350,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  deleteDataModalTitle: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: spacing.xs,
-  },
-  deleteDataModalDescription: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.regular,
-  },
-  deleteDataOption: {
-    paddingVertical: spacing.regular,
-    paddingHorizontal: spacing.md,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.error,
-    marginBottom: spacing.sm,
-  },
-  deleteDataOptionText: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.error,
-  },
-  deleteDataOptionSubtext: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginTop: 2,
   },
   reminderTimeModalTitle: {
     fontSize: typography.sizes.large,

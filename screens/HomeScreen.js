@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSplash } from '../contexts/SplashContext';
+import { useTutorialOptional } from '../contexts/TutorialContext';
 import { supabase } from '../services/supabase';
 import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
@@ -28,6 +29,7 @@ import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+import Button from '../components/Button';
 // Sleep Data Rendering Components
 const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   <HealthConnectPrompt
@@ -207,7 +209,11 @@ const SleepDataCard = React.memo(({
 
             {Object.entries(SLEEP_METRIC_CONFIG).map(([key, config], index) => {
               const metric = metrics[key];
-              return metric && metric.percentage > 0 ? (
+              const minutesRaw = sleepData[key] ?? 0;
+              // Show row when we have any minutes for that stage, not only when % rounds to >0
+              // (avoids hiding e.g. Deep sleep when total_sleep is inflated vs stage sum).
+              const shouldShow = metric && (minutesRaw > 0 || metric.percentage > 0);
+              return shouldShow ? (
                 renderSleepMetricRow(config.label, metric.minutes, metric.percentage, metric.comparison, config.color, null, key, index % 2 === 0)
               ) : null;
             })}
@@ -445,6 +451,8 @@ import dataQualityService from '../services/dataQualityService';
 const HomeScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const tutorial = useTutorialOptional();
+  const habitTutorialRef = useRef(null);
   const splash = useSplash();
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
@@ -464,11 +472,26 @@ const HomeScreen = () => {
   const [habitCount, setHabitCount] = useState(0);
   const [totalHabitCount, setTotalHabitCount] = useState(0);
   const [loggingStreak, setLoggingStreak] = useState(0);
+  /** Space for absolute glass date header so scroll content sits below it */
+  const [homeGlassHeaderHeight, setHomeGlassHeaderHeight] = useState(140);
   const [topInsights, setTopInsights] = useState(null);
   const [insightsSummaryByMetric, setInsightsSummaryByMetric] = useState(null);
   const [loading, setLoading] = useState(true);
   /** Habit card + Log Habits: show as soon as we have disk or network dashboard (avoid spinner on cold start). */
   const [habitSummaryReady, setHabitSummaryReady] = useState(false);
+
+  const homeSpotlight =
+    tutorial?.storageStatus === 'pending' && tutorial?.phase === 'home';
+
+  useEffect(() => {
+    if (!homeSpotlight || !habitTutorialRef.current) return;
+    const id = requestAnimationFrame(() => {
+      habitTutorialRef.current?.measureInWindow((x, y, width, height) => {
+        tutorial?.registerLogHabitsLayout?.({ x, y, width, height });
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [homeSpotlight, habitSummaryReady, tutorial]);
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
@@ -605,7 +628,7 @@ const HomeScreen = () => {
       } catch (_) {}
     }
     setHabitSummaryReady(true);
-  }, [isValidDashboardPayload]);
+  }, [isValidDashboardPayload, getToday]);
 
   // Restore from in-memory cache on mount so we never show loading when returning to Home (survives remounts)
   React.useLayoutEffect(() => {
@@ -785,8 +808,38 @@ const HomeScreen = () => {
         if (!background) setLoading(false);
         return;
       }
+      let dashboardPayload = data;
+      if (dateStr === getToday()) {
+        const hasSleep =
+          dashboardPayload.sleep_record &&
+          typeof dashboardPayload.sleep_record === 'object' &&
+          dashboardPayload.sleep_record.id != null;
+        if (!hasSleep) {
+          const yStr = getYesterday();
+          try {
+            const yRpc = supabase.rpc('get_home_dashboard_data', {
+              p_user_id: user.id,
+              p_date: yStr,
+            });
+            const { data: yData, error: yErr } = await yRpc;
+            if (!yErr && yData && !yData.error && isValidDashboardPayload(yData)) {
+              const ySleep =
+                yData.sleep_record &&
+                typeof yData.sleep_record === 'object' &&
+                yData.sleep_record.id != null
+                  ? yData.sleep_record
+                  : null;
+              if (ySleep) {
+                dashboardPayload = { ...dashboardPayload, sleep_record: ySleep };
+              }
+            }
+          } catch (_mergeErr) {
+            /* Yesterday fallback optional; ignore */
+          }
+        }
+      }
       try {
-        const serialized = JSON.stringify(data);
+        const serialized = JSON.stringify(dashboardPayload);
         const prevSerialized = lastDashboardPayloadByDateRef.current.get(dateStr);
         const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
         if (prevSerialized === serialized && isAlreadyRenderedForDate) {
@@ -794,9 +847,9 @@ const HomeScreen = () => {
           return;
         }
       } catch (_) {}
-      applyDashboardPayload(data, dateStr);
-      homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, data);
-      await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, data);
+      applyDashboardPayload(dashboardPayload, dateStr);
+      homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, dashboardPayload);
+      await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, dashboardPayload);
       if (!background) setLoading(false);
       // Defer insight calculation so dashboard and sleep card paint first
       InteractionManager.runAfterInteractions(() => {
@@ -826,6 +879,9 @@ const HomeScreen = () => {
       }
       if (!background) setLoading(false);
     } finally {
+      if (dateStr === getToday()) {
+        todaySyncAttemptedRef.current = true;
+      }
       const current = inFlightDashboardByDateRef.current.get(dateStr);
       if (current === runPromise) {
         inFlightDashboardByDateRef.current.delete(dateStr);
@@ -835,12 +891,12 @@ const HomeScreen = () => {
 
     inFlightDashboardByDateRef.current.set(dateStr, runPromise);
     await runPromise;
-  }, [user?.id, selectedDate, getDateString, applyDashboardPayload, isValidDashboardPayload]);
+  }, [user?.id, selectedDate, getDateString, getToday, getYesterday, applyDashboardPayload, isValidDashboardPayload]);
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
         StatusBar.setTranslucent?.(true);
       }
       return () => {
@@ -1011,7 +1067,7 @@ const HomeScreen = () => {
 
     // Reset autoSyncLoading if we already have sleep data for today (handles stuck state from navigation)
     const todayDateString = getToday();
-    if (autoSyncLoading && sleepData && sleepData.date === todayDateString) {
+    if (autoSyncLoading && sleepData && isToday(selectedDate)) {
       setAutoSyncLoading(false);
       return;
     }
@@ -1166,8 +1222,9 @@ const HomeScreen = () => {
   }, [healthSyncInitialized, needsPermissions, hasPermissions]);
 
   const handleLogHabits = () => {
+    tutorial?.notifyOpenedHabitLogging?.();
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
       StatusBar.setTranslucent?.(true);
     }
     const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
@@ -1176,7 +1233,7 @@ const HomeScreen = () => {
 
   const handleLogTodaysHabits = () => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
       StatusBar.setTranslucent?.(true);
     }
     const today = new Date();
@@ -1186,7 +1243,7 @@ const HomeScreen = () => {
 
   const handleLogYesterdaysHabits = useCallback(() => {
     if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primary);
+      StatusBar.setBackgroundColor(colors.primaryDark);
       StatusBar.setTranslucent?.(true);
     }
     const y = new Date();
@@ -1292,7 +1349,7 @@ const HomeScreen = () => {
           await fetchDashboard({ background: true });
           Alert.alert(
             'No Data Available',
-            'No sleep data was found in Health Connect for the selected date range.'
+            'No sleep data was found in Google Health Connect for the selected date range.'
           );
         } else {
           await fetchDashboard({ background: true });
@@ -1548,7 +1605,7 @@ const HomeScreen = () => {
   const getDataSourceDisplay = (source) => {
     switch (source) {
       case 'health_connect':
-        return 'Health Connect';
+        return 'Google Health Connect';
       case 'healthkit':
         return 'Apple Health';
       case 'manual':
@@ -1638,18 +1695,24 @@ const HomeScreen = () => {
   // Streak indicator for the header
   const streakIndicator = (
     <View style={styles.streakIndicator}>
-      <Ionicons name="flame" size={18} color={colors.accent} />
+      <Ionicons name="flame" size={18} color={colors.primary} />
       <Text style={styles.streakText}>{loggingStreak}</Text>
     </View>
   );
 
   return (
     <View style={styles.bodyWrap}>
-      <ScrollableDateHeaderBar rightElement={streakIndicator} />
+      <ScrollableDateHeaderBar
+        rightElement={streakIndicator}
+        onLayoutHeight={setHomeGlassHeaderHeight}
+      />
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: homeGlassHeaderHeight + spacing.md },
+        ]}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
       >
         {/* In-app success banner when new sleep data was just synced */}
@@ -1715,7 +1778,17 @@ const HomeScreen = () => {
         )}
 
         {/* Habit Summary Card - Always visible with stable layout; skeleton when loading */}
-        <View style={styles.section}>
+        <View
+          style={styles.section}
+          ref={habitTutorialRef}
+          collapsable={false}
+          onLayout={() => {
+            if (!homeSpotlight || !habitTutorialRef.current) return;
+            habitTutorialRef.current.measureInWindow((x, y, width, height) => {
+              tutorial?.registerLogHabitsLayout?.({ x, y, width, height });
+            });
+          }}
+        >
           <HabitSummaryCard
             date={selectedDate}
             habitCount={habitCount}
@@ -1754,18 +1827,12 @@ const HomeScreen = () => {
                   )}
                 </View>
               ) : null}
-              <TouchableOpacity
-                style={styles.howDidYouFeelCTACompact}
+              <Button
+                title="How did you sleep?"
+                variant="outline"
+                size="compact"
                 onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="happy-outline" size={16} color={colors.primary} />
-                <Text style={styles.howDidYouFeelCTATextCompact}>
-                  {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null)
-                    ? 'Edit how you felt +'
-                    : 'Add how you felt +'}
-                </Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         )}
@@ -1943,7 +2010,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   streakText: {
-    color: colors.white,
+    color: colors.textPrimary,
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
   },
@@ -2161,14 +2228,14 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   dataSourceInfo: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
     marginTop: -spacing.sm, // Reduce gap since it's within the header
   },
   freshnessIndicator: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.small,
     color: colors.primary,
     fontWeight: typography.weights.medium,
   },
@@ -2184,7 +2251,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   howYouFeltDateHint: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
@@ -2192,54 +2259,6 @@ const styles = StyleSheet.create({
   howYouFeltRows: {
     marginBottom: 2,
     gap: 2,
-  },
-  howDidYouFeelCTACompact: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.regular,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  howDidYouFeelCTATextCompact: {
-    fontSize: typography.sizes.small,
-    color: colors.primary,
-    fontWeight: typography.weights.semibold,
-  },
-  howDidYouFeelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  howDidYouFeelText: {
-    fontSize: typography.sizes.body,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
-  },
-  howDidYouFeelCTA: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.regular,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  howDidYouFeelCTAText: {
-    fontSize: typography.sizes.body,
-    color: colors.primary,
-    fontWeight: typography.weights.semibold,
   },
   metricRow: {
     flexDirection: 'row',

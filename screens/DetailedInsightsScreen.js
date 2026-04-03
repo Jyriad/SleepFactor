@@ -16,12 +16,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
-import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import insightsService from '../services/insightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
 import PageLoadingView from '../components/PageLoadingView';
+import GlassChromeBar from '../components/GlassChromeBar';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -30,12 +30,11 @@ const DetailedInsightsScreen = ({ navigation }) => {
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const { user } = useAuth();
-  const { preferences } = useUserPreferences();
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
       }
       return () => {
         // Do not set status bar to white on blur: we stay in MainTabs, so the next screen keeps it blue and avoids a white flash.
@@ -78,7 +77,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
 
   useEffect(() => {
     loadInsights({ backgroundRefresh: false });
-  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, preferences.showNoSignificanceHabits]);
+  }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType]);
 
   useFocusEffect(
     useCallback(() => {
@@ -92,7 +91,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
         return;
       }
       loadInsights({ backgroundRefresh: true });
-    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, preferences.showNoSignificanceHabits, insights.validInsights])
+    }, [user, selectedMetric, selectedTimeRange, selectedAnalysisType, insights.validInsights])
   );
 
   const loadInsights = async (options = {}) => {
@@ -168,7 +167,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
           sleepMetric={metricInfo}
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
-          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
+          allowExpandNoSignificance
           isExpanded={isExpanded}
           onToggleExpand={() => handleInsightToggle(insightId)}
         />
@@ -182,7 +181,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
           width={cardWidth}
           isPercentageMode={selectedAnalysisType === 'percentage'}
           onRefresh={loadInsights}
-          allowExpandNoSignificance={preferences.showNoSignificanceHabits}
+          allowExpandNoSignificance
           isExpanded={isExpanded}
           onToggleExpand={() => handleInsightToggle(insightId)}
         />
@@ -218,19 +217,21 @@ const DetailedInsightsScreen = ({ navigation }) => {
 
   const listHeader = (
     <>
-      <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerBackButton}
-            onPress={() => navigation?.goBack()}
-            activeOpacity={0.7}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="chevron-back" size={28} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Detailed Sleep Insights</Text>
+      <GlassChromeBar style={styles.headerGlassOuter}>
+        <View style={{ paddingTop: headerTopPadding }}>
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.headerBackButton}
+              onPress={() => navigation?.goBack()}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="chevron-back" size={28} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.title}>Detailed Sleep Insights</Text>
+          </View>
         </View>
-      </View>
+      </GlassChromeBar>
 
       <View style={styles.contentArea}>
         <View style={styles.selectorsRow}>
@@ -392,7 +393,9 @@ const DetailedInsightsScreen = ({ navigation }) => {
           data={validInsights}
           keyExtractor={(item, index) => `${item.habit?.id}-${selectedMetric}-${selectedAnalysisType}-${index}`}
           ListHeaderComponent={listHeader}
-          renderItem={({ item }) => renderInsightCard(item)}
+          renderItem={({ item }) => (
+            <View style={styles.insightRowWrap}>{renderInsightCard(item)}</View>
+          )}
           ListEmptyComponent={validInsights.length === 0 && !insights?.placeholders?.length ? renderEmptyState() : null}
           contentContainerStyle={validInsights.length === 0 ? styles.contentContainerEmpty : styles.flatListContent}
         />
@@ -407,14 +410,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   contentArea: {
-    flex: 1,
     backgroundColor: colors.background,
+    width: '100%',
   },
-  headerWrap: {
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.xs,
   },
   header: {
@@ -433,7 +432,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   selectorsRow: {
     flexDirection: 'row',
@@ -493,13 +492,16 @@ const styles = StyleSheet.create({
   flatListContent: {
     paddingBottom: 112,
   },
+  insightRowWrap: {
+    paddingHorizontal: spacing.regular,
+  },
   contentContainerEmpty: {
     paddingBottom: 112,
     flexGrow: 1,
   },
   content: {
     paddingHorizontal: spacing.regular,
-    paddingBottom: 112,
+    paddingBottom: spacing.md,
   },
   insightsSection: {
     marginBottom: spacing.xl,
@@ -507,7 +509,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
     textAlign: 'center',
   },
   emptyState: {

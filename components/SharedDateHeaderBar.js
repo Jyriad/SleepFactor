@@ -55,7 +55,7 @@ const HEADER_RADIUS = 12;
 
 const styles = StyleSheet.create({
   roundedWrapper: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderRadius: HEADER_RADIUS,
     overflow: 'hidden',
     elevation: 4,

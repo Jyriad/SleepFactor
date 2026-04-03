@@ -19,6 +19,7 @@ alwaysApply: false
 - Users with very large habit log history (many pages) may see slower Insights load; consider capping total pages or narrowing the date range if performance becomes an issue.
 - **Sleep data:** `getSleepData` is now paginated (same pattern as `getHabitLogs`) so Insights gets all sleep nights and binary yes/no paired counts are correct.
 - **Other tables:** Any other Supabase fetches that use a wide date range and no pagination may also hit the 1000-row cap. If similar “missing recent data” or wrong counts appear elsewhere, check whether that endpoint needs pagination.
+- **Account “Your activity” totals:** For **counts only** (e.g. total habit_logs rows), use `.select('id', { count: 'exact', head: true })` (or `select('*', { count: 'exact', head: true })`) so the API returns the real **count**. Do **not** use `data.length` from a normal select — it is capped at **1000** rows and will show “1000” incorrectly for heavier users.
 
 ---
 
@@ -104,6 +105,12 @@ alwaysApply: false
 
 - **`ios.infoPlist.CFBundleDisplayName`** controls the **iPhone** home screen name (**SleepFactor Dev**). **Android** defaults the visible app name to the root **`name`** field unless **`android.label`** is set per variant — so the **system install prompt** may still say **“SleepFactor”** even for a correct **dev** build. Optional UX: set **`android.label`** when `IS_DEV` so Android matches iOS naming.
 
+**Android EAS / Gradle — `@sentry/react-native` codegen (April 2026)**
+
+- **Symptom:** Gradle fails with **implicit dependency** between codegen tasks, e.g. `:sentry-react-native:generateCodegenArtifactsFromSchema` vs `:sentry_react-native:generateCodegenSchemaFromJavaScript` (hyphen vs underscore in the project name).
+- **Cause:** **`@sentry/react-native`** is registered **twice** on Android: Expo’s **`useExpoModules()`** includes it as **`sentry-react-native`**, while React Native’s autolinking (from the same `expo-modules-autolinking` **react-native-config** output) includes it as **`sentry_react-native`** (`nameCleansed`). Same `android/` folder, two Gradle subprojects → codegen tasks and outputs no longer line up under Gradle 8 validation.
+- **Fix:** In **`package.json`** → **`expo.autolinking.exclude`**, add **`"@sentry/react-native"`**. That removes it from Expo’s **resolve** / **`useExpoModules`** only. It does **not** remove it from **react-native-config**, so RN autolinking still links the native module once. The **`@sentry/react-native/expo`** config plugin is unchanged.
+
 **iOS build failures — Swift / HealthKit / Nitro**
 
 - **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (e.g. `macos-sequoia-15.6-xcode-16.4` under `development.ios`) can help without a larger VM.
@@ -154,3 +161,36 @@ alwaysApply: false
 - **After fixing Client IDs only:** Changing Supabase provider settings does **not** require a new iOS build — retry sign-in immediately. New builds are still needed when changing native entitlements, bundle ID, or app config plugins.
 
 - **Platform note:** Native Sign in with Apple is **iOS-only** in practice for this stack; Android uses other auth paths. Docs: `docs/NATIVE_LOGIN_SETUP.txt`, Supabase [Login with Apple](https://supabase.com/docs/guides/auth/social-login/auth-apple).
+
+---
+
+## Modal screens: primary actions clipped below the sheet (March 2026)
+
+**Symptom**
+
+- On screens presented as a **stack modal** (`presentation: 'modal'` in React Navigation), **Cancel / Save / Delete** (or similar) sit **below the visible area**; the user cannot tap them. Often described as the “card” not filling the screen while the buttons are “under” the bottom edge.
+
+**Cause**
+
+- Layout is **header + middle (`flex: 1`, sometimes `justifyContent: 'center'`) + footer row** as **siblings** in a column, **without** a scroll container.
+- Modal sheets have a **bounded height** (especially iOS page/form sheet). The middle section **claims all flexible space** and the **combined minimum height** (header + tall middle + footer) can **exceed** the sheet height → the **footer is clipped** and there is **no way to scroll** to it.
+- Using `SafeAreaView` with **`edges={['top']}` only** still leaves **bottom** chrome (home indicator, gesture bar); paired with the above, buttons can be **harder to reach** or partially obscured.
+
+**Fix (pattern used on `AddHabitScreen` and `DeleteHabitScreen`)**
+
+- Wrap the body in a **`ScrollView`** with **`contentContainerStyle` including `flexGrow: 1`** so short content still fills the sheet when helpful.
+- Put **primary actions inside** the scroll content (not only as a non-scrolling sibling below a `flex: 1` block).
+- Add **bottom padding** using **`useSafeAreaInsets().bottom`** (e.g. `paddingBottom: spacing.xl + insets.bottom`) so actions clear the home indicator.
+- Optional: use **`justifyContent: 'space-between'`** on an inner column with `flexGrow: 1` so on tall screens the message stays visually centered while buttons stay at the bottom of the scroll content.
+
+**Where else to watch**
+
+- **`EditHabitScreen`** — was the same pattern; **updated March 2026** to match **`AddHabitScreen`**: `ScrollView` + `KeyboardAvoidingView` (iOS) + bottom inset padding so **Cancel / Update Habit** stay reachable in the modal.
+- **`components/DeleteHabitModal.js`** — same structural risk **inside** a centered overlay card; **no current imports** found in the repo (may be legacy). If reintroduced, apply the same scroll + safe-bottom pattern.
+- **Push (non-modal) screens** with `flex: 1` + fixed footer **usually** get full window height; risk is **lower** unless nested in another constrained container (e.g. bottom sheet, split view).
+
+**`react-native-sortables` (`Sortable.Flex`) + habit rows (March 2026)**
+
+- **Symptom:** Habit cards on **Manage Your Habits** appear **stacked / overlapping** (same screen uses `Sortable.Flex` inside a scroll view).
+- **Cause:** **Sortable** lays out items using **measured heights**. Putting **`flex: 1`** on **nested** views inside each row (e.g. row wrapper + main touchable) can yield **unstable or zero height** during layout, so every item gets the **same (wrong) position** → visual overlap.
+- **Fix:** Avoid **`flex: 1`** on inner row wrappers / the primary **`TouchableOpacity`** inside each card; use **`flexDirection: 'row'`** + **`alignSelf: 'stretch'`** (or natural height) so each card’s height comes from **intrinsic content**. Keep **`flex: 1`** only where needed for **horizontal** fill (e.g. text column beside the drag handle).

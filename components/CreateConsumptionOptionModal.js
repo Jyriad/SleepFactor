@@ -18,6 +18,7 @@ import {
   calculateAlcoholUnits,
 } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import { isLiquidServingUnit } from '../utils/consumptionIntake';
 import Button from './Button';
 
 // Icon options removed for now - keeping database column for future use
@@ -105,7 +106,7 @@ const CreateConsumptionOptionModal = ({
       if (volume.trim()) {
         const volumeNum = parseFloat(volume);
         if (isNaN(volumeNum) || volumeNum <= 0 || volumeNum > 10000) {
-          setVolumeError('Valid volume is required');
+          setVolumeError(isLiquidServingUnit(servingUnit) ? 'Enter a valid volume' : 'Enter a valid number of units');
           isValid = false;
         } else {
           setVolumeError('');
@@ -127,9 +128,16 @@ const CreateConsumptionOptionModal = ({
       let volumeMl = null;
       if (volume.trim()) {
         const num = parseFloat(volume);
-        volumeMl = (servingUnit === 'ounces' || servingUnit === 'fl oz')
-          ? Math.round(num * ML_PER_FL_OZ)
-          : Math.round(num);
+        if (isAlcoholHabit || isLiquidServingUnit(servingUnit)) {
+          volumeMl =
+            servingUnit === 'ounces' || servingUnit === 'fl oz'
+              ? Math.round(num * ML_PER_FL_OZ)
+              : Math.round(num);
+        } else {
+          volumeMl = Math.max(num, 0.001);
+        }
+      } else if (!isAlcoholHabit && !isLiquidServingUnit(servingUnit)) {
+        volumeMl = 1;
       }
 
       let finalDrugAmount;
@@ -322,7 +330,11 @@ const CreateConsumptionOptionModal = ({
                   <>
                     {/* Caffeine: Volume per serving - same order as alcohol */}
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Volume per serving - Optional</Text>
+                      <Text style={styles.label}>
+                        {isLiquidServingUnit(servingUnit)
+                          ? 'Volume per serving (optional)'
+                          : 'Units per serving'}
+                      </Text>
                       <TextInput
                         style={[styles.textInput, volumeError ? styles.inputError : null]}
                         value={volume}
@@ -330,22 +342,23 @@ const CreateConsumptionOptionModal = ({
                           setVolume(text);
                           if (volumeError) setVolumeError('');
                         }}
-                        placeholder="e.g., 250"
+                        placeholder={isLiquidServingUnit(servingUnit) ? 'e.g., 250' : 'e.g., 1'}
                         placeholderTextColor={colors.textLight}
-                        keyboardType="numeric"
-                        maxLength={5}
+                        keyboardType="decimal-pad"
+                        maxLength={6}
                       />
                       {volumeError ? <Text style={styles.errorText}>{volumeError}</Text> : null}
                       <Text style={styles.helpText}>
-                        Volume of one serving (e.g., 250 ml for a cup of coffee).
+                        {isLiquidServingUnit(servingUnit)
+                          ? 'Liquid serving size in the unit you pick below. Leave blank to use built-in sizes for common drinks when available.'
+                          : 'How many pills, spoons, etc. the caffeine amount applies to (defaults to 1 if left blank).'}
                       </Text>
                     </View>
 
-                    {/* Volume unit for caffeine */}
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Volume unit</Text>
+                      <Text style={styles.label}>Serving unit</Text>
                       <View style={styles.unitGrid}>
-                        {['ml', 'ounces'].map((unit) => (
+                        {SERVING_UNITS.map((unit) => (
                           <TouchableOpacity
                             key={unit}
                             style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}

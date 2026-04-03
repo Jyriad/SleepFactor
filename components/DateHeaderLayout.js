@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerBlock: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',

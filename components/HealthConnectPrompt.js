@@ -5,7 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Button from './Button';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import sleepSyncService from '../services/sleepSyncService';
+import sleepSyncService, {
+  getHealthPermissionFailureAlertCopy,
+} from '../services/sleepSyncService';
 
 /**
  * Component that prompts users to grant health data permissions.
@@ -15,28 +17,28 @@ const HealthConnectPrompt = ({ onPermissionsGranted, onDismiss, compact }) => {
   const [isRequesting, setIsRequesting] = useState(false);
 
   const isAndroid = Platform.OS === 'android';
-  const platformName = isAndroid ? 'Health Connect' : 'Health';
+  const platformName = isAndroid ? 'Google Health Connect' : 'Apple Health';
 
   const handleRequestPermissions = async () => {
     setIsRequesting(true);
     try {
-      const granted = await sleepSyncService.requestPermissions();
-      if (granted) {
+      const result = await sleepSyncService.requestPermissionsDetailed();
+      if (result.ok) {
         onPermissionsGranted?.();
-      } else {
-        Alert.alert(
-          'Permissions Required',
-          `${platformName} permissions are needed to sync your sleep data. Please grant permissions in your device settings.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Try Again', onPress: () => handleRequestPermissions() },
-          ]
-        );
+        return;
       }
+      const copy = getHealthPermissionFailureAlertCopy(result) || {
+        title: 'Couldn’t connect health data',
+        message: `Try again, or check that ${platformName} is available on this device.`,
+      };
+      Alert.alert(copy.title, copy.message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Try Again', onPress: () => handleRequestPermissions() },
+      ]);
     } catch (error) {
       Alert.alert(
-        'Permission Error',
-        `Unable to request ${platformName} permissions. Please check your device settings.`,
+        'Couldn’t connect',
+        `Something went wrong while opening ${platformName}. Try again.`,
         [{ text: 'OK', style: 'default' }]
       );
     } finally {
@@ -47,8 +49,8 @@ const HealthConnectPrompt = ({ onPermissionsGranted, onDismiss, compact }) => {
   const getPlatformSpecificContent = () => {
     if (isAndroid) {
       return {
-        title: 'Connect Health Connect',
-        description: 'Sync your sleep data from Samsung Health, Google Fit, or other health apps to see how your habits affect your sleep quality.',
+        title: 'Connect Google Health Connect',
+        description: 'Sync sleep from apps and devices that share with Google Health Connect (for example Samsung Health or Google Fit) to see how your habits affect sleep.',
         icon: 'fitness-outline',
         features: [
           'View detailed sleep stages (deep, light, REM)',

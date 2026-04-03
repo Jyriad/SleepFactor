@@ -6,6 +6,100 @@ import {
   getGrantedPermissions,
   getSdkStatus,
 } from 'react-native-health-connect';
+import { formatDateForDB } from '../utils/dateHelpers';
+import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
+import { sleepDebugLog } from '../utils/sleepDebugLog';
+
+/**
+ * Split HC stage timeline when a third-party source stitches multiple sleeps with a long gap.
+ * @param {Array} sortedStages chronologically sorted
+ */
+function splitHealthConnectStagesByGap(sortedStages, gapMs) {
+  if (!sortedStages || sortedStages.length === 0) return [];
+  const chunks = [[sortedStages[0]]];
+  for (let i = 1; i < sortedStages.length; i++) {
+    const prev = sortedStages[i - 1];
+    const cur = sortedStages[i];
+    if (!prev.startTime || !prev.endTime || !cur.startTime || !cur.endTime) {
+      chunks[chunks.length - 1].push(cur);
+      continue;
+    }
+    const gap =
+      new Date(cur.startTime).getTime() - new Date(prev.endTime).getTime();
+    if (gap > gapMs) {
+      chunks.push([cur]);
+    } else {
+      chunks[chunks.length - 1].push(cur);
+    }
+  }
+  return chunks;
+}
+
+function aggregateHealthConnectStageList(sortedStages) {
+  let deepSleepMinutes = 0;
+  let lightSleepMinutes = 0;
+  let remSleepMinutes = 0;
+  let awakeMinutes = 0;
+  let awakeningsCount = 0;
+  const sleepStages = [];
+
+  sortedStages.forEach((stage) => {
+    if (!stage.startTime || !stage.endTime) return;
+
+    const stageStart = new Date(stage.startTime);
+    const stageEnd = new Date(stage.endTime);
+    const stageDurationMs = stageEnd.getTime() - stageStart.getTime();
+    const stageDurationMinutes = Math.round(stageDurationMs / (1000 * 60));
+
+    let stageType = null;
+
+    switch (stage.stage) {
+      case 5:
+        deepSleepMinutes += stageDurationMinutes;
+        stageType = 'deep';
+        break;
+      case 4:
+        lightSleepMinutes += stageDurationMinutes;
+        stageType = 'light';
+        break;
+      case 6:
+        remSleepMinutes += stageDurationMinutes;
+        stageType = 'rem';
+        break;
+      case 1:
+        awakeMinutes += stageDurationMinutes;
+        awakeningsCount += 1;
+        stageType = 'awake';
+        break;
+      case 2:
+        if (stageType === null) {
+          lightSleepMinutes += stageDurationMinutes;
+          stageType = 'light';
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (stageType) {
+      sleepStages.push({
+        stage: stageType.trim(),
+        startTime: stage.startTime,
+        endTime: stage.endTime,
+        durationMinutes: stageDurationMinutes,
+      });
+    }
+  });
+
+  return {
+    deep_sleep_minutes: deepSleepMinutes,
+    light_sleep_minutes: lightSleepMinutes,
+    rem_sleep_minutes: remSleepMinutes,
+    awake_minutes: awakeMinutes,
+    awakenings_count: awakeningsCount,
+    sleep_stages: sleepStages.length > 0 ? sleepStages : null,
+  };
+}
 
 /**
  * Android Health Connect service implementation
@@ -100,31 +194,59 @@ class HealthConnectService {
    * @returns {Promise<boolean>} True if permissions granted
    */
   async requestPermissions() {
+    const detail = await this.requestPermissionsDetailed();
+    return detail.ok;
+  }
+
+  /**
+   * @returns {Promise<{ ok: boolean, reason: string, step?: string, errorMessage?: string, platform: 'android' }>}
+   */
+  async requestPermissionsDetailed() {
+    const base = { ok: false, reason: 'unknown', platform: 'android' };
     try {
       if (!this.isInitialized) {
         const initSuccess = await this.initialize();
         if (!initSuccess) {
-          return false;
+          return { ...base, reason: 'health_connect_init_failed', step: 'initialize' };
         }
       }
 
-      const grantedPermissions = await requestPermission(this.permissions);
+      let grantedPermissions;
+      try {
+        grantedPermissions = await requestPermission(this.permissions);
+      } catch (error) {
+        const msg = error?.message || String(error);
+        return {
+          ...base,
+          reason: 'authorization_error',
+          step: 'requestPermission',
+          errorMessage: msg,
+        };
+      }
 
-      // Check if we got the essential sleep permission
       let hasSleepPermission = false;
 
       if (Array.isArray(grantedPermissions)) {
         hasSleepPermission = grantedPermissions.some(
-          perm => perm.recordType === 'SleepSession' && perm.accessType === 'read'
+          (perm) => perm.recordType === 'SleepSession' && perm.accessType === 'read'
         );
       } else if (typeof grantedPermissions === 'boolean') {
-        // Some libraries return just a boolean
         hasSleepPermission = grantedPermissions;
       }
 
-      return hasSleepPermission;
+      if (hasSleepPermission) {
+        return { ok: true, reason: 'sleep_read_granted', platform: 'android' };
+      }
+
+      return { ...base, reason: 'sleep_not_granted', step: 'requestPermission' };
     } catch (error) {
-      return false;
+      const msg = error?.message || String(error);
+      return {
+        ...base,
+        reason: 'unexpected_error',
+        step: 'requestPermissionsDetailed',
+        errorMessage: msg,
+      };
     }
   }
 
@@ -211,13 +333,11 @@ class HealthConnectService {
       });
 
 
-      // Transform each record to match our database schema
-      const transformedData = records.map((record, index) => {
+      const validData = records.flatMap((record) => {
         const transformed = this.transformSleepData(record);
-        return transformed;
+        if (transformed == null) return [];
+        return Array.isArray(transformed) ? transformed : [transformed];
       });
-
-      const validData = transformedData.filter(data => data !== null);
       return validData;
     } catch (error) {
       throw error;
@@ -229,23 +349,11 @@ class HealthConnectService {
    * @param {Object} rawData - Raw Health Connect SleepSession record
    * @returns {Object} Transformed data matching sleep_data table schema
    */
+  /**
+   * @returns {Object|null|Array<Object>} One row, or several if a stitched HC session is split by gap.
+   */
   transformSleepData(rawData) {
     try {
-      // Health Connect SleepSession structure:
-      // {
-      //   startTime: '2024-01-01T22:00:00.000Z',
-      //   endTime: '2024-01-02T06:30:00.000Z',
-      //   stages: [
-      //     { stage: 1, startTime: '...', endTime: '...' }, // Awake
-      //     { stage: 2, startTime: '...', endTime: '...' }, // Sleep
-      //     { stage: 3, startTime: '...', endTime: '...' }, // Out of bed
-      //     { stage: 4, startTime: '...', endTime: '...' }, // Light sleep
-      //     { stage: 5, startTime: '...', endTime: '...' }, // Deep sleep
-      //     { stage: 6, startTime: '...', endTime: '...' }, // REM sleep
-      //   ],
-      //   metadata: { ... }
-      // }
-
       if (!rawData) {
         return null;
       }
@@ -254,101 +362,108 @@ class HealthConnectService {
         return null;
       }
 
-      // Calculate date (sleep date is the morning you woke, in local time).
-      // Use local date so it matches the app's "today" and "last night" (getToday() uses local date).
       const endDate = new Date(rawData.endTime);
-      const y = endDate.getFullYear();
-      const m = String(endDate.getMonth() + 1).padStart(2, '0');
-      const d = String(endDate.getDate()).padStart(2, '0');
-      const sleepDate = `${y}-${m}-${d}`;
-
-      // Calculate total sleep duration in minutes
       const startTime = new Date(rawData.startTime);
       const totalDurationMs = endDate.getTime() - startTime.getTime();
-      const totalSleepMinutes = Math.round(totalDurationMs / (1000 * 60));
-
-      // Process sleep stages and build intervals array
-      let deepSleepMinutes = 0;
-      let lightSleepMinutes = 0;
-      let remSleepMinutes = 0;
-      let awakeMinutes = 0;
-      let awakeningsCount = 0;
-      const sleepStages = []; // Array to store stage intervals
-
-      if (rawData.stages && Array.isArray(rawData.stages)) {
-        // Sort stages by start time to ensure chronological order
-        const sortedStages = [...rawData.stages].sort((a, b) => {
-          return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
-        });
-
-        sortedStages.forEach(stage => {
-          if (!stage.startTime || !stage.endTime) return;
-
-          const stageStart = new Date(stage.startTime);
-          const stageEnd = new Date(stage.endTime);
-          const stageDurationMs = stageEnd.getTime() - stageStart.getTime();
-          const stageDurationMinutes = Math.round(stageDurationMs / (1000 * 60));
-
-          let stageType = null;
-
-          // Health Connect sleep stages:
-          // 1: Awake, 2: Sleep (general), 3: Out of bed, 4: Light, 5: Deep, 6: REM
-          switch (stage.stage) {
-            case 5: // Deep sleep
-              deepSleepMinutes += stageDurationMinutes;
-              stageType = 'deep';
-              break;
-            case 4: // Light sleep
-              lightSleepMinutes += stageDurationMinutes;
-              stageType = 'light';
-              break;
-            case 6: // REM sleep
-              remSleepMinutes += stageDurationMinutes;
-              stageType = 'rem';
-              break;
-            case 1: // Awake
-              awakeMinutes += stageDurationMinutes;
-              awakeningsCount += 1; // Count each awake period as an awakening
-              stageType = 'awake';
-              break;
-            case 2: // General sleep - treat as light sleep if no other classification
-              if (stageType === null) {
-                lightSleepMinutes += stageDurationMinutes;
-                stageType = 'light';
-              }
-              break;
-          }
-
-          // Add to intervals array if we have a valid stage type
-          if (stageType) {
-            sleepStages.push({
-              stage: stageType.trim(), // Ensure no whitespace
-              startTime: stage.startTime,
-              endTime: stage.endTime,
-              durationMinutes: stageDurationMinutes,
-            });
-          }
-        });
-      }
-
-      // Health Connect doesn't provide sleep scores in the standard API
-      // This would need to be calculated or come from device-specific data
+      const totalSleepMinutesWall = Math.round(totalDurationMs / (1000 * 60));
       const sleepScore = null;
 
-      return {
-        date: sleepDate,
-        total_sleep_minutes: totalSleepMinutes,
-        deep_sleep_minutes: deepSleepMinutes,
-        light_sleep_minutes: lightSleepMinutes,
-        rem_sleep_minutes: remSleepMinutes,
-        awake_minutes: awakeMinutes,
-        awakenings_count: awakeningsCount,
-        sleep_score: sleepScore,
-        source: 'health_connect',
-        sleep_stages: sleepStages.length > 0 ? sleepStages : null, // Include stage intervals
-        sleep_start_time: rawData.startTime, // Include actual sleep session start time
-        sleep_end_time: rawData.endTime, // Include actual sleep session end time
-      };
+      if (!rawData.stages || !Array.isArray(rawData.stages) || rawData.stages.length === 0) {
+        const sleepDate = formatDateForDB(endDate);
+        sleepDebugLog('health_connect_session', {
+          platform: 'android',
+          sleepDate,
+          sessionSpanHours: Math.round((totalDurationMs / 3600000) * 10) / 10,
+          totalSleepMinutesReported: totalSleepMinutesWall,
+          startIso: rawData.startTime,
+          endIso: rawData.endTime,
+          suspicious: totalDurationMs / 3600000 > 14,
+          splitChunks: 0,
+        });
+        return {
+          date: sleepDate,
+          total_sleep_minutes: totalSleepMinutesWall,
+          deep_sleep_minutes: 0,
+          light_sleep_minutes: 0,
+          rem_sleep_minutes: 0,
+          awake_minutes: 0,
+          awakenings_count: 0,
+          sleep_score: sleepScore,
+          source: 'health_connect',
+          sleep_stages: null,
+          sleep_start_time: rawData.startTime,
+          sleep_end_time: rawData.endTime,
+        };
+      }
+
+      const sortedStages = [...rawData.stages].sort(
+        (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      );
+
+      const chunks = splitHealthConnectStagesByGap(sortedStages, SLEEP_SESSION_GAP_MS);
+
+      if (chunks.length === 1) {
+        const agg = aggregateHealthConnectStageList(chunks[0]);
+        const sleepDate = formatDateForDB(endDate);
+        sleepDebugLog('health_connect_session', {
+          platform: 'android',
+          sleepDate,
+          sessionSpanHours: Math.round((totalDurationMs / 3600000) * 10) / 10,
+          totalSleepMinutesReported: totalSleepMinutesWall,
+          startIso: rawData.startTime,
+          endIso: rawData.endTime,
+          suspicious: totalDurationMs / 3600000 > 14,
+          splitChunks: 1,
+        });
+        return {
+          date: sleepDate,
+          total_sleep_minutes: totalSleepMinutesWall,
+          deep_sleep_minutes: agg.deep_sleep_minutes,
+          light_sleep_minutes: agg.light_sleep_minutes,
+          rem_sleep_minutes: agg.rem_sleep_minutes,
+          awake_minutes: agg.awake_minutes,
+          awakenings_count: agg.awakenings_count,
+          sleep_score: sleepScore,
+          source: 'health_connect',
+          sleep_stages: agg.sleep_stages,
+          sleep_start_time: rawData.startTime,
+          sleep_end_time: rawData.endTime,
+        };
+      }
+
+      return chunks.map((chunk, chunkIndex) => {
+        const agg = aggregateHealthConnectStageList(chunk);
+        const chunkEnd = new Date(chunk[chunk.length - 1].endTime);
+        const chunkStart = new Date(chunk[0].startTime);
+        const chunkMs = chunkEnd.getTime() - chunkStart.getTime();
+        const chunkWallMin = Math.round(chunkMs / (1000 * 60));
+        const sleepDate = formatDateForDB(chunkEnd);
+        sleepDebugLog('health_connect_session', {
+          platform: 'android',
+          sleepDate,
+          sessionSpanHours: Math.round((chunkMs / 3600000) * 10) / 10,
+          totalSleepMinutesReported: chunkWallMin,
+          startIso: chunk[0].startTime,
+          endIso: chunk[chunk.length - 1].endTime,
+          suspicious: chunkMs / 3600000 > 14,
+          splitChunks: chunks.length,
+          chunkIndex,
+        });
+        return {
+          date: sleepDate,
+          total_sleep_minutes: chunkWallMin,
+          deep_sleep_minutes: agg.deep_sleep_minutes,
+          light_sleep_minutes: agg.light_sleep_minutes,
+          rem_sleep_minutes: agg.rem_sleep_minutes,
+          awake_minutes: agg.awake_minutes,
+          awakenings_count: agg.awakenings_count,
+          sleep_score: sleepScore,
+          source: 'health_connect',
+          sleep_stages: agg.sleep_stages,
+          sleep_start_time: chunk[0].startTime,
+          sleep_end_time: chunk[chunk.length - 1].endTime,
+        };
+      });
     } catch (error) {
       return null;
     }

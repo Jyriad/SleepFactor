@@ -420,13 +420,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
   },
   loggedDateCell: {
-    backgroundColor: 'rgba(147, 197, 253, 0.4)', // Light blue - habits only (#93C5FD with 40% opacity)
+    backgroundColor: 'rgba(176, 205, 235, 0.45)', // Birthday Blue — habits only
   },
   sleepDataCell: {
-    backgroundColor: 'rgba(59, 130, 246, 0.5)', // Medium blue - sleep data only (#3B82F6 with 50% opacity)
+    backgroundColor: 'rgba(36, 105, 178, 0.5)', // Cotton Blue — sleep data only
   },
   bothDataCell: {
-    backgroundColor: 'rgba(30, 58, 138, 0.6)', // Darker blue - both habits and sleep data (#1E3A8A with 60% opacity)
+    backgroundColor: 'rgba(17, 41, 75, 0.55)', // Blue Zodiac — habits + sleep
   },
   todayCell: {
     borderWidth: 2,

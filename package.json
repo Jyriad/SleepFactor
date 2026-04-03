@@ -9,7 +9,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "backfill:caffeine-amounts": "node scripts/backfill-caffeine-consumption-amounts.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",
@@ -24,16 +25,19 @@
     "@react-navigation/native": "^7.1.24",
     "@react-navigation/native-stack": "^7.8.5",
     "@react-navigation/stack": "^7.8.4",
+    "@sentry/react-native": "^8.6.0",
     "@shopify/react-native-skia": "1.5.0",
     "@supabase/supabase-js": "^2.99.3",
     "d3-scale": "^4.0.2",
     "expo": "~52.0.49",
     "expo-apple-authentication": "^55.0.9",
     "expo-auth-session": "~6.0.0",
+    "expo-blur": "~14.0.3",
     "expo-build-properties": "~0.13.3",
     "expo-constants": "~17.0.0",
     "expo-crypto": "~14.0.2",
     "expo-dev-client": "~5.0.0",
+    "expo-font": "~13.0.4",
     "expo-health-connect": "^0.1.1",
     "expo-linear-gradient": "~14.0.0",
     "expo-linking": "~7.0.0",
@@ -72,6 +76,11 @@
     "typescript": "^5.3.3"
   },
   "expo": {
+    "autolinking": {
+      "exclude": [
+        "@sentry/react-native"
+      ]
+    },
     "doctor": {
       "reactNativeDirectoryCheck": {
         "exclude": [

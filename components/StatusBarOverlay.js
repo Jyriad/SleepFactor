@@ -22,7 +22,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
     zIndex: 9999,
   },
 });

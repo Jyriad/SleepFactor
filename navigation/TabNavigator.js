@@ -1,9 +1,7 @@
 import React from 'react';
-import { Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
+import MainTabBar from '../components/MainTabBar';
 import HomeStackWrapper from './HomeStackWrapper';
 import InsightsStack from './InsightsStack';
 import HabitsStack from './HabitsStack';
@@ -12,10 +10,10 @@ import ProfileStack from './ProfileStack';
 const Tab = createBottomTabNavigator();
 
 const TAB_CONFIG = [
-  { name: 'Home', icon: 'home', iconOutline: 'home-outline', label: 'Home' },
-  { name: 'Insights', icon: 'bar-chart', iconOutline: 'bar-chart-outline', label: 'Insights' },
-  { name: 'Habits', icon: 'list', iconOutline: 'list-outline', label: 'Habits' },
-  { name: 'Profile', icon: 'person', iconOutline: 'person-outline', label: 'Profile' },
+  { name: 'Home', label: 'Home' },
+  { name: 'Insights', label: 'Insights' },
+  { name: 'Habits', label: 'Habits' },
+  { name: 'Profile', label: 'Profile' },
 ];
 
 /**
@@ -34,36 +32,29 @@ function HomeTabScreen({ route }) {
  * (faster cold start). unmountOnBlur: false keeps each tab mounted after first visit so switching back is instant.
  */
 const TabNavigator = () => {
-  const insets = useSafeAreaInsets();
-  // Android: explicit height + bottom inset so icons clear gesture/nav bar.
-  // iOS: omit height/paddingBottom so @react-navigation/bottom-tabs uses the
-  // standard ~49pt row + safe-area only (avoids the previous extra 60pt row + +5pt buffer).
-  const tabBarBottomPadding = Math.max(insets.bottom, 5) + 5;
-
   return (
     <Tab.Navigator
       initialRouteName="Home"
+      tabBar={(props) => <MainTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
         tabBarStyle: {
-          backgroundColor: colors.background,
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'transparent',
           borderTopWidth: 0,
-          ...(Platform.OS === 'ios'
-            ? {}
-            : {
-                height: 60 + tabBarBottomPadding,
-                paddingBottom: tabBarBottomPadding,
-              }),
+          elevation: 0,
         },
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
         tabBarHideOnKeyboard: true,
         lazy: true,
         unmountOnBlur: false,
       }}
     >
-      {TAB_CONFIG.map(({ name, icon, iconOutline, label }) => (
+      {TAB_CONFIG.map(({ name, label }) => (
         <Tab.Screen
           key={name}
           name={name}
@@ -78,13 +69,6 @@ const TabNavigator = () => {
           }
           options={{
             tabBarLabel: label,
-            tabBarIcon: ({ focused, color, size }) => (
-              <Ionicons
-                name={focused ? icon : iconOutline}
-                size={size ?? 24}
-                color={color}
-              />
-            ),
           }}
         />
       ))}

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StatusBar,
   Platform,
-  ActivityIndicator,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +25,9 @@ import {
   getCorrelationTagStyle,
   getImpactTagStyle,
 } from '../utils/insightLabels';
+import PageLoadingView from '../components/PageLoadingView';
+import GlassChromeBar from '../components/GlassChromeBar';
+import InsightMinimumDataHelp from '../components/InsightMinimumDataHelp';
 
 const { width: screenWidth } = Dimensions.get('window');
 const embeddedCardWidth = screenWidth - (spacing.regular * 4);
@@ -51,6 +53,9 @@ const getSleepMetricColor = (metricKey) => {
 const BinaryProgressBlock = ({ progress }) => {
   const yesPct = Math.min(100, (progress.binaryYes / progress.targetBinaryYes) * 100);
   const noPct = Math.min(100, (progress.binaryNo / progress.targetBinaryNo) * 100);
+  const showHelp =
+    progress.binaryYes < progress.targetBinaryYes ||
+    progress.binaryNo < progress.targetBinaryNo;
   return (
     <View style={styles.binaryProgressWrap}>
       <View style={styles.binaryBarRow}>
@@ -61,6 +66,9 @@ const BinaryProgressBlock = ({ progress }) => {
         <Text style={styles.binaryBarCount}>
           {progress.binaryYes}/{progress.targetBinaryYes}
         </Text>
+        {showHelp ? (
+          <InsightMinimumDataHelp variant="binary" iconSize={18} style={styles.buildingHelpIcon} />
+        ) : null}
       </View>
       <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
         <Text style={styles.binaryBarLabel}>No</Text>
@@ -78,6 +86,7 @@ const BinaryProgressBlock = ({ progress }) => {
 /** Numeric habit: full-width paired-nights progress (no table columns) */
 const NumericProgressBlock = ({ progress }) => {
   const pct = Math.min(100, (progress.pairedDays / progress.targetNumerical) * 100);
+  const showHelp = progress.pairedDays < progress.targetNumerical;
   return (
     <View style={styles.binaryProgressWrap}>
       <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
@@ -90,6 +99,9 @@ const NumericProgressBlock = ({ progress }) => {
         <Text style={styles.binaryBarCount}>
           {progress.pairedDays}/{progress.targetNumerical}
         </Text>
+        {showHelp ? (
+          <InsightMinimumDataHelp variant="numeric" iconSize={18} style={styles.buildingHelpIcon} />
+        ) : null}
       </View>
     </View>
   );
@@ -127,7 +139,7 @@ const InsightsScreen = ({ navigation, route }) => {
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primary);
+        StatusBar.setBackgroundColor(colors.primaryDark);
       }
       let cancelled = false;
       if (user) {
@@ -453,16 +465,18 @@ const InsightsScreen = ({ navigation, route }) => {
   const listHeader = useMemo(
     () => (
       <>
-        <View
-          style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
+        <GlassChromeBar
+          style={styles.headerGlassOuter}
           onLayout={(e) => {
             headerHeightRef.current = e.nativeEvent.layout.height;
           }}
         >
-          <View style={styles.header}>
-            <Text style={styles.title}>Sleep Insights</Text>
+          <View style={{ paddingTop: headerTopPadding }}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Sleep Insights</Text>
+            </View>
           </View>
-        </View>
+        </GlassChromeBar>
         <View style={styles.listHeaderContent}>
           <View style={[styles.switchRow, styles.switchRowWrap]}>
             <View style={styles.switchLabelCol}>
@@ -546,10 +560,7 @@ const InsightsScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading insights...</Text>
-        </View>
+        <PageLoadingView />
       ) : groups.length === 0 ? (
         <View style={styles.scrollView}>
           {listHeader}
@@ -601,27 +612,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  loadingWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing.regular,
-  },
-  loadingText: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-  },
   scrollView: {
     flex: 1,
   },
   sectionListContent: {
     paddingBottom: 112,
   },
-  headerWrap: {
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.sm,
   },
   header: {
@@ -632,7 +629,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   content: {
     paddingHorizontal: spacing.regular,
@@ -719,6 +716,9 @@ const styles = StyleSheet.create({
   binaryProgressWrap: {
     paddingTop: spacing.xs,
     paddingBottom: spacing.sm,
+  },
+  buildingHelpIcon: {
+    flexShrink: 0,
   },
   binaryBarRow: {
     flexDirection: 'row',

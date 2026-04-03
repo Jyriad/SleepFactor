@@ -90,30 +90,7 @@ export const GOOGLE_IOS_CLIENT_ID = resolveGoogleIosClientId();
 export const isGoogleNativeConfigured = () => Boolean(GOOGLE_WEB_CLIENT_ID);
 
 /** Call from anywhere in __DEV__ to re-print diagnostics (e.g. after env reload). */
-export function logGoogleNativeAuthDiagnostics(reason = 'manual') {
-  if (!__DEV__) return;
-  const embedded = getEmbeddedAppConfig();
-  const { source, mod } = getExponentConstantsNative();
-  const rawManifest = mod?.manifest;
-  console.log('[SleepFactor GoogleAuth]', reason, {
-    platform: Platform.OS,
-    exponentConstantsSource: source,
-    hasExponentConstantsManifest: rawManifest != null,
-    rawManifestKind: rawManifest == null ? 'null/undefined' : typeof rawManifest,
-    embeddedParsedIosBundle: embedded?.ios?.bundleIdentifier ?? '(none)',
-    embeddedParsedAndroidPackage: embedded?.android?.package ?? '(none)',
-    constantsExpoConfigIosBundle: Constants.expoConfig?.ios?.bundleIdentifier ?? '(none)',
-    isDevBinary: isDevBinary(),
-    envHasDevId: Boolean(IOS_DEV),
-    envHasProdId: Boolean(IOS_PROD),
-    resolvedIosClientIdLength: GOOGLE_IOS_CLIENT_ID.length,
-    /** Last segment helps match Google Cloud without pasting full secret. */
-    resolvedIosClientIdTail: GOOGLE_IOS_CLIENT_ID
-      ? GOOGLE_IOS_CLIENT_ID.replace('.apps.googleusercontent.com', '')
-      : '(empty)',
-  });
+export function logGoogleNativeAuthDiagnostics(_reason = 'manual') {
+  /* Verbose Google native auth diagnostics removed — re-enable locally if needed. */
 }
 
-if (__DEV__) {
-  logGoogleNativeAuthDiagnostics('startup (googleNativeAuth module loaded)');
-}

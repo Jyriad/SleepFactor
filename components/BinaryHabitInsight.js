@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
+import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
 import { getCorrelationLabel, getImpactLabel, getCorrelationTagStyle, getImpactTagStyle } from '../utils/insightLabels';
 
@@ -103,11 +104,23 @@ const BinaryHabitInsight = ({
           </View>
         </View>
         <View style={{ marginTop: spacing.sm, width: '100%' }}>
-          <Text style={styles.noSignificanceText}>
-            {analyzedEnoughBinary
-              ? 'No clear link (yet)'
-              : 'Building your data'}
-          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: spacing.xs,
+            }}
+          >
+            <Text style={[styles.noSignificanceText, { flex: 1 }]}>
+              {analyzedEnoughBinary
+                ? 'No clear link (yet)'
+                : 'Building your data'}
+            </Text>
+            {!analyzedEnoughBinary ? (
+              <InsightMinimumDataHelp variant="binary" />
+            ) : null}
+          </View>
           <View style={[styles.progressBarBackground, { marginTop: spacing.xs }]}>
             <View
               style={{
@@ -189,11 +202,11 @@ const BinaryHabitInsight = ({
           </View>
           <View style={styles.expandedTagsRow}>
             <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
+              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
             </View>
             {confidenceLevel !== 'none' && (
               <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
+                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
               </View>
             )}
           </View>
@@ -206,9 +219,21 @@ const BinaryHabitInsight = ({
         </View>
 
         <View style={styles.warningContent}>
-          <Text style={styles.warningTitle}>
-            Not enough data yet
-          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: spacing.xs,
+            }}
+          >
+            <Text style={[styles.warningTitle, { flex: 1 }]}>
+              Not enough data yet
+            </Text>
+            {yesDataPoints < minYes || noDataPoints < minNo ? (
+              <InsightMinimumDataHelp variant="binary" />
+            ) : null}
+          </View>
           <Text style={styles.warningSubtitle}>
             Keep logging this habit to unlock insights into how it affects your sleep.
           </Text>
@@ -492,11 +517,11 @@ const BinaryHabitInsight = ({
         </View>
         <View style={styles.expandedTagsRow}>
           <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-            <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color, fontSize: typography.sizes.small }]}>{correlationLabel}</Text>
+            <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
           </View>
           {confidenceLevel !== 'none' && (
             <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color, fontSize: typography.sizes.small }]}>{impactLabel}</Text>
+              <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
             </View>
           )}
         </View>
@@ -915,16 +940,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  // Match Insights tab table tags (InsightsScreen tag / tagTextSmall)
   stabilityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 12,
-    gap: spacing.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    flexShrink: 1,
+    maxWidth: '100%',
   },
   stabilityBadgeText: {
-    fontSize: typography.sizes.xs,
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: typography.weights.medium,
   },
   expandHint: {
@@ -1021,7 +1049,7 @@ const styles = StyleSheet.create({
   barTrack: {
     flex: 1,
     height: 24,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.background,
     borderRadius: 6,
     overflow: 'hidden',
     justifyContent: 'center',

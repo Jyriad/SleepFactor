@@ -7,6 +7,7 @@ import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 
 const SLEEP_BAR_RADIUS = 8;
 
@@ -55,8 +56,8 @@ const OnboardingVariablesScreen = ({ navigation }) => {
 
   return (
     <OnboardingStepLayout
-      step={2}
-      totalSteps={8}
+      step={6}
+      totalSteps={ONBOARDING_STEP_TOTAL}
       title="The Variables"
       onNext={() => navigation.navigate('OnboardingHabitSelection')}
       onBack={() => navigation.goBack()}

@@ -29,10 +29,11 @@ import { typography, spacing } from '../constants';
 import Button from '../components/Button';
 import BannerLogoLight from '../assets/BannerLogoLight.svg';
 
-const BANNER_ASPECT_RATIO = 250 / 100; // 2.5:1
+// Matches BannerLogoLight.svg viewBox (primary wordmark, all black)
+const BANNER_ASPECT_RATIO = 1284.55 / 226.95;
 const BANNER_MAX_WIDTH = 200; // Slightly smaller so more content fits above the fold
 
-const AuthScreen = () => {
+const AuthScreen = ({ defaultToSignUp = false }) => {
   const { width: windowWidth } = useWindowDimensions();
   const splash = useSplash();
   const bannerWidth = Math.min(BANNER_MAX_WIDTH, windowWidth - spacing.xl * 2);
@@ -42,7 +43,7 @@ const AuthScreen = () => {
     splash?.onReadyToHideSplash?.();
   }, [splash]);
 
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(defaultToSignUp);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -218,23 +219,20 @@ const AuthScreen = () => {
                 </View>
               </View>
 
-              {/* Always render confirm password field with fixed height to prevent layout shift */}
-              <View style={[
-                styles.inputContainer,
-                !isSignUp && styles.hiddenContainer
-              ]}>
-                <Text style={[styles.label, !isSignUp && styles.hiddenText]}>Confirm Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirm your password"
-                  placeholderTextColor={colors.textLight}
-                  value={isSignUp ? confirmPassword : ''}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  editable={isSignUp}
-                />
-              </View>
+              {isSignUp ? (
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Confirm Password</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Confirm your password"
+                    placeholderTextColor={colors.textLight}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                </View>
+              ) : null}
 
               {/* Always render error container to prevent layout shift */}
               <View style={styles.errorContainer}>
@@ -269,7 +267,11 @@ const AuthScreen = () => {
                   }
                 >
                   <AppleAuthenticationButton
-                    buttonType={AppleAuthenticationButtonType.SIGN_IN}
+                    buttonType={
+                      isSignUp
+                        ? AppleAuthenticationButtonType.SIGN_UP
+                        : AppleAuthenticationButtonType.SIGN_IN
+                    }
                     buttonStyle={AppleAuthenticationButtonStyle.BLACK}
                     cornerRadius={12}
                     style={styles.appleButton}
@@ -279,7 +281,7 @@ const AuthScreen = () => {
               )}
 
               <Button
-                title="Continue with Google"
+                title={isSignUp ? 'Sign up with Google' : 'Sign in with Google'}
                 onPress={handleGoogleSignIn}
                 loading={oauthLoading.google}
                 variant="secondary"
@@ -354,15 +356,6 @@ const styles = StyleSheet.create({
   inputContainer: {
     marginBottom: spacing.md,
   },
-  hiddenContainer: {
-    opacity: 0,
-    height: 72, // Fixed height to match visible input (label + input + margin), slightly tighter
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-  },
-  hiddenText: {
-    opacity: 0,
-  },
   label: {
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
@@ -393,8 +386,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   errorContainer: {
-    minHeight: 20,
-    marginBottom: spacing.md,
+    minHeight: 0,
+    marginBottom: spacing.sm,
     justifyContent: 'center',
   },
   errorText: {
@@ -403,7 +396,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   submitButton: {
-    marginTop: spacing.xs,
+    marginTop: 0,
   },
   dividerContainer: {
     flexDirection: 'row',

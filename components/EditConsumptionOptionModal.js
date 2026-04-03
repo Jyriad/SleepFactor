@@ -15,6 +15,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { ML_PER_FL_OZ, calculateAlcoholUnits, deriveAbvFromUnits } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import { INTAKE_BASIS, resolveIntakeBasis, isLiquidServingUnit } from '../utils/consumptionIntake';
 import Button from './Button';
 
 // Icon options removed for now - keeping database column for future use
@@ -49,12 +50,33 @@ const EditConsumptionOptionModal = ({
     if (visible && option) {
       setName(option.name || '');
       setDrugAmount(option.drug_amount?.toString() || '');
-      const storedVolume = option.default_volume ? parseFloat(option.default_volume) : null;
+      const basis = resolveIntakeBasis(option);
       const storedUnit = option.serving_unit || 'ml';
+      let storedVolume = null;
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const rc =
+          option.reference_serving_count != null && Number(option.reference_serving_count) > 0
+            ? Number(option.reference_serving_count)
+            : option.default_volume != null
+              ? parseFloat(option.default_volume)
+              : null;
+        storedVolume = rc;
+      } else {
+        const ml =
+          option.reference_volume_ml != null && Number(option.reference_volume_ml) > 0
+            ? Number(option.reference_volume_ml)
+            : option.default_volume != null
+              ? parseFloat(option.default_volume)
+              : null;
+        storedVolume = ml;
+      }
       // Display volume in the stored unit (if ounces, convert ml back to oz for display)
-      const displayVolume = storedVolume && (storedUnit === 'ounces' || storedUnit === 'fl oz')
-        ? (storedVolume / ML_PER_FL_OZ).toFixed(1).replace(/\.0$/, '')
-        : (storedVolume?.toString() || '');
+      const displayVolume =
+        basis === INTAKE_BASIS.SERVING_COUNT
+          ? (storedVolume != null ? String(storedVolume) : '')
+          : storedVolume && (storedUnit === 'ounces' || storedUnit === 'fl oz')
+            ? (storedVolume / ML_PER_FL_OZ).toFixed(1).replace(/\.0$/, '')
+            : (storedVolume?.toString() || '');
       setVolume(displayVolume);
       setServingUnit(storedUnit === 'fl oz' ? 'ounces' : (storedUnit || 'ml'));
       if (isAlcoholHabit && storedVolume > 0 && option.drug_amount > 0) {
@@ -110,7 +132,7 @@ const EditConsumptionOptionModal = ({
       if (volume.trim()) {
         const volumeNum = parseFloat(volume);
         if (isNaN(volumeNum) || volumeNum <= 0 || volumeNum > 10000) {
-          setVolumeError('Valid volume is required');
+          setVolumeError(isLiquidServingUnit(servingUnit) ? 'Enter a valid volume' : 'Enter a valid number of units');
           isValid = false;
         } else {
           setVolumeError('');
@@ -132,9 +154,16 @@ const EditConsumptionOptionModal = ({
       let volumeMl = null;
       if (volume.trim()) {
         const num = parseFloat(volume);
-        volumeMl = (servingUnit === 'ounces' || servingUnit === 'fl oz')
-          ? Math.round(num * ML_PER_FL_OZ)
-          : Math.round(num);
+        if (isAlcoholHabit || isLiquidServingUnit(servingUnit)) {
+          volumeMl =
+            servingUnit === 'ounces' || servingUnit === 'fl oz'
+              ? Math.round(num * ML_PER_FL_OZ)
+              : Math.round(num);
+        } else {
+          volumeMl = Math.max(num, 0.001);
+        }
+      } else if (!isAlcoholHabit && !isLiquidServingUnit(servingUnit)) {
+        volumeMl = 1;
       }
 
       let finalDrugAmount;
@@ -332,7 +361,11 @@ const EditConsumptionOptionModal = ({
                 ) : (
                   <>
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Volume per serving - Optional</Text>
+                      <Text style={styles.label}>
+                        {isLiquidServingUnit(servingUnit)
+                          ? 'Volume per serving (optional)'
+                          : 'Units per serving'}
+                      </Text>
                       <TextInput
                         style={[styles.textInput, volumeError ? styles.inputError : null]}
                         value={volume}
@@ -340,20 +373,22 @@ const EditConsumptionOptionModal = ({
                           setVolume(text);
                           if (volumeError) setVolumeError('');
                         }}
-                        placeholder="e.g., 250"
+                        placeholder={isLiquidServingUnit(servingUnit) ? 'e.g., 250' : 'e.g., 1'}
                         placeholderTextColor={colors.textLight}
-                        keyboardType="numeric"
-                        maxLength={5}
+                        keyboardType="decimal-pad"
+                        maxLength={6}
                       />
                       {volumeError ? <Text style={styles.errorText}>{volumeError}</Text> : null}
                       <Text style={styles.helpText}>
-                        Volume of one serving (e.g., 250 ml for a cup of coffee).
+                        {isLiquidServingUnit(servingUnit)
+                          ? 'Liquid serving size. Leave blank when using a built-in typical size.'
+                          : 'How many pills, spoons, etc. the caffeine amount applies to.'}
                       </Text>
                     </View>
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Volume unit</Text>
+                      <Text style={styles.label}>Serving unit</Text>
                       <View style={styles.unitGrid}>
-                        {['ml', 'ounces'].map((unit) => (
+                        {SERVING_UNITS.map((unit) => (
                           <TouchableOpacity
                             key={unit}
                             style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}

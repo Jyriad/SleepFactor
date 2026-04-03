@@ -1,4 +1,5 @@
 import React from 'react';
+import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -78,13 +79,19 @@ const PlaceholderHabitInsight = ({ insight, width }) => {
           <Text style={styles.binaryMessageText}>
             Log at least {requiredYes} "Yes" and {requiredNo} "No" to unlock this insight.
           </Text>
+          {yesCount < requiredYes || noCount < requiredNo ? (
+            <InsightMinimumDataHelp variant="binary" />
+          ) : null}
         </View>
       )}
 
       {/* Progress Bar for reaching minimum data points */}
       {!isBinaryPlaceholder && (
         <View style={styles.progressSection}>
-          <Text style={styles.progressLabel}>Not enough data yet</Text>
+          <View style={styles.progressLabelRow}>
+            <Text style={[styles.progressLabel, styles.progressLabelFlex]}>Not enough data yet</Text>
+            {daysWithPairedData < 10 ? <InsightMinimumDataHelp variant="numeric" /> : null}
+          </View>
           <View style={styles.progressBarBackground}>
             <View style={[styles.progressBarFill, { width: `${Math.min(100, (daysWithPairedData / 10) * 100)}%` }]} />
           </View>
@@ -173,7 +180,7 @@ const styles = StyleSheet.create({
   },
   binaryMessage: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
     borderTopWidth: 1,
@@ -192,11 +199,21 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  progressLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
   progressLabel: {
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
+  },
+  progressLabelFlex: {
+    flex: 1,
+    marginBottom: 0,
   },
   progressBarBackground: {
     height: 8,

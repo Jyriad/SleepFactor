@@ -4,10 +4,32 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
+import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 const SLEEP_BAR_RADIUS = 8;
 
-const SleepTimeline = ({ sleepData }) => {
+function logTimelineDebug(sleepDataRow, td) {
+  if (!td || !sleepDataRow?.date) return;
+  let spanH = 0;
+  if (td.multipleSessions && td.sessions?.length) {
+    const t0 = Math.min(...td.sessions.map(s => s.sleepStart.getTime()));
+    const t1 = Math.max(...td.sessions.map(s => s.sleepEnd.getTime()));
+    spanH = (t1 - t0) / 3600000;
+  } else if (td.sleepStart && td.sleepEnd) {
+    spanH = (td.sleepEnd.getTime() - td.sleepStart.getTime()) / 3600000;
+  }
+  const rounded = Math.round(spanH * 10) / 10;
+  if (rounded > 10 || td.multipleSessions) {
+    sleepDebugLog('timeline_ui', {
+      date: sleepDataRow.date,
+      spanHours: rounded,
+      multipleSessions: !!td.multipleSessions,
+      sessionCount: td.sessions?.length ?? 1,
+    });
+  }
+}
+
+const SleepTimeline = ({ sleepData, compact = false }) => {
   const { formatTime } = useUserPreferences();
 
   if (!sleepData) return null;
@@ -57,11 +79,13 @@ const SleepTimeline = ({ sleepData }) => {
       sessionResults.forEach(s => {
         s.widthPercent = totalAll > 0 ? (s.totalDurationMinutes / totalAll) * 100 : 0;
       });
-      return {
+      const multi = {
         multipleSessions: true,
         sessions: sessionResults,
         totalDurationMinutes: sleepData.total_sleep_minutes || totalAll,
       };
+      logTimelineDebug(sleepData, multi);
+      return multi;
     }
     if (sleepData.sleep_stages && Array.isArray(sleepData.sleep_stages) && sleepData.sleep_stages.length > 0) {
       // We have actual interval data - use it!
@@ -99,12 +123,14 @@ const SleepTimeline = ({ sleepData }) => {
         };
       });
 
-      return {
+      const fromStages = {
         segments,
         sleepStart,
         sleepEnd,
         totalDurationMinutes,
       };
+      logTimelineDebug(sleepData, fromStages);
+      return fromStages;
     } else {
       // Fall back to aggregated data (for HealthKit or manual entries)
       const {
@@ -184,12 +210,14 @@ const SleepTimeline = ({ sleepData }) => {
         });
       }
 
-      return {
+      const aggregated = {
         segments,
         sleepStart,
         sleepEnd,
         totalDurationMinutes: totalTime,
       };
+      logTimelineDebug(sleepData, aggregated);
+      return aggregated;
     }
   }, [sleepData]);
 
@@ -201,7 +229,7 @@ const SleepTimeline = ({ sleepData }) => {
     const endTime = formatTime(sleepEnd);
     return (
       <View key={keyPrefix} style={styles.timelineContainer}>
-        <View style={styles.timelineBar}>
+        <View style={[styles.timelineBar, compact && styles.timelineBarCompact]}>
           {segments.map((segment, index) => {
             const isFirst = index === 0;
             const isLast = index === segments.length - 1;
@@ -225,18 +253,17 @@ const SleepTimeline = ({ sleepData }) => {
             );
           })}
         </View>
-        <View style={styles.moonIcon}>
-          <Ionicons name="moon" size={14} color="#FFFFFF" />
+        <View style={[styles.moonIcon, compact && styles.moonIconCompact]}>
+          <Ionicons name="moon" size={compact ? 12 : 14} color="#FFFFFF" />
         </View>
         <View style={styles.timeLabels}>
-          <Text style={styles.timeLabel}>{startTime}</Text>
-          <Text style={styles.timeLabel}>{endTime}</Text>
+          <Text style={[styles.timeLabel, compact && styles.timeLabelCompact]}>{startTime}</Text>
+          <Text style={[styles.timeLabel, compact && styles.timeLabelCompact]}>{endTime}</Text>
         </View>
       </View>
     );
   };
 
-  // Multiple sessions: two separate pill-shaped bars, side-by-side, proportionally sized with a gap
   const renderMultiSessionBar = () => {
     const { sessions } = timelineData;
     return (
@@ -247,7 +274,9 @@ const SleepTimeline = ({ sleepData }) => {
               key={`session-${i}`}
               style={[
                 styles.standaloneSessionBar,
-                { flex: sess.totalDurationMinutes },
+                compact && styles.standaloneSessionBarCompact,
+                // Proportional to duration; minWidth on the bar was inflating short naps vs main sleep
+                { flex: sess.totalDurationMinutes, minWidth: 0 },
                 i > 0 && styles.standaloneSessionBarGap,
               ]}
             >
@@ -276,36 +305,68 @@ const SleepTimeline = ({ sleepData }) => {
                 })}
               </View>
               {i === 0 && (
-                <View style={styles.moonIcon}>
-                  <Ionicons name="moon" size={14} color="#FFFFFF" />
+                <View style={[styles.moonIcon, compact && styles.moonIconCompact]}>
+                  <Ionicons name="moon" size={compact ? 12 : 14} color="#FFFFFF" />
                 </View>
               )}
             </View>
           ))}
         </View>
         <View style={styles.multiSessionTimeLabels}>
-          {sessions.map((sess, i) => (
-            <View
-              key={`labels-${i}`}
-              style={[
-                styles.multiSessionLabelCell,
-                { flex: sess.totalDurationMinutes },
-                i > 0 && styles.standaloneSessionBarGap,
-                i === sessions.length - 1 && styles.multiSessionLabelCellLast,
-              ]}
-            >
-              <Text style={styles.timeLabel}>
-                {formatTime(sess.sleepStart)} – {formatTime(sess.sleepEnd)}
-              </Text>
-            </View>
-          ))}
+          {sessions.map((sess, i) => {
+            // Narrow bar (e.g. nap): column is too thin for one line of text — minWidth lets labels
+            // stay readable while staying centered under the bar (overflow visible).
+            const narrowColumn = (sess.widthPercent ?? 0) < 28;
+            return (
+              <View
+                key={`labels-${i}`}
+                style={[
+                  styles.multiSessionLabelCell,
+                  { flex: sess.totalDurationMinutes, minWidth: 0 },
+                  i > 0 && styles.standaloneSessionBarGap,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.multiSessionTimeLabelStack,
+                    compact && styles.multiSessionTimeLabelStackCompact,
+                    narrowColumn && styles.multiSessionTimeLabelStackNarrowBar,
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.timeLabel, compact && styles.timeLabelCompact, styles.multiSessionTimeLine]}
+                  >
+                    {formatTime(sess.sleepStart)}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.timeLabel,
+                      compact && styles.timeLabelCompact,
+                      styles.multiSessionTimeLine,
+                      styles.multiSessionTimeDash,
+                    ]}
+                  >
+                    –
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.timeLabel, compact && styles.timeLabelCompact, styles.multiSessionTimeLine]}
+                  >
+                    {formatTime(sess.sleepEnd)}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
       </View>
     );
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.containerCompact]}>
       {timelineData.multipleSessions
         ? renderMultiSessionBar()
         : renderOneTimeline(timelineData.segments, timelineData.sleepStart, timelineData.sleepEnd, 'single')}
@@ -316,6 +377,24 @@ const SleepTimeline = ({ sleepData }) => {
 const styles = StyleSheet.create({
   container: {
     marginTop: spacing.md,
+    overflow: 'visible',
+  },
+  containerCompact: {
+    marginTop: spacing.xs,
+    marginBottom: 0,
+  },
+  timelineBarCompact: {
+    height: 28,
+  },
+  standaloneSessionBarCompact: {
+    height: 28,
+  },
+  moonIconCompact: {
+    top: 6,
+    left: 6,
+  },
+  timeLabelCompact: {
+    fontSize: 10,
   },
   timelineContainer: {
     marginBottom: spacing.sm,
@@ -342,7 +421,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: colors.accent,
     position: 'relative',
-    minWidth: 40,
   },
   standaloneSessionBarGap: {
     marginLeft: 4,
@@ -378,16 +456,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: spacing.md,
     overflow: 'visible',
+    zIndex: 2,
   },
   multiSessionLabelCell: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 2,
+    justifyContent: 'flex-start',
     overflow: 'visible',
   },
-  multiSessionLabelCellLast: {
-    justifyContent: 'flex-end',
+  multiSessionTimeLabelStack: {
+    alignItems: 'center',
+    overflow: 'visible',
+    paddingHorizontal: spacing.xs,
+  },
+  multiSessionTimeLabelStackCompact: {
+    paddingHorizontal: 2,
+  },
+  /**
+   * When the bar is a small slice of the row, the flex column is still too narrow for "h:mm AM".
+   * Minimum width + no shrink keeps one line per row; stack stays centered under the bar and may
+   * extend sideways (overflow visible on ancestors).
+   */
+  multiSessionTimeLabelStackNarrowBar: {
+    minWidth: 118,
+    flexShrink: 0,
+    marginHorizontal: -spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  multiSessionTimeLine: {
+    textAlign: 'center',
+  },
+  multiSessionTimeDash: {
+    lineHeight: 14,
+    opacity: 0.85,
   },
   timeLabels: {
     flexDirection: 'row',
