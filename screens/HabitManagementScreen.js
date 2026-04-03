@@ -32,6 +32,7 @@ import { typography, spacing } from '../constants';
 import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import PageLoadingView from '../components/PageLoadingView';
+import GlassChromeBar from '../components/GlassChromeBar';
 
 const PREDEFINED_HABITS = [
   { name: 'Exercise', type: 'binary', unit: null },
@@ -1171,12 +1172,14 @@ const HabitManagementScreen = () => {
           <View style={styles.manualHabitsSection}>
             {manualHabits.length === 0 && (
               <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.draggableListContent}>
-                <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-                  <View style={styles.header}>
-                    <Text style={styles.title}>Manage Your Habits</Text>
-                    <Text style={styles.subtitle}>Long press a habit to reorder • Tap to expand options</Text>
+                <GlassChromeBar style={styles.headerGlassOuter}>
+                  <View style={{ paddingTop: headerTopPadding }}>
+                    <View style={styles.header}>
+                      <Text style={styles.title}>Manage Your Habits</Text>
+                      <Text style={styles.subtitle}>Long press a habit to reorder • Tap to expand options</Text>
+                    </View>
                   </View>
-                </View>
+                </GlassChromeBar>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Your Habits</Text>
                   <Text style={styles.sectionSubtitle}>
@@ -1339,14 +1342,16 @@ const HabitManagementScreen = () => {
                   onMomentumScrollBegin={closeAllSwipeables}
                   onScrollEndDrag={closeAllSwipeables}
                 >
-                  <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-                    <View style={styles.header}>
-                      <Text style={styles.title}>Manage Your Habits</Text>
-                      <Text style={styles.subtitle}>
-                        Long press a habit to reorder • Tap to expand options
-                      </Text>
+                  <GlassChromeBar style={styles.headerGlassOuter}>
+                    <View style={{ paddingTop: headerTopPadding }}>
+                      <View style={styles.header}>
+                        <Text style={styles.title}>Manage Your Habits</Text>
+                        <Text style={styles.subtitle}>
+                          Long press a habit to reorder • Tap to expand options
+                        </Text>
+                      </View>
                     </View>
-                  </View>
+                  </GlassChromeBar>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Your Habits</Text>
                     <Text style={styles.sectionSubtitle}>
@@ -1419,11 +1424,7 @@ const styles = StyleSheet.create({
   listContainer: {
     flex: 1,
   },
-  headerWrap: {
-    backgroundColor: colors.primaryDark,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.xs,
   },
   header: {
@@ -1434,11 +1435,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   subtitle: {
     fontSize: typography.sizes.small,
-    color: 'rgba(255,255,255,0.9)',
+    color: colors.textSecondary,
     marginTop: spacing.xs,
   },
   listContent: {

@@ -54,6 +54,8 @@ const EXPANDED_DRAWER_HEIGHT = COLLAPSED_DRAWER_HEIGHT + CALENDAR_CONTENT_HEIGHT
 
 const SPRING_CONFIG = { damping: 24, stiffness: 280 };
 
+const TOP_ROW_HEIGHT_FALLBACK = 48;
+
 const DateHeader = ({
   selectedDate,
   onDateChange,
@@ -62,9 +64,17 @@ const DateHeader = ({
   rightElement = null,
   showTodayButton = true,
   onExpandChange,
+  /**
+   * Top row + drawer height (pixels) for scroll padding under overlay headers.
+   * Uses layout + drawer constants because Reanimated height does not always refresh parent onLayout.
+   */
+  onChromeHeightChange,
+  /** Light frosted header: dark text/icons (pair with GlassChromeBar) */
+  glass = false,
 }) => {
   const [stripSleepDates, setStripSleepDates] = useState([]);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [topRowHeight, setTopRowHeight] = useState(0);
   const [currentMonth, setCurrentMonth] = useState(() =>
     selectedDate ? new Date(selectedDate) : new Date()
   );
@@ -130,6 +140,17 @@ const DateHeader = ({
     onExpandChange?.(false);
   }, [onExpandChange]);
 
+  const reportChromeHeight = useCallback(() => {
+    if (!onChromeHeightChange) return;
+    const row = topRowHeight > 0 ? topRowHeight : TOP_ROW_HEIGHT_FALLBACK;
+    const drawer = isExpanded ? EXPANDED_DRAWER_HEIGHT : COLLAPSED_DRAWER_HEIGHT;
+    onChromeHeightChange(row + drawer);
+  }, [isExpanded, topRowHeight, onChromeHeightChange]);
+
+  useEffect(() => {
+    reportChromeHeight();
+  }, [reportChromeHeight]);
+
   const openDrawer = useCallback(() => {
     expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
     notifyOpened();
@@ -169,7 +190,9 @@ const DateHeader = ({
     });
   }, []);
 
-  const VERTICAL_PAN_ACTIVATE_PX = 14;
+  /** Lower = vertical pan claims the gesture sooner (less “dead” movement before drag). */
+  const VERTICAL_PAN_ACTIVATE_PX = 8;
+  const DRAWER_RANGE = EXPANDED_DRAWER_HEIGHT - COLLAPSED_DRAWER_HEIGHT;
   const verticalPanGesture = Gesture.Pan()
     .activeOffsetY([-VERTICAL_PAN_ACTIVATE_PX, VERTICAL_PAN_ACTIVATE_PX])
     .onStart(() => {
@@ -186,15 +209,36 @@ const DateHeader = ({
       const ty = e.translationY;
       const vy = e.velocityY;
       const current = expandHeight.value;
-      const threshold = EXPANDED_DRAWER_HEIGHT * 0.4;
-      const shouldOpen =
-        vy > 150 || (ty > 20 && current > threshold) || current > EXPANDED_DRAWER_HEIGHT * 0.5;
-      if (shouldOpen) {
-        expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
-        runOnJS(notifyOpened)();
+      const startH = startHeight.value;
+      const openFraction = (current - COLLAPSED_DRAWER_HEIGHT) / DRAWER_RANGE;
+      const startedExpanded = startH > COLLAPSED_DRAWER_HEIGHT + DRAWER_RANGE * 0.55;
+
+      if (startedExpanded) {
+        // Closing: short swipe up or modest drag down should collapse (opening used one threshold for both).
+        const shouldClose =
+          vy < -95 || ty < -32 || openFraction < 0.62;
+        if (shouldClose) {
+          expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, {
+            duration: CLOSE_ANIMATION_DURATION_MS,
+          });
+          runOnJS(notifyClosed)();
+        } else {
+          expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
+          runOnJS(notifyOpened)();
+        }
       } else {
-        expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, { duration: CLOSE_ANIMATION_DURATION_MS });
-        runOnJS(notifyClosed)();
+        const threshold = COLLAPSED_DRAWER_HEIGHT + DRAWER_RANGE * 0.4;
+        const shouldOpen =
+          vy > 150 || (ty > 20 && current > threshold) || openFraction > 0.5;
+        if (shouldOpen) {
+          expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
+          runOnJS(notifyOpened)();
+        } else {
+          expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, {
+            duration: CLOSE_ANIMATION_DURATION_MS,
+          });
+          runOnJS(notifyClosed)();
+        }
       }
     });
 
@@ -240,7 +284,13 @@ const DateHeader = ({
     <View style={styles.container}>
       <GestureDetector gesture={verticalPanGesture}>
         <View style={styles.headerContent}>
-          <View style={styles.topRow}>
+          <View
+            style={styles.topRow}
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              if (h > 0) setTopRowHeight(h);
+            }}
+          >
           <View style={styles.leftSlot}>
             {leftElement != null ? (
               leftElement
@@ -256,14 +306,14 @@ const DateHeader = ({
             ) : null}
           </View>
           <View style={styles.dateChip}>
-            <Text style={styles.dateChipText}>{displayTitle}</Text>
+            <Text style={glass ? styles.dateChipTextGlass : styles.dateChipText}>{displayTitle}</Text>
           </View>
           <View style={styles.rightSlot}>{rightElement}</View>
         </View>
 
         <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
           <View style={styles.stripSection}>
-            <Text style={styles.stripSectionLabel}>{stripLabel}</Text>
+            <Text style={glass ? styles.stripSectionLabelGlass : styles.stripSectionLabel}>{stripLabel}</Text>
             <View style={styles.stripRow}>
               {stripDates.map((dateItem) => {
                 const isSelected = dateItem.date === selectedDateStr;
@@ -279,22 +329,23 @@ const DateHeader = ({
                   >
                     <Text
                       style={[
-                        styles.stripDayName,
-                        isSelected && styles.stripDayNameSelected,
+                        glass ? styles.stripDayNameGlass : styles.stripDayName,
+                        isSelected &&
+                          (glass ? styles.stripDayNameSelectedGlass : styles.stripDayNameSelected),
                       ]}
                     >
                       {dateItem.dayName}
                     </Text>
                     <View
                       style={[
-                        styles.datePill,
-                        isSelected && styles.datePillSelected,
+                        glass ? styles.datePillGlass : styles.datePill,
+                        isSelected && (glass ? styles.datePillSelectedGlass : styles.datePillSelected),
                         isToday && styles.datePillToday,
                       ]}
                     >
                       <Text
                         style={[
-                          styles.datePillNumber,
+                          glass ? styles.datePillNumberGlass : styles.datePillNumber,
                           isSelected && styles.datePillNumberSelected,
                         ]}
                       >
@@ -302,12 +353,32 @@ const DateHeader = ({
                       </Text>
                       {isLogged && (
                         <View style={styles.datePillIndicatorLeft} pointerEvents="none">
-                          <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
+                          <Ionicons
+                            name="checkmark"
+                            size={10}
+                            color={
+                              isSelected
+                                ? colors.primary
+                                : glass
+                                  ? colors.textSecondary
+                                  : 'rgba(255,255,255,0.9)'
+                            }
+                          />
                         </View>
                       )}
                       {hasSleep && (
                         <View style={styles.datePillSleepIcon} pointerEvents="none">
-                          <Ionicons name="bed-outline" size={10} color={isSelected ? colors.primary : 'rgba(255, 255, 255, 0.9)'} />
+                          <Ionicons
+                            name="bed-outline"
+                            size={10}
+                            color={
+                              isSelected
+                                ? colors.primary
+                                : glass
+                                  ? colors.textSecondary
+                                  : 'rgba(255, 255, 255, 0.9)'
+                            }
+                          />
                         </View>
                       )}
                     </View>
@@ -323,12 +394,13 @@ const DateHeader = ({
                 setCurrentMonth={setCurrentMonth}
                 selectedDateStr={selectedDateStr}
                 onDateSelect={handleDateSelectFromCalendar}
+                glass={glass}
               />
             </Animated.View>
           </GestureDetector>
           <GestureDetector gesture={composedHandleGesture}>
             <View style={styles.dragHandleBarWrap}>
-              <View style={styles.dragHandleBar} />
+              <View style={glass ? styles.dragHandleBarGlass : styles.dragHandleBar} />
             </View>
           </GestureDetector>
         </Animated.View>
@@ -480,6 +552,53 @@ const styles = StyleSheet.create({
   },
   datePillNumberSelected: {
     color: colors.primary,
+  },
+  dateChipTextGlass: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  stripSectionLabelGlass: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+    marginBottom: 0,
+    paddingHorizontal: DAY_CELL_PADDING / 2,
+  },
+  stripDayNameGlass: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  stripDayNameSelectedGlass: {
+    color: colors.textPrimary,
+    fontWeight: typography.weights.semibold,
+  },
+  datePillGlass: {
+    width: DAY_CELL_SIZE,
+    height: DAY_CELL_SIZE,
+    borderRadius: DAY_CELL_BORDER_RADIUS,
+    backgroundColor: 'rgba(17, 41, 75, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  datePillSelectedGlass: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  datePillNumberGlass: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  dragHandleBarGlass: {
+    width: 36,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(17, 41, 75, 0.35)',
   },
 });
 

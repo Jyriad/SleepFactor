@@ -48,6 +48,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
+import GlassChromeBar from '../components/GlassChromeBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
 import ConsumptionLoggedList from '../components/ConsumptionLoggedList';
@@ -157,6 +158,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const [consumptionEventsLoading, setConsumptionEventsLoading] = useState(false);
   const [levelRefreshKey, setLevelRefreshKey] = useState(0);
   const [collapsedConsumption, setCollapsedConsumption] = useState({});
+  /** Space below absolute glass date header */
+  const [habitLogGlassHeaderHeight, setHabitLogGlassHeaderHeight] = useState(140);
   const selectedDateRef = useRef(selectedDate);
   const appliedQuickConsumptionDefaultsRef = useRef(new Set());
   // Track which date the current habitLogs state is for; only save when it matches selectedDate (avoids writing wrong date when switching dates)
@@ -886,13 +889,15 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
       {loading ? (
         <>
-          <View style={[styles.minimalHeaderBlock, { paddingTop: minimalHeaderTop }]}>
-            <View style={styles.minimalHeaderInner}>
-              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.minimalBackButton}>
-                <Ionicons name="chevron-back" size={24} color={colors.white} />
-              </TouchableOpacity>
-              <Text style={styles.minimalHeaderTitle}>Log habits</Text>
-            </View>
+          <View style={styles.minimalHeaderOverlay}>
+            <GlassChromeBar bottomRadius={12}>
+              <View style={[styles.minimalHeaderInner, { paddingTop: minimalHeaderTop }]}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.minimalBackButton}>
+                  <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+                <Text style={styles.minimalHeaderTitle}>Log habits</Text>
+              </View>
+            </GlassChromeBar>
           </View>
           <View style={styles.minimalLoadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -903,11 +908,15 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       <ScrollableDateHeaderBar
         showBackButton={!!routeProp}
         onBackPress={routeProp ? () => navigation.goBack() : undefined}
+        onLayoutHeight={setHabitLogGlassHeaderHeight}
       />
       <FlatList
         ref={flatListRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: habitLogGlassHeaderHeight + spacing.xs },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -929,26 +938,24 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   );
 };
 
-const MINIMAL_HEADER_RADIUS = 12;
-
 const styles = StyleSheet.create({
   bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,
   },
-  minimalHeaderBlock: {
-    backgroundColor: colors.primaryDark,
-    borderBottomLeftRadius: MINIMAL_HEADER_RADIUS,
-    borderBottomRightRadius: MINIMAL_HEADER_RADIUS,
-    overflow: 'hidden',
-    marginBottom: 8,
-    zIndex: 10,
-    elevation: 10,
+  minimalHeaderOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    ...Platform.select({
+      android: { elevation: 24 },
+    }),
   },
   minimalHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 2,
     paddingBottom: 12,
     paddingHorizontal: 4,
   },
@@ -958,7 +965,7 @@ const styles = StyleSheet.create({
   minimalHeaderTitle: {
     fontSize: typography.sizes.large,
     fontWeight: typography.weights.semibold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   minimalLoadingContainer: {
     flex: 1,

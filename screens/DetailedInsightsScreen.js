@@ -21,6 +21,7 @@ import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
 import PageLoadingView from '../components/PageLoadingView';
+import GlassChromeBar from '../components/GlassChromeBar';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -216,19 +217,21 @@ const DetailedInsightsScreen = ({ navigation }) => {
 
   const listHeader = (
     <>
-      <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerBackButton}
-            onPress={() => navigation?.goBack()}
-            activeOpacity={0.7}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="chevron-back" size={28} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Detailed Sleep Insights</Text>
+      <GlassChromeBar style={styles.headerGlassOuter}>
+        <View style={{ paddingTop: headerTopPadding }}>
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.headerBackButton}
+              onPress={() => navigation?.goBack()}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="chevron-back" size={28} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.title}>Detailed Sleep Insights</Text>
+          </View>
         </View>
-      </View>
+      </GlassChromeBar>
 
       <View style={styles.contentArea}>
         <View style={styles.selectorsRow}>
@@ -410,11 +413,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     width: '100%',
   },
-  headerWrap: {
-    backgroundColor: colors.primaryDark,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.xs,
   },
   header: {
@@ -433,7 +432,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   selectorsRow: {
     flexDirection: 'row',

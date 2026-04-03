@@ -53,7 +53,8 @@ import homeCacheService from '../services/homeCacheService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
 /** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
-import SquareLogoCotton from '../assets/SquareLogoCotton.svg';
+import SquareLogoDark from '../assets/SquareLogoDark.svg';
+import GlassChromeBar from '../components/GlassChromeBar';
 import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
@@ -360,19 +361,21 @@ const ProfileScreen = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollViewContent}
       >
-        <View style={[styles.headerWrap, { paddingTop: headerTopPadding }]}>
-          <View style={styles.header}>
-            <View style={styles.headerRow}>
-              <SquareLogoCotton
-                width={40}
-                height={40}
-                style={styles.headerLogo}
-                accessibilityLabel="SleepFactor"
-              />
-              <Text style={styles.title}>Profile</Text>
+        <GlassChromeBar style={styles.headerGlassOuter}>
+          <View style={{ paddingTop: headerTopPadding }}>
+            <View style={styles.header}>
+              <View style={styles.headerRow}>
+                <SquareLogoDark
+                  width={40}
+                  height={40}
+                  style={styles.headerLogo}
+                  accessibilityLabel="SleepFactor"
+                />
+                <Text style={styles.title}>Profile</Text>
+              </View>
             </View>
           </View>
-        </View>
+        </GlassChromeBar>
         <View style={styles.content}>
           {/* Account Navigation */}
           <View style={styles.section}>
@@ -930,11 +933,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  headerWrap: {
-    backgroundColor: colors.primaryDark,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.xs,
   },
   header: {
@@ -954,7 +953,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   scrollView: {
     flex: 1,

@@ -1,50 +1,27 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
-import { requireOptionalNativeModule } from 'expo-modules-core';
+import { StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 
 /**
- * Only mount native BlurView when the Expo blur native module is linked in the binary.
- * Do not use UIManager.hasViewManagerConfig — it often returns false on the New Architecture
- * even when expo-blur works, which forced an opaque fallback and looked like a white block.
- * Web always uses expo-blur's DOM implementation.
+ * Tab bar background blur. Always uses expo-blur's BlurView (same as the library itself).
+ * Do not gate on requireOptionalNativeModule('ExpoBlurView'): that API exposes JS native modules,
+ * but the blur package is a view-only module and is often absent from that registry — which
+ * incorrectly forced an opaque fallback and looked like a solid white bar.
  */
-function canMountExpoBlurView() {
-  if (Platform.OS === 'web') {
-    return true;
-  }
-  return requireOptionalNativeModule('ExpoBlurView') != null;
-}
-
 export default function TabBarBlurBackground({
   intensity,
   tint,
   experimentalBlurMethod,
   blurReductionFactor,
-  fallbackBackgroundColor,
   style,
 }) {
-  const useBlur = canMountExpoBlurView();
-
-  if (useBlur) {
-    return (
-      <BlurView
-        intensity={intensity}
-        tint={tint}
-        style={[StyleSheet.absoluteFill, style]}
-        experimentalBlurMethod={experimentalBlurMethod}
-        blurReductionFactor={blurReductionFactor}
-      />
-    );
-  }
-
   return (
-    <View
-      style={[
-        StyleSheet.absoluteFill,
-        { backgroundColor: fallbackBackgroundColor },
-        style,
-      ]}
+    <BlurView
+      intensity={intensity}
+      tint={tint}
+      style={[StyleSheet.absoluteFill, style]}
+      experimentalBlurMethod={experimentalBlurMethod}
+      blurReductionFactor={blurReductionFactor}
     />
   );
 }

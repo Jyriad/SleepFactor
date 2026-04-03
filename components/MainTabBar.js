@@ -27,9 +27,6 @@ const TAB_ICONS = {
 const TAB_BAR_BLUR_INTENSITY = Platform.OS === 'ios' ? 72 : 48;
 /** Light veil on top of blur — keep low so glass effect stays visible */
 const TAB_BAR_FROST_OVERLAY = 'rgba(255, 255, 255, 0.28)';
-/** When native blur is unavailable: translucent “frost” (not near-opaque white) */
-const TAB_BAR_BLUR_FALLBACK = 'rgba(255, 255, 255, 0.78)';
-
 /**
  * Custom bottom tab bar: five slots — Home, Insights, Log, Habits, Profile.
  * Log opens today’s habit logging; long-press opens quick links (caffeine, alcohol, sleep check-in).
@@ -218,7 +215,6 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
           <TabBarBlurBackground
             intensity={TAB_BAR_BLUR_INTENSITY}
             tint="light"
-            fallbackBackgroundColor={TAB_BAR_BLUR_FALLBACK}
             experimentalBlurMethod={
               Platform.OS === 'android' ? 'dimezisBlurView' : undefined
             }
@@ -272,6 +268,15 @@ const styles = StyleSheet.create({
   wrapper: {
     width: '100%',
     backgroundColor: 'transparent',
+    // Overlay the screen so BlurView has content behind it (not an empty strip / solid fill).
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    ...Platform.select({
+      android: { elevation: 24 },
+    }),
   },
   barShadowWrap: {
     width: '100%',

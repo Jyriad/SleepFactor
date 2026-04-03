@@ -472,6 +472,8 @@ const HomeScreen = () => {
   const [habitCount, setHabitCount] = useState(0);
   const [totalHabitCount, setTotalHabitCount] = useState(0);
   const [loggingStreak, setLoggingStreak] = useState(0);
+  /** Space for absolute glass date header so scroll content sits below it */
+  const [homeGlassHeaderHeight, setHomeGlassHeaderHeight] = useState(140);
   const [topInsights, setTopInsights] = useState(null);
   const [insightsSummaryByMetric, setInsightsSummaryByMetric] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1693,18 +1695,24 @@ const HomeScreen = () => {
   // Streak indicator for the header
   const streakIndicator = (
     <View style={styles.streakIndicator}>
-      <Ionicons name="flame" size={18} color={colors.accent} />
+      <Ionicons name="flame" size={18} color={colors.primary} />
       <Text style={styles.streakText}>{loggingStreak}</Text>
     </View>
   );
 
   return (
     <View style={styles.bodyWrap}>
-      <ScrollableDateHeaderBar rightElement={streakIndicator} />
+      <ScrollableDateHeaderBar
+        rightElement={streakIndicator}
+        onLayoutHeight={setHomeGlassHeaderHeight}
+      />
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: homeGlassHeaderHeight + spacing.md },
+        ]}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
       >
         {/* In-app success banner when new sleep data was just synced */}
@@ -2002,7 +2010,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   streakText: {
-    color: colors.white,
+    color: colors.textPrimary,
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
   },
@@ -2010,7 +2018,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: spacing.md, // Breathing room below the date header so first card doesn’t touch it
     paddingBottom: 100, // Space so bottom content clears the navigation footer
   },
   todayReminderSlot: {

@@ -26,6 +26,7 @@ import {
   getImpactTagStyle,
 } from '../utils/insightLabels';
 import PageLoadingView from '../components/PageLoadingView';
+import GlassChromeBar from '../components/GlassChromeBar';
 import InsightMinimumDataHelp from '../components/InsightMinimumDataHelp';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -464,16 +465,18 @@ const InsightsScreen = ({ navigation, route }) => {
   const listHeader = useMemo(
     () => (
       <>
-        <View
-          style={[styles.headerWrap, { paddingTop: headerTopPadding }]}
+        <GlassChromeBar
+          style={styles.headerGlassOuter}
           onLayout={(e) => {
             headerHeightRef.current = e.nativeEvent.layout.height;
           }}
         >
-          <View style={styles.header}>
-            <Text style={styles.title}>Sleep Insights</Text>
+          <View style={{ paddingTop: headerTopPadding }}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Sleep Insights</Text>
+            </View>
           </View>
-        </View>
+        </GlassChromeBar>
         <View style={styles.listHeaderContent}>
           <View style={[styles.switchRow, styles.switchRowWrap]}>
             <View style={styles.switchLabelCol}>
@@ -615,11 +618,7 @@ const styles = StyleSheet.create({
   sectionListContent: {
     paddingBottom: 112,
   },
-  headerWrap: {
-    backgroundColor: colors.primaryDark,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
+  headerGlassOuter: {
     marginBottom: spacing.sm,
   },
   header: {
@@ -630,7 +629,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
-    color: colors.white,
+    color: colors.textPrimary,
   },
   content: {
     paddingHorizontal: spacing.regular,

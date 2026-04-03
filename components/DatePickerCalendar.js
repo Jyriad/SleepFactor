@@ -24,6 +24,8 @@ export default function DatePickerCalendar({
   selectedDateStr,
   onDateSelect,
   onClose,
+  /** Match DateHeader glass mode: dark text/icons on frosted background */
+  glass = false,
 }) {
   const { user } = useAuth();
   const [calendarLoggedDates, setCalendarLoggedDates] = React.useState([]);
@@ -128,6 +130,17 @@ export default function DatePickerCalendar({
     }
   };
 
+  const monthTextStyle = glass ? styles.calMonthTextGlass : styles.calMonthText;
+  const dayNameStyle = glass ? styles.dayNameTextGlass : styles.dayNameText;
+  const navBack = glass ? colors.textPrimary : colors.white;
+  const navFwd = canForward
+    ? glass
+      ? colors.textPrimary
+      : colors.white
+    : glass
+      ? colors.textLight
+      : 'rgba(255,255,255,0.4)';
+
   return (
     <View style={styles.calendarWrap}>
       <View style={styles.calendarHeader}>
@@ -135,26 +148,22 @@ export default function DatePickerCalendar({
           onPress={() => navigateMonth(-1)}
           style={styles.calNavBtn}
         >
-          <Ionicons name="chevron-back" size={24} color={colors.white} />
+          <Ionicons name="chevron-back" size={24} color={navBack} />
         </TouchableOpacity>
-        <Text style={styles.calMonthText}>{monthName}</Text>
+        <Text style={monthTextStyle}>{monthName}</Text>
         <TouchableOpacity
           onPress={() => navigateMonth(1)}
           style={styles.calNavBtn}
           disabled={!canForward}
         >
-          <Ionicons
-            name="chevron-forward"
-            size={24}
-            color={canForward ? colors.white : 'rgba(255,255,255,0.4)'}
-          />
+          <Ionicons name="chevron-forward" size={24} color={navFwd} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.dayNamesRow}>
         {dayNames.map((dn) => (
           <View key={dn} style={styles.dayNameCellWrapper}>
-            <Text style={styles.dayNameText}>{dn}</Text>
+            <Text style={dayNameStyle}>{dn}</Text>
           </View>
         ))}
       </View>
@@ -170,17 +179,28 @@ export default function DatePickerCalendar({
           const isTodayDate = dayItem.date === today;
           const isFuture = dayItem.date > today;
 
+          const futureCell = glass ? styles.calFutureCellGlass : styles.calFutureCell;
+          const baseCell = glass ? styles.calDateCellGlass : styles.calDateCell;
           const bg = isFuture
-            ? styles.calFutureCell
+            ? futureCell
             : isSelected
               ? styles.calSelectedCell
               : null;
+
+          const dateTextBase = glass ? styles.calDateTextGlass : styles.calDateText;
+          const todayTextExtra =
+            isTodayDate && !isSelected && !isFuture
+              ? glass
+                ? styles.calTodayTextGlass
+                : styles.calTodayText
+              : null;
+          const iconMuted = glass ? colors.textSecondary : 'rgba(255,255,255,0.9)';
 
           return (
             <View key={dayItem.date} style={styles.dateCellWrapper}>
               <TouchableOpacity
                 style={[
-                  styles.calDateCell,
+                  baseCell,
                   bg,
                   isTodayDate && !isFuture && styles.calTodayCell,
                 ]}
@@ -190,22 +210,22 @@ export default function DatePickerCalendar({
               >
                 <Text
                   style={[
-                    styles.calDateText,
-                    isTodayDate && !isSelected && !isFuture && styles.calTodayText,
+                    dateTextBase,
+                    todayTextExtra,
                     isSelected && styles.calSelectedText,
-                    isFuture && styles.calFutureText,
+                    isFuture && (glass ? styles.calFutureTextGlass : styles.calFutureText),
                   ]}
                 >
                   {dayItem.day}
                 </Text>
                 {isLogged && (
                   <View style={styles.calIndicatorLeft} pointerEvents="none">
-                    <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
+                    <Ionicons name="checkmark" size={10} color={isSelected ? colors.primary : iconMuted} />
                   </View>
                 )}
                 {hasSleep && (
                   <View style={styles.calSleepIcon} pointerEvents="none">
-                    <Ionicons name="bed-outline" size={10} color={isSelected ? colors.primary : 'rgba(255,255,255,0.9)'} />
+                    <Ionicons name="bed-outline" size={10} color={isSelected ? colors.primary : iconMuted} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -312,6 +332,41 @@ const styles = StyleSheet.create({
   },
   calFutureText: {
     color: 'rgba(255, 255, 255, 0.4)',
+    fontWeight: typography.weights.medium,
+  },
+  calMonthTextGlass: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  dayNameTextGlass: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+  },
+  calDateCellGlass: {
+    width: DAY_CELL_SIZE,
+    height: DAY_CELL_SIZE,
+    borderRadius: DAY_CELL_BORDER_RADIUS,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(17, 41, 75, 0.12)',
+    position: 'relative',
+  },
+  calDateTextGlass: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    fontWeight: typography.weights.medium,
+  },
+  calTodayTextGlass: {
+    color: colors.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  calFutureCellGlass: {
+    backgroundColor: 'rgba(17, 41, 75, 0.06)',
+  },
+  calFutureTextGlass: {
+    color: colors.textLight,
     fontWeight: typography.weights.medium,
   },
 });
