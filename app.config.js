@@ -44,13 +44,17 @@ export default {
     bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
     usesAppleSignIn: true,
     infoPlist: {
-      CFBundleDisplayName: IS_DEV ? "SleepFactor Dev" : "SleepFactor"
+      CFBundleDisplayName: IS_DEV ? "SleepFactor Dev" : "SleepFactor",
+      // App Store export compliance; avoids EAS interactive prompt when not using custom encryption
+      ITSAppUsesNonExemptEncryption: false
     }
   },
   android: {
+    // Launcher icon only (iOS uses top-level `icon`). Matches AppLogoFullySafe artwork.
+    icon: "./assets/branding/app-icon/1024x1024/AppLogoFullySafe.png",
     adaptiveIcon: {
       foregroundImage:
-        "./assets/branding/app-icon/1024x1024-safe-padding/icon-cotton-blue.png",
+        "./assets/branding/app-icon/1024x1024/AppLogoFullySafe.png",
       backgroundColor: "#2469B2"
     },
     edgeToEdgeEnabled: true,
@@ -136,6 +140,7 @@ export default {
         }
       }
     ],
+    "./plugins/withSentryIosPodfileFix.js",
     [
       "expo-notifications",
       {

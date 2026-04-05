@@ -35,6 +35,23 @@ alwaysApply: false
 
 ---
 
+## Android scroll performance & frosted chrome (April 2026)
+
+**What we learned**
+
+- **Symptom:** On Android (dev APK / dev client), **Home** and **Insights** scrolling felt **janky / low frame rate** compared to **Profile** and **Habit Management**; **iOS** stayed smooth.
+- **Why:** **`expo-blur`** `BlurView` on Android is **much more expensive** than on iOS. Worst case: **fixed** frosted chrome (e.g. Home **`ScrollableDateHeaderBar`** overlay) with **content scrolling underneath** — the blur must update every frame. Screens where the chrome **scrolls away with the page** (Profile, Habits) avoid that “live blur over moving pixels” pattern and felt better. Insights also stresses the GPU with a long **SectionList** + chart-heavy rows; removing blur from chrome still helps consistency.
+- **Fix:** **`TabBarBlurBackground`** uses **`BlurView` only on iOS**. On **Android**, use a **`View`** with **`StyleSheet.absoluteFill`** and solid **`ANDROID_CHROME_SOLID_BACKGROUND`** from **`constants/glassChrome.js`** ( **`colors.cardBackground`** ). Keep existing **frost overlays** in **`GlassChromeBar`** and **`MainTabBar`** so Android stays softly tinted, not only flat white. Remove **`getGlassBlurAndroidProps`** and stop passing **`experimentalBlurMethod` / `blurReductionFactor`** for Android blur tuning — no longer needed.
+- **Single place to change:** **`TabBarBlurBackground`** is shared by **`GlassChromeBar`** (top strips: date header, Profile, Insights, etc.) and **`MainTabBar`** (bottom tab bar).
+
+**Testing**
+
+- **Android:** Scroll **Home** and **Insights**; confirm improvement. Check headers + **bottom tab bar** look acceptable (solid + frost, not iOS blur).
+- **iOS:** Headers and tab bar should still show **real blur** (unchanged).
+- Optional: validate on an Android **release** build; dev can exaggerate jank.
+
+---
+
 ## iOS development build (EAS) — March 2026
 
 **Testing on a physical iPhone (same idea as Android)**
@@ -110,6 +127,12 @@ alwaysApply: false
 - **Symptom:** Gradle fails with **implicit dependency** between codegen tasks, e.g. `:sentry-react-native:generateCodegenArtifactsFromSchema` vs `:sentry_react-native:generateCodegenSchemaFromJavaScript` (hyphen vs underscore in the project name).
 - **Cause:** **`@sentry/react-native`** is registered **twice** on Android: Expo’s **`useExpoModules()`** includes it as **`sentry-react-native`**, while React Native’s autolinking (from the same `expo-modules-autolinking` **react-native-config** output) includes it as **`sentry_react-native`** (`nameCleansed`). Same `android/` folder, two Gradle subprojects → codegen tasks and outputs no longer line up under Gradle 8 validation.
 - **Fix:** In **`package.json`** → **`expo.autolinking.exclude`**, add **`"@sentry/react-native"`**. That removes it from Expo’s **resolve** / **`useExpoModules`** only. It does **not** remove it from **react-native-config**, so RN autolinking still links the native module once. The **`@sentry/react-native/expo`** config plugin is unchanged.
+
+**iOS EAS / Xcode 16 — Sentry `Module '_SentryPrivate' not found` (April 2026)**
+
+- **Symptom:** EAS **Release** iOS build fails in the **Sentry** pod: **`Module '_SentryPrivate' not found`** (often **`Sentry-Swift.h`** / **`SentryViewHierarchyProviderHelper.m`** in the trace). Debug builds may still succeed.
+- **Cause:** Xcode **16** **explicit Swift modules** + Sentry Cocoa’s mixed Swift/ObjC layout can hit a bad compile order in **Release**.
+- **Fix:** Config plugin **`plugins/withSentryIosPodfileFix.js`** adds a **`post_install`** hook that sets **`SWIFT_ENABLE_EXPLICIT_MODULES' => 'NO'`** on **every Pods target** (via **`installer.pods_project.targets`**). Keep **`@sentry/react-native`** reasonably current (e.g. **8.7.x**). **Do not remove** Android’s **`expo.autolinking.exclude`** for Sentry — that is unrelated to this iOS fix.
 
 **iOS build failures — Swift / HealthKit / Nitro**
 
@@ -194,3 +217,14 @@ alwaysApply: false
 - **Symptom:** Habit cards on **Manage Your Habits** appear **stacked / overlapping** (same screen uses `Sortable.Flex` inside a scroll view).
 - **Cause:** **Sortable** lays out items using **measured heights**. Putting **`flex: 1`** on **nested** views inside each row (e.g. row wrapper + main touchable) can yield **unstable or zero height** during layout, so every item gets the **same (wrong) position** → visual overlap.
 - **Fix:** Avoid **`flex: 1`** on inner row wrappers / the primary **`TouchableOpacity`** inside each card; use **`flexDirection: 'row'`** + **`alignSelf: 'stretch'`** (or natural height) so each card’s height comes from **intrinsic content**. Keep **`flex: 1`** only where needed for **horizontal** fill (e.g. text column beside the drag handle).
+
+---
+
+## Mixpanel + Session Replay + navigation hooks (April 2026)
+
+**What we learned**
+
+- **Expo / dev client vs native modules:** The **`@mixpanel/react-native-session-replay`** package **throws at import time** if its native TurboModule / `NativeModules` entry is missing (e.g. dev client built **before** the dependency was added). **Do not** statically `import` Session Replay at the top of a JS module. **Check** `TurboModuleRegistry.get('MixpanelReactNativeSessionReplay')` and `NativeModules.MixpanelReactNativeSessionReplay` first; **only then** `import('@mixpanel/react-native-session-replay')` dynamically. If the module is absent, **skip** Session Replay — Mixpanel analytics still works. **Fix for users:** new **EAS** or **`expo run:ios` / `run:android`** build after adding the package.
+- **Session Replay SDK logging:** `MPSessionReplayConfig.enableLogging: true` prints **verbose Mixpanel logs** to the console. Prefer **`enableLogging: false`** unless actively debugging replay.
+- **Rules of Hooks (React Navigation + analytics):** `useCallback` / `useMemo` / `useEffect` for **navigation state** (e.g. `onStateChange` → `trackPageView`) must run on **every** render in a **fixed order**. **Never** place a hook **after** a conditional `return` (e.g. loading spinner while `onboardingComplete === null`). If the first render returns early and a later render runs an extra hook, React reports **“change in the order of Hooks”** / **“Rendered more hooks than during the previous render.”** **Fix:** move all hooks **above** any `if (...) return (...)` in the same component.
+- **Wiring note:** The Mixpanel onboarding **wizard** may target **web** (`mixpanel-browser` + HTML). For **Expo React Native**, use **`mixpanel-react-native`** (and optional Session Replay) instead; map the same project token and event names.
