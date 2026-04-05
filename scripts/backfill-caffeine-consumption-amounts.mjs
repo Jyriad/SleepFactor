@@ -184,20 +184,42 @@ async function fetchCaffeineHabits(supabase, habitIdFilter) {
 }
 
 async function fetchOptionsByHabit(supabase, habitIds) {
-  if (!habitIds.length) return new Map();
-  const { data, error } = await supabase
+  if (!habitIds.length) return { byId: new Map(), byHabitAndName: new Map() };
+
+  const { data: globalRows, error: gErr } = await supabase
+    .from('consumption_options')
+    .select('*')
+    .eq('preset_scope', 'caffeine')
+    .is('user_id', null)
+    .eq('is_active', true);
+  if (gErr) throw gErr;
+
+  const { data: habitRows, error: hErr } = await supabase
     .from('consumption_options')
     .select('*')
     .in('habit_id', habitIds)
     .eq('is_active', true);
-  if (error) throw error;
+  if (hErr) throw hErr;
+
   const byId = new Map();
   const byHabitAndName = new Map();
-  for (const o of data || []) {
+
+  for (const o of globalRows || []) {
     byId.set(o.id, o);
-    const key = `${o.habit_id}::${(o.name || '').trim()}`;
-    byHabitAndName.set(key, o);
+    for (const hid of habitIds) {
+      const key = `${hid}::${(o.name || '').trim()}`;
+      if (!byHabitAndName.has(key)) byHabitAndName.set(key, o);
+    }
   }
+
+  for (const o of habitRows || []) {
+    byId.set(o.id, o);
+    if (o.habit_id) {
+      const key = `${o.habit_id}::${(o.name || '').trim()}`;
+      byHabitAndName.set(key, o);
+    }
+  }
+
   return { byId, byHabitAndName };
 }
 

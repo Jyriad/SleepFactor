@@ -26,5 +26,7 @@ If your database is already up to date through `20260220000000`, run only the la
 
 ## After running
 
-- Confirm in Table Editor that `consumption_options` has one canonical row per (habit_id, name) for system options.
+- Confirm in Table Editor that **system** `consumption_options` rows (`user_id` empty) use `preset_scope` (`caffeine` or `alcohol`), `habit_id` empty, and one row per (`preset_scope`, `name`, region bucket). Custom rows still have `user_id` and `habit_id` set.
 - Confirm column rename: `exercise_time_before_bed` → `exercise_duration_minutes` if your app uses it.
+
+Pending migrations should include `20260405120000_global_consumption_presets.sql` (global drink catalog for caffeine/alcohol).

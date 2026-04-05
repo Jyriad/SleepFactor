@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Alert, TouchableOpacity } from 'react-native';
-import Svg, { Circle, Line, Text as SvgText, G, Rect } from 'react-native-svg';
+import Svg, { Line, Text as SvgText, G, Rect } from 'react-native-svg';
 import { colors, typography, spacing } from '../constants';
 import { calculateLinearRegression } from '../utils/statistics';
 
@@ -22,50 +22,87 @@ const ScatterPlot = ({
   correlationStrength = 'weak',
   trendDirection = 'none',
   onPointPress = null, // Callback for data point presses
-  xValueFormatter = null // Optional function to format x-axis values
+  xValueFormatter = null, // Optional function to format x-axis values
+  /** When true and there are no points, still draw axes + labels (e.g. onboarding). */
+  showEmptyAxes = false,
+  emptyAxesXRange = { min: 0, max: 10 },
+  emptyAxesYRange = { min: 30, max: 90 },
+  /**
+   * When set, axis min/max stay fixed (e.g. onboarding demo) instead of fitting the current points.
+   * Use with emptyAxes ranges or the same values so the frame does not jump as points appear.
+   */
+  fixedDomainX = null,
+  fixedDomainY = null,
 }) => {
   const [selectedPoint, setSelectedPoint] = useState(null);
 
-  if (!data || data.length === 0) {
-    return (
-      <View style={[styles.container, { width, height }]}>
-        <Text style={styles.noDataText}>No data available</Text>
-      </View>
-    );
-  }
-
   // Filter out invalid data points
-  const validData = data.filter(point => {
+  const validData = (data || []).filter(point => {
     if (!point) return false;
     const xValid = point.x !== null && point.x !== undefined && !isNaN(point.x) && isFinite(point.x);
     const yValid = point.y !== null && point.y !== undefined && !isNaN(point.y) && isFinite(point.y);
     return xValid && yValid;
   });
 
-  if (validData.length === 0) {
+  const useFixedDomain =
+    fixedDomainX != null &&
+    fixedDomainY != null &&
+    Number.isFinite(fixedDomainX.min) &&
+    Number.isFinite(fixedDomainX.max) &&
+    Number.isFinite(fixedDomainY.min) &&
+    Number.isFinite(fixedDomainY.max) &&
+    fixedDomainX.max > fixedDomainX.min &&
+    fixedDomainY.max > fixedDomainY.min;
+
+  const useEmptyAxes =
+    validData.length === 0 &&
+    showEmptyAxes &&
+    xLabel &&
+    yLabel;
+
+  const showChartWithNoPoints =
+    validData.length === 0 && xLabel && yLabel && (useEmptyAxes || useFixedDomain);
+
+  if (validData.length === 0 && !showChartWithNoPoints) {
     return (
       <View style={[styles.container, { width, height, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={[styles.noDataText, { textAlign: 'center' }]}>No valid data for visualization</Text>
+        <Text style={[styles.noDataText, { textAlign: 'center' }]}>No data available</Text>
       </View>
     );
   }
 
   // Extract x and y values for scaling
-  const xValues = validData.map(point => point.x);
-  const yValues = validData.map(point => point.y);
+  const xValues = validData.length ? validData.map(point => point.x) : [];
+  const yValues = validData.length ? validData.map(point => point.y) : [];
 
-  // Calculate original ranges
-  const xMin = Math.min(...xValues);
-  const xMax = Math.max(...xValues);
-  const yMin = Math.min(...yValues);
-  const yMax = Math.max(...yValues);
+  // Axis ranges: optional fixed domain (onboarding), else empty preview, else fit data
+  let xMin;
+  let xMax;
+  let yMin;
+  let yMax;
+  if (useFixedDomain) {
+    xMin = fixedDomainX.min;
+    xMax = fixedDomainX.max;
+    yMin = fixedDomainY.min;
+    yMax = fixedDomainY.max;
+  } else if (validData.length === 0) {
+    xMin = emptyAxesXRange.min;
+    xMax = emptyAxesXRange.max;
+    yMin = emptyAxesYRange.min;
+    yMax = emptyAxesYRange.max;
+  } else {
+    xMin = Math.min(...xValues);
+    xMax = Math.max(...xValues);
+    yMin = Math.min(...yValues);
+    yMax = Math.max(...yValues);
+  }
 
   const xRange = xMax - xMin || 1;
-  // Ensure yRange is never 0 - if all y values are the same, add padding
+  // Ensure yRange is never 0 - if all y values are the same, add padding (skip when fixed domain)
   let displayYMin = yMin;
   let displayYMax = yMax;
   let yRange = yMax - yMin;
-  if (yRange === 0) {
+  if (!useFixedDomain && yRange === 0) {
     // If all y values are the same, add 10% padding above and below
     const padding = Math.abs(yMin) * 0.1 || 1;
     displayYMin = yMin - padding;
@@ -115,10 +152,15 @@ const ScatterPlot = ({
     dataPointText: point.date || 'Unknown date'
   }));
 
-  // Chart dimensions with proper margins for axes
+  // Chart dimensions with proper margins for axes (extra left gutter when Y label is shown)
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
-  const margin = { top: 40, right: 20, bottom: 60, left: 60 };
+  const margin = {
+    top: 40,
+    right: 20,
+    bottom: 60,
+    left: yLabel ? 76 : 60,
+  };
   const chartWidth = safeWidth - margin.left - margin.right;
   const chartHeight = safeHeight - margin.top - margin.bottom;
 
@@ -343,7 +385,7 @@ const ScatterPlot = ({
                 fontSize={12}
                 fontWeight="bold"
                 fill={colors.textPrimary}
-                fontFamily="monospace"
+                fontFamily="OverusedGrotesk"
               >
                 {xLabel}
               </SvgText>
@@ -351,14 +393,14 @@ const ScatterPlot = ({
 
             {yLabel && (
               <SvgText
-                x={12}
+                x={margin.left / 2}
                 y={margin.top + chartHeight / 2}
                 textAnchor="middle"
                 fontSize={12}
                 fontWeight="bold"
                 fill={colors.textPrimary}
-                fontFamily="monospace"
-                transform={`rotate(-90, 12, ${margin.top + chartHeight / 2})`}
+                fontFamily="OverusedGrotesk"
+                transform={`rotate(-90, ${margin.left / 2}, ${margin.top + chartHeight / 2})`}
               >
                 {yLabel}
               </SvgText>
@@ -394,37 +436,74 @@ const ScatterPlot = ({
               </SvgText>
             ))}
 
-            {/* Data points */}
+            {/* Data points — crosses read better than circles when points overlap */}
             {validData.map((point, index) => {
               const isExcluded = point.exclude_from_insights || false;
               const isAutoExcluded = point.auto_excluded || false;
 
-              // Grey only when excluded from analysis (auto or manual)
-              let pointFillColor = pointColor;
-              let pointOpacity = 0.8;
-              let pointRadius = 10;
-              let strokeColor = 'none';
-              let strokeWidth = 0;
+              let crossColor = pointColor;
+              let crossOpacity = 0.8;
+              let arm = 8;
+              let lineStrokeWidth = 2.5;
+              let ringColor = null;
 
               if (isExcluded) {
-                pointRadius = 6;
-                pointOpacity = 0.4;
-                strokeColor = isAutoExcluded ? colors.warning : colors.error;
-                strokeWidth = 2;
-                pointFillColor = colors.textSecondary;
+                arm = 5;
+                crossOpacity = 0.4;
+                lineStrokeWidth = 2;
+                ringColor = isAutoExcluded ? colors.warning : colors.error;
+                crossColor = colors.textSecondary;
               }
 
+              const cx = xScale(point.x);
+              const cy = yScale(point.y);
+              const ringArm = ringColor != null ? arm + 2 : null;
+
               return (
-                <Circle
-                  key={`point-${index}`}
-                  cx={xScale(point.x)}
-                  cy={yScale(point.y)}
-                  r={pointRadius}
-                  fill={pointFillColor}
-                  opacity={pointOpacity}
-                  stroke={strokeColor}
-                  strokeWidth={strokeWidth}
-                />
+                <G key={`point-${index}`}>
+                  {ringColor != null && ringArm != null && (
+                    <G opacity={0.95}>
+                      <Line
+                        x1={cx - ringArm}
+                        y1={cy}
+                        x2={cx + ringArm}
+                        y2={cy}
+                        stroke={ringColor}
+                        strokeWidth={lineStrokeWidth + 1}
+                        strokeLinecap="round"
+                      />
+                      <Line
+                        x1={cx}
+                        y1={cy - ringArm}
+                        x2={cx}
+                        y2={cy + ringArm}
+                        stroke={ringColor}
+                        strokeWidth={lineStrokeWidth + 1}
+                        strokeLinecap="round"
+                      />
+                    </G>
+                  )}
+                  <G opacity={crossOpacity}>
+                    <Line
+                      x1={cx - arm}
+                      y1={cy}
+                      x2={cx + arm}
+                      y2={cy}
+                      stroke={crossColor}
+                      strokeWidth={lineStrokeWidth}
+                      strokeLinecap="round"
+                    />
+                    <Line
+                      x1={cx}
+                      y1={cy - arm}
+                      x2={cx}
+                      y2={cy + arm}
+                      stroke={crossColor}
+                      strokeWidth={lineStrokeWidth}
+                      strokeLinecap="round"
+                    />
+                  </G>
+                </G>
               );
             })}
           </Svg>
@@ -448,7 +527,7 @@ const styles = StyleSheet.create({
   chartContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden', // Prevent chart from spilling outside container
+    overflow: 'visible',
   },
   noDataText: {
     fontSize: typography.sizes.small,

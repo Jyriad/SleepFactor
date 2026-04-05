@@ -8,6 +8,8 @@ import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
+import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
+import { getOnboardingProgress } from '../../constants/onboardingProgress';
 
 function formatDur(minutes) {
   const m = Math.round(minutes || 0);
@@ -19,6 +21,7 @@ function formatDur(minutes) {
 }
 
 export default function OnboardingConnectedSuccessScreen({ navigation }) {
+  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingConnectedSuccess');
   const [loading, setLoading] = useState(true);
   const [latest, setLatest] = useState(null);
   const [avgTotal, setAvgTotal] = useState(0);
@@ -75,7 +78,9 @@ export default function OnboardingConnectedSuccessScreen({ navigation }) {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
-          <Text style={styles.step}>Connected</Text>
+          <View style={styles.progressSlot}>
+            <OnboardingProgressHeader currentStep={currentStep} totalSteps={totalSteps} progress={progress} />
+          </View>
           <OnboardingSignOutLink />
         </View>
         <Text style={styles.success}>Successfully connected to your sleep data</Text>
@@ -95,7 +100,7 @@ export default function OnboardingConnectedSuccessScreen({ navigation }) {
         <Text style={styles.statLine}>• Deep sleep: {formatDur(avgDeep)}</Text>
       </ScrollView>
       <View style={styles.footer}>
-        <Button title="Continue" onPress={() => navigation.navigate('OnboardingAlcoholCaffeine')} style={styles.btn} />
+        <Button title="Continue" onPress={() => navigation.navigate('OnboardingStarterHabits')} style={styles.btn} />
       </View>
     </SafeAreaView>
   );
@@ -113,13 +118,13 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.md,
+    gap: spacing.sm,
   },
-  step: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+  progressSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   success: {
     fontSize: typography.sizes.large,

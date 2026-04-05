@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
+import { trackSignIn } from './mixpanel';
 import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
@@ -116,6 +117,13 @@ export async function signInWithGoogleNative() {
     if (error) {
       return { data: null, error: error.message };
     }
+    if (data?.user?.id) {
+      trackSignIn({
+        user_id: data.user.id,
+        login_method: 'google',
+        success: true,
+      });
+    }
     return { data, error: null };
   } catch (err) {
     const { statusCodes: codes } = loadGoogleSignIn();
@@ -172,6 +180,13 @@ export async function signInWithApple() {
     });
     if (error) {
       return { data: null, error: error.message };
+    }
+    if (data?.user?.id) {
+      trackSignIn({
+        user_id: data.user.id,
+        login_method: 'apple',
+        success: true,
+      });
     }
     return { data, error: null };
   } catch (err) {

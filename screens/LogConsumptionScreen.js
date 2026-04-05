@@ -8,7 +8,6 @@ import {
   TextInput,
   Alert,
   Platform,
-  StatusBar,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -36,6 +35,7 @@ import {
   getLoggedVolumeMl,
   getLoggedServingCount,
 } from '../utils/consumptionIntake';
+import { applyAndroidStatusBarSolidPrimary } from '../utils/androidStatusBar';
 
 const LogConsumptionScreen = () => {
   const navigation = useNavigation();
@@ -479,17 +479,6 @@ const LogConsumptionScreen = () => {
       .single();
 
     if (error) {
-      console.error('[LogConsumption] Failed to add consumption', {
-        error,
-        habitId: habit?.id,
-        userId,
-        selectedOptionId: selectedOption?.id,
-        drinkType,
-        loggedIntakeBasis,
-        loggedVolumeMl,
-        loggedServingCount,
-        totalAmount,
-      });
       Alert.alert('Error', `Failed to add consumption: ${error.message || 'Unknown error'}`);
       return;
     }
@@ -574,17 +563,6 @@ const LogConsumptionScreen = () => {
       .eq('id', eventId);
 
     if (updateError) {
-      console.error('[LogConsumption] Failed to update consumption', {
-        error: updateError,
-        eventId,
-        habitId: habit?.id,
-        userId,
-        selectedOptionId: selectedOption?.id,
-        loggedIntakeBasis,
-        loggedVolumeMl,
-        loggedServingCount,
-        totalAmount,
-      });
       Alert.alert('Error', `Failed to update consumption: ${updateError.message || 'Unknown error'}`);
       return;
     }
@@ -652,10 +630,7 @@ const LogConsumptionScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-        if (StatusBar.setTranslucent) StatusBar.setTranslucent(true);
-      }
+      applyAndroidStatusBarSolidPrimary();
     }, [])
   );
 

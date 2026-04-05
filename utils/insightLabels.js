@@ -11,12 +11,27 @@ const CORRELATION_LABELS = {
   none: 'Not enough data',
 };
 
-/** Impact size only (for building direction-aware labels) */
+/** Impact size only (for building direction-aware labels) — legacy wording; UI uses symbols via getImpactLabelShort */
 const IMPACT_SIZE_LABELS = {
   large: 'Large',
   moderate: 'Moderate',
   small: 'Small',
   minimal: 'Minimal',
+};
+
+/** Compact impact symbols (max 3 chars). Positive: +, ++, +++. Negative: -, --, ---. */
+const IMPACT_SYMBOLS_POSITIVE = {
+  minimal: '+',
+  small: '++',
+  moderate: '+++',
+  large: '+++',
+};
+
+const IMPACT_SYMBOLS_NEGATIVE = {
+  minimal: '-',
+  small: '--',
+  moderate: '---',
+  large: '---',
 };
 
 /**
@@ -30,60 +45,58 @@ export function getCorrelationLabel(confidenceLevel) {
 }
 
 /**
- * Get user-facing impact label with direction: e.g. "Large positive impact", "Small negative impact".
+ * Impact badge text: same symbols as {@link getImpactLabelShort} (+ / ++ / +++ or - / -- / ---).
  * @param {string} impactLevel - large | moderate | small | minimal
  * @param {boolean} isPositive - true for positive impact on sleep
  * @returns {string}
  */
 export function getImpactLabel(impactLevel, isPositive = true) {
-  if (!impactLevel) impactLevel = 'minimal';
-  const size = IMPACT_SIZE_LABELS[impactLevel] ?? IMPACT_SIZE_LABELS.minimal;
-  const direction = isPositive ? 'positive' : 'negative';
-  return `${size} ${direction} impact`;
+  return getImpactLabelShort(impactLevel, isPositive);
 }
 
-/** Short correlation labels for compact tables (e.g. Insights screen pills). */
-const CORRELATION_LABELS_SHORT = {
-  high: 'Strong',
-  medium: 'Moderate',
-  low: 'Limited',
-  none: 'Not enough',
+/** Link / confidence strength symbols (same pattern as impact: + / ++ / +++). */
+const CORRELATION_SYMBOLS = {
+  high: '+++',
+  medium: '++',
+  low: '+',
+  none: '—',
 };
 
 /**
- * Short correlation label for compact UI (pills, table cells).
- * @param {string} confidenceLevel
+ * Short link-strength label for compact UI (pills, table cells): + / ++ / +++ or — when insufficient data.
+ * @param {string} confidenceLevel - high | medium | low | none
  * @returns {string}
  */
 export function getCorrelationLabelShort(confidenceLevel) {
-  if (!confidenceLevel) return CORRELATION_LABELS_SHORT.none;
-  return CORRELATION_LABELS_SHORT[confidenceLevel] ?? CORRELATION_LABELS_SHORT.none;
+  if (!confidenceLevel) return CORRELATION_SYMBOLS.none;
+  const key = CORRELATION_SYMBOLS[confidenceLevel] ? confidenceLevel : 'none';
+  return CORRELATION_SYMBOLS[key];
 }
 
 /**
- * Short impact label for compact UI: e.g. "Minimal +", "Small −".
+ * Short impact label for compact UI: + / ++ / +++ or - / -- / --- (max 3 characters).
  * @param {string} impactLevel - large | moderate | small | minimal
  * @param {boolean} isPositive - true for positive impact on sleep
  * @returns {string}
  */
 export function getImpactLabelShort(impactLevel, isPositive = true) {
   if (!impactLevel) impactLevel = 'minimal';
-  const size = IMPACT_SIZE_LABELS[impactLevel] ?? IMPACT_SIZE_LABELS.minimal;
-  const symbol = isPositive ? '+' : '−';
-  return `${size} ${symbol}`;
+  const table = isPositive ? IMPACT_SYMBOLS_POSITIVE : IMPACT_SYMBOLS_NEGATIVE;
+  const key = table[impactLevel] ? impactLevel : 'minimal';
+  return table[key];
 }
 
 /**
- * Tag style for correlation: greyscale — strong = dark, progressively lighter grey for lower correlation.
- * @param {string} confidenceLevel
+ * Tag style for link / confidence strength: blue tiers (mirrors impact’s green/red tier brightness).
+ * @param {string} confidenceLevel - high | medium | low | none
  * @returns {{ backgroundColor: string, color: string }}
  */
 export function getCorrelationTagStyle(confidenceLevel) {
   const styles = {
-    high:   { backgroundColor: '#1F2937', color: '#FFFFFF' }, // dark grey / black
-    medium: { backgroundColor: '#6B7280', color: '#FFFFFF' }, // medium grey
-    low:    { backgroundColor: '#9CA3AF', color: '#FFFFFF' },  // lighter grey
-    none:   { backgroundColor: '#E5E7EB', color: '#374151' }, // very light grey, dark text
+    high: { backgroundColor: '#1E40AF', color: '#FFFFFF' },
+    medium: { backgroundColor: '#3B82F6', color: '#FFFFFF' },
+    low: { backgroundColor: '#DBEAFE', color: '#1D4ED8' },
+    none: { backgroundColor: '#E5E7EB', color: '#374151' },
   };
   const key = confidenceLevel && styles[confidenceLevel] ? confidenceLevel : 'none';
   return styles[key];

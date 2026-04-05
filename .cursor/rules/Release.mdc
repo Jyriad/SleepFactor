@@ -1,0 +1,288 @@
+---
+description: Single reference for SleepFactor dev testing, iOS TestFlight/EAS releases, Android GitHub production APKs, version control, and marketing site checks. Use when planning releases, CI, device testing, or explaining how code reaches testers and stores.
+alwaysApply: false
+---
+
+# SleepFactor: Testing, Version Control, and Release
+
+This document consolidates **development testing**, **Git/version workflow**, **Android production (GitHub Actions)**, **iOS production (EAS + TestFlight)**, and **marketing website** checks. Older **`testing.mdc`** content lives here; **`testing.mdc`** now defers to this file.
+
+**Related rules:** **`Learnings.mdc`** (debugging and past native fixes), **`versioning.mdc`** (automatic version bumps on merge), **`IOS-Android-testing.mdc`** (call out when a change is platform-specific).
+
+---
+
+## App identities & EAS profiles
+
+| Variant | Purpose | Bundle / package | How testers get it |
+|--------|---------|------------------|-------------------|
+| **SleepFactor Dev** | Fast iteration with Metro | `com.sleepfactor.app.dev` | EAS **development** profile (dev client); `npx expo start --dev-client` (+ tunnel or LAN) |
+| **SleepFactor** (Android prod) | Store-style release binary | `com.sleepfactor.app` | GitHub Releases **APK** after merge to `main` (automated workflow) |
+| **SleepFactor** (iOS prod) | TestFlight / App Store | `com.sleepfactor.app` | EAS **production** iOS build → **submit** to App Store Connect → **TestFlight** (and later App Store) |
+
+**`eas.json`** sets **`APP_VARIANT`** to **`development`** or **`production`** per build profile so **`app.config.js`** resolves the correct bundle ID and display name (**SleepFactor Dev** vs **SleepFactor**). **`appVersionSource`** is **local** (versions follow **`package.json`** / app config).
+
+---
+
+## End-to-end workflow (high level)
+
+1. **Develop & test** — feature branch, **SleepFactor Dev**, dev server (**tunnel** preferred; **LAN** if tunnel/ngrok fails). **Android first** when possible; **also validate on iPhone** after native, HealthKit, or iOS-facing changes.
+2. **Review** — PR, checks, merge to **`main`** when approved.
+3. **Ship Android prod** — GitHub Actions builds production **APK**, bumps version (+0.0.1 pattern per **`versioning.mdc`** / workflow), GitHub Release.
+4. **Ship iOS beta/prod binary** — separate step: **EAS production iOS build** + **`eas submit`** → TestFlight (and App Store when ready). *Not* triggered automatically by the same merge unless you add or run that pipeline.
+
+---
+
+## Staged checklist: backend + app + iOS TestFlight (reference)
+
+Use this when a release touches **Supabase** and/or needs a **new production iOS binary** (not only Metro reload).
+
+| Stage | What to do |
+|-------|------------|
+| **1. Dev testing** | Feature branch; **`npx expo start --dev-client`** (tunnel or LAN); test on **SleepFactor Dev**; shake → **Reload** to pick up JS. Rebuild the **dev client** only if native deps, permissions, or native app config changed (**see Phase 1**). |
+| **2. Production database** | Apply pending **Supabase migrations** to the **production** project the **production** app uses (CLI **`npx supabase db push`** when linked to prod, or **SQL Editor** in the dashboard). Schema must match the app **before** or **with** the store/TestFlight binary, or users can see errors. Example: migrations under **`supabase/migrations/`** (e.g. global consumption presets). |
+| **3. Commit** | Commit (or merge) the exact code you intend to ship so the EAS build is reproducible. |
+| **4. Version & iOS build number** | Bump **`package.json`** **`version`** when you want a new user-facing / runtime version. For **every** new upload to App Store Connect, increment **`ios.buildNumber`** in **`app.config.js`** (Apple rejects duplicate **CFBundleVersion** values). This repo sets it explicitly on the **`ios`** object (e.g. **`buildNumber: "1328"`** — increment the string for each new TestFlight/App Store upload). |
+| **5. EAS production iOS build** | **`eas build --platform ios --profile production`** (or **`npx eas-cli build …`**). Uses **`eas.json`** profile **`production`** (**`APP_VARIANT: production`**, **`com.sleepfactor.app`**). |
+| **6. Submit to Apple** | **`eas submit --platform ios --latest`** (or submit from the Expo dashboard). |
+| **7. TestFlight** | Wait for **processing** in App Store Connect; assign the build to **internal** / **external** groups; testers update via the **TestFlight** app. |
+
+**Android production APK** (GitHub Actions after merge to **`main`**) is a separate path; see **Phase 3a**.
+
+**Expo Updates / OTA:** JS-only fixes *may* ship via **EAS Update** if configured; **native** or **config-plugin** changes need a **new `eas build`**. When unsure, ship a new production binary.
+
+---
+
+## Phase 1: Development testing (fast iteration)
+
+1. Create a **feature branch** for your changes.
+2. Start the dev server: prefer **`npx expo start --dev-client --tunnel`**; use **`--lan`** on the same Wi‑Fi if tunnel fails (e.g. ngrok errors).
+3. Open **SleepFactor Dev** on **Android** or **iPhone**, scan the QR code or enter the **`exp://`** URL — JS/TS changes reload without a new native build.
+4. Iterate until behavior is correct; **rebuild the dev client** only when native code, permissions, or native dependencies change.
+
+### When to rebuild the development client (EAS)
+
+Rebuild and reinstall **SleepFactor Dev** when:
+
+- Adding or changing **permissions**
+- Adding or upgrading **native** libraries (e.g. HealthKit, notifications, Sentry)
+- Changing **app config** that affects native projects (`app.config.js` plugins, bundle ID, icons, etc.)
+
+```bash
+# Android dev client (cloud build; ~10+ minutes)
+npx eas-cli build --platform android --profile development
+
+# iPhone dev client (cloud build; ~10+ minutes)
+npx eas-cli build --platform ios --profile development --clear-cache
+```
+
+**iOS dev device notes:** Register the device (`npx eas-cli device:create`), use **`eas.json`** `development.ios` with **`simulator: false`** for a real device, and manage credentials for **`com.sleepfactor.app.dev`** when using the **development** profile. Use **`npx eas-cli`** if `eas` is not on `PATH`. Deeper troubleshooting (signing, Nitro, Xcode image, Sentry iOS) is in **`Learnings.mdc`**.
+
+**Dev server commands:**
+
+```bash
+npx expo start --dev-client --tunnel
+npx expo start --dev-client --lan
+npx expo start --dev-client --tunnel --clear   # if Metro looks stuck
+```
+
+**Tunnel vs LAN:** Tunnel reaches your phone over the internet (ngrok). LAN is faster on home Wi‑Fi when tunnel is broken or unreliable.
+
+### Connection troubleshooting (dev server)
+
+**If QR / connection fails:**
+
+1. Same Wi‑Fi (for LAN); firewall allows **port 8081**.
+2. Manual URL in dev client: `exp://[your-mac-lan-ip]:8081`
+3. Try **`--lan`** or **`--tunnel`** explicitly; check **https://status.ngrok.com** for tunnel outages.
+4. Tunnel/ngrok errors (e.g. `Cannot read properties of undefined (reading 'body')`): use **`--lan`**, ensure **`@expo/ngrok`** is installed (**`devDependencies`**) per **`Learnings.mdc`**.
+
+**Find LAN IP (macOS):** `ipconfig getifaddr en0` (or `en1`).
+
+**Common messages:** “Network request failed” → network/firewall; corporate/VPN may require tunnel or another network.
+
+---
+
+## Phase 2: Code review & merge
+
+1. Open a **pull request** to **`main`**.
+2. Team review + automated checks (when configured).
+3. Merge when approved. This typically triggers **Android** production build via GitHub Actions — **not** automatically an **iOS TestFlight** upload unless you run EAS submit separately.
+
+```bash
+git push origin feature/your-feature-name
+```
+
+---
+
+## Phase 3a: Android production release (automated via GitHub)
+
+**What it does:** Builds a **production APK** from **`main`**, bumps version (e.g. +0.0.1), publishes a **GitHub Release** with a download link.
+
+**When:** After merge to **`main`**, when the workflow is enabled and secrets (e.g. **`EXPO_TOKEN`**) are set.
+
+**Install:** Download the APK from the repo’s **Releases** page and install on the production app id (**SleepFactor**, not Dev).
+
+**Automatic behaviors (when workflow is set up):** version bump, clean build, release artifact — no manual local production APK required for that path.
+
+---
+
+## Phase 3b: iOS production / TestFlight (EAS — manual steps)
+
+Use this path for **TestFlight** and **App Store** binaries. Production iOS builds use **`eas.json`** profile **`production`**: **`distribution: store`**, **`APP_VARIANT: production`**, **`com.sleepfactor.app`**, **Release** configuration, **Xcode 16.4** image (as configured in-repo).
+
+### One-time / occasional setup
+
+- **Apple Developer Program** and **App Store Connect** app record for **`com.sleepfactor.app`**.
+- **Expo account** with access to the project (**EAS**).
+- **`eas login`** locally; first **`eas submit`** may create an **App Store Connect API key** stored for EAS (approve **Y** when prompted).
+- **Encryption:** **`ITSAppUsesNonExemptEncryption`** is set in **`app.config.js`** for standard TLS-only apps to avoid interactive export-compliance prompts where possible.
+
+### Every new iOS build you want on TestFlight
+
+1. **Commit** the code you intend to ship (reproducible state).
+2. **Increment the iOS build number** (**`ios.buildNumber`** in **`app.config.js`**) for each new upload to Apple (Apple rejects duplicate **CFBundleVersion**). Also bump **`package.json`** **`version`** when you want a new marketing / **runtime** version (**`appVersionSource: local`**).
+3. **Production Supabase:** apply any new migrations to the **production** database before testers use the new binary (see **Staged checklist** above).
+4. **Cloud build:**  
+   `eas build --platform ios --profile production`  
+   (or `npx eas-cli …` if `eas` is not global).
+5. **Upload to App Store Connect:**  
+   `eas submit --platform ios --latest`  
+   (or submit from the Expo dashboard).
+6. **Wait for processing** in App Store Connect (often ~5–15+ minutes). Email may notify when done.
+7. **TestFlight:** Open the app → **TestFlight** tab (not only the “Prepare for submission” App Store row). Add the new build to **Internal** and **External** groups as needed.
+8. **Testers:** Install/update via Apple’s **TestFlight** app (updates appear as **Update** for existing testers).
+
+**Internal testers:** Apple IDs on your **App Store Connect** team (**Users and Access**). Usually no separate Beta App Review for internal.
+
+**External testers:** Invited by email in an **External Testing** group; **first** external build often undergoes **Beta App Review**.
+
+**“Prepare for submission” (1.0) on the Apps tab:** That is the **App Store listing** track for a future **public store** release — separate from TestFlight. TestFlight builds still appear under **TestFlight** once processed.
+
+### iOS vs OTA (Expo Updates)
+
+The project may use **`expo-updates`** with an EAS **channel** (**`production`** in **`eas.json`**). **JavaScript-only** changes can sometimes ship via **EAS Update** without a new store binary — **native** or **config plugin** changes require a **new `eas build`**. When in doubt, ship a **new production iOS build** for TestFlight.
+
+### iOS native build issues
+
+If **EAS iOS** fails (e.g. Sentry / Xcode / HealthKit), see **`Learnings.mdc`** (Sentry Android autolinking exclude, iOS **`SWIFT_ENABLE_EXPLICIT_MODULES`** Podfile workaround, Nitro pins, etc.).
+
+---
+
+## Version control & branching
+
+- **`main`:** Stable, production-oriented code (protect from direct pushes when using branch rules).
+- **Feature branches:** `feature/...` for new work.
+
+```bash
+git checkout -b feature/your-feature-name
+git add .
+git commit -m "Describe change"
+git push origin feature/your-feature-name
+```
+
+**PR process:** Open PR → review → automated checks → merge to **`main`**.
+
+**Why:** Reduces accidental production breaks, keeps review and CI in the loop.
+
+---
+
+## Development testing checklist
+
+- [ ] App launches; navigation works; data persists; network calls succeed
+- [ ] Errors are user-appropriate; performance acceptable on device
+- [ ] **Android** UI (primary day-to-day); **iPhone** when iOS/native changed
+- [ ] Dev server (**tunnel** or **LAN**) connects; live reload works on **SleepFactor Dev**
+- [ ] Production **APK** path still valid if you rely on GitHub Releases (when workflow runs)
+
+---
+
+## Production / release checklist
+
+**Android (GitHub path):**
+
+- [ ] Workflow run succeeded; release artifact present
+- [ ] Version bumped as expected (**`versioning.mdc`**)
+
+**iOS (EAS path):**
+
+- [ ] **Build number** incremented vs last App Store Connect upload
+- [ ] **`eas build`** iOS **production** succeeded
+- [ ] **`eas submit`** succeeded; build **processed** in App Store Connect
+- [ ] TestFlight **internal**/**external** groups point at the new build
+
+---
+
+## Troubleshooting (short)
+
+**Dev:** Node 20+; `npm install`; **`npx expo start --dev-client --clear`**; **`eas login`**. Native modules missing in dev → rebuild **dev client**. **Google Sign-In** / OAuth: see **`Learnings.mdc`** (SHA-1, bundle IDs, Supabase).
+
+**Android prod:** GitHub Actions logs; **`EXPO_TOKEN`**; **`package.json`** version format.
+
+**iOS EAS:** Credentials in Expo; **`Learnings.mdc`** for Pod/Xcode errors.
+
+---
+
+## Marketing website (SleepfactorWebsite)
+
+Separate repo, static site (e.g. GitHub Pages). After changes:
+
+```bash
+cd /path/to/SleepfactorWebsite
+python3 -m http.server 8000   # or npx serve .
+# Open http://localhost:8000 — check favicon, Home, About, Privacy, nav, cookie banner, narrow viewport
+git add .
+git commit -m "Short description"
+git push origin main
+```
+
+**Smoke test live** GitHub Pages URL after deploy.
+
+---
+
+## Optional one-time scripts (from legacy testing doc)
+
+```bash
+./setup-eas-update.sh    # EAS Update channels (optional)
+./setup-github-repo.sh   # GitHub configuration hints
+```
+
+**GitHub:** Branch protection on **`main`**, **`EXPO_TOKEN`** secret for EAS/CI, PR reviews enabled.
+
+---
+
+## Quick command reference
+
+```bash
+# Feature work
+git checkout -b feature/your-feature-name
+
+# Dev testing
+npx expo start --dev-client --tunnel
+npx expo start --dev-client --lan
+
+# Rebuild dev clients (native changes)
+npx eas-cli build --platform android --profile development
+npx eas-cli build --platform ios --profile development --clear-cache
+
+# iOS TestFlight / App Store binary
+eas build --platform ios --profile production
+eas submit --platform ios --latest
+
+# Credentials (Expo)
+npx eas-cli credentials -p ios
+```
+
+**Android production APK:** After merge to **`main`**, use the repo’s **GitHub Actions** release artifact / **Releases** page (URL depends on org — replace placeholders in older docs with your real repo).
+
+---
+
+## Daily summary for LLMs
+
+| Stage | Action |
+|-------|--------|
+| Dev | Branch → **SleepFactor Dev** + `expo start --dev-client` (tunnel/LAN) |
+| Merge | PR → **`main`** → Android **APK** workflow (if enabled) |
+| iOS beta | **`eas build` production iOS** → **`eas submit`** → **TestFlight** groups |
+| Website | **SleepfactorWebsite** local serve → push → Pages smoke test |
+
+When advising **how to test**, state whether behavior should match **iOS and Android** or is **platform-specific** (per **`IOS-Android-testing.mdc`**).

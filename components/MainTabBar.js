@@ -212,14 +212,7 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
     >
       <View style={styles.barShadowWrap}>
         <View style={[styles.barClip, { paddingBottom: bottomInset }]}>
-          <TabBarBlurBackground
-            intensity={TAB_BAR_BLUR_INTENSITY}
-            tint="light"
-            experimentalBlurMethod={
-              Platform.OS === 'android' ? 'dimezisBlurView' : undefined
-            }
-            blurReductionFactor={Platform.OS === 'android' ? 5 : undefined}
-          />
+          <TabBarBlurBackground intensity={TAB_BAR_BLUR_INTENSITY} tint="light" />
           <View
             pointerEvents="none"
             style={[styles.barFrostOverlay, StyleSheet.absoluteFillObject]}
@@ -268,7 +261,7 @@ const styles = StyleSheet.create({
   wrapper: {
     width: '100%',
     backgroundColor: 'transparent',
-    // Overlay the screen so BlurView has content behind it (not an empty strip / solid fill).
+    // Overlay the screen so tab bar sits above content (iOS blur samples content behind; Android solid).
     position: 'absolute',
     left: 0,
     right: 0,

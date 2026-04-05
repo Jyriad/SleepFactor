@@ -42,6 +42,8 @@ export default {
   ios: {
     supportsTablet: true,
     bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
+    // CFBundleVersion — must increase on every upload to App Store Connect (production profile).
+    buildNumber: "1328",
     usesAppleSignIn: true,
     infoPlist: {
       CFBundleDisplayName: IS_DEV ? "SleepFactor Dev" : "SleepFactor",

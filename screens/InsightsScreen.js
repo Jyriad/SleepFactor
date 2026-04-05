@@ -5,8 +5,6 @@ import {
   StyleSheet,
   SectionList,
   TouchableOpacity,
-  StatusBar,
-  Platform,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +25,7 @@ import {
 } from '../utils/insightLabels';
 import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import InsightMinimumDataHelp from '../components/InsightMinimumDataHelp';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -138,9 +137,7 @@ const InsightsScreen = ({ navigation, route }) => {
 
   useFocusEffect(
     useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-      }
+      applyAndroidStatusBarForFrostedHeader();
       let cancelled = false;
       if (user) {
         const hasCachedData = tabData.groups && tabData.groups.length > 0;
@@ -310,36 +307,37 @@ const InsightsScreen = ({ navigation, route }) => {
           onPress={() => setExpandedRowKey((prev) => (prev === rowKey ? null : rowKey))}
           activeOpacity={0.7}
         >
-          <Text
-            style={[styles.tableCellMetric, isMetricHabitNameCell && styles.tableCellMetricNameMetric]}
-            numberOfLines={isMetricHabitNameCell ? 2 : 1}
-          >
-            {firstCell}
-          </Text>
-          <View style={[styles.tag, { backgroundColor: correlationStyle.backgroundColor }]}>
+          <View style={styles.tableRowColumns}>
             <Text
-              style={[styles.tagTextSmall, { color: correlationStyle.color }]}
-              numberOfLines={2}
-              textAlign="center"
+              style={[styles.tableCellMetric, isMetricHabitNameCell && styles.tableCellMetricNameMetric]}
+              numberOfLines={isMetricHabitNameCell ? 2 : 1}
             >
-              {correlationLabel}
+              {firstCell}
             </Text>
+            <View style={[styles.tagBase, styles.tagCorrelation, { backgroundColor: correlationStyle.backgroundColor }]}>
+              <Text
+                style={[styles.tagTextSmall, styles.tagCorrelationLabel, { color: correlationStyle.color }]}
+                numberOfLines={1}
+              >
+                {correlationLabel}
+              </Text>
+            </View>
+            <View style={[styles.tagBase, styles.tagImpact, { backgroundColor: impactStyle.backgroundColor }]}>
+              <Text
+                style={[styles.tagTextSmall, styles.tagImpactLabel, { color: impactStyle.color }]}
+                numberOfLines={1}
+              >
+                {impactLabel}
+              </Text>
+            </View>
           </View>
-          <View style={[styles.tag, { backgroundColor: impactStyle.backgroundColor }]}>
-            <Text
-              style={[styles.tagTextSmall, { color: impactStyle.color }]}
-              numberOfLines={2}
-              textAlign="center"
-            >
-              {impactLabel}
-            </Text>
+          <View style={styles.rowChevronPinned} pointerEvents="none">
+            <Ionicons
+              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={colors.textSecondary}
+            />
           </View>
-          <Ionicons
-            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-            size={20}
-            color={colors.textSecondary}
-            style={styles.rowChevron}
-          />
         </TouchableOpacity>
         {isExpanded && (
           <View style={styles.expandedContentWrap}>
@@ -407,9 +405,13 @@ const InsightsScreen = ({ navigation, route }) => {
                 <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>
                   {isMetricLayout ? 'Habit' : 'Sleep metric'}
                 </Text>
-                <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
-                <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
-                <View style={styles.headerChevronPlaceholder} />
+                <Text style={[styles.tableHeaderText, styles.tableHeaderTagCorrelation]}>Link</Text>
+                <Text
+                  style={[styles.tableHeaderText, styles.tableHeaderTagImpact]}
+                  numberOfLines={1}
+                >
+                  Impact
+                </Text>
               </View>
             ) : null}
           </View>
@@ -800,6 +802,7 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: spacing.xs,
     paddingLeft: 4,
+    paddingRight: 28,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     gap: spacing.sm,
@@ -810,22 +813,39 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   tableHeaderMetric: {
-    flex: 2,
+    flex: 3.5,
+    minWidth: 0,
   },
-  tableHeaderTag: {
-    flex: 1,
+  /** Narrow — compact + / ++ / +++ only; metric column takes remaining width */
+  tableHeaderTagCorrelation: {
+    flex: 0.52,
+    minWidth: 34,
+    textAlign: 'center',
+    width: '100%',
   },
-  headerChevronPlaceholder: {
-    width: 28,
+  tableHeaderTagImpact: {
+    flex: 0.52,
+    minWidth: 40,
+    textAlign: 'center',
+    width: '100%',
   },
   tableRow: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingLeft: spacing.xs,
+    paddingRight: 0,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
+  },
+  tableRowColumns: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
     gap: spacing.sm,
+    paddingRight: 28,
   },
   tableRowMetricLayout: {
     paddingLeft: 0,
@@ -849,7 +869,7 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
   },
   tableCellMetric: {
-    flex: 2,
+    flex: 3.5,
     minWidth: 0,
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.regular || '400',
@@ -859,21 +879,46 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     lineHeight: typography.lineHeights.xs,
   },
-  tag: {
+  tagBase: {
     paddingVertical: 2,
     paddingHorizontal: 6,
     borderRadius: 6,
-    flex: 1,
     minWidth: 0,
+  },
+  tagCorrelation: {
+    flex: 0.52,
+    minWidth: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tagImpact: {
+    flex: 0.52,
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tagTextSmall: {
     fontSize: 10,
     fontWeight: typography.weights.medium,
     lineHeight: 14,
   },
-  rowChevron: {
-    width: 28,
+  /** Full-width so text centers inside the pill (Text otherwise shrinks to content width) */
+  tagCorrelationLabel: {
+    width: '100%',
     textAlign: 'center',
+  },
+  tagImpactLabel: {
+    width: '100%',
+    textAlign: 'center',
+  },
+  rowChevronPinned: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   expandedContentWrap: {
     marginTop: spacing.sm,

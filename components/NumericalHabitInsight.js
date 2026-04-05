@@ -7,7 +7,12 @@ import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import DataPointDetailModal from './DataPointDetailModal';
 import { transformToEfficiencyData, calculateCorrelation } from '../utils/statistics';
 import { generateNumericalHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
-import { getCorrelationLabel, getImpactLabel, getCorrelationTagStyle, getImpactTagStyle } from '../utils/insightLabels';
+import {
+  getCorrelationLabelShort,
+  getImpactLabel,
+  getCorrelationTagStyle,
+  getImpactTagStyle,
+} from '../utils/insightLabels';
 
 const NumericalHabitInsight = ({
   insight,
@@ -96,7 +101,7 @@ const NumericalHabitInsight = ({
   const isPositiveImpact = higherIsBetter ? (displayCorrelation > 0) : (displayCorrelation < 0);
 
   // Correlation (confidence) and impact (effect size + direction) - standardised across app
-  const correlationLabel = getCorrelationLabel(confidenceLevel);
+  const correlationLabel = getCorrelationLabelShort(confidenceLevel);
   const impactLabel = getImpactLabel(impactLevel, isPositiveImpact);
   const correlationTagStyle = getCorrelationTagStyle(confidenceLevel);
   const impactTagStyle = getImpactTagStyle(impactLevel, isPositiveImpact);
@@ -389,7 +394,7 @@ const NumericalHabitInsight = ({
         {/* Correlation and impact - standardised labels */}
         <View style={styles.statsContainer}>
           <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Correlation: </Text>
+            <Text style={styles.statLabel}>Link: </Text>
             <Text style={[styles.confidenceValue, { color: correlationTagStyle.color }]}>
               {correlationLabel}
             </Text>

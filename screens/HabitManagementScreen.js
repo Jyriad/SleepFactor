@@ -4,12 +4,10 @@ import {
   Text,
   StyleSheet,
   Alert,
-  Switch,
   ScrollView,
   TouchableOpacity,
   LayoutAnimation,
   UIManager,
-  StatusBar,
   Platform,
   InteractionManager,
   Dimensions,
@@ -33,6 +31,9 @@ import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
+import AppToggle from '../components/AppToggle';
+import HabitTrackingControl from '../components/HabitTrackingControl';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 
 const PREDEFINED_HABITS = [
   { name: 'Exercise', type: 'binary', unit: null },
@@ -77,18 +78,13 @@ const HabitManagementScreen = () => {
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const navigation = useNavigation();
 
-  // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primaryDark);
-    }
+    applyAndroidStatusBarForFrostedHeader();
   }, []);
 
   useFocusEffect(
     React.useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-      }
+      applyAndroidStatusBarForFrostedHeader();
     }, [])
   );
   const { user } = useAuth();
@@ -927,24 +923,10 @@ const HabitManagementScreen = () => {
                     </TouchableOpacity>
                   ) : (
                     <View style={styles.statusAndChevronRow}>
-                      <TouchableOpacity
-                        style={styles.statusTouchable}
+                      <HabitTrackingControl
+                        tracking={habit.is_active !== false}
                         onPress={() => toggleHabitTracking(habit)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[
-                          styles.statusDot,
-                          habit.is_active !== false ? styles.statusDotActive : styles.statusDotPaused
-                        ]} />
-                        <Text
-                          style={[
-                            styles.statusLabel,
-                            habit.is_active !== false ? styles.statusLabelActive : styles.statusLabelPaused
-                          ]}
-                        >
-                          {habit.is_active !== false ? 'Active' : 'Paused'}
-                        </Text>
-                      </TouchableOpacity>
+                      />
                       <TouchableOpacity
                         style={styles.chevronButton}
                         onPress={() => toggleHabitExpanded(habitId)}
@@ -976,11 +958,9 @@ const HabitManagementScreen = () => {
                           ? 'Log as "none" by default'
                           : 'Log as "no" by default'}
                       </Text>
-                      <Switch
+                      <AppToggle
                         value={habit.log_as_no_by_default === true}
                         onValueChange={() => toggleLogAsNoByDefault(habit)}
-                        trackColor={{ false: colors.border, true: colors.primary }}
-                        thumbColor="#FFFFFF"
                       />
                     </View>
                   )}
@@ -1040,7 +1020,7 @@ const HabitManagementScreen = () => {
         <View style={styles.instructionContainer}>
           <Ionicons name="fitness-outline" size={20} color={colors.primary} />
           <Text style={styles.instructionText}>
-            Tap Active or Paused on each card to control what is tracked for insights
+            Use pause or play on each card to control what is tracked for insights
           </Text>
         </View>
         {automaticHabits.map((habit) => {
@@ -1060,26 +1040,10 @@ const HabitManagementScreen = () => {
                         <Text style={styles.habitName}>{healthMetric.name}</Text>
                       </View>
                       <View style={styles.statusAndChevronRow}>
-                        <TouchableOpacity
-                          style={styles.statusTouchable}
+                        <HabitTrackingControl
+                          tracking={active}
                           onPress={() => toggleHealthMetric(healthMetric, !active)}
-                          activeOpacity={0.7}
-                        >
-                          <View
-                            style={[
-                              styles.statusDot,
-                              active ? styles.statusDotActive : styles.statusDotPaused,
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              styles.statusLabel,
-                              active ? styles.statusLabelActive : styles.statusLabelPaused,
-                            ]}
-                          >
-                            {active ? 'Active' : 'Paused'}
-                          </Text>
-                        </TouchableOpacity>
+                        />
                       </View>
                     </View>
                     <Text style={styles.habitTypeLine}>{healthMetric.description}</Text>
@@ -1126,26 +1090,10 @@ const HabitManagementScreen = () => {
                         )}
                       </View>
                       <View style={styles.statusAndChevronRow}>
-                        <TouchableOpacity
-                          style={styles.statusTouchable}
+                        <HabitTrackingControl
+                          tracking={active}
                           onPress={() => toggleInferredHabit(habit)}
-                          activeOpacity={0.7}
-                        >
-                          <View
-                            style={[
-                              styles.statusDot,
-                              active ? styles.statusDotActive : styles.statusDotPaused,
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              styles.statusLabel,
-                              active ? styles.statusLabelActive : styles.statusLabelPaused,
-                            ]}
-                          >
-                            {active ? 'Active' : 'Paused'}
-                          </Text>
-                        </TouchableOpacity>
+                        />
                       </View>
                     </View>
                     <Text style={styles.habitTypeLine}>
@@ -1200,7 +1148,7 @@ const HabitManagementScreen = () => {
                     <View style={styles.instructionContainer}>
                       <Ionicons name="fitness-outline" size={20} color={colors.primary} />
                       <Text style={styles.instructionText}>
-                        Tap Active or Paused on each card to control what is tracked for insights
+                        Use pause or play on each card to control what is tracked for insights
                       </Text>
                     </View>
                     {automaticHabits.map((habit) => {
@@ -1220,26 +1168,10 @@ const HabitManagementScreen = () => {
                                     <Text style={styles.habitName}>{healthMetric.name}</Text>
                                   </View>
                                   <View style={styles.statusAndChevronRow}>
-                                    <TouchableOpacity
-                                      style={styles.statusTouchable}
+                                    <HabitTrackingControl
+                                      tracking={active}
                                       onPress={() => toggleHealthMetric(healthMetric, !active)}
-                                      activeOpacity={0.7}
-                                    >
-                                      <View
-                                        style={[
-                                          styles.statusDot,
-                                          active ? styles.statusDotActive : styles.statusDotPaused,
-                                        ]}
-                                      />
-                                      <Text
-                                        style={[
-                                          styles.statusLabel,
-                                          active ? styles.statusLabelActive : styles.statusLabelPaused,
-                                        ]}
-                                      >
-                                        {active ? 'Active' : 'Paused'}
-                                      </Text>
-                                    </TouchableOpacity>
+                                    />
                                   </View>
                                 </View>
                                 <Text style={styles.habitTypeLine}>{healthMetric.description}</Text>
@@ -1286,26 +1218,10 @@ const HabitManagementScreen = () => {
                                     )}
                                   </View>
                                   <View style={styles.statusAndChevronRow}>
-                                    <TouchableOpacity
-                                      style={styles.statusTouchable}
+                                    <HabitTrackingControl
+                                      tracking={active}
                                       onPress={() => toggleInferredHabit(habit)}
-                                      activeOpacity={0.7}
-                                    >
-                                      <View
-                                        style={[
-                                          styles.statusDot,
-                                          active ? styles.statusDotActive : styles.statusDotPaused,
-                                        ]}
-                                      />
-                                      <Text
-                                        style={[
-                                          styles.statusLabel,
-                                          active ? styles.statusLabelActive : styles.statusLabelPaused,
-                                        ]}
-                                      >
-                                        {active ? 'Active' : 'Paused'}
-                                      </Text>
-                                    </TouchableOpacity>
+                                    />
                                   </View>
                                 </View>
                                 <Text style={styles.habitTypeLine}>
@@ -1544,32 +1460,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  statusTouchable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  statusDotActive: {
-    backgroundColor: colors.success,
-  },
-  statusDotPaused: {
-    backgroundColor: colors.textLight,
-  },
-  statusLabel: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-  },
-  statusLabelActive: {
-    color: colors.success,
-  },
-  statusLabelPaused: {
-    color: colors.textLight,
   },
   addButtonCompact: {
     backgroundColor: colors.primary,

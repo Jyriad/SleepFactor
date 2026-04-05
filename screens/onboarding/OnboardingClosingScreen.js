@@ -5,12 +5,14 @@ import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
-import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
+import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 
 export default function OnboardingClosingScreen({ onSlidesFinished }) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingClosing');
 
   const handleEnter = async () => {
     if (!user?.id || loading) return;
@@ -25,9 +27,9 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.stepIndicator}>
-          {ONBOARDING_STEP_TOTAL} of {ONBOARDING_STEP_TOTAL}
-        </Text>
+        <View style={styles.progressSlot}>
+          <OnboardingProgressHeader currentStep={currentStep} totalSteps={totalSteps} progress={progress} />
+        </View>
         <OnboardingSignOutLink />
       </View>
       <Text style={styles.title}>You&apos;re in</Text>
@@ -60,13 +62,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.regular,
+    gap: spacing.sm,
   },
-  stepIndicator: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+  progressSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   title: {
     fontSize: typography.sizes.xl,
