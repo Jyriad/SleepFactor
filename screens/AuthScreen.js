@@ -31,7 +31,7 @@ import { typography, spacing } from '../constants';
 import Button from '../components/Button';
 import BannerLogoLight from '../assets/BannerLogoLight.svg';
 
-// Matches BannerLogoLight.svg viewBox (primary wordmark, all black)
+// Matches BannerLogoLight.svg viewBox (primary horizontal wordmark)
 const BANNER_ASPECT_RATIO = 1284.55 / 226.95;
 const BANNER_MAX_WIDTH = 200; // Slightly smaller so more content fits above the fold
 
