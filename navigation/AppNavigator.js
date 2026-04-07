@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../contexts/AuthContext';
 import SplashContext from '../contexts/SplashContext';
 import { colors } from '../constants/colors';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import {
   hasCompletedOnboardingForUser,
   markOnboardingCompletedForUser,
@@ -21,6 +22,7 @@ import OnboardingNavigator from './OnboardingNavigator';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import { TutorialProvider } from '../contexts/TutorialContext';
 import TutorialOverlay from '../components/TutorialOverlay';
+import { trackPageView } from '../services/mixpanel';
 
 const AccountScreen = lazy(() => import('../screens/AccountScreen'));
 const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
@@ -117,6 +119,29 @@ const AppNavigator = ({ navigationRef }) => {
     return () => clearTimeout(id);
   }, [isAuthenticated, user, loading, navigationRef]);
 
+  const handleNavigationStateChange = useCallback(
+    (state) => {
+      if (!state) return;
+      const route = state.routes?.[state.index];
+      const name = route?.name;
+      const stackIndex = route?.state?.index ?? 0;
+      const currentScreenName = route?.state?.routes?.[stackIndex]?.name;
+      if (Platform.OS === 'android') {
+        const isInMainTabs =
+          name === 'MainTabs' &&
+          ['Home', 'Habits', 'Insights', 'Profile'].includes(currentScreenName);
+        if (isInMainTabs) {
+          applyAndroidStatusBarForFrostedHeader();
+        }
+      }
+      const focused =
+        route && route.state ? getFocusedRouteNameFromRoute(route) : name;
+      const screenLabel = focused || name || 'Unknown';
+      trackPageView({ screenName: screenLabel, userId: user?.id });
+    },
+    [user?.id]
+  );
+
   if (loading || onboardingComplete === null) {
     return (
       <View style={styles.loadingContainer}>
@@ -128,34 +153,17 @@ const AppNavigator = ({ navigationRef }) => {
   if (!onboardingComplete) {
     return (
       <View style={styles.root} onLayout={hideSplashOnce}>
-        <NavigationContainer>
+        <NavigationContainer onStateChange={handleNavigationStateChange}>
           <OnboardingNavigator onComplete={handleOnboardingFlowComplete} />
         </NavigationContainer>
       </View>
     );
   }
 
-  const onStateChange = (state) => {
-    if (!state) return;
-    const route = state?.routes?.[state.index];
-    const name = route?.name;
-    const stackIndex = route?.state?.index ?? 0;
-    const currentScreenName = route?.state?.routes?.[stackIndex]?.name;
-    if (Platform.OS === 'android') {
-      const isInMainTabs =
-        name === 'MainTabs' &&
-        ['Home', 'Habits', 'Insights', 'Profile'].includes(currentScreenName);
-      if (isInMainTabs) {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-        StatusBar.setTranslucent?.(true);
-      }
-    }
-  };
-
   return (
     <View style={styles.root}>
       <SplashContext.Provider value={{ onReadyToHideSplash: hideSplashOnce }}>
-        <NavigationContainer ref={navigationRef} onStateChange={onStateChange}>
+        <NavigationContainer ref={navigationRef} onStateChange={handleNavigationStateChange}>
           <TutorialProvider>
             <View style={styles.mainShell}>
               <Suspense fallback={<LazyFallback />}>

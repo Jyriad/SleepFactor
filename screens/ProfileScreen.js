@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   Alert,
-  StatusBar,
   Platform,
   TextInput,
   Modal,
@@ -55,6 +54,7 @@ import { supabase } from '../services/supabase';
 /** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
 import GlassChromeBar from '../components/GlassChromeBar';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
@@ -201,18 +201,13 @@ const ProfileScreen = () => {
     }
   };
 
-  // Set status bar immediately on mount so first paint is blue (avoids white flash on first load)
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primaryDark);
-    }
+    applyAndroidStatusBarForFrostedHeader();
   }, []);
 
   useFocusEffect(
     React.useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-      }
+      applyAndroidStatusBarForFrostedHeader();
     }, [])
   );
 

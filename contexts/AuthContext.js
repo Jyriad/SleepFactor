@@ -3,6 +3,7 @@ import React, { createContext, useState, useEffect, useContext, useRef } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSession, onAuthStateChange } from '../services/auth';
 import { supabase } from '../services/supabase';
+import { identifyUser, resetAnalytics } from '../services/mixpanel';
 
 const AuthContext = createContext({});
 
@@ -126,6 +127,15 @@ export const AuthProvider = ({ children }) => {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (user?.id) {
+      void identifyUser(user);
+    } else {
+      void resetAnalytics();
+    }
+  }, [loading, user?.id]);
 
   const value = {
     user,

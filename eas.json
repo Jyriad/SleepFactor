@@ -22,6 +22,7 @@
       }
     },
     "production": {
+      "distribution": "store",
       "channel": "production",
       "env": {
         "APP_VARIANT": "production"
@@ -33,7 +34,7 @@
         "simulator": false,
         "buildConfiguration": "Release",
         "resourceClass": "m-medium",
-        "enterpriseProvisioning": "adhoc"
+        "image": "macos-sequoia-15.6-xcode-16.4"
       }
     }
   },

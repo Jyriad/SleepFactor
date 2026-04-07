@@ -26,7 +26,7 @@ export default function OnboardingGoalQuizScreen({ navigation }) {
   return (
     <OnboardingStepLayout
       step={2}
-      totalSteps={12}
+      totalSteps={16}
       title="What do you want to understand about your sleep?"
       onNext={onNext}
       onBack={() => navigation.goBack()}

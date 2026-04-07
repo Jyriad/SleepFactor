@@ -1,10 +1,6 @@
 /**
- * Dev-only sleep diagnostics. Filter Metro / Xcode log for: [SleepDebug]
+ * Optional hook for sleep diagnostics. Intentionally silent — use breakpoints or
+ * temporary logging locally if needed.
  */
 
-export function sleepDebugLog(phase, payload) {
-  if (typeof __DEV__ === 'undefined' || !__DEV__) return;
-  try {
-    console.log('[SleepDebug]', phase, payload);
-  } catch (_) {}
-}
+export function sleepDebugLog(_phase, _payload) {}

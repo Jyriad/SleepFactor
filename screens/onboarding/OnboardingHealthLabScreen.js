@@ -73,7 +73,7 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
   if (phase === 'no_permission') {
     return (
       <OnboardingStepLayout
-        step={4}
+        step={6}
         totalSteps={ONBOARDING_STEP_TOTAL}
         title="No health access yet"
         onNext={() => navigation.replace('OnboardingNewBeginning')}
@@ -92,7 +92,7 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
   if (phase === 'error') {
     return (
       <OnboardingStepLayout
-        step={4}
+        step={6}
         totalSteps={ONBOARDING_STEP_TOTAL}
         title="Sync issue"
         onNext={() => navigation.replace('OnboardingNewBeginning')}
@@ -111,7 +111,7 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
 
   return (
     <OnboardingStepLayout
-      step={4}
+      step={6}
       totalSteps={ONBOARDING_STEP_TOTAL}
       title="Connecting"
       onNext={() => {}}

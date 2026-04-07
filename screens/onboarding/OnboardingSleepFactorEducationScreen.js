@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
+import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
+import { getOnboardingProgress } from '../../constants/onboardingProgress';
 
 const SLIDES = [
   {
-    title: 'Missing days',
+    title: "Can't log your habits one day, don't worry!",
     body:
       "You don't have to log your habits each day — if you don't log on a day, that's fine; it just won't be used to calculate correlations. You can also manually exclude data if you think there was an anomaly.",
   },
@@ -33,18 +35,23 @@ export default function OnboardingSleepFactorEducationScreen({ navigation }) {
   const [index, setIndex] = useState(0);
   const slide = SLIDES[index];
   const last = index >= SLIDES.length - 1;
+  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingSleepFactorEducation', {
+    educationSlideIndex: index,
+  });
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View style={styles.headerRow}>
-        <Text style={styles.step}>
-          {index + 1} / {SLIDES.length}
-        </Text>
-        <OnboardingSignOutLink />
-      </View>
-      <Text style={styles.kicker}>A bit about finding your sleep factor</Text>
-      <Text style={styles.title}>{slide.title}</Text>
-      <Text style={styles.body}>{slide.body}</Text>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerRow}>
+          <View style={styles.progressSlot}>
+            <OnboardingProgressHeader currentStep={currentStep} totalSteps={totalSteps} progress={progress} />
+          </View>
+          <OnboardingSignOutLink />
+        </View>
+        <Text style={styles.kicker}>A bit about finding your sleep factor</Text>
+        <Text style={styles.title}>{slide.title}</Text>
+        <Text style={styles.body}>{slide.body}</Text>
+      </ScrollView>
       <View style={styles.footer}>
         <Button
           title={last ? 'Continue' : 'Next'}
@@ -65,16 +72,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     paddingHorizontal: spacing.xl,
   },
+  scroll: {
+    paddingBottom: spacing.md,
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.md,
+    gap: spacing.sm,
   },
-  step: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+  progressSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   kicker: {
     fontSize: typography.sizes.small,
@@ -92,7 +102,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     lineHeight: typography.lineHeights.body,
-    flex: 1,
   },
   footer: {
     paddingBottom: spacing.md,

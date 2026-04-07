@@ -5,13 +5,18 @@ import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
+import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
+import { getOnboardingProgress } from '../../constants/onboardingProgress';
 
 export default function OnboardingIntroStatScreen({ navigation }) {
+  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingIntroStat');
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
-          <Text style={styles.step}>Step 1</Text>
+          <View style={styles.progressSlot}>
+            <OnboardingProgressHeader currentStep={currentStep} totalSteps={totalSteps} progress={progress} />
+          </View>
           <OnboardingSignOutLink />
         </View>
         <Text style={styles.title}>You&apos;re not alone</Text>
@@ -43,13 +48,13 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.md,
+    gap: spacing.sm,
   },
-  step: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+  progressSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   title: {
     fontSize: typography.sizes.xl,

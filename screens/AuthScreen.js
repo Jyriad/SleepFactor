@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   signUp,
@@ -25,11 +26,12 @@ import {
 } from 'expo-apple-authentication';
 import { useSplash } from '../contexts/SplashContext';
 import { colors } from '../constants/colors';
+import { applyAndroidStatusBarForLightScreen } from '../utils/androidStatusBar';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
 import BannerLogoLight from '../assets/BannerLogoLight.svg';
 
-// Matches BannerLogoLight.svg viewBox (primary wordmark, all black)
+// Matches BannerLogoLight.svg viewBox (primary horizontal wordmark)
 const BANNER_ASPECT_RATIO = 1284.55 / 226.95;
 const BANNER_MAX_WIDTH = 200; // Slightly smaller so more content fits above the fold
 
@@ -42,6 +44,12 @@ const AuthScreen = ({ defaultToSignUp = false }) => {
   useEffect(() => {
     splash?.onReadyToHideSplash?.();
   }, [splash]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      applyAndroidStatusBarForLightScreen();
+    }, [])
+  );
 
   const [isSignUp, setIsSignUp] = useState(defaultToSignUp);
   const [email, setEmail] = useState('');

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { INTAKE_BASIS, isLiquidServingUnit } from '../utils/consumptionIntake';
+import { presetScopeFromHabitName } from '../utils/consumptionPresetScope';
 
 /**
  * Service for managing consumption options (Beer, Wine, Espresso, etc.)
@@ -32,6 +33,30 @@ class ConsumptionOptionsService {
     if (habitId) this._cache.delete(habitId);
   }
 
+  async _presetScopeForHabitId(habitId) {
+    const { data, error } = await supabase
+      .from('habits')
+      .select('name')
+      .eq('id', habitId)
+      .maybeSingle();
+    if (error) throw error;
+    return presetScopeFromHabitName(data?.name);
+  }
+
+  _mergeAndSortOptions(rows) {
+    const byId = new Map();
+    (rows || []).forEach((row) => {
+      if (row?.id) byId.set(row.id, row);
+    });
+    const data = Array.from(byId.values());
+    return data.sort((a, b) => {
+      if (a.is_custom !== b.is_custom) return a.is_custom ? -1 : 1;
+      if (a.name === 'None Today') return -1;
+      if (b.name === 'None Today') return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }
+
   /**
    * Return cached options for a habit if available (sync). Use so components can show options
    * immediately when cache was prefetched (e.g. from Home or Habit Logging load).
@@ -55,23 +80,36 @@ class ConsumptionOptionsService {
         return { success: true, data: cached };
       }
 
-      const { data, error } = await supabase
-        .from('consumption_options')
-        .select('*')
-        .eq('habit_id', habitId)
-        .eq('is_active', true)
-        .or('user_id.is.null,region.eq.custom')
-        .order('is_custom', { ascending: false }) // Custom options first
-        .order('name', { ascending: true });
+      const presetScope = await this._presetScopeForHabitId(habitId);
+      const queries = [];
 
-      if (error) throw error;
+      if (presetScope) {
+        queries.push(
+          supabase
+            .from('consumption_options')
+            .select('*')
+            .is('user_id', null)
+            .eq('preset_scope', presetScope)
+            .eq('is_active', true)
+        );
+      }
 
-      // Sort: None Today first, then alphabetically
-      const sorted = (data || []).sort((a, b) => {
-        if (a.name === 'None Today') return -1;
-        if (b.name === 'None Today') return 1;
-        return (a.name || '').localeCompare(b.name || '');
-      });
+      queries.push(
+        supabase
+          .from('consumption_options')
+          .select('*')
+          .eq('habit_id', habitId)
+          .not('user_id', 'is', null)
+          .eq('is_active', true)
+      );
+
+      const results = await Promise.all(queries);
+      for (const r of results) {
+        if (r.error) throw r.error;
+      }
+
+      const merged = results.flatMap((r) => r.data || []);
+      const sorted = this._mergeAndSortOptions(merged);
 
       this._setCache(habitId, sorted);
       return { success: true, data: sorted };
@@ -384,27 +422,23 @@ class ConsumptionOptionsService {
    */
   async migrateLegacyDrinkType(drinkTypeString, habitId) {
     try {
-      // First, try to find an existing option with this name
       const { data: existingOption } = await supabase
         .from('consumption_options')
         .select('id')
         .eq('habit_id', habitId)
         .eq('name', drinkTypeString)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
       if (existingOption) {
         return { success: true, optionId: existingOption.id };
       }
 
-      // If no option exists, try to map legacy names to system defaults
       const legacyMappings = {
-        // Caffeine
         'espresso': 'Espresso',
         'instant_coffee': 'Instant Coffee',
         'energy_drink': 'Energy Drink',
         'soft_drink': 'Soft Drink',
-        // Alcohol
         'beer': 'Beer',
         'wine': 'Wine',
         'liquor': 'Liquor',
@@ -413,21 +447,23 @@ class ConsumptionOptionsService {
 
       const mappedName = legacyMappings[drinkTypeString];
       if (mappedName) {
-        const { data: systemOption } = await supabase
-          .from('consumption_options')
-          .select('id')
-          .eq('habit_id', habitId)
-          .eq('name', mappedName)
-          .is('user_id', null)
-          .eq('is_active', true)
-          .single();
+        const presetScope = await this._presetScopeForHabitId(habitId);
+        if (presetScope) {
+          const { data: systemOption } = await supabase
+            .from('consumption_options')
+            .select('id')
+            .is('user_id', null)
+            .eq('preset_scope', presetScope)
+            .eq('name', mappedName)
+            .eq('is_active', true)
+            .maybeSingle();
 
-        if (systemOption) {
-          return { success: true, optionId: systemOption.id };
+          if (systemOption) {
+            return { success: true, optionId: systemOption.id };
+          }
         }
       }
 
-      // If no mapping found, return null
       return { success: false, error: `No matching option found for legacy drink type: ${drinkTypeString}` };
     } catch (error) {
       return { success: false, error: error.message };
@@ -439,11 +475,15 @@ class ConsumptionOptionsService {
    */
   async getSystemOptionsForHabit(habitId) {
     try {
+      const presetScope = await this._presetScopeForHabitId(habitId);
+      if (!presetScope) {
+        return { success: true, data: [] };
+      }
       const { data, error } = await supabase
         .from('consumption_options')
         .select('*')
-        .eq('habit_id', habitId)
         .is('user_id', null)
+        .eq('preset_scope', presetScope)
         .eq('is_active', true)
         .order('name', { ascending: true });
 
@@ -484,25 +524,37 @@ class ConsumptionOptionsService {
    */
   async isOptionNameAvailable(userId, habitId, name, excludeOptionId = null) {
     try {
-      let query = supabase
+      const trimmed = name.trim();
+      const presetScope = await this._presetScopeForHabitId(habitId);
+
+      if (presetScope) {
+        let sysQ = supabase
+          .from('consumption_options')
+          .select('id')
+          .is('user_id', null)
+          .eq('preset_scope', presetScope)
+          .eq('name', trimmed)
+          .eq('is_active', true);
+        if (excludeOptionId) sysQ = sysQ.neq('id', excludeOptionId);
+        const { data: sysRows, error: sysErr } = await sysQ.limit(1);
+        if (sysErr) throw sysErr;
+        if (sysRows && sysRows.length > 0) {
+          return { success: true, available: false };
+        }
+      }
+
+      let customQ = supabase
         .from('consumption_options')
         .select('id')
         .eq('habit_id', habitId)
-        .eq('name', name.trim())
+        .eq('user_id', userId)
+        .eq('name', trimmed)
         .eq('is_active', true);
+      if (excludeOptionId) customQ = customQ.neq('id', excludeOptionId);
+      const { data: customRows, error: customErr } = await customQ.limit(1);
+      if (customErr) throw customErr;
 
-      if (excludeOptionId) {
-        query = query.neq('id', excludeOptionId);
-      }
-
-      // Check against both system options (user_id IS NULL) and user's own options
-      query = query.or(`user_id.is.null,user_id.eq.${userId}`);
-
-      const { data, error } = await query.limit(1);
-
-      if (error) throw error;
-
-      return { success: true, available: data.length === 0 };
+      return { success: true, available: !customRows || customRows.length === 0 };
     } catch (error) {
       return { success: false, error: error.message, available: false };
     }

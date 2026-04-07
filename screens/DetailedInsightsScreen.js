@@ -6,8 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   Dimensions,
-  StatusBar,
-  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -22,6 +20,7 @@ import NumericalHabitInsight from '../components/NumericalHabitInsight';
 import PlaceholderHabitInsight from '../components/PlaceholderHabitInsight';
 import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -33,9 +32,7 @@ const DetailedInsightsScreen = ({ navigation }) => {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-      }
+      applyAndroidStatusBarForFrostedHeader();
       return () => {
         // Do not set status bar to white on blur: we stay in MainTabs, so the next screen keeps it blue and avoids a white flash.
       };

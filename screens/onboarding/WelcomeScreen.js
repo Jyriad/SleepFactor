@@ -15,15 +15,17 @@ import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 
-// Matches BannerLogoLight.svg viewBox (primary wordmark, all black)
+// Matches BannerLogoLight.svg viewBox (primary horizontal wordmark)
 const BANNER_ASPECT_RATIO = 1284.55 / 226.95;
 const BANNER_MAX_WIDTH = 168;
 
 function EquationBox({ title, subtitle, children }) {
   return (
     <View style={styles.eqBox}>
-      <Text style={styles.eqBoxTitle}>{title}</Text>
-      <View style={styles.eqIconRow}>{children}</View>
+      <View style={styles.eqTitleRow}>
+        <Text style={styles.eqBoxTitle}>{title}</Text>
+        <View style={styles.eqIconRow}>{children}</View>
+      </View>
       <Text style={styles.eqBoxSub}>{subtitle}</Text>
     </View>
   );
@@ -83,15 +85,15 @@ const WelcomeScreen = ({ navigation }) => {
           title="Sleep data"
           subtitle="Automatically sync sleep data from your wearable"
         >
-          <Ionicons name="logo-apple" size={28} color={colors.textPrimary} />
-          <Ionicons name="logo-google" size={28} color={colors.textPrimary} />
-          <Ionicons name="watch-outline" size={28} color={colors.primary} />
+          <Ionicons name="logo-apple" size={24} color={colors.textPrimary} />
+          <Ionicons name="logo-google" size={24} color={colors.textPrimary} />
+          <Ionicons name="watch-outline" size={24} color={colors.primary} />
         </EquationBox>
 
         <Text style={styles.op}>+</Text>
 
         <EquationBox title="Log your habits" subtitle="Tell SleepFactor which habits you do each day">
-          <Ionicons name="list-outline" size={32} color={colors.primary} />
+          <Ionicons name="list-outline" size={26} color={colors.primary} />
         </EquationBox>
 
         <Text style={styles.op}>=</Text>
@@ -100,7 +102,7 @@ const WelcomeScreen = ({ navigation }) => {
           title="Insights"
           subtitle="We analyse correlations between the habits you do and your sleep"
         >
-          <Ionicons name="analytics-outline" size={32} color={colors.primary} />
+          <Ionicons name="analytics-outline" size={26} color={colors.primary} />
         </EquationBox>
 
         <View style={styles.footer}>
@@ -132,39 +134,50 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     textAlign: 'center',
     lineHeight: typography.lineHeights.body,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     alignSelf: 'stretch',
   },
   eqBox: {
     alignSelf: 'stretch',
     backgroundColor: colors.cardBackground,
     borderRadius: 14,
-    padding: spacing.regular,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  eqTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
   eqBoxTitle: {
+    flex: 1,
+    minWidth: 0,
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.sm,
   },
   eqIconRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    flexShrink: 0,
   },
   eqBoxSub: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     lineHeight: typography.lineHeights.small,
+    marginTop: 0,
   },
   op: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: typography.weights.bold,
     color: colors.primary,
-    marginVertical: spacing.sm,
+    marginVertical: spacing.xs,
     textAlign: 'center',
   },
   footer: {

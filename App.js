@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Platform, StatusBar, Text, TextInput } from 'react-native';
+import { AppState, Platform, Text, TextInput } from 'react-native';
 import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
@@ -13,8 +13,10 @@ import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
 import morningCheckinNotifications from './services/morningCheckinNotifications';
 import { colors } from './constants/colors';
+import { applyAndroidTransparentStatusBar } from './utils/androidStatusBar';
 import { FONT_FAMILY } from './constants/fonts';
 import * as Sentry from '@sentry/react-native';
+import { initMixpanel } from './services/mixpanel';
 
 Sentry.init({
   dsn: 'https://629f28b06683444c9359d1c780ba77a9@o4511135557615616.ingest.de.sentry.io/4511135562268752',
@@ -38,12 +40,11 @@ Sentry.init({
 // Keep native splash visible until we hide it after the first screen has laid out
 SplashScreen.preventAutoHideAsync();
 
-// Set status bar to blue as soon as the app bundle loads so the first paint never shows white
+void initMixpanel();
+
+// Android: translucent + transparent so frosted headers can reach the top; root view stays primaryDark
 if (Platform.OS === 'android') {
-  StatusBar.setBackgroundColor(colors.primaryDark);
-  if (StatusBar.setTranslucent) {
-    StatusBar.setTranslucent(true);
-  }
+  applyAndroidTransparentStatusBar();
 }
 
 export default Sentry.wrap(function App() {

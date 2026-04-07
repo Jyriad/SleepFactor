@@ -5,10 +5,10 @@ import {
   StyleSheet,
   Alert,
   Dimensions,
-  StatusBar,
   Platform,
   Animated,
   InteractionManager,
+  ActivityIndicator,
 } from 'react-native';
 import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,7 @@ import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
 import { setHabitLoggingState as setHabitLoggingCache, setInMemoryState as setHabitLoggingMemory } from '../services/habitLoggingCacheService';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import drugLevelService from '../services/drugLevelService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
@@ -30,6 +31,7 @@ import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
+import AppToggle from '../components/AppToggle';
 // Sleep Data Rendering Components
 const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   <HealthConnectPrompt
@@ -38,6 +40,21 @@ const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
     compact
   />
 );
+
+/** True when the row has measurable sleep from a device/sync (not ratings-only placeholder rows). */
+function hasObjectiveSleepMetrics(sleepData) {
+  if (!sleepData) return false;
+  const total = sleepData.total_sleep_minutes;
+  if (total != null && total > 0) return true;
+  if (Array.isArray(sleepData.sleep_stages) && sleepData.sleep_stages.length > 0) return true;
+  if (Array.isArray(sleepData.sleep_sessions) && sleepData.sleep_sessions.length > 0) return true;
+  const stageSum =
+    (Number(sleepData.deep_sleep_minutes) || 0) +
+    (Number(sleepData.light_sleep_minutes) || 0) +
+    (Number(sleepData.rem_sleep_minutes) || 0) +
+    (Number(sleepData.awake_minutes) || 0);
+  return stageSum > 0;
+}
 
 const SleepNoDataSkeleton = React.memo(({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo }) => {
   const viewingToday = isToday(selectedDate);
@@ -138,6 +155,8 @@ const SleepDataCard = React.memo(({
   containerStyle,
 }) => {
   const viewingToday = isToday(selectedDate);
+  const hasObjective = hasObjectiveSleepMetrics(sleepData);
+  const showDeviceSleep = hasObjective;
   return (
     <View style={[styles.sleepCard, containerStyle]}>
       <View style={styles.sleepCardHeader}>
@@ -167,8 +186,12 @@ const SleepDataCard = React.memo(({
           )}
         </View>
         <Text style={styles.dataSourceInfo}>
-          Synced by: {getDataSourceDisplay(sleepData.source)}
-          {viewingToday && (
+          {!showDeviceSleep
+            ? (sleepData?.source === 'manual'
+                ? 'Your ratings are saved — device sleep will appear after it syncs'
+                : `No device sleep samples for this night yet (${getDataSourceDisplay(sleepData.source)})`)
+            : `Synced by: ${getDataSourceDisplay(sleepData.source)}`}
+          {viewingToday && showDeviceSleep && (
             <Text style={styles.freshnessIndicator}>
               {' • Last synced: recently'}
             </Text>
@@ -179,29 +202,30 @@ const SleepDataCard = React.memo(({
             <Text style={styles.exclusionLabel}>
               {isExcluded ? 'Data excluded from insights' : 'Data included in insights'}
             </Text>
-            <TouchableOpacity
-              style={[
-                styles.toggleSwitch,
-                !isExcluded && styles.toggleSwitchOn,
-              ]}
-              onPress={() => isExcluded ? onInclude() : onExclude()}
-            >
-              <View
-                style={[
-                  styles.toggleKnob,
-                  !isExcluded && styles.toggleKnobOn,
-                ]}
-              />
-            </TouchableOpacity>
+            <AppToggle
+              value={!isExcluded}
+              onValueChange={(included) => (included ? onInclude() : onExclude())}
+            />
           </View>
         )}
       </View>
 
-    {/* Sleep Timeline Visualization */}
-    <SleepTimeline sleepData={sleepData} coreSleepDurationMinutes={coreSleepDurationMinutes} />
+    {showDeviceSleep ? (
+      <SleepTimeline sleepData={sleepData} coreSleepDurationMinutes={coreSleepDurationMinutes} />
+    ) : (
+      <View style={styles.noDeviceSleepBanner}>
+        <Ionicons name="phone-portrait-outline" size={22} color={colors.textSecondary} />
+        <Text style={styles.noDeviceSleepBannerText}>
+          No sleep data from your phone or watch yet. Pull to sync or check that your health app is recording sleep.
+        </Text>
+      </View>
+    )}
 
     <View style={styles.sleepMetrics}>
       {(() => {
+        if (!showDeviceSleep) {
+          return null;
+        }
         const metrics = calculateSleepMetrics(sleepData);
         return (
           <>
@@ -210,8 +234,6 @@ const SleepDataCard = React.memo(({
             {Object.entries(SLEEP_METRIC_CONFIG).map(([key, config], index) => {
               const metric = metrics[key];
               const minutesRaw = sleepData[key] ?? 0;
-              // Show row when we have any minutes for that stage, not only when % rounds to >0
-              // (avoids hiding e.g. Deep sleep when total_sleep is inflated vs stage sum).
               const shouldShow = metric && (minutesRaw > 0 || metric.percentage > 0);
               return shouldShow ? (
                 renderSleepMetricRow(config.label, metric.minutes, metric.percentage, metric.comparison, config.color, null, key, index % 2 === 0)
@@ -249,8 +271,8 @@ const SleepDataCard = React.memo(({
       })()}
     </View>
 
-      {/* Sync Status - Only show for today's date */}
-      {viewingToday && lastSyncResult && (
+      {/* Sync status — only when we have device data or a clear failed sync; avoids "Data synced" next to empty metrics */}
+      {viewingToday && lastSyncResult && (showDeviceSleep || !lastSyncResult.success) && (
         <View style={styles.syncStatus}>
           <Ionicons
             name={lastSyncResult.success ? "checkmark-circle" : "close-circle"}
@@ -290,130 +312,72 @@ const SleepDataSimpleLoading = () => (
   </View>
 );
 
-const SleepDataLoadingSkeleton = React.memo(({ selectedDate, isToday, formatDateTitle, containerStyle, message }) => {
-  const displayMessage = message || 'Syncing...';
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const pulseValue = useRef(new Animated.Value(0.5)).current;
+/**
+ * Compact loading card: explains what is happening instead of a fake full-data skeleton.
+ * phase: loading_dashboard | health_sync | post_sync_fetch
+ */
+const SleepDataLoadStatusCard = React.memo(({
+  phase,
+  selectedDate,
+  isToday,
+  formatDateTitle,
+  containerStyle,
+  hasPermissions,
+}) => {
+  const healthAppName = Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect';
+  const title = isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`;
 
-  useEffect(() => {
-    const spinLoop = Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 1200,
-        useNativeDriver: true,
-      })
-    );
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseValue, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseValue, {
-          toValue: 0.5,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    spinLoop.start();
-    pulseLoop.start();
-    return () => {
-      spinLoop.stop();
-      pulseLoop.stop();
-    };
-  }, [spinValue, pulseValue]);
-
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-  const pulseOpacity = pulseValue;
+  let headline = '';
+  let rows = [];
+  if (phase === 'loading_dashboard') {
+    headline = 'Loading your sleep summary';
+    rows = [
+      { icon: 'cloud-download-outline', text: 'Fetching today from your account' },
+    ];
+  } else if (phase === 'health_sync') {
+    headline = 'Syncing with your health app';
+    rows = [
+      {
+        icon: hasPermissions ? 'checkmark-circle-outline' : 'key-outline',
+        text: hasPermissions ? `${healthAppName} access is on` : 'Checking access to your health data',
+      },
+      { icon: 'analytics-outline', text: 'Reading your recent sleep samples' },
+      { icon: 'save-outline', text: 'Saving to your night in SleepFactor' },
+    ];
+  } else {
+    headline = 'Updating your night';
+    rows = [
+      { icon: 'checkmark-done-outline', text: 'Applying synced data' },
+      { icon: 'home-outline', text: 'Refreshing this screen' },
+    ];
+  }
 
   return (
-  <View style={[styles.sleepCard, styles.skeletonCard, containerStyle]}>
-    <View style={styles.sleepCardHeader}>
-      <View style={styles.sleepCardTitleRow}>
-        <Ionicons name="moon-outline" size={24} color={colors.primary} />
-        <View style={styles.sleepCardTitleWrap}>
-          <Text style={[styles.sleepCardTitle, { marginLeft: 0 }]} numberOfLines={1} ellipsizeMode="tail">
-            {isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-          </Text>
-        </View>
-        <View style={[styles.cardSyncButton, styles.skeletonSyncButtonShrink]}>
-          <Animated.View style={{ transform: [{ rotate: spin }] }}>
-            <Ionicons name="sync" size={20} color={colors.textSecondary} />
-          </Animated.View>
-          <Text style={[styles.cardSyncButtonText, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="tail">
-            {displayMessage}
-          </Text>
+    <View style={[styles.sleepCard, styles.sleepLoadStatusCard, containerStyle]}>
+      <View style={styles.sleepCardHeader}>
+        <View style={styles.sleepCardTitleRow}>
+          <Ionicons name="moon-outline" size={24} color={colors.primary} />
+          <View style={styles.sleepCardTitleWrap}>
+            <Text style={[styles.sleepCardTitle, { marginLeft: 0 }]} numberOfLines={1} ellipsizeMode="tail">
+              {title}
+            </Text>
+          </View>
         </View>
       </View>
-      <Text style={[styles.dataSourceInfo, styles.skeletonText]}>
-        {displayMessage}
-      </Text>
-    </View>
 
-    {/* Skeleton Timeline */}
-    <View style={styles.timelineContainer}>
-      <Animated.View style={[styles.timelineBar, styles.skeletonBar, { opacity: pulseOpacity }]} />
-      <View style={styles.timeLabels}>
-        <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
-        <Text style={[styles.timeLabel, styles.skeletonText]}>--:--</Text>
-      </View>
-    </View>
-
-    {/* Skeleton Metrics */}
-    <View style={styles.sleepMetrics}>
-      <View key="skeleton-total" style={[styles.metricRow, styles.metricRowAlternate]}>
-        <Text style={[styles.metricLabel, styles.skeletonText]}>Total Sleep</Text>
-        <View style={styles.metricValueContainer}>
-          <Text style={[styles.metricValue, styles.skeletonText]}>--h --m</Text>
-        </View>
-      </View>
-      <View key="skeleton-deep" style={styles.metricRow}>
-        <View style={styles.metricLabelContainer}>
-          <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.deep }]} />
-          <Text style={[styles.metricLabel, styles.skeletonText]}>Deep Sleep</Text>
-        </View>
-        <View style={styles.metricValueContainer}>
-          <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
-          <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
-        </View>
-      </View>
-      <View key="skeleton-light" style={[styles.metricRow, styles.metricRowAlternate]}>
-        <View style={styles.metricLabelContainer}>
-          <View style={[styles.metricColorIndicator, { backgroundColor: colors.sleepStages.light }]} />
-          <Text style={[styles.metricLabel, styles.skeletonText]}>Light Sleep</Text>
-        </View>
-        <View style={styles.metricValueContainer}>
-          <Text style={[styles.metricValue, styles.skeletonText]}>--h --m (--%)</Text>
-          <Text style={[styles.metricComparison, styles.skeletonText]}>--% -- average</Text>
-        </View>
-      </View>
-      <View key="skeleton-awakenings" style={styles.metricRow}>
-        <View style={styles.metricLabelContainer}>
-          <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
-          <Text style={[styles.metricLabel, styles.skeletonText]}>Awakenings</Text>
-        </View>
-        <View style={styles.metricValueContainer}>
-          <Text style={[styles.metricValue, styles.skeletonText]}>--</Text>
-          <Text style={[styles.metricComparison, styles.skeletonText]}>-- times -- than average</Text>
+      <View style={styles.sleepLoadStatusBody}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.sleepLoadStatusHeadline}>{headline}</Text>
+        <View style={styles.sleepLoadStatusSteps}>
+          {rows.map((row, idx) => (
+            <View key={`${row.icon}-${idx}`} style={styles.sleepLoadStatusStepRow}>
+              <Ionicons name={row.icon} size={18} color={colors.primary} style={styles.sleepLoadStatusStepIcon} />
+              <Text style={styles.sleepLoadStatusLine}>{row.text}</Text>
+            </View>
+          ))}
         </View>
       </View>
     </View>
-
-    {/* Sync Status during loading - spinning icon + pulse */}
-    <Animated.View style={[styles.syncStatus, { opacity: pulseOpacity }]}>
-      <Animated.View style={{ transform: [{ rotate: spin }] }}>
-        <Ionicons name="sync" size={16} color={colors.primary} />
-      </Animated.View>
-      <Text style={[styles.syncStatusText, { color: colors.primary }]}>
-        {displayMessage}
-      </Text>
-    </Animated.View>
-  </View>
   );
 });
 
@@ -495,7 +459,6 @@ const HomeScreen = () => {
 
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
-  const [sleepDataLoading, setSleepDataLoading] = useState(false);
   const [autoSyncLoading, setAutoSyncLoading] = useState(false);
   const [isExcluded, setIsExcluded] = useState(false);
   const [exclusionReason, setExclusionReason] = useState(null);
@@ -895,10 +858,7 @@ const HomeScreen = () => {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-        StatusBar.setTranslucent?.(true);
-      }
+      applyAndroidStatusBarForFrostedHeader();
       return () => {
         // Do not set status bar to white here: navigating to HabitLogging (same tab) would
         // flash white. Other tabs set their own status bar when they gain focus.
@@ -1086,11 +1046,6 @@ const HomeScreen = () => {
         return;
       }
 
-      // Check if we already have sleep data for today (from database, not just cache)
-      if (sleepDataLoading) {
-        return;
-      }
-
       // Check if we just synced (prevent immediate re-trigger from sleepData update)
       if (justSyncedRef.current) {
         justSyncedRef.current = false; // Reset the flag
@@ -1191,7 +1146,7 @@ const HomeScreen = () => {
       // Reset autoSyncLoading when effect is cleaned up (e.g., navigating away)
       setAutoSyncLoading(false);
     };
-  }, [selectedDate, user, healthSyncInitialized, hasPermissions, healthSyncLoading, fetchDashboard]);
+  }, [selectedDate, user, healthSyncInitialized, hasPermissions, fetchDashboard]);
 
   // Auto-hide "new sleep data" banner after 4 seconds
   useEffect(() => {
@@ -1223,29 +1178,20 @@ const HomeScreen = () => {
 
   const handleLogHabits = () => {
     tutorial?.notifyOpenedHabitLogging?.();
-    if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primaryDark);
-      StatusBar.setTranslucent?.(true);
-    }
+    applyAndroidStatusBarForFrostedHeader();
     const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
     navigation.navigate('HabitLogging', { date: formatDateForDB(dateToUse) });
   };
 
   const handleLogTodaysHabits = () => {
-    if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primaryDark);
-      StatusBar.setTranslucent?.(true);
-    }
+    applyAndroidStatusBarForFrostedHeader();
     const today = new Date();
     safeSetSelectedDate(today);
     navigation.navigate('HabitLogging', { date: formatDateForDB(today) });
   };
 
   const handleLogYesterdaysHabits = useCallback(() => {
-    if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor(colors.primaryDark);
-      StatusBar.setTranslucent?.(true);
-    }
+    applyAndroidStatusBarForFrostedHeader();
     const y = new Date();
     y.setDate(y.getDate() - 1);
     navigation.navigate('HabitLogging', { date: formatDateForDB(y) });
@@ -1503,9 +1449,11 @@ const HomeScreen = () => {
   };
 
   const formatSleepDuration = useCallback((minutes) => {
-    if (!minutes) return '0h 0m';
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    if (minutes == null || minutes === undefined) return '—';
+    const n = Number(minutes);
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    const hours = Math.floor(n / 60);
+    const mins = Math.round(n % 60);
     return `${hours}h ${mins}m`;
   }, []);
 
@@ -1837,10 +1785,12 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Sleep Data Card - Fixed-height container so size never changes during sync */}
+        {/* Sleep Data Card — height follows content; full-screen load card only when no row yet or auto-sync */}
         <View style={styles.section}>
           <View style={styles.sleepSectionStable}>
           {(() => {
+            const showHealthSyncLoadCard =
+              autoSyncLoading || (healthSyncLoading && !sleepData);
             if (showPermissionPrompt) {
               return (
                 <View style={styles.sleepSectionInner}>
@@ -1852,30 +1802,17 @@ const HomeScreen = () => {
                   </View>
                 </View>
               );
-            } else if (autoSyncLoading) {
+            } else if (showHealthSyncLoadCard) {
               return (
                 <View style={styles.sleepSectionInner}>
                   <View style={styles.sleepCardFill}>
-                    <SleepDataLoadingSkeleton
+                    <SleepDataLoadStatusCard
+                      phase="health_sync"
                       selectedDate={selectedDate}
                       isToday={isToday}
                       formatDateTitle={formatDateTitle}
                       containerStyle={styles.sleepCardFillCard}
-                      message={isToday(selectedDate) ? "Syncing last night's sleep…" : undefined}
-                    />
-                  </View>
-                </View>
-              );
-            } else if (sleepDataLoading) {
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <View style={styles.sleepCardFill}>
-                    <SleepDataLoadingSkeleton
-                      selectedDate={selectedDate}
-                      isToday={isToday}
-                      formatDateTitle={formatDateTitle}
-                      containerStyle={styles.sleepCardFillCard}
-                      message={isToday(selectedDate) ? "Syncing last night's sleep…" : undefined}
+                      hasPermissions={hasPermissions}
                     />
                   </View>
                 </View>
@@ -1884,27 +1821,29 @@ const HomeScreen = () => {
               return (
                 <View style={styles.sleepSectionInner}>
                   <View style={styles.sleepCardFill}>
-                    <SleepDataLoadingSkeleton
+                    <SleepDataLoadStatusCard
+                      phase="loading_dashboard"
                       selectedDate={selectedDate}
                       isToday={isToday}
                       formatDateTitle={formatDateTitle}
                       containerStyle={styles.sleepCardFillCard}
-                      message="Syncing last night's sleep…"
+                      hasPermissions={hasPermissions}
                     />
                   </View>
                 </View>
               );
             } else if (!sleepData && isToday(selectedDate) && lastSyncResult?.success) {
-              // Sync just succeeded; refetch is in progress. Keep showing skeleton until payload is applied.
+              // Sync just succeeded; refetch is in progress.
               return (
                 <View style={styles.sleepSectionInner}>
                   <View style={styles.sleepCardFill}>
-                    <SleepDataLoadingSkeleton
+                    <SleepDataLoadStatusCard
+                      phase="post_sync_fetch"
                       selectedDate={selectedDate}
                       isToday={isToday}
                       formatDateTitle={formatDateTitle}
                       containerStyle={styles.sleepCardFillCard}
-                      message="Loading…"
+                      hasPermissions={hasPermissions}
                     />
                   </View>
                 </View>
@@ -2138,25 +2077,75 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   sleepSectionStable: {
-    minHeight: 480,
+    alignSelf: 'stretch',
   },
   sleepSectionInner: {
-    flex: 1,
-    height: '100%',
+    width: '100%',
   },
   sleepCardFill: {
-    flex: 1,
-    minHeight: '100%',
+    width: '100%',
   },
-  sleepCardFillCard: {
-    flex: 1,
-  },
+  sleepCardFillCard: {},
   sleepCard: {
     backgroundColor: colors.cardBackground,
     borderRadius: 16,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  sleepLoadStatusCard: {
+    paddingBottom: spacing.md,
+  },
+  sleepLoadStatusBody: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  sleepLoadStatusHeadline: {
+    ...typography.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  sleepLoadStatusSteps: {
+    alignSelf: 'stretch',
+    gap: spacing.sm,
+  },
+  sleepLoadStatusStepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  sleepLoadStatusStepIcon: {
+    marginTop: 2,
+  },
+  sleepLoadStatusLine: {
+    ...typography.body,
+    flex: 1,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.small,
+    lineHeight: 20,
+  },
+  noDeviceSleepBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    padding: spacing.sm,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  noDeviceSleepBannerText: {
+    ...typography.body,
+    flex: 1,
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
   },
   timelineContainer: {
     marginTop: spacing.md,
@@ -2181,12 +2170,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
-  },
-  skeletonCard: {
-    opacity: 0.6,
-  },
-  skeletonBar: {
-    backgroundColor: colors.accent,
   },
   skeletonText: {
     color: colors.textSecondary,
@@ -2217,10 +2200,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.xs,
-  },
-  skeletonSyncButtonShrink: {
-    flexShrink: 1,
-    minWidth: 0,
   },
   cardSyncButtonText: {
     fontSize: typography.sizes.small,
@@ -2358,27 +2337,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     flex: 1,
-  },
-  toggleSwitch: {
-    width: 50,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.border,
-    padding: 2,
-    justifyContent: 'center',
-  },
-  toggleSwitchOn: {
-    backgroundColor: colors.primary,
-  },
-  toggleKnob: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FFFFFF',
-    alignSelf: 'flex-start',
-  },
-  toggleKnobOn: {
-    alignSelf: 'flex-end',
+    paddingRight: spacing.sm,
   },
 });
 

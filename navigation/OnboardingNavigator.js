@@ -10,12 +10,12 @@ import OnboardingAuthScreen from '../screens/onboarding/OnboardingAuthScreen';
 import OnboardingIntroStatScreen from '../screens/onboarding/OnboardingIntroStatScreen';
 import OnboardingGoalQuizScreen from '../screens/onboarding/OnboardingGoalQuizScreen';
 import OnboardingHowSleepFactorWorksScreen from '../screens/onboarding/OnboardingHowSleepFactorWorksScreen';
+import OnboardingHowSleepFactorPlotScreen from '../screens/onboarding/OnboardingHowSleepFactorPlotScreen';
 import OnboardingLetsGetSetupScreen from '../screens/onboarding/OnboardingLetsGetSetupScreen';
 import OnboardingSleepSourcePickerScreen from '../screens/onboarding/OnboardingSleepSourcePickerScreen';
 import OnboardingHealthLabScreen from '../screens/onboarding/OnboardingHealthLabScreen';
 import OnboardingConnectedSuccessScreen from '../screens/onboarding/OnboardingConnectedSuccessScreen';
 import OnboardingNewBeginningScreen from '../screens/onboarding/OnboardingNewBeginningScreen';
-import OnboardingAlcoholCaffeineScreen from '../screens/onboarding/OnboardingAlcoholCaffeineScreen';
 import OnboardingStarterHabitsScreen from '../screens/onboarding/OnboardingStarterHabitsScreen';
 import OnboardingWearableMetricsScreen from '../screens/onboarding/OnboardingWearableMetricsScreen';
 import OnboardingSleepFactorEducationScreen from '../screens/onboarding/OnboardingSleepFactorEducationScreen';
@@ -63,12 +63,12 @@ export default function OnboardingNavigator({ onComplete }) {
       <Stack.Screen name="OnboardingIntroStat" component={OnboardingIntroStatScreen} />
       <Stack.Screen name="OnboardingGoalQuiz" component={OnboardingGoalQuizScreen} />
       <Stack.Screen name="OnboardingHowSleepFactorWorks" component={OnboardingHowSleepFactorWorksScreen} />
+      <Stack.Screen name="OnboardingHowSleepFactorPlot" component={OnboardingHowSleepFactorPlotScreen} />
       <Stack.Screen name="OnboardingLetsGetSetup" component={OnboardingLetsGetSetupScreen} />
       <Stack.Screen name="OnboardingSleepSourcePicker" component={OnboardingSleepSourcePickerScreen} />
       <Stack.Screen name="OnboardingHealthLab" component={OnboardingHealthLabScreen} />
       <Stack.Screen name="OnboardingConnectedSuccess" component={OnboardingConnectedSuccessScreen} />
       <Stack.Screen name="OnboardingNewBeginning" component={OnboardingNewBeginningScreen} />
-      <Stack.Screen name="OnboardingAlcoholCaffeine" component={OnboardingAlcoholCaffeineScreen} />
       <Stack.Screen name="OnboardingStarterHabits" component={OnboardingStarterHabitsScreen} />
       <Stack.Screen
         name="OnboardingAddHabit"

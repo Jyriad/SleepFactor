@@ -1,122 +1,71 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import ScatterPlot from '../../components/ScatterChart';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
+import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
+import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-/** 15 points over 5s — spread pattern (weaker apparent correlation) */
-const FULL_DEMO = [
-  { x: 1.2, y: 42 },
-  { x: 2.8, y: 55 },
-  { x: 4.1, y: 38 },
-  { x: 5.5, y: 62 },
-  { x: 6.2, y: 48 },
-  { x: 7.0, y: 58 },
-  { x: 3.4, y: 51 },
-  { x: 8.1, y: 44 },
-  { x: 2.1, y: 60 },
-  { x: 6.8, y: 52 },
-  { x: 4.9, y: 47 },
-  { x: 7.6, y: 56 },
-  { x: 1.0, y: 49 },
-  { x: 8.8, y: 41 },
-  { x: 5.0, y: 54 },
-];
-
-const DURATION_MS = 5000;
 const SUB_STEPS = [
   {
-    title: 'How SleepFactor thinks',
+    stepNumber: 1,
     body: 'Each day you log your habits.',
   },
   {
-    title: 'How SleepFactor thinks',
+    stepNumber: 2,
     body: 'In the morning we automatically sync your sleep data.',
   },
   {
-    title: 'How SleepFactor thinks',
+    stepNumber: 3,
     body: 'Over time, we plot these days to see how habits you do in the day impact your sleep that night.',
   },
 ];
 
 export default function OnboardingHowSleepFactorWorksScreen({ navigation }) {
-  const [sub, setSub] = useState(0);
-  const [visibleCount, setVisibleCount] = useState(0);
+  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingHowSleepFactorWorks');
+  /** How many explanation lines are visible: 1, 2, or 3 */
+  const [visibleCount, setVisibleCount] = useState(1);
 
-  useEffect(() => {
-    if (sub !== 3) return;
-    const n = FULL_DEMO.length;
-    const tick = DURATION_MS / n;
-    let i = 0;
-    const id = setInterval(() => {
-      i += 1;
-      if (i >= n) {
-        setVisibleCount(n);
-        clearInterval(id);
-        return;
-      }
-      setVisibleCount(i);
-    }, tick);
-    return () => clearInterval(id);
-  }, [sub]);
-
-  const chartData = useMemo(() => FULL_DEMO.slice(0, Math.max(0, visibleCount)), [visibleCount]);
-
-  const advance = () => {
-    if (sub < 3) {
-      setSub((s) => s + 1);
-      if (sub + 1 === 3) setVisibleCount(0);
+  const onPrimary = () => {
+    if (visibleCount < 3) {
+      setVisibleCount((n) => n + 1);
     } else {
-      navigation.navigate('OnboardingLetsGetSetup');
+      navigation.navigate('OnboardingHowSleepFactorPlot');
     }
   };
 
+  const primaryLabel = visibleCount < 3 ? 'Next' : 'Continue';
+  const visibleSteps = SUB_STEPS.slice(0, visibleCount);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View style={styles.headerRow}>
-        <Text style={styles.step}>Step 3</Text>
-        <OnboardingSignOutLink />
-      </View>
-      {sub < 3 ? (
-        <View style={styles.textBlock}>
-          <Text style={styles.title}>{SUB_STEPS[sub].title}</Text>
-          <Text style={styles.body}>{SUB_STEPS[sub].body}</Text>
-        </View>
-      ) : (
-        <View style={styles.chartBlock}>
-          <Text style={styles.title}>{SUB_STEPS[2].title}</Text>
-          <Text style={styles.bodySmall}>{SUB_STEPS[2].body}</Text>
-          <View style={styles.chartWrap}>
-            {chartData.length > 0 ? (
-              <ScatterPlot
-                data={chartData}
-                width={300}
-                height={200}
-                xLabel="habit"
-                yLabel="sleep"
-                title=""
-                showTrendLine
-                color={colors.primary}
-                pointColor={colors.primary}
-                trendLineColor={colors.error}
-              />
-            ) : (
-              <View style={styles.placeholder}>
-                <Text style={styles.placeholderText}>Plotting…</Text>
-              </View>
-            )}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.progressSlot}>
+            <OnboardingProgressHeader currentStep={currentStep} totalSteps={totalSteps} progress={progress} />
           </View>
+          <OnboardingSignOutLink />
         </View>
-      )}
+        <Text style={styles.title}>How SleepFactor thinks</Text>
+        <View style={styles.list}>
+          {visibleSteps.map((item) => (
+            <View key={item.stepNumber} style={styles.numberedRow}>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>{item.stepNumber}</Text>
+              </View>
+              <Text style={styles.numberedBody}>{item.body}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
       <View style={styles.footer}>
-        <Button
-          title={sub < 3 ? 'Next' : 'Continue'}
-          onPress={advance}
-          style={styles.btn}
-        />
+        <Button title={primaryLabel} onPress={onPrimary} style={styles.btn} />
       </View>
     </SafeAreaView>
   );
@@ -131,54 +80,57 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.md,
+    gap: spacing.sm,
   },
-  step: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+  progressSlot: {
+    flex: 1,
+    minWidth: 0,
   },
-  textBlock: {
+  scroll: {
     flex: 1,
   },
-  chartBlock: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: spacing.md,
   },
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
-  body: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    lineHeight: typography.lineHeights.body,
+  list: {
+    gap: spacing.lg,
   },
-  bodySmall: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    lineHeight: typography.lineHeights.small,
-    marginBottom: spacing.md,
+  numberedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
   },
-  chartWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 220,
-  },
-  placeholder: {
-    width: 300,
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
+  stepBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
   },
-  placeholderText: {
-    color: colors.textSecondary,
+  stepBadgeText: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
+  },
+  numberedBody: {
+    flex: 1,
+    fontSize: typography.sizes.regular,
+    lineHeight: typography.lineHeights.regular,
+    color: colors.textPrimary,
+    fontWeight: typography.weights.medium,
   },
   footer: {
     paddingVertical: spacing.md,

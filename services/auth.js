@@ -1,6 +1,17 @@
 // Authentication service wrapper for Supabase
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
+import { trackSignIn, trackSignUp } from './mixpanel';
+
+function trackMixpanelSignInFromAuthPayload(data) {
+  const u = data?.session?.user ?? data?.user;
+  if (!u?.id) return;
+  trackSignIn({
+    user_id: u.id,
+    login_method: u.app_metadata?.provider || 'oauth',
+    success: true,
+  });
+}
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import {
@@ -165,7 +176,16 @@ async function completeSessionFromUrl(url) {
   })();
   oauthReturnInFlight.set(key, run);
   try {
-    return await run;
+    const result = await run;
+    if (result?.data?.session?.user) {
+      const u = result.data.session.user;
+      trackSignIn({
+        user_id: u.id,
+        login_method: u.app_metadata?.provider || 'oauth',
+        success: true,
+      });
+    }
+    return result;
   } finally {
     oauthReturnInFlight.delete(key);
   }
@@ -192,6 +212,13 @@ export const signUp = async (email, password) => {
       }
       throw error;
     }
+    if (data?.user?.id) {
+      trackSignUp({
+        user_id: data.user.id,
+        email,
+        signup_method: 'email',
+      });
+    }
     return { data, error: null };
   } catch (error) {
     return { data: null, error: error.message || 'Failed to create account' };
@@ -206,6 +233,13 @@ export const signIn = async (email, password) => {
         throw new Error('Invalid email or password');
       }
       throw error;
+    }
+    if (data?.user?.id) {
+      trackSignIn({
+        user_id: data.user.id,
+        login_method: 'email',
+        success: true,
+      });
     }
     return { data, error: null };
   } catch (error) {
@@ -395,6 +429,7 @@ async function signInWithGoogleWebOAuth() {
         } = await supabase.auth.getSession();
         if (s?.user) {
           oauthLog('google.done', { via: 'browserSuccessSkippedDup' });
+          trackMixpanelSignInFromAuthPayload({ session: s, user: s.user });
           return { data: { session: s, user: s.user }, error: null };
         }
         return {
@@ -426,6 +461,7 @@ async function signInWithGoogleWebOAuth() {
       const session = await waitForSession(8000);
       if (session) {
         oauthLog('google.done', { via: 'sessionAfterDismiss' });
+        trackMixpanelSignInFromAuthPayload({ session, user: session.user });
         return { data: { session, user: session.user }, error: null };
       }
       if (formatOAuthError(lastOAuthRedirect || {})) {
@@ -465,7 +501,10 @@ export const signInWithFacebook = async () => {
     }
     if (result.type === 'cancel') return { data: null, error: 'OAuth flow was cancelled' };
     const session = await waitForSession(8000);
-    if (session) return { data: { session, user: session.user }, error: null };
+    if (session) {
+      trackMixpanelSignInFromAuthPayload({ session, user: session.user });
+      return { data: { session, user: session.user }, error: null };
+    }
     return { data: null, error: 'OAuth flow was cancelled or failed' };
   } catch (error) {
     return { data: null, error: error.message || 'Failed to sign in with Facebook' };

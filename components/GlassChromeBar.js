@@ -1,18 +1,16 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import TabBarBlurBackground from './TabBarBlurBackground';
 import {
   GLASS_BLUR_INTENSITY,
   GLASS_FROST_OVERLAY,
   GLASS_BLUR_TINT,
-  getGlassBlurAndroidProps,
 } from '../constants/glassChrome';
 
 /**
- * Frosted glass strip (blur + light veil). Use behind header content; match tab bar visually.
+ * Frosted glass strip (blur + light veil on iOS; solid chrome + veil on Android). Match tab bar visually.
  */
 export default function GlassChromeBar({ children, style, bottomRadius = 12, onLayout }) {
-  const androidBlur = getGlassBlurAndroidProps();
   return (
     <View
       onLayout={onLayout}
@@ -25,12 +23,7 @@ export default function GlassChromeBar({ children, style, bottomRadius = 12, onL
         style,
       ]}
     >
-      <TabBarBlurBackground
-        intensity={GLASS_BLUR_INTENSITY}
-        tint={GLASS_BLUR_TINT}
-        experimentalBlurMethod={androidBlur.experimentalBlurMethod}
-        blurReductionFactor={androidBlur.blurReductionFactor}
-      />
+      <TabBarBlurBackground intensity={GLASS_BLUR_INTENSITY} tint={GLASS_BLUR_TINT} />
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.frost]} />
       <View style={styles.foreground}>{children}</View>
     </View>

@@ -1,2 +1,2 @@
-/** Shown on step-layout screens (welcome / auth gate / health connect fullscreen excluded) */
-export const ONBOARDING_STEP_TOTAL = 12;
+/** Re-export total steps for layouts that still import from here */
+export { ONBOARDING_TOTAL_STEPS as ONBOARDING_STEP_TOTAL } from './onboardingProgress';

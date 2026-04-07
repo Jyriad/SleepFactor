@@ -5,10 +5,12 @@ import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
+import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
+import { ONBOARDING_TOTAL_STEPS } from '../../constants/onboardingProgress';
 
 export default function OnboardingStepLayout({
   step,
-  totalSteps,
+  totalSteps = ONBOARDING_TOTAL_STEPS,
   title,
   children,
   onNext,
@@ -18,12 +20,13 @@ export default function OnboardingStepLayout({
   showSkip = true,
   nextLoading = false,
 }) {
+  const progress = totalSteps > 0 ? step / totalSteps : 0;
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.stepIndicator}>
-          {step} of {totalSteps}
-        </Text>
+        <View style={styles.progressSlot}>
+          <OnboardingProgressHeader currentStep={step} totalSteps={totalSteps} progress={progress} />
+        </View>
         <View style={styles.headerRight}>
           <OnboardingSignOutLink />
           {showSkip && onSkip ? (
@@ -62,22 +65,21 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.regular,
     gap: spacing.sm,
+  },
+  progressSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    flexShrink: 1,
+    flexShrink: 0,
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
-  },
-  stepIndicator: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
   },
   skipText: {
     fontSize: typography.sizes.body,

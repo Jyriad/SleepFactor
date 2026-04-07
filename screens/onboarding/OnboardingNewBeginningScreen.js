@@ -9,10 +9,10 @@ import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 export default function OnboardingNewBeginningScreen({ navigation }) {
   return (
     <OnboardingStepLayout
-      step={5}
+      step={8}
       totalSteps={ONBOARDING_STEP_TOTAL}
       title="New beginning"
-      onNext={() => navigation.navigate('OnboardingAlcoholCaffeine')}
+      onNext={() => navigation.navigate('OnboardingStarterHabits')}
       onBack={() => navigation.goBack()}
       nextLabel="Continue"
       showSkip={false}

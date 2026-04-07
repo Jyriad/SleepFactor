@@ -14,7 +14,6 @@ import {
   TouchableOpacity,
   Dimensions,
   Platform,
-  StatusBar,
   ActivityIndicator,
   InteractionManager,
   FlatList,
@@ -47,6 +46,7 @@ import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
+import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import GlassChromeBar from '../components/GlassChromeBar';
 import HabitInput from '../components/HabitInput';
@@ -231,13 +231,10 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     }
   }, [route.params?.date, setSelectedDate]);
 
-  // Keep status bar blue on this screen; set on focus so no white flash after navigation
+  // Transparent status bar so frosted header reaches the top on Android
   useFocusEffect(
     useCallback(() => {
-      if (Platform.OS === 'android') {
-        StatusBar.setBackgroundColor(colors.primaryDark);
-        StatusBar.setTranslucent?.(true);
-      }
+      applyAndroidStatusBarForFrostedHeader();
     }, [])
   );
 

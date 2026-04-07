@@ -5,7 +5,12 @@ import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
 import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
-import { getCorrelationLabel, getImpactLabel, getCorrelationTagStyle, getImpactTagStyle } from '../utils/insightLabels';
+import {
+  getCorrelationLabelShort,
+  getImpactLabel,
+  getCorrelationTagStyle,
+  getImpactTagStyle,
+} from '../utils/insightLabels';
 
 const BinaryHabitInsight = ({
   insight,
@@ -80,7 +85,7 @@ const BinaryHabitInsight = ({
   const impactBarDirection = (difference > 0 && higherIsBetter) || (difference < 0 && !higherIsBetter) ? 'right' : 'left';
 
   // Correlation (confidence) and impact (effect size + direction) - standardised across app
-  const correlationLabel = getCorrelationLabel(confidenceLevel);
+  const correlationLabel = getCorrelationLabelShort(confidenceLevel);
   const impactLabel = getImpactLabel(impactLevel, isPositiveImpact);
   const correlationTagStyle = getCorrelationTagStyle(confidenceLevel);
   const impactTagStyle = getImpactTagStyle(impactLevel, isPositiveImpact);

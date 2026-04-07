@@ -1,12 +1,11 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { ANDROID_CHROME_SOLID_BACKGROUND } from '../constants/glassChrome';
 
 /**
- * Tab bar background blur. Always uses expo-blur's BlurView (same as the library itself).
- * Do not gate on requireOptionalNativeModule('ExpoBlurView'): that API exposes JS native modules,
- * but the blur package is a view-only module and is often absent from that registry — which
- * incorrectly forced an opaque fallback and looked like a solid white bar.
+ * Tab bar / header chrome background. iOS uses native blur; Android uses a solid fill — real-time
+ * blur is costly on Android and can make scrolling feel janky, especially on Home.
  */
 export default function TabBarBlurBackground({
   intensity,
@@ -15,6 +14,18 @@ export default function TabBarBlurBackground({
   blurReductionFactor,
   style,
 }) {
+  if (Platform.OS === 'android') {
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: ANDROID_CHROME_SOLID_BACKGROUND },
+          style,
+        ]}
+      />
+    );
+  }
+
   return (
     <BlurView
       intensity={intensity}
