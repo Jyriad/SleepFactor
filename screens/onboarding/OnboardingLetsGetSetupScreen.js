@@ -19,6 +19,11 @@ import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import sleepSyncService, {
   getHealthPermissionFailureAlertCopy,
 } from '../../services/sleepSyncService';
+import {
+  trackOnboardingHealthConnectAbandoned,
+  trackOnboardingHealthConnectPressed,
+  trackOnboardingHealthPermissionResult,
+} from '../../services/onboardingAnalytics';
 
 const PROMPT_IMAGE = require('../../assets/onboarding/apple-health-access-prompt.png');
 
@@ -28,15 +33,18 @@ export default function OnboardingLetsGetSetupScreen({ navigation }) {
   const isIos = Platform.OS === 'ios';
 
   const connect = async () => {
+    trackOnboardingHealthConnectPressed('OnboardingLetsGetSetup');
     setBusy(true);
     try {
       const result = await sleepSyncService.requestPermissionsDetailed();
       if (result.ok) {
+        trackOnboardingHealthPermissionResult(true, { connect_screen: 'OnboardingLetsGetSetup' });
         navigation.replace('OnboardingHealthLab', {
           sourceLabel: isIos ? 'Apple Health' : 'Google Health Connect',
         });
         return;
       }
+      trackOnboardingHealthPermissionResult(false, { connect_screen: 'OnboardingLetsGetSetup' });
       const copy = getHealthPermissionFailureAlertCopy(result) || {
         title: 'Couldn’t connect health data',
         message: isIos
@@ -44,7 +52,13 @@ export default function OnboardingLetsGetSetupScreen({ navigation }) {
           : 'Try again or skip for now.',
       };
       Alert.alert(copy.title, copy.message, [
-        { text: 'Continue without', onPress: () => navigation.replace('OnboardingNewBeginning') },
+        {
+          text: 'Continue without',
+          onPress: () => {
+            trackOnboardingHealthConnectAbandoned('permission_denied_continue_without');
+            navigation.replace('OnboardingNewBeginning');
+          },
+        },
         { text: 'OK' },
       ]);
     } catch (e) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
@@ -7,6 +7,7 @@ import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
+import { trackEvent } from '../../services/mixpanel';
 
 const SLIDES = [
   {
@@ -38,6 +39,19 @@ export default function OnboardingSleepFactorEducationScreen({ navigation }) {
   const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingSleepFactorEducation', {
     educationSlideIndex: index,
   });
+  const analyticsProperties = useMemo(
+    () => ({
+      step_name: 'OnboardingSleepFactorEducation',
+      step_number: currentStep,
+      total_steps: totalSteps,
+      education_slide_index: index,
+    }),
+    [currentStep, totalSteps, index]
+  );
+
+  useEffect(() => {
+    trackEvent('Onboarding Step Viewed', analyticsProperties);
+  }, [analyticsProperties]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -56,6 +70,7 @@ export default function OnboardingSleepFactorEducationScreen({ navigation }) {
         <Button
           title={last ? 'Continue' : 'Next'}
           onPress={() => {
+            trackEvent('Onboarding Step Continued', analyticsProperties);
             if (last) navigation.navigate('OnboardingNotification');
             else setIndex((i) => i + 1);
           }}

@@ -435,6 +435,7 @@ const HomeScreen = () => {
   const [todaysHabitsLogged, setTodaysHabitsLogged] = useState(false);
   const [habitCount, setHabitCount] = useState(0);
   const [totalHabitCount, setTotalHabitCount] = useState(0);
+  const [hasAnyHabitLogsEver, setHasAnyHabitLogsEver] = useState(false);
   const [loggingStreak, setLoggingStreak] = useState(0);
   /** Space for absolute glass date header so scroll content sits below it */
   const [homeGlassHeaderHeight, setHomeGlassHeaderHeight] = useState(140);
@@ -477,6 +478,7 @@ const HomeScreen = () => {
   const [showNewSleepBanner, setShowNewSleepBanner] = useState(false);
   const [trackTiredness, setTrackTiredness] = useState(false);
   const [trackDreamVividness, setTrackDreamVividness] = useState(false);
+  const [subjectiveAnyEnabled, setSubjectiveAnyEnabled] = useState(false);
   // When viewing "today", subjective scores live on today's sleep row (last night = wake date)
   const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
   // Optimistic scores passed back from SleepQualityLog; prefer over stale RPC until server catches up
@@ -554,20 +556,37 @@ const HomeScreen = () => {
     setLoggingStreak(payload.streak ?? 0);
     setTrackTiredness(payload.user_prefs?.track_tiredness === true);
     setTrackDreamVividness(payload.user_prefs?.track_dream_vividness === true);
+    const prefs = payload.user_prefs || {};
+    setSubjectiveAnyEnabled(
+      prefs.subjective_any_enabled === true ||
+        (prefs.subjective_any_enabled === undefined &&
+          (prefs.track_tiredness === true || prefs.track_dream_vividness === true))
+    );
     const lastNight = payload.last_night_subjective;
-    const hasPayloadScores = lastNight && (lastNight.tiredness_score != null || lastNight.dream_vividness_score != null);
+    const hasPayloadScores =
+      lastNight &&
+      (lastNight.tiredness_score != null ||
+        lastNight.dream_vividness_score != null ||
+        (Array.isArray(lastNight.extra) && lastNight.extra.length > 0));
     const viewingToday = dateStr === getToday();
     const optimistic = optimisticSubjectiveScoresRef.current;
     let nextSubjective = null;
+    const extrasEqual = (a, b) => JSON.stringify(a?.extra ?? []) === JSON.stringify(b?.extra ?? []);
     if (viewingToday && optimistic) {
-      const payloadMatchesOptimistic = hasPayloadScores &&
+      const payloadMatchesOptimistic =
+        hasPayloadScores &&
         lastNight.tiredness_score === optimistic.tiredness_score &&
-        lastNight.dream_vividness_score === optimistic.dream_vividness_score;
+        lastNight.dream_vividness_score === optimistic.dream_vividness_score &&
+        extrasEqual(lastNight, optimistic);
       if (payloadMatchesOptimistic) {
         optimisticSubjectiveScoresRef.current = null;
         nextSubjective = hasPayloadScores ? lastNight : null;
       } else {
-        nextSubjective = (optimistic.tiredness_score != null || optimistic.dream_vividness_score != null) ? optimistic : null;
+        const optHas =
+          optimistic.tiredness_score != null ||
+          optimistic.dream_vividness_score != null ||
+          (Array.isArray(optimistic.extra) && optimistic.extra.length > 0);
+        nextSubjective = optHas ? optimistic : null;
       }
     } else {
       // Trust the payload: if the server/cache says no scores for this date, show none (avoid stale scores from another day or session).
@@ -580,6 +599,12 @@ const HomeScreen = () => {
       : (loggedDatesRaw && typeof loggedDatesRaw === 'object')
         ? Object.values(loggedDatesRaw).filter((d) => typeof d === 'string')
         : [];
+    const hasHistory =
+      loggedDatesArray.length > 0 ||
+      payload.habits_logged === true ||
+      payload.todays_habits_logged === true ||
+      (payload.habit_counts?.logged_count ?? 0) > 0;
+    setHasAnyHabitLogsEver(hasHistory);
     setLoggedDates(loggedDatesArray);
     setHabitsLogged(payload.habits_logged === true);
     setTodaysHabitsLogged(payload.todays_habits_logged === true);
@@ -903,7 +928,10 @@ const HomeScreen = () => {
       const subjectiveJustSaved = homeCacheService.getAndClearSubjectiveJustSavedForToday();
       const pendingScores = homeCacheService.getAndClearPendingSubjectiveScoresForToday();
       if (pendingScores != null && dateStr === getToday()) {
-        const hasAny = pendingScores.tiredness_score != null || pendingScores.dream_vividness_score != null;
+        const hasAny =
+          pendingScores.tiredness_score != null ||
+          pendingScores.dream_vividness_score != null ||
+          (Array.isArray(pendingScores.extra) && pendingScores.extra.length > 0);
         setLastNightSubjectiveData(hasAny ? pendingScores : null);
         optimisticSubjectiveScoresRef.current = hasAny ? pendingScores : null;
       }
@@ -1208,6 +1236,12 @@ const HomeScreen = () => {
 
   const refreshForgotYesterdayBanner = useCallback(async () => {
     if (!user?.id) return;
+    if (!hasAnyHabitLogsEver) {
+      setForgotYesterdayShow(false);
+      forgotYesterdayCacheRef.current = { dateStr: getToday(), show: false };
+      setForgotYesterdayChecking(false);
+      return;
+    }
     const todayStr = getToday();
     const viewingToday = getDateString(selectedDate) === todayStr;
     if (!viewingToday) {
@@ -1273,7 +1307,7 @@ const HomeScreen = () => {
     } finally {
       setForgotYesterdayChecking(false);
     }
-  }, [user?.id, selectedDate, getDateString, getToday]);
+  }, [user?.id, selectedDate, getDateString, getToday, hasAnyHabitLogsEver]);
 
   const handleSyncNow = async () => {
     try {
@@ -1747,7 +1781,7 @@ const HomeScreen = () => {
         </View>
 
         {/* How you felt - compact card under habits for any selected day when tracking */}
-        {(trackTiredness || trackDreamVividness) && (
+        {(subjectiveAnyEnabled || trackTiredness || trackDreamVividness) && (
           <View style={styles.section}>
             <View style={styles.howYouFeltCard}>
               {!isToday(selectedDate) && (
@@ -1755,7 +1789,9 @@ const HomeScreen = () => {
                   How you felt — {formatDateTitle(selectedDate)}
                 </Text>
               )}
-              {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) || (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ? (
+              {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) ||
+              (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ||
+              (Array.isArray(lastNightSubjectiveData?.extra) && lastNightSubjectiveData.extra.length > 0) ? (
                 <View style={styles.howYouFeltRows}>
                   {trackTiredness && lastNightSubjectiveData?.tiredness_score != null && (
                     <View style={styles.metricRow}>
@@ -1773,6 +1809,15 @@ const HomeScreen = () => {
                       </View>
                     </View>
                   )}
+                  {Array.isArray(lastNightSubjectiveData?.extra) &&
+                    lastNightSubjectiveData.extra.map((row) => (
+                      <View key={row.measure_id} style={styles.metricRow}>
+                        <Text style={styles.metricLabel}>{row.label || 'Custom'}</Text>
+                        <View style={styles.metricValueContainer}>
+                          <Text style={styles.metricValue}>{row.score}/10</Text>
+                        </View>
+                      </View>
+                    ))}
                 </View>
               ) : null}
               <Button

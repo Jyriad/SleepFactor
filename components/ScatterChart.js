@@ -155,10 +155,11 @@ const ScatterPlot = ({
   // Chart dimensions with proper margins for axes (extra left gutter when Y label is shown)
   const safeWidth = Math.max(width, 100);
   const safeHeight = Math.max(height, 100);
+  // Bottom margin: only enough for x-axis tick labels (title sits in RN Text below SVG).
   const margin = {
     top: 40,
     right: 20,
-    bottom: 60,
+    bottom: 30,
     left: yLabel ? 76 : 60,
   };
   const chartWidth = safeWidth - margin.left - margin.right;
@@ -298,12 +299,8 @@ const ScatterPlot = ({
 
   const { xMarkers, yMarkers } = generateAxisMarkers();
 
-  // Include space for stats text below the chart (prevents overlap with content below)
-  const statsAreaHeight = 28;
-  const totalHeight = safeHeight + statsAreaHeight;
-
   return (
-    <View style={[styles.container, { width: safeWidth, minHeight: totalHeight }]}>
+    <View style={[styles.container, { width: safeWidth }]}>
       <TouchableOpacity
         style={styles.chartContainer}
         onPress={handleContainerPress}
@@ -376,20 +373,7 @@ const ScatterPlot = ({
               />
             )}
 
-            {/* Axis labels */}
-            {xLabel && (
-              <SvgText
-                x={margin.left + chartWidth / 2}
-                y={safeHeight - 10}
-                textAnchor="middle"
-                fontSize={12}
-                fontWeight="bold"
-                fill={colors.textPrimary}
-                fontFamily="OverusedGrotesk"
-              >
-                {xLabel}
-              </SvgText>
-            )}
+            {/* X-axis title is rendered below the SVG so it can wrap and is not clipped. */}
 
             {yLabel && (
               <SvgText
@@ -508,6 +492,9 @@ const ScatterPlot = ({
             })}
           </Svg>
         </TouchableOpacity>
+        {xLabel ? (
+          <Text style={[styles.xAxisCaption, { width: safeWidth }]}>{xLabel}</Text>
+        ) : null}
       </View>
   );
 };
@@ -533,6 +520,16 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontStyle: 'italic',
+  },
+  xAxisCaption: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    paddingHorizontal: spacing.sm,
+    marginTop: 2,
+    paddingBottom: 0,
+    lineHeight: 18,
   },
 });
 

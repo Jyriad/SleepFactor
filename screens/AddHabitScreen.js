@@ -19,13 +19,14 @@ import { typography, spacing } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
+import { trackOnboardingCustomHabitCreated } from '../services/onboardingAnalytics';
 
 const AddHabitScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { onSuccess } = route.params || {};
+  const { onSuccess, analytics_source: analyticsSource } = route.params || {};
 
   const [habitName, setHabitName] = useState('');
   const [habitType, setHabitType] = useState('binary');
@@ -100,6 +101,9 @@ const AddHabitScreen = () => {
         }
       }
 
+      if (analyticsSource === 'onboarding') {
+        trackOnboardingCustomHabitCreated({ habit_type: habitType });
+      }
       if (onSuccess) {
         onSuccess();
       }

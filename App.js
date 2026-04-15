@@ -16,7 +16,7 @@ import { colors } from './constants/colors';
 import { applyAndroidTransparentStatusBar } from './utils/androidStatusBar';
 import { FONT_FAMILY } from './constants/fonts';
 import * as Sentry from '@sentry/react-native';
-import { initMixpanel } from './services/mixpanel';
+import { initMixpanel, trackAppOpened } from './services/mixpanel';
 
 Sentry.init({
   dsn: 'https://629f28b06683444c9359d1c780ba77a9@o4511135557615616.ingest.de.sentry.io/4511135562268752',
@@ -41,6 +41,7 @@ Sentry.init({
 SplashScreen.preventAutoHideAsync();
 
 void initMixpanel();
+trackAppOpened({ source: 'app_boot' });
 
 // Android: translucent + transparent so frosted headers can reach the top; root view stays primaryDark
 if (Platform.OS === 'android') {

@@ -2,11 +2,22 @@ import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 import { Mixpanel } from 'mixpanel-react-native';
 
 const TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN || '';
+const API_HOST = process.env.EXPO_PUBLIC_MIXPANEL_API_HOST || 'https://api-eu.mixpanel.com';
+const ANALYTICS_DEBUG = __DEV__ || process.env.EXPO_PUBLIC_MIXPANEL_DEBUG === 'true';
 
 let mixpanelInstance = null;
 let initPromise = null;
 /** Set only when Session Replay native code is linked and init succeeded */
 let sessionReplayIdentify = null;
+
+function analyticsLog(message, extra) {
+  if (!ANALYTICS_DEBUG) return;
+  if (extra) {
+    console.log(`[Mixpanel] ${message}`, extra);
+    return;
+  }
+  console.log(`[Mixpanel] ${message}`);
+}
 
 /**
  * Session Replay must not be imported unless the native module exists — the package throws at load time otherwise.
@@ -31,6 +42,7 @@ function isMixpanelSessionReplayNativeAvailable() {
  */
 export async function initMixpanel() {
   if (!TOKEN) {
+    analyticsLog('Skipped init: EXPO_PUBLIC_MIXPANEL_TOKEN is empty.');
     return null;
   }
   if (initPromise) return initPromise;
@@ -42,10 +54,11 @@ export async function initMixpanel() {
     await mp.init(
       false,
       { data_source: 'sleepfactor-rn' },
-      'https://api.mixpanel.com',
+      API_HOST,
       false
     );
     mixpanelInstance = mp;
+    analyticsLog('Initialized analytics client.', { apiHost: API_HOST, useNative });
 
     if (isMixpanelSessionReplayNativeAvailable()) {
       try {
@@ -65,8 +78,10 @@ export async function initMixpanel() {
         });
         await MPSessionReplay.initialize(TOKEN, distinctId, config);
         sessionReplayIdentify = (id) => MPSessionReplay.identify(id);
+        analyticsLog('Session Replay initialized.');
       } catch (_e) {
         sessionReplayIdentify = null;
+        analyticsLog('Session Replay unavailable in this build.');
       }
     }
 
@@ -82,8 +97,17 @@ export function getMixpanel() {
 
 export function trackEvent(name, properties = {}) {
   void initMixpanel().then((mp) => {
+    if (!mp) {
+      analyticsLog(`Skipped event "${name}" because Mixpanel is not initialized.`);
+      return;
+    }
+    analyticsLog(`Track: ${name}`, properties);
     mp?.track(name, properties);
   });
+}
+
+export function trackAppOpened(properties = {}) {
+  trackEvent('App Opened', properties);
 }
 
 export function trackPageView({ screenName, userId }) {
@@ -108,6 +132,7 @@ export async function identifyUser(user) {
   if (!mp || !user?.id) return;
 
   mp.identify(user.id);
+  analyticsLog('Identify user.', { userId: user.id });
 
   const email = user.email;
   const name =
@@ -135,4 +160,5 @@ export async function resetAnalytics() {
   const mp = await initMixpanel();
   if (!mp) return;
   mp.reset();
+  analyticsLog('Reset analytics identity.');
 }

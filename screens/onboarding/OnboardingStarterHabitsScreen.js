@@ -13,6 +13,7 @@ import { createStarterHabits } from '../../services/onboardingStarterHabitsServi
 import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
 import { supabase } from '../../services/supabase';
 import AppToggle from '../../components/AppToggle';
+import { trackOnboardingStarterHabitsSaved } from '../../services/onboardingAnalytics';
 
 export default function OnboardingStarterHabitsScreen({ navigation }) {
   const { user } = useAuth();
@@ -61,6 +62,7 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
       onSuccess: () => {
         loadCustomHabits();
       },
+      analytics_source: 'onboarding',
     });
   };
 
@@ -79,7 +81,15 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
       if (!res.success) {
         return;
       }
-      navigation.navigate('OnboardingWearableMetrics');
+      trackOnboardingStarterHabitsSaved({
+        custom_habit_count: customHabits.length,
+        caffeine_on: caffeine,
+        alcohol_on: alcohol,
+        exercise_on: exercise,
+        last_meal_on: lastMeal,
+        eyemask_on: eyemask,
+      });
+      navigation.navigate('OnboardingSubjectiveMeasures');
     } finally {
       setLoading(false);
     }

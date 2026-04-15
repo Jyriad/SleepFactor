@@ -21,6 +21,7 @@ import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import habitReminderNotifications from '../../services/habitReminderNotifications';
 import morningCheckinNotifications from '../../services/morningCheckinNotifications';
 import { supabase } from '../../services/supabase';
+import { trackOnboardingNotificationsResult } from '../../services/onboardingAnalytics';
 
 const NOTIFICATION_PREF_KEY = 'onboarding_notification_preference';
 
@@ -166,6 +167,17 @@ const OnboardingNotificationScreen = ({ navigation }) => {
               updates.track_tiredness = true;
             }
             await supabase.from('users').update(updates).eq('id', user.id);
+            try {
+              if (!hasMorningTracking) {
+                await supabase
+                  .from('user_subjective_measures')
+                  .update({ enabled: true, updated_at: new Date().toISOString() })
+                  .eq('user_id', user.id)
+                  .eq('slug', 'tiredness');
+              }
+            } catch (_syncErr) {
+              /* table may not exist before migration */
+            }
           }
         }
 
@@ -173,6 +185,11 @@ const OnboardingNotificationScreen = ({ navigation }) => {
       }
 
       await setNotificationPreference(granted ? 'morning_and_evening' : 'skipped');
+      trackOnboardingNotificationsResult({
+        action: 'enable_pressed',
+        permission_granted: granted,
+        preference_saved: granted ? 'morning_and_evening' : 'skipped',
+      });
       navigation.navigate('OnboardingClosing');
     } finally {
       setRequesting(false);
@@ -181,6 +198,11 @@ const OnboardingNotificationScreen = ({ navigation }) => {
 
   const handleSkip = async () => {
     await setNotificationPreference('skipped');
+    trackOnboardingNotificationsResult({
+      action: 'skipped',
+      permission_granted: false,
+      preference_saved: 'skipped',
+    });
     navigation.navigate('OnboardingClosing');
   };
 
@@ -190,7 +212,7 @@ const OnboardingNotificationScreen = ({ navigation }) => {
   return (
     <>
       <OnboardingStepLayout
-        step={15}
+        step={16}
         totalSteps={ONBOARDING_STEP_TOTAL}
         title="Reminders"
         onNext={handleEnable}

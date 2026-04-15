@@ -19,6 +19,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
+import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
+import accountDeletionService from '../services/accountDeletionService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
@@ -100,6 +102,7 @@ const AccountScreen = () => {
       if (toRemove.length > 0) {
         await AsyncStorage.multiRemove(toRemove);
       }
+      await clearConsumptionOptionsDiskCache();
       await homeCacheService.clearForUser(userId);
     } catch (_e) {
       /* non-fatal */
@@ -246,11 +249,13 @@ const AccountScreen = () => {
   const handleDeleteAccount = async () => {
     setDeleting(true);
     try {
-      const { error } = await supabase.auth.deleteUser();
-      if (error) throw error;
+      await accountDeletionService.deleteCurrentUserAccount();
+      await clearConsumptionOptionsDiskCache();
+      await accountDeletionService.clearLocalAuthSessionAfterDeletion();
       setShowDeleteModal(false);
       // Auth state change will automatically navigate to login screen
     } catch (error) {
+      console.error('[AccountScreen] delete account failed:', error?.message || error);
       Alert.alert('Error', 'Failed to delete account. Please try again.');
     } finally {
       setDeleting(false);

@@ -17,6 +17,7 @@ import OnboardingHealthLabScreen from '../screens/onboarding/OnboardingHealthLab
 import OnboardingConnectedSuccessScreen from '../screens/onboarding/OnboardingConnectedSuccessScreen';
 import OnboardingNewBeginningScreen from '../screens/onboarding/OnboardingNewBeginningScreen';
 import OnboardingStarterHabitsScreen from '../screens/onboarding/OnboardingStarterHabitsScreen';
+import OnboardingSubjectiveMeasuresScreen from '../screens/onboarding/OnboardingSubjectiveMeasuresScreen';
 import OnboardingWearableMetricsScreen from '../screens/onboarding/OnboardingWearableMetricsScreen';
 import OnboardingSleepFactorEducationScreen from '../screens/onboarding/OnboardingSleepFactorEducationScreen';
 import OnboardingNotificationScreen from '../screens/onboarding/OnboardingNotificationScreen';
@@ -75,6 +76,7 @@ export default function OnboardingNavigator({ onComplete }) {
         component={AddHabitScreen}
         options={{ presentation: 'modal' }}
       />
+      <Stack.Screen name="OnboardingSubjectiveMeasures" component={OnboardingSubjectiveMeasuresScreen} />
       <Stack.Screen name="OnboardingWearableMetrics" component={OnboardingWearableMetricsScreen} />
       <Stack.Screen name="OnboardingSleepFactorEducation" component={OnboardingSleepFactorEducationScreen} />
       <Stack.Screen name="OnboardingNotification" component={OnboardingNotificationScreen} />

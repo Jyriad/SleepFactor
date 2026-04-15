@@ -16,6 +16,12 @@ import sleepSyncService, {
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
+import {
+  trackOnboardingHealthConnectAbandoned,
+  trackOnboardingHealthConnectPressed,
+  trackOnboardingHealthConnectSkipped,
+  trackOnboardingHealthPermissionResult,
+} from '../../services/onboardingAnalytics';
 
 export default function OnboardingSleepSourcePickerScreen({ navigation }) {
   const [busy, setBusy] = useState(false);
@@ -25,13 +31,16 @@ export default function OnboardingSleepSourcePickerScreen({ navigation }) {
   const healthIcon = isIos ? 'logo-apple' : 'logo-google';
 
   const connect = async () => {
+    trackOnboardingHealthConnectPressed('OnboardingSleepSourcePicker');
     setBusy(true);
     try {
       const result = await sleepSyncService.requestPermissionsDetailed();
       if (result.ok) {
+        trackOnboardingHealthPermissionResult(true, { connect_screen: 'OnboardingSleepSourcePicker' });
         navigation.replace('OnboardingHealthLab', { sourceLabel: healthLabel });
         return;
       }
+      trackOnboardingHealthPermissionResult(false, { connect_screen: 'OnboardingSleepSourcePicker' });
       const copy = getHealthPermissionFailureAlertCopy(result) || {
         title: 'Couldn’t connect health data',
         message: isIos
@@ -39,7 +48,13 @@ export default function OnboardingSleepSourcePickerScreen({ navigation }) {
           : 'Try again or skip for now.',
       };
       Alert.alert(copy.title, copy.message, [
-        { text: 'Continue without', onPress: () => navigation.replace('OnboardingNewBeginning') },
+        {
+          text: 'Continue without',
+          onPress: () => {
+            trackOnboardingHealthConnectAbandoned('permission_denied_continue_without');
+            navigation.replace('OnboardingNewBeginning');
+          },
+        },
         { text: 'OK' },
       ]);
     } catch (e) {
@@ -90,7 +105,10 @@ export default function OnboardingSleepSourcePickerScreen({ navigation }) {
 
       <TouchableOpacity
         style={styles.skip}
-        onPress={() => navigation.replace('OnboardingNewBeginning')}
+        onPress={() => {
+          trackOnboardingHealthConnectSkipped('OnboardingSleepSourcePicker');
+          navigation.replace('OnboardingNewBeginning');
+        }}
         disabled={busy}
       >
         <Text style={styles.skipText}>Skip for now</Text>

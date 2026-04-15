@@ -22,7 +22,8 @@ import OnboardingNavigator from './OnboardingNavigator';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import { TutorialProvider } from '../contexts/TutorialContext';
 import TutorialOverlay from '../components/TutorialOverlay';
-import { trackPageView } from '../services/mixpanel';
+import { trackEvent, trackPageView } from '../services/mixpanel';
+import { ONBOARDING_ROUTE_STEP, getOnboardingProgress } from '../constants/onboardingProgress';
 
 const AccountScreen = lazy(() => import('../screens/AccountScreen'));
 const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
@@ -42,6 +43,7 @@ const LazyFallback = () => (
 const AppNavigator = ({ navigationRef }) => {
   const { isAuthenticated, loading, user } = useAuth();
   const splashHiddenRef = useRef(false);
+  const lastTrackedOnboardingStepRef = useRef(null);
   const [onboardingComplete, setOnboardingComplete] = useState(null);
 
   useEffect(() => {
@@ -138,6 +140,26 @@ const AppNavigator = ({ navigationRef }) => {
         route && route.state ? getFocusedRouteNameFromRoute(route) : name;
       const screenLabel = focused || name || 'Unknown';
       trackPageView({ screenName: screenLabel, userId: user?.id });
+
+      const isKnownOnboardingRoute = Object.prototype.hasOwnProperty.call(
+        ONBOARDING_ROUTE_STEP,
+        screenLabel
+      );
+      if (!isKnownOnboardingRoute) return;
+
+      // Education has 4 internal slides on one route; tracked from its own screen with slide index.
+      if (screenLabel === 'OnboardingSleepFactorEducation') return;
+
+      const { currentStep, totalSteps } = getOnboardingProgress(screenLabel);
+      const stepKey = `${screenLabel}:${currentStep}`;
+      if (lastTrackedOnboardingStepRef.current === stepKey) return;
+      lastTrackedOnboardingStepRef.current = stepKey;
+
+      trackEvent('Onboarding Step Viewed', {
+        step_name: screenLabel,
+        step_number: currentStep,
+        total_steps: totalSteps,
+      });
     },
     [user?.id]
   );

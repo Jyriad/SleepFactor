@@ -147,7 +147,11 @@ class InsightsService {
    * @returns {number} Percentage (0-100), awakenings per hour, or 0 if invalid
    */
   transformSleepDataForEfficiency(sleepData, metricKey) {
-    if (metricKey === 'tiredness_score' || metricKey === 'dream_vividness_score') {
+    if (
+      metricKey === 'tiredness_score' ||
+      metricKey === 'dream_vividness_score' ||
+      (typeof metricKey === 'string' && metricKey.startsWith('subj_'))
+    ) {
       const raw = sleepData?.[metricKey];
       if (raw === null || raw === undefined || isNaN(raw)) return 0;
       return Math.max(0, Math.min(100, (Number(raw) / 10) * 100));
@@ -434,15 +438,49 @@ class InsightsService {
       offset += PAGE_SIZE;
     }
 
+    let entryRows = [];
+    try {
+      const { data: entries, error: entErr } = await supabase
+        .from('subjective_score_entries')
+        .select('sleep_date, measure_id, score')
+        .eq('user_id', userId)
+        .gte('sleep_date', startDateStr)
+        .lte('sleep_date', endDateStr);
+      if (!entErr && entries?.length) {
+        entryRows = entries;
+      }
+    } catch (_e) {
+      entryRows = [];
+    }
+
+    const extrasByDate = new Map();
+    for (const e of entryRows) {
+      const d = e.sleep_date;
+      if (!extrasByDate.has(d)) extrasByDate.set(d, []);
+      extrasByDate.get(d).push(e);
+    }
+
+    const mergeRow = (row) => {
+      const list = extrasByDate.get(row.date);
+      if (!list || list.length === 0) return row;
+      const next = { ...row };
+      for (const e of list) {
+        next[`subj_${e.measure_id}`] = e.score;
+      }
+      return next;
+    };
+
+    const merged = allRows.map(mergeRow);
+
     // Filter out excluded rows in JS (same as getHabitLogs; avoid Supabase .or() for boolean/null)
-    if (!includeExcluded && allRows.length > 0) {
-      const hasExclusionColumn = allRows[0].hasOwnProperty('exclude_from_insights');
+    if (!includeExcluded && merged.length > 0) {
+      const hasExclusionColumn = merged[0].hasOwnProperty('exclude_from_insights');
       if (hasExclusionColumn) {
-        return allRows.filter((row) => row.exclude_from_insights !== true);
+        return merged.filter((row) => row.exclude_from_insights !== true);
       }
     }
 
-    return allRows;
+    return merged;
   }
 
   /**
@@ -1441,8 +1479,30 @@ class InsightsService {
     const base = this.getAvailableSleepMetrics();
     if (!userId) return base;
     try {
-      const { data } = await supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', userId).single();
+      const { data: measures, error } = await supabase
+        .from('user_subjective_measures')
+        .select('id, slug, label, enabled')
+        .eq('user_id', userId)
+        .eq('enabled', true)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+
       const list = [...base];
+
+      if (!error && Array.isArray(measures) && measures.length > 0) {
+        for (const m of measures) {
+          if (m.slug === 'tiredness') {
+            list.push({ key: 'tiredness_score', label: m.label || 'Refreshed feeling', unit: 'score', higherIsBetter: true });
+          } else if (m.slug === 'dream_vividness') {
+            list.push({ key: 'dream_vividness_score', label: m.label || 'Dream strength', unit: 'score', higherIsBetter: true });
+          } else {
+            list.push({ key: `subj_${m.id}`, label: m.label || 'Custom', unit: 'score', higherIsBetter: true });
+          }
+        }
+        return list;
+      }
+
+      const { data } = await supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', userId).single();
       if (data?.track_tiredness === true) {
         list.push({ key: 'tiredness_score', label: 'Refreshed feeling', unit: 'score', higherIsBetter: true });
       }
@@ -1706,6 +1766,129 @@ class InsightsService {
     });
 
     return { groups: filtered };
+  }
+
+  /**
+   * Build "sleep metrics -> subjective outcome" links for Insights tab.
+   * Example: Deep Sleep vs Refreshed feeling.
+   * Returns rows for both analysis types so UI can switch without refetching.
+   */
+  async getSubjectiveSleepMetricLinks(userId) {
+    const available = await this.getAvailableSleepMetricsForUser(userId);
+    const baseKeys = new Set(this.getAvailableSleepMetrics().map((m) => m.key));
+    const subjectiveDefs = available
+      .filter((m) => !baseKeys.has(m.key))
+      .map((m) => ({ key: m.key, label: m.label }));
+    if (subjectiveDefs.length === 0) {
+      return { groups: [] };
+    }
+
+    const predictorMetrics = this.getAvailableSleepMetrics();
+    const dateRange = this.calculateDateRange('all');
+    const sleepData = await this.getSleepData(userId, dateRange.startDate, dateRange.endDate, false);
+
+    const lowerIsBetterPredictors = new Set(['awakenings_count', 'awake_minutes']);
+
+    const computeRows = (subjectiveKey, subjectiveLabel, useEfficiency) => {
+      const rows = [];
+      for (const predictor of predictorMetrics) {
+        const points = [];
+        for (const sleep of sleepData || []) {
+          const subjectiveValue = sleep?.[subjectiveKey];
+          if (subjectiveValue === null || subjectiveValue === undefined || isNaN(subjectiveValue)) continue;
+          const rawPredictorValue = sleep?.[predictor.key];
+          if (rawPredictorValue === null || rawPredictorValue === undefined || isNaN(rawPredictorValue)) continue;
+
+          const predictorValue = useEfficiency
+            ? this.transformSleepDataForEfficiency(sleep, predictor.key)
+            : rawPredictorValue;
+          if (predictorValue === null || predictorValue === undefined || isNaN(predictorValue)) continue;
+          points.push({ x: predictorValue, y: subjectiveValue, date: sleep.date, sleepData: sleep });
+        }
+
+        if (points.length < 2) continue;
+        const x = points.map((p) => p.x);
+        const y = points.map((p) => p.y);
+        const corr = this.calculateCorrelation(x, y);
+        const correlation = (corr !== null && corr !== undefined && !isNaN(corr)) ? corr : 0;
+        const confidence = this.calculateConfidenceLevel(points.length, correlation);
+        // Only show rows when link passes the same significance bar as other numerical insights
+        if ((confidence?.confidenceLevel || 'none') === 'none') continue;
+
+        const direction = correlation > 0 ? 'positive' : correlation < 0 ? 'negative' : 'none';
+        const displayDirection = lowerIsBetterPredictors.has(predictor.key)
+          ? (direction === 'positive' ? 'negative' : direction === 'negative' ? 'positive' : 'none')
+          : direction;
+
+        const trendCorrelation = lowerIsBetterPredictors.has(predictor.key) ? -correlation : correlation;
+        const confidenceLevel = confidence?.confidenceLevel || 'none';
+        const insightLike = {
+          habit: {
+            id: `sleep-metric-${subjectiveKey}-${predictor.key}`,
+            name: predictor.label,
+            type: 'numeric',
+            unit: predictor.unit,
+            is_custom: false,
+          },
+          type: 'numerical',
+          direction: displayDirection,
+          totalDataPoints: points.length,
+          dataPoints: points.map((p) => ({
+            x: p.x,
+            y: p.y,
+            date: p.date,
+            isOutlier: false,
+            exclude_from_insights: false,
+            auto_excluded: false,
+            exclusion_reason: null,
+            habitLog: null,
+            sleepData: p.sleepData,
+            habitValue: p.x,
+            sleepValue: p.y,
+          })),
+          correlation: trendCorrelation,
+          correlationStrength: Math.abs(trendCorrelation) > 0.7 ? 'strong' :
+            Math.abs(trendCorrelation) > 0.3 ? 'moderate' : 'weak',
+          trendDirection: trendCorrelation > 0 ? 'positive' : trendCorrelation < 0 ? 'negative' : 'none',
+          confidenceLevel,
+          pValue: confidence?.pValue ?? null,
+          isSignificant: confidence?.isSignificant ?? false,
+          dataMaturityLabel: confidence?.dataMaturityLabel || 'Emerging Trend',
+          impactLevel: this.computeImpactLevelNumerical(trendCorrelation),
+          metricKey: subjectiveKey,
+          metricLabel: subjectiveLabel,
+        };
+
+        rows.push({
+          metricKey: predictor.key,
+          metricLabel: predictor.label,
+          confidenceLevel,
+          pValue: confidence?.pValue ?? null,
+          impactLevel: this.computeImpactLevelNumerical(trendCorrelation),
+          direction: displayDirection,
+          totalDataPoints: points.length,
+          correlation: trendCorrelation,
+          insight: insightLike,
+        });
+      }
+
+      rows.sort((a, b) => {
+        const pA = (a.pValue != null && !isNaN(a.pValue)) ? Number(a.pValue) : 1;
+        const pB = (b.pValue != null && !isNaN(b.pValue)) ? Number(b.pValue) : 1;
+        if (pA !== pB) return pA - pB;
+        return Math.abs(b.correlation || 0) - Math.abs(a.correlation || 0);
+      });
+      return rows;
+    };
+
+    const groups = subjectiveDefs.map((subjective) => ({
+      subjectiveKey: subjective.key,
+      subjectiveLabel: subjective.label,
+      insightsAbsolute: computeRows(subjective.key, subjective.label, false),
+      insightsPercentage: computeRows(subjective.key, subjective.label, true),
+    }));
+
+    return { groups };
   }
 }
 

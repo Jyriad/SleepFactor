@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
 import InsightMinimumDataHelp from './InsightMinimumDataHelp';
-import { generateBinaryHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
+import { generateBinaryHeadline } from '../utils/insightHeadlines';
 import {
   getCorrelationLabelShort,
   getImpactLabel,
@@ -428,9 +428,6 @@ const BinaryHabitInsight = ({
     );
   }
 
-  // Expanded view - full details with Data Maturity and Pro-Tip
-  const actionableAdvice = generateActionableAdvice('binary', habit, null, null, null, yesStats, noStats, sleepMetric);
-
   const expandedContent = (
     <>
       {/* Impact Headline */}
@@ -485,17 +482,6 @@ const BinaryHabitInsight = ({
           You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with {yesDataPoints} "Yes" and {noDataPoints} "No" responses. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
         </Text>
       </View>
-
-      {/* Pro-Tip Box with Actionable Advice */}
-      {actionableAdvice && (
-        <View style={styles.proTipContainer}>
-          <View style={styles.proTipHeader}>
-            <Ionicons name="bulb" size={16} color={colors.success} />
-            <Text style={styles.proTipTitle}>Pro-Tip</Text>
-          </View>
-          <Text style={styles.proTipText}>{actionableAdvice}</Text>
-        </View>
-      )}
     </>
   );
 
@@ -1004,31 +990,6 @@ const styles = StyleSheet.create({
   dataMaturityText: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
-    lineHeight: 18,
-  },
-  proTipContainer: {
-    backgroundColor: colors.success + '10',
-    borderRadius: 8,
-    padding: spacing.regular,
-    marginHorizontal: spacing.regular,
-    marginBottom: spacing.regular,
-    borderWidth: 1,
-    borderColor: colors.success + '20',
-  },
-  proTipHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  proTipTitle: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.semibold,
-    color: colors.success,
-  },
-  proTipText: {
-    fontSize: typography.sizes.small,
-    color: colors.textPrimary,
     lineHeight: 18,
   },
   horizontalBarsContainer: {

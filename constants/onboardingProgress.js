@@ -2,7 +2,7 @@
  * Single ordered list of onboarding “steps” for progress UI (not every stack route).
  * Education counts as 4 steps (one per mini-slide).
  */
-export const ONBOARDING_TOTAL_STEPS = 16;
+export const ONBOARDING_TOTAL_STEPS = 17;
 
 /** @type {Record<string, number | { type: 'education' }>} */
 export const ONBOARDING_ROUTE_STEP = {
@@ -15,10 +15,11 @@ export const ONBOARDING_ROUTE_STEP = {
   OnboardingConnectedSuccess: 7,
   OnboardingNewBeginning: 8,
   OnboardingStarterHabits: 9,
-  OnboardingWearableMetrics: 10,
+  OnboardingSubjectiveMeasures: 10,
+  OnboardingWearableMetrics: 11,
   OnboardingSleepFactorEducation: { type: 'education' },
-  OnboardingNotification: 15,
-  OnboardingClosing: 16,
+  OnboardingNotification: 16,
+  OnboardingClosing: 17,
 };
 
 /**
@@ -34,7 +35,7 @@ export function getOnboardingProgress(routeName, opts = {}) {
   }
   if (typeof entry === 'object' && entry.type === 'education') {
     const i = Math.min(Math.max(opts.educationSlideIndex ?? 0, 0), 3);
-    const currentStep = 11 + i;
+    const currentStep = 12 + i;
     return { currentStep, totalSteps, progress: currentStep / totalSteps };
   }
   return { currentStep: entry, totalSteps, progress: entry / totalSteps };
