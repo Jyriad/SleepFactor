@@ -37,7 +37,7 @@ jobs:
 
       - name: Build iOS and auto-submit to TestFlight
         id: build_submit
-        run: eas build --platform ios --profile production --non-interactive --auto-increment --auto-submit
+        run: eas build --platform ios --profile production --non-interactive --auto-submit
         env:
           EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
           EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
