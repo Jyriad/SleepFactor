@@ -43,6 +43,9 @@ const METRIC_KEY_TO_STAGE = {
 };
 
 const getSleepMetricColor = (metricKey) => {
+  if (typeof metricKey === 'string' && metricKey.startsWith('subj_')) {
+    return colors.primary;
+  }
   const stage = METRIC_KEY_TO_STAGE[metricKey];
   if (stage === 'primary') return colors.primary;
   return colors.sleepStages?.[stage] ?? colors.textPrimary;
@@ -114,10 +117,11 @@ const InsightsScreen = ({ navigation, route }) => {
 
   const [loading, setLoading] = useState(true);
   const [tabData, setTabData] = useState({ groups: [] });
+  const [subjectiveData, setSubjectiveData] = useState({ groups: [] });
   const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const [analysisMode, setAnalysisMode] = useState('absolute');
   /** habit = one section per habit; metric = one section per sleep metric (habits as rows). */
-  const [layoutMode, setLayoutMode] = useState('habit');
+  const [layoutMode, setLayoutMode] = useState('metric');
   const [expandedRowKey, setExpandedRowKey] = useState(null);
   const sectionListRef = useRef(null);
   const headerHeightRef = useRef(100);
@@ -132,7 +136,13 @@ const InsightsScreen = ({ navigation, route }) => {
 
   const loadTab = useCallback(() => {
     if (!user?.id) return Promise.resolve();
-    return insightsService.getInsightsTabGroups(user.id).then(setTabData);
+    return Promise.all([
+      insightsService.getInsightsTabGroups(user.id),
+      insightsService.getSubjectiveSleepMetricLinks(user.id),
+    ]).then(([habitGroups, subjectiveGroups]) => {
+      setTabData(habitGroups);
+      setSubjectiveData(subjectiveGroups);
+    });
   }, [user?.id]);
 
   useFocusEffect(
@@ -202,6 +212,7 @@ const InsightsScreen = ({ navigation, route }) => {
 
   /** Sections grouped by sleep metric (only metrics with ≥1 significant insight). */
   const metricSections = useMemo(() => {
+    const subjectiveByKey = new Map((subjectiveData.groups || []).map((g) => [g.subjectiveKey, g]));
     const byMetric = new Map();
     for (const g of groups) {
       const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
@@ -220,21 +231,39 @@ const InsightsScreen = ({ navigation, route }) => {
       const rows = byMetric.get(m.key);
       if (!rows?.length) continue;
       rows.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
+      const sectionRows = rows.map((r, idx) => ({
+        rowType: 'insight',
+        key: `met-${m.key}-${r.habitId}-${idx}`,
+        insight: r.insight,
+        habitId: r.habitId,
+        habitName: r.habitName,
+      }));
+
+      const subjective = subjectiveByKey.get(m.key);
+      const subjectiveRows = subjective
+        ? (analysisMode === 'percentage' ? subjective.insightsPercentage : subjective.insightsAbsolute)
+        : [];
+      for (const s of subjectiveRows || []) {
+        sectionRows.push({
+          rowType: 'sleepMetricLink',
+          key: `sub-${m.key}-${s.metricKey}-${analysisMode}`,
+          metricLabel: s.metricLabel,
+          confidenceLevel: s.confidenceLevel,
+          impactLevel: s.impactLevel,
+          direction: s.direction,
+          insight: s.insight,
+        });
+      }
+
       ordered.push({
         title: m.label,
         metricKey: m.key,
-        data: rows.map((r, idx) => ({
-          rowType: 'insight',
-          key: `met-${m.key}-${r.habitId}-${idx}`,
-          insight: r.insight,
-          habitId: r.habitId,
-          habitName: r.habitName,
-        })),
+        data: sectionRows,
         showTableHeader: true,
       });
     }
     return ordered;
-  }, [groups, analysisMode, availableMetrics]);
+  }, [groups, analysisMode, availableMetrics, subjectiveData.groups]);
 
   const activeSections = layoutMode === 'habit' ? sections : metricSections;
 
@@ -282,7 +311,8 @@ const InsightsScreen = ({ navigation, route }) => {
     [availableMetrics]
   );
 
-  const renderInsightRow = useCallback((insight, habitId, primaryLabel) => {
+  const renderInsightRow = useCallback((insight, habitId, primaryLabel, options = {}) => {
+    const { allowExpandNoSignificance = false } = options;
     const rowKey = `${habitId}-${insight.metricKey}`;
     const isExpanded = expandedRowKey === rowKey;
     const isPositive = insight.direction === 'positive';
@@ -347,7 +377,7 @@ const InsightsScreen = ({ navigation, route }) => {
                 sleepMetric={sleepMetricInfo}
                 width={embeddedCardWidth}
                 isPercentageMode={analysisMode === 'percentage'}
-                allowExpandNoSignificance={false}
+                allowExpandNoSignificance={allowExpandNoSignificance}
                 isExpanded={true}
                 embedded={true}
               />
@@ -358,7 +388,7 @@ const InsightsScreen = ({ navigation, route }) => {
                 width={embeddedCardWidth}
                 isPercentageMode={analysisMode === 'percentage'}
                 onRefresh={loadTab}
-                allowExpandNoSignificance={false}
+                allowExpandNoSignificance={allowExpandNoSignificance}
                 isExpanded={true}
                 embedded={true}
               />
@@ -445,6 +475,20 @@ const InsightsScreen = ({ navigation, route }) => {
               <Text style={styles.noLinkOneLine} numberOfLines={1}>
                 No link found yet · Logged {n} time{n !== 1 ? 's' : ''}
               </Text>
+            </View>
+          </View>
+        );
+      }
+      if (item.rowType === 'sleepMetricLink') {
+        return (
+          <View style={styles.sectionWrapper}>
+            <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
+              {renderInsightRow(
+                item.insight,
+                `subjective-link-${section.metricKey}-${item.metricLabel}`,
+                item.metricLabel,
+                { allowExpandNoSignificance: true }
+              )}
             </View>
           </View>
         );

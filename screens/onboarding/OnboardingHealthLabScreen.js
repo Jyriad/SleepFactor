@@ -8,11 +8,17 @@ import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
 import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
+import {
+  trackOnboardingHealthConnectAbandoned,
+  trackOnboardingSleepSyncOutcome,
+  trackOnboardingSleepSyncStarted,
+} from '../../services/onboardingAnalytics';
 
 export default function OnboardingHealthLabScreen({ navigation, route }) {
   const sourceLabel = route?.params?.sourceLabel;
   const { user } = useAuth();
   const ranRef = useRef(false);
+  const outcomeReportedRef = useRef(false);
   const [phase, setPhase] = useState('syncing');
   const [errorMessage, setErrorMessage] = useState(null);
   const [permChecked, setPermChecked] = useState(false);
@@ -41,14 +47,26 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
   useEffect(() => {
     if (!permChecked || !isInitialized || ranRef.current) return;
     if (!hasPermissions) {
+      if (!outcomeReportedRef.current) {
+        outcomeReportedRef.current = true;
+        trackOnboardingSleepSyncOutcome('no_permission', { source: sourceLabel });
+      }
       setPhase('no_permission');
       return;
     }
     ranRef.current = true;
     (async () => {
       try {
+        trackOnboardingSleepSyncStarted(sourceLabel);
         const result = await performSync({ force: true, daysBack: 30, userId: user?.id });
         if (!result?.success) {
+          if (!outcomeReportedRef.current) {
+            outcomeReportedRef.current = true;
+            trackOnboardingSleepSyncOutcome('sync_error', {
+              source: sourceLabel,
+              message: String(result?.error || error || 'sync_failed').slice(0, 200),
+            });
+          }
           setErrorMessage(result?.error || error || 'Sync failed');
           setPhase('error');
           return;
@@ -59,11 +77,29 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
         const start = formatDateForDB(startD);
         const rows = await sleepDataService.getSleepDataForRange(start, end);
         if (!rows || rows.length === 0) {
+          if (!outcomeReportedRef.current) {
+            outcomeReportedRef.current = true;
+            trackOnboardingSleepSyncOutcome('nights_empty', { source: sourceLabel, night_count: 0 });
+          }
           navigation.replace('OnboardingNewBeginning');
         } else {
+          if (!outcomeReportedRef.current) {
+            outcomeReportedRef.current = true;
+            trackOnboardingSleepSyncOutcome('nights_found', {
+              source: sourceLabel,
+              night_count: rows.length,
+            });
+          }
           navigation.replace('OnboardingConnectedSuccess');
         }
       } catch (e) {
+        if (!outcomeReportedRef.current) {
+          outcomeReportedRef.current = true;
+          trackOnboardingSleepSyncOutcome('sync_error', {
+            source: sourceLabel,
+            message: String(e?.message || error || 'sync_failed').slice(0, 200),
+          });
+        }
         setErrorMessage(e?.message || error || 'Sync failed');
         setPhase('error');
       }
@@ -76,7 +112,10 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
         step={6}
         totalSteps={ONBOARDING_STEP_TOTAL}
         title="No health access yet"
-        onNext={() => navigation.replace('OnboardingNewBeginning')}
+        onNext={() => {
+          trackOnboardingHealthConnectAbandoned('health_lab_no_permission_continue');
+          navigation.replace('OnboardingNewBeginning');
+        }}
         onBack={() => navigation.goBack()}
         nextLabel="Continue without syncing"
         showSkip={false}
@@ -95,7 +134,10 @@ export default function OnboardingHealthLabScreen({ navigation, route }) {
         step={6}
         totalSteps={ONBOARDING_STEP_TOTAL}
         title="Sync issue"
-        onNext={() => navigation.replace('OnboardingNewBeginning')}
+        onNext={() => {
+          trackOnboardingHealthConnectAbandoned('health_lab_sync_error_continue');
+          navigation.replace('OnboardingNewBeginning');
+        }}
         onBack={() => navigation.goBack()}
         nextLabel="Continue anyway"
         showSkip={false}

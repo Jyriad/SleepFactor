@@ -36,6 +36,21 @@ function getNextTriggerDate(hour, minute) {
   return next;
 }
 
+/** True if user has at least one enabled subjective measure (table) or legacy users.track_* flags. */
+async function userHasAnySubjectiveMeasureEnabled(userId, userRow) {
+  try {
+    const { count, error } = await supabase
+      .from('user_subjective_measures')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('enabled', true);
+    if (!error && (count || 0) > 0) return true;
+  } catch (_e) {
+    /* table may not exist before migration */
+  }
+  return userRow?.track_tiredness === true || userRow?.track_dream_vividness === true;
+}
+
 async function ensureMorningCheckinChannel(Notifications) {
   if (Platform.OS !== 'android' || !Notifications?.setNotificationChannelAsync) return;
   try {
@@ -76,7 +91,7 @@ export async function scheduleMorningCheckin() {
       await cancelMorningCheckin();
       return;
     }
-    const anyOn = userRow.track_tiredness === true || userRow.track_dream_vividness === true;
+    const anyOn = await userHasAnySubjectiveMeasureEnabled(user.id, userRow);
     const timeRaw = userRow.morning_checkin_time;
     if (!anyOn || !timeRaw) {
       await cancelMorningCheckin();
@@ -143,7 +158,7 @@ export async function rescheduleIfEnabled() {
       await cancelMorningCheckin();
       return;
     }
-    const anyOn = userRow?.track_tiredness === true || userRow?.track_dream_vividness === true;
+    const anyOn = await userHasAnySubjectiveMeasureEnabled(user.id, userRow);
     const hasTime = userRow?.morning_checkin_time != null && String(userRow.morning_checkin_time).trim() !== '';
     if (anyOn && hasTime) {
       await scheduleMorningCheckin();

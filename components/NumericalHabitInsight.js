@@ -6,7 +6,7 @@ import ScatterPlot from './ScatterChart';
 import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import DataPointDetailModal from './DataPointDetailModal';
 import { transformToEfficiencyData, calculateCorrelation } from '../utils/statistics';
-import { generateNumericalHeadline, generateActionableAdvice } from '../utils/insightHeadlines';
+import { generateNumericalHeadline } from '../utils/insightHeadlines';
 import {
   getCorrelationLabelShort,
   getImpactLabel,
@@ -343,9 +343,6 @@ const NumericalHabitInsight = ({
     );
   }
 
-  // Expanded view - full details with Data Maturity and Pro-Tip
-  const actionableAdvice = generateActionableAdvice('numerical', habit, displayCorrelation, displayCorrelationStrength, displayTrendDirection, null, null, sleepMetric);
-
   const expandedContent = (
     <>
         {/* Impact Headline */}
@@ -353,10 +350,11 @@ const NumericalHabitInsight = ({
           <Text style={styles.expandedHeadline}>{headline}</Text>
         </View>
 
-        {/* Scatter Plot */}
+        {/* Scatter Plot — wrapper keeps axis caption aligned with card padding */}
+        <View style={styles.scatterBlock}>
         <ScatterPlot
           data={displayDataPoints}
-          width={width - 40}
+          width={width - 32}
           height={240}
           xLabel={`${habit.name}${habitUnit}`}
           yLabel={`${sleepMetric.label}${isPercentageMode ? (sleepMetric?.key === 'awakenings_count' ? ' (per hr)' : ' (%)') : ''}`}
@@ -375,6 +373,7 @@ const NumericalHabitInsight = ({
           setShowDetailModal(true);
         }}
         />
+        </View>
 
         {/* Data Maturity Section */}
         <View style={styles.dataMaturityContainer}>
@@ -390,43 +389,6 @@ const NumericalHabitInsight = ({
             You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with consistent results. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
           </Text>
         </View>
-
-        {/* Correlation and impact - standardised labels */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Link: </Text>
-            <Text style={[styles.confidenceValue, { color: correlationTagStyle.color }]}>
-              {correlationLabel}
-            </Text>
-          </View>
-          {confidenceLevel !== 'none' && (
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Impact: </Text>
-              <Text style={[styles.confidenceValue, { color: impactTagStyle.color }]}>
-                {impactLabel}
-              </Text>
-            </View>
-          )}
-          {pValue !== null && pValue !== undefined && (
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>P-value: </Text>
-              <Text style={styles.pValue}>
-                {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* Pro-Tip Box with Actionable Advice */}
-        {actionableAdvice && (
-          <View style={styles.proTipContainer}>
-            <View style={styles.proTipHeader}>
-              <Ionicons name="bulb" size={16} color={colors.success} />
-              <Text style={styles.proTipTitle}>Pro-Tip</Text>
-            </View>
-            <Text style={styles.proTipText}>{actionableAdvice}</Text>
-          </View>
-        )}
     </>
   );
 
@@ -828,38 +790,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     lineHeight: 18,
   },
-  statsContainer: {
-    marginTop: spacing.sm,
-    gap: spacing.xs,
-  },
-  statRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
+  scatterBlock: {
     paddingHorizontal: spacing.regular,
-    paddingVertical: spacing.xs,
-  },
-  statLabel: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
-    flexShrink: 0,
-  },
-  statValue: {
-    fontSize: typography.sizes.body,
-    color: colors.textPrimary,
-    fontWeight: typography.weights.medium,
-  },
-  confidenceValue: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    flex: 1,
-    flexWrap: 'wrap',
-  },
-  pValue: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
+    alignItems: 'center',
+    marginBottom: spacing.xs,
   },
   warningBadge: {
     flexDirection: 'row',
@@ -1024,31 +958,6 @@ const styles = StyleSheet.create({
   dataMaturityText: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
-    lineHeight: 18,
-  },
-  proTipContainer: {
-    backgroundColor: colors.success + '10',
-    borderRadius: 8,
-    padding: spacing.regular,
-    marginHorizontal: spacing.regular,
-    marginBottom: spacing.regular,
-    borderWidth: 1,
-    borderColor: colors.success + '20',
-  },
-  proTipHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  proTipTitle: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.semibold,
-    color: colors.success,
-  },
-  proTipText: {
-    fontSize: typography.sizes.small,
-    color: colors.textPrimary,
     lineHeight: 18,
   },
 });

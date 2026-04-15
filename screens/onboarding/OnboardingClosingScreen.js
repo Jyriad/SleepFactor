@@ -8,6 +8,7 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
+import { trackEvent } from '../../services/mixpanel';
 
 export default function OnboardingClosingScreen({ onSlidesFinished }) {
   const { user } = useAuth();
@@ -18,6 +19,11 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
     if (!user?.id || loading) return;
     setLoading(true);
     try {
+      trackEvent('Onboarding Completed', {
+        step_name: 'OnboardingClosing',
+        step_number: currentStep,
+        total_steps: totalSteps,
+      });
       await onSlidesFinished();
     } finally {
       setLoading(false);

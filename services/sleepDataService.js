@@ -131,15 +131,60 @@ class SleepDataService {
 
   /**
    * Update or create subjective scores for a sleep date. Does not overwrite existing sync data.
-   * Pass both as null (or omit) to clear existing scores for that date.
    * @param {string} userId - User ID
    * @param {string} date - Date in YYYY-MM-DD format (sleep date = morning after that night)
-   * @param {Object} scores - { tiredness_score?: number|null, dream_vividness_score?: number|null } (1-10 each; null = clear)
-   * @returns {Promise<Object>} The updated or inserted sleep_data record
+   * @param {Object} scores - { tiredness_score?: number|null, dream_vividness_score?: number|null, customByMeasureId?: Record<string, number|null> }
+   *   Built-ins use sleep_data columns; custom measures use subjective_score_entries (1–10 each; null = clear).
+   * @returns {Promise<Object|null>} The updated sleep_data row when touched, or null if only custom scores were written
    */
   async updateSubjectiveScores(userId, date, scores) {
-    const tiredness = scores.tiredness_score != null ? clampScore(scores.tiredness_score) : null;
-    const dreamVividness = scores.dream_vividness_score != null ? clampScore(scores.dream_vividness_score) : null;
+    const hasTirednessKey = Object.prototype.hasOwnProperty.call(scores, 'tiredness_score');
+    const hasDreamKey = Object.prototype.hasOwnProperty.call(scores, 'dream_vividness_score');
+    const tiredness = hasTirednessKey
+      ? (scores.tiredness_score != null ? clampScore(scores.tiredness_score) : null)
+      : undefined;
+    const dreamVividness = hasDreamKey
+      ? (scores.dream_vividness_score != null ? clampScore(scores.dream_vividness_score) : null)
+      : undefined;
+
+    const customByMeasureId =
+      scores.customByMeasureId && typeof scores.customByMeasureId === 'object' ? scores.customByMeasureId : null;
+
+    if (customByMeasureId) {
+      const nowIso = new Date().toISOString();
+      for (const [measureId, raw] of Object.entries(customByMeasureId)) {
+        if (!measureId) continue;
+        if (raw == null) {
+          const { error: delErr } = await supabase
+            .from('subjective_score_entries')
+            .delete()
+            .eq('user_id', userId)
+            .eq('sleep_date', date)
+            .eq('measure_id', measureId);
+          if (delErr) throw delErr;
+        } else {
+          const s = clampScore(raw);
+          if (s == null) continue;
+          const { error: upErr } = await supabase.from('subjective_score_entries').upsert(
+            {
+              user_id: userId,
+              sleep_date: date,
+              measure_id: measureId,
+              score: s,
+              updated_at: nowIso,
+            },
+            { onConflict: 'user_id,sleep_date,measure_id' }
+          );
+          if (upErr) throw upErr;
+        }
+      }
+    }
+
+    const touchesBuiltIns = hasTirednessKey || hasDreamKey;
+    if (!touchesBuiltIns) {
+      this._clearRangeCache();
+      return null;
+    }
 
     const existing = await supabase
       .from(this.tableName)
@@ -151,8 +196,8 @@ class SleepDataService {
     if (existing.error) throw existing.error;
 
     const payload = { updated_at: new Date().toISOString() };
-    payload.tiredness_score = tiredness;
-    payload.dream_vividness_score = dreamVividness;
+    if (hasTirednessKey) payload.tiredness_score = tiredness;
+    if (hasDreamKey) payload.dream_vividness_score = dreamVividness;
 
     if (existing.data) {
       const { data, error } = await supabase
@@ -167,13 +212,20 @@ class SleepDataService {
       return data;
     }
 
-    if (tiredness === null && dreamVividness === null) return null;
+    const t = hasTirednessKey ? tiredness : null;
+    const d = hasDreamKey ? dreamVividness : null;
+    if (t === null && d === null) {
+      this._clearRangeCache();
+      return null;
+    }
 
     const insertRecord = {
       user_id: userId,
       date,
       source: 'manual',
-      ...payload,
+      tiredness_score: t,
+      dream_vividness_score: d,
+      updated_at: payload.updated_at,
       total_sleep_minutes: null,
       deep_sleep_minutes: null,
       light_sleep_minutes: null,

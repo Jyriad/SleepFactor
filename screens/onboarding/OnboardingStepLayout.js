@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRoute } from '@react-navigation/native';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { ONBOARDING_TOTAL_STEPS } from '../../constants/onboardingProgress';
+import { getOnboardingProgress } from '../../constants/onboardingProgress';
+import { trackEvent } from '../../services/mixpanel';
 
 export default function OnboardingStepLayout({
   step,
@@ -21,6 +24,36 @@ export default function OnboardingStepLayout({
   nextLoading = false,
 }) {
   const progress = totalSteps > 0 ? step / totalSteps : 0;
+  const route = useRoute();
+  const routeName = route?.name || 'Unknown';
+  const { currentStep, totalSteps: computedTotalSteps } = useMemo(
+    () => getOnboardingProgress(routeName),
+    [routeName]
+  );
+  const analyticsProperties = useMemo(
+    () => ({
+      step_name: routeName,
+      step_number: currentStep,
+      total_steps: computedTotalSteps,
+    }),
+    [routeName, currentStep, computedTotalSteps]
+  );
+
+  const handleNext = () => {
+    trackEvent('Onboarding Step Continued', analyticsProperties);
+    onNext?.();
+  };
+
+  const handleBack = () => {
+    trackEvent('Onboarding Step Back', analyticsProperties);
+    onBack?.();
+  };
+
+  const handleSkip = () => {
+    trackEvent('Onboarding Step Skipped', analyticsProperties);
+    onSkip?.();
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
@@ -30,7 +63,7 @@ export default function OnboardingStepLayout({
         <View style={styles.headerRight}>
           <OnboardingSignOutLink />
           {showSkip && onSkip ? (
-            <TouchableOpacity onPress={onSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <TouchableOpacity onPress={handleSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
               <Text style={styles.skipText}>Skip</Text>
             </TouchableOpacity>
           ) : null}
@@ -40,13 +73,13 @@ export default function OnboardingStepLayout({
       <View style={styles.content}>{children}</View>
       <View style={styles.footer}>
         {onBack ? (
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
         ) : null}
         <Button
           title={nextLabel}
-          onPress={onNext}
+          onPress={handleNext}
           loading={nextLoading}
           disabled={nextLoading}
           style={[styles.nextButton, !onBack && styles.nextButtonFull]}

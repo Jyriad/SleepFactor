@@ -21,6 +21,10 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import AppToggle from '../../components/AppToggle';
+import {
+  trackOnboardingWearableMetricsLoaded,
+  trackOnboardingWearableMetricsSaved,
+} from '../../services/onboardingAnalytics';
 
 export default function OnboardingWearableMetricsScreen({ navigation }) {
   const { user } = useAuth();
@@ -50,15 +54,25 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
       });
       setSelected(m);
 
+      let permBlocked = false;
       if (safeList.length === 0) {
         const stepsOk = await healthService.hasPermissionForRecordType('Steps');
-        setPermissionBlocked(!stepsOk);
+        permBlocked = !stepsOk;
+        setPermissionBlocked(permBlocked);
       } else {
         setPermissionBlocked(false);
       }
+      trackOnboardingWearableMetricsLoaded({
+        metric_count: safeList.length,
+        permission_blocked: permBlocked,
+      });
     } catch (_e) {
       setMetrics([]);
       setPermissionBlocked(true);
+      trackOnboardingWearableMetricsLoaded({
+        metric_count: 0,
+        permission_blocked: true,
+      });
     } finally {
       setLoading(false);
     }
@@ -91,6 +105,10 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
     try {
       const toEnable = metrics.filter((met) => selected[met.key]);
       await enableSelectedMetrics(user.id, toEnable);
+      trackOnboardingWearableMetricsSaved({
+        enabled_count: toEnable.length,
+        available_metrics: metrics.length,
+      });
       navigation.navigate('OnboardingSleepFactorEducation');
     } finally {
       setSaving(false);

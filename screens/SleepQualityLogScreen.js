@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
+import subjectiveMeasuresService from '../services/subjectiveMeasuresService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
@@ -29,19 +29,50 @@ function getDateString(param) {
   return formatDateForDB(d);
 }
 
+function buildPendingPayload(scoresByMeasureId, measures) {
+  const out = {
+    tiredness_score: null,
+    dream_vividness_score: null,
+    extra: [],
+  };
+  const customByMeasureId = {};
+  for (const m of measures) {
+    const v = scoresByMeasureId[m.id];
+    if (m.slug === 'tiredness') {
+      out.tiredness_score = v != null ? v : null;
+    } else if (m.slug === 'dream_vividness') {
+      out.dream_vividness_score = v != null ? v : null;
+    } else if (v != null) {
+      customByMeasureId[m.id] = v;
+      out.extra.push({ measure_id: m.id, label: m.label, score: v });
+    }
+  }
+  if (Object.keys(customByMeasureId).length > 0) {
+    out.customByMeasureId = customByMeasureId;
+  }
+  return out;
+}
+
 const SleepQualityLogScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const dateStr = getDateString(route.params?.date);
-  const [trackTiredness, setTrackTiredness] = useState(false);
-  const [trackDreamVividness, setTrackDreamVividness] = useState(false);
-  const [tirednessScore, setTirednessScore] = useState(null);
-  const [dreamVividnessScore, setDreamVividnessScore] = useState(null);
+  const [measures, setMeasures] = useState([]);
+  const [scoresByMeasureId, setScoresByMeasureId] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasSavedScores, setHasSavedScores] = useState(false);
+
+  const enabledMeasures = useMemo(
+    () => (measures || []).filter((m) => m.enabled === true),
+    [measures]
+  );
+
+  const setScoreForMeasure = useCallback((measureId, value) => {
+    setScoresByMeasureId((prev) => ({ ...prev, [measureId]: value }));
+  }, []);
 
   useEffect(() => {
     if (!user?.id || !dateStr) {
@@ -51,36 +82,34 @@ const SleepQualityLogScreen = () => {
     let cancelled = false;
 
     (async () => {
-      // Seed from home dashboard cache for this date when available (avoids default slider values while the server loads).
+      let cachedSub = null;
       try {
         const cached = await homeCacheService.getPersistedDashboardPayload(user.id, dateStr);
-        if (!cancelled && cached?.last_night_subjective && typeof cached.last_night_subjective === 'object') {
-          const sub = cached.last_night_subjective;
-          if (sub.tiredness_score != null) setTirednessScore(sub.tiredness_score);
-          if (sub.dream_vividness_score != null) setDreamVividnessScore(sub.dream_vividness_score);
-          const hasAny = sub.tiredness_score != null || sub.dream_vividness_score != null;
-          if (hasAny) setHasSavedScores(true);
+        if (cached?.last_night_subjective && typeof cached.last_night_subjective === 'object') {
+          cachedSub = cached.last_night_subjective;
         }
       } catch (_e) {}
 
-      const fetchWithRetry = async (attempt) => {
-        const [userRow, sleepRow] = await Promise.all([
-          supabase.from('users').select('track_tiredness, track_dream_vividness').eq('id', user.id).single(),
-          sleepDataService.getSleepDataForDate(dateStr),
-        ]);
-        return { userRow, sleepRow };
+      const fetchWithRetry = async () => {
+        await subjectiveMeasuresService.ensureBuiltinMeasures(user.id);
+        const list = await subjectiveMeasuresService.listSubjectiveMeasures(user.id);
+        const sleepRow = await sleepDataService.getSleepDataForDate(dateStr);
+        const customMap = await subjectiveMeasuresService.getCustomScoresForDate(user.id, dateStr);
+        return { list, sleepRow, customMap };
       };
 
-      let userRow = null;
+      let list = [];
       let sleepRow = null;
+      let customMap = {};
       const MAX_RETRIES = 2;
       const RETRY_DELAY_MS = 350;
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const result = await fetchWithRetry(attempt);
-          userRow = result.userRow;
+          const result = await fetchWithRetry();
+          list = result.list;
           sleepRow = result.sleepRow;
+          customMap = result.customMap;
           break;
         } catch (_e) {
           if (attempt < MAX_RETRIES) {
@@ -92,43 +121,81 @@ const SleepQualityLogScreen = () => {
       if (cancelled) return;
 
       try {
-        const u = userRow?.data;
-        setTrackTiredness(u?.track_tiredness === true);
-        setTrackDreamVividness(u?.track_dream_vividness === true);
+        setMeasures(list || []);
 
-        if (sleepRow) {
-          const hasT = sleepRow.tiredness_score != null;
-          const hasD = sleepRow.dream_vividness_score != null;
-          if (hasT) setTirednessScore(sleepRow.tiredness_score);
-          if (hasD) setDreamVividnessScore(sleepRow.dream_vividness_score);
-          setHasSavedScores(hasT || hasD);
+        const nextScores = {};
+        const lm = list || [];
+        if (cachedSub) {
+          for (const m of lm) {
+            if (m.slug === 'tiredness' && cachedSub.tiredness_score != null) {
+              nextScores[m.id] = cachedSub.tiredness_score;
+            }
+            if (m.slug === 'dream_vividness' && cachedSub.dream_vividness_score != null) {
+              nextScores[m.id] = cachedSub.dream_vividness_score;
+            }
+          }
+          if (Array.isArray(cachedSub.extra)) {
+            cachedSub.extra.forEach((row) => {
+              if (row.measure_id != null && row.score != null) nextScores[row.measure_id] = row.score;
+            });
+          }
         }
+        if (sleepRow) {
+          const t = sleepRow.tiredness_score;
+          const d = sleepRow.dream_vividness_score;
+          for (const m of lm) {
+            if (m.slug === 'tiredness' && t != null) nextScores[m.id] = t;
+            if (m.slug === 'dream_vividness' && d != null) nextScores[m.id] = d;
+          }
+        }
+        Object.keys(customMap).forEach((mid) => {
+          if (customMap[mid] != null) nextScores[mid] = customMap[mid];
+        });
 
+        setScoresByMeasureId(nextScores);
+        const hasAny =
+          Object.keys(nextScores).length > 0 &&
+          Object.values(nextScores).some((v) => v != null);
+        if (hasAny) setHasSavedScores(true);
       } catch (_e) {
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id, dateStr]);
 
   const handleSave = async () => {
     if (!user?.id || !dateStr) return;
-    const scores = {};
-    if (trackTiredness && tirednessScore != null) scores.tiredness_score = tirednessScore;
-    if (trackDreamVividness && dreamVividnessScore != null) scores.dream_vividness_score = dreamVividnessScore;
-    if (Object.keys(scores).length === 0) {
-      return;
+    const payload = {};
+    const customByMeasureId = {};
+    for (const m of enabledMeasures) {
+      const v = scoresByMeasureId[m.id];
+      if (m.slug === 'tiredness') payload.tiredness_score = v ?? null;
+      else if (m.slug === 'dream_vividness') payload.dream_vividness_score = v ?? null;
+      else if (v != null) customByMeasureId[m.id] = v;
     }
+    if (Object.keys(customByMeasureId).length > 0) payload.customByMeasureId = customByMeasureId;
+
+    const hasAny =
+      payload.tiredness_score != null ||
+      payload.dream_vividness_score != null ||
+      Object.keys(customByMeasureId).length > 0;
+    if (!hasAny) return;
+
     setSaving(true);
     try {
-      await sleepDataService.updateSubjectiveScores(user.id, dateStr, scores);
+      await sleepDataService.updateSubjectiveScores(user.id, dateStr, payload);
       homeCacheService.clearLastAppliedDashboardPayload(user.id, dateStr);
       await homeCacheService.clearPersistedDashboardPayload(user.id, dateStr);
       if (dateStr === getToday()) {
         homeCacheService.setSubjectiveJustSavedForToday();
-        homeCacheService.setPendingSubjectiveScoresForToday(scores);
+        homeCacheService.setPendingSubjectiveScoresForToday(
+          buildPendingPayload(scoresByMeasureId, enabledMeasures)
+        );
       }
       setHasSavedScores(true);
     } catch (e) {
@@ -142,19 +209,11 @@ const SleepQualityLogScreen = () => {
     navigation.goBack();
   };
 
-  const handleTirednessChange = useCallback((score) => {
-    setTirednessScore(score);
-  }, []);
-
-  const handleDreamVividnessChange = useCallback((score) => {
-    setDreamVividnessScore(score);
-  }, []);
-
   const handleRemoveScores = () => {
     const dayLabel = formatDateTitle(dateStr);
     Alert.alert(
       'Remove scores',
-      `Remove refreshed feeling and dream strength for ${dayLabel}?`,
+      `Remove your morning check-in scores for ${dayLabel}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -164,15 +223,24 @@ const SleepQualityLogScreen = () => {
             if (!user?.id || !dateStr) return;
             setSaving(true);
             try {
-              await sleepDataService.updateSubjectiveScores(user.id, dateStr, { tiredness_score: null, dream_vividness_score: null });
+              const customByMeasureId = {};
+              for (const m of enabledMeasures) {
+                if (!m.is_builtin) {
+                  customByMeasureId[m.id] = null;
+                }
+              }
+              await sleepDataService.updateSubjectiveScores(user.id, dateStr, {
+                tiredness_score: null,
+                dream_vividness_score: null,
+                ...(Object.keys(customByMeasureId).length > 0 ? { customByMeasureId } : {}),
+              });
               homeCacheService.clearLastAppliedDashboardPayload(user.id, dateStr);
               await homeCacheService.clearPersistedDashboardPayload(user.id, dateStr);
               if (dateStr === getToday()) {
                 homeCacheService.setSubjectiveJustSavedForToday();
                 homeCacheService.setPendingSubjectiveScoresForToday(null);
               }
-              setTirednessScore(null);
-              setDreamVividnessScore(null);
+              setScoresByMeasureId({});
               setHasSavedScores(false);
             } catch (e) {
               Alert.alert('Error', 'Could not remove. Please try again.');
@@ -224,8 +292,8 @@ const SleepQualityLogScreen = () => {
     );
   }
 
-  const showAny = trackTiredness || trackDreamVividness;
-  const hasAnySelection = (trackTiredness && tirednessScore != null) || (trackDreamVividness && dreamVividnessScore != null);
+  const showAny = enabledMeasures.length > 0;
+  const hasAnySelection = enabledMeasures.some((m) => scoresByMeasureId[m.id] != null);
   const canSave = hasAnySelection && !saving;
   const screenDateLabel = formatDateTitle(dateStr);
 
@@ -244,30 +312,21 @@ const SleepQualityLogScreen = () => {
       </View>
       {!showAny ? (
         <View style={styles.centered}>
-          <Text style={styles.bodyText}>Turn on the morning check-in options in Profile to log how you felt.</Text>
+          <Text style={styles.bodyText}>Turn on morning check-in measures in Profile to log how you felt.</Text>
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          {trackTiredness && (
+          {enabledMeasures.map((m) => (
             <ScoreSlider
-              label="Refreshed feeling"
-              hint="How refreshed did you feel when you first woke up?"
-              value={tirednessScore}
-              onValueChange={handleTirednessChange}
-              leftLabel="Not refreshed"
-              rightLabel="Very refreshed"
+              key={m.id}
+              label={m.label}
+              hint={m.hint || ''}
+              value={scoresByMeasureId[m.id] ?? null}
+              onValueChange={(score) => setScoreForMeasure(m.id, score)}
+              leftLabel={m.left_label || 'Low'}
+              rightLabel={m.right_label || 'High'}
             />
-          )}
-          {trackDreamVividness && (
-            <ScoreSlider
-              label="Dream strength"
-              hint="How strong or vivid did your dreams feel?"
-              value={dreamVividnessScore}
-              onValueChange={handleDreamVividnessChange}
-              leftLabel="No memory"
-              rightLabel="Very strong"
-            />
-          )}
+          ))}
           <View style={styles.actions}>
             <TouchableOpacity onPress={handleSkip} style={styles.skipButton} disabled={saving}>
               <Text style={styles.skipButtonText}>Back</Text>
@@ -366,19 +425,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     textAlign: 'center',
-  },
-  introBody: {
-    fontSize: typography.sizes.body,
-    color: colors.textSecondary,
-    marginBottom: spacing.regular,
-    lineHeight: 22,
-  },
-  metricHelperText: {
-    marginTop: -spacing.sm,
-    marginBottom: spacing.sm,
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    lineHeight: 20,
   },
 });
 

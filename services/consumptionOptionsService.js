@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { INTAKE_BASIS, isLiquidServingUnit } from '../utils/consumptionIntake';
 import { presetScopeFromHabitName } from '../utils/consumptionPresetScope';
@@ -5,32 +6,104 @@ import { presetScopeFromHabitName } from '../utils/consumptionPresetScope';
 /**
  * Service for managing consumption options (Beer, Wine, Espresso, etc.)
  * Handles CRUD operations for system defaults and user custom options.
- * Caches options per habit so the habit logging page and modals load quickly.
+ * Caches options per habit (memory + AsyncStorage, 30-day TTL) so logging opens quickly;
+ * cache is cleared when the user edits custom options or signs out.
  */
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes – options change rarely
+/** In-memory + on-device cache TTL — options change rarely (often never after first load). */
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/** AsyncStorage key prefix; bump version if stored shape changes. */
+export const CONSUMPTION_OPTIONS_DISK_KEY_PREFIX = 'consumption_options_cache_v1:';
+
+function diskKeyForHabit(habitId) {
+  return `${CONSUMPTION_OPTIONS_DISK_KEY_PREFIX}${habitId}`;
+}
+
+/**
+ * Remove all persisted consumption-option caches (call on sign-out).
+ */
+export async function clearConsumptionOptionsDiskCache() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const toRemove = keys.filter((k) => k.startsWith(CONSUMPTION_OPTIONS_DISK_KEY_PREFIX));
+    if (toRemove.length > 0) {
+      await AsyncStorage.multiRemove(toRemove);
+    }
+  } catch (_e) {
+    /* non-fatal */
+  }
+}
 
 class ConsumptionOptionsService {
   constructor() {
-    this._cache = new Map(); // habitId -> { data, timestamp }
+    this._cache = new Map(); // habitId -> { data, savedAt }
   }
 
   _getCached(habitId) {
     const entry = this._cache.get(habitId);
     if (!entry) return null;
-    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    if (Date.now() - entry.savedAt > CACHE_TTL_MS) {
       this._cache.delete(habitId);
       return null;
     }
     return entry.data;
   }
 
-  _setCache(habitId, data) {
-    this._cache.set(habitId, { data, timestamp: Date.now() });
+  _setMemoryCache(habitId, data, savedAt = Date.now()) {
+    this._cache.set(habitId, { data, savedAt });
   }
 
-  _invalidate(habitId) {
-    if (habitId) this._cache.delete(habitId);
+  async _readDiskCache(habitId) {
+    try {
+      const raw = await AsyncStorage.getItem(diskKeyForHabit(habitId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const savedAt = typeof parsed?.savedAt === 'number' ? parsed.savedAt : null;
+      const data = parsed?.data;
+      if (savedAt == null || !Array.isArray(data)) return null;
+      if (Date.now() - savedAt > CACHE_TTL_MS) {
+        await AsyncStorage.removeItem(diskKeyForHabit(habitId));
+        return null;
+      }
+      return { data, savedAt };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  async _writeDiskCache(habitId, data) {
+    try {
+      const savedAt = Date.now();
+      await AsyncStorage.setItem(
+        diskKeyForHabit(habitId),
+        JSON.stringify({ v: 1, savedAt, data })
+      );
+      return savedAt;
+    } catch (_e) {
+      await this._deleteDiskCache(habitId);
+      return null;
+    }
+  }
+
+  async _deleteDiskCache(habitId) {
+    if (!habitId) return;
+    try {
+      await AsyncStorage.removeItem(diskKeyForHabit(habitId));
+    } catch (_e) {
+      /* non-fatal */
+    }
+  }
+
+  async _setCache(habitId, data) {
+    const savedAt = (await this._writeDiskCache(habitId, data)) ?? Date.now();
+    this._setMemoryCache(habitId, data, savedAt);
+  }
+
+  async _invalidate(habitId) {
+    if (!habitId) return;
+    this._cache.delete(habitId);
+    await this._deleteDiskCache(habitId);
   }
 
   async _presetScopeForHabitId(habitId) {
@@ -58,8 +131,8 @@ class ConsumptionOptionsService {
   }
 
   /**
-   * Return cached options for a habit if available (sync). Use so components can show options
-   * immediately when cache was prefetched (e.g. from Home or Habit Logging load).
+   * Return cached options for a habit if available (sync, in-memory only). After a cold start,
+   * the first `getOptionsForHabit` hydrates memory from disk so later reads are instant.
    * @param {string} habitId - Habit UUID
    * @returns {Array|null} Cached options array or null if not cached / expired
    */
@@ -78,6 +151,12 @@ class ConsumptionOptionsService {
       const cached = this._getCached(habitId);
       if (cached) {
         return { success: true, data: cached };
+      }
+
+      const fromDisk = await this._readDiskCache(habitId);
+      if (fromDisk && Array.isArray(fromDisk.data)) {
+        this._setMemoryCache(habitId, fromDisk.data, fromDisk.savedAt);
+        return { success: true, data: fromDisk.data };
       }
 
       const presetScope = await this._presetScopeForHabitId(habitId);
@@ -111,7 +190,7 @@ class ConsumptionOptionsService {
       const merged = results.flatMap((r) => r.data || []);
       const sorted = this._mergeAndSortOptions(merged);
 
-      this._setCache(habitId, sorted);
+      await this._setCache(habitId, sorted);
       return { success: true, data: sorted };
     } catch (error) {
       return { success: false, error: error.message };
@@ -234,7 +313,7 @@ class ConsumptionOptionsService {
         .single();
 
       if (error) throw error;
-      this._invalidate(habitId);
+      await this._invalidate(habitId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: error.message };
@@ -276,7 +355,7 @@ class ConsumptionOptionsService {
           .single();
 
         if (error) throw error;
-        this._invalidateByOptionId(optionId);
+        if (data?.habit_id) await this._invalidate(data.habit_id);
         return { success: true, data };
       }
 
@@ -350,19 +429,10 @@ class ConsumptionOptionsService {
         .single();
 
       if (error) throw error;
-      this._invalidateByOptionId(optionId);
+      if (data?.habit_id) await this._invalidate(data.habit_id);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: error.message };
-    }
-  }
-
-  _invalidateByOptionId(optionId) {
-    for (const [habitId, entry] of this._cache.entries()) {
-      if (entry.data && entry.data.some(o => o.id === optionId)) {
-        this._cache.delete(habitId);
-        break;
-      }
     }
   }
 
@@ -387,7 +457,7 @@ class ConsumptionOptionsService {
         .single();
 
       if (error) throw error;
-      this._invalidateByOptionId(optionId);
+      if (data?.habit_id) await this._invalidate(data.habit_id);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: error.message };
@@ -404,12 +474,20 @@ class ConsumptionOptionsService {
         return { success: false, error: 'Option ID is required' };
       }
 
+      const { data: row, error: selErr } = await supabase
+        .from('consumption_options')
+        .select('habit_id')
+        .eq('id', optionId)
+        .maybeSingle();
+      if (selErr) throw selErr;
+
       const { error } = await supabase
         .from('consumption_options')
         .delete()
         .eq('id', optionId);
 
       if (error) throw error;
+      if (row?.habit_id) await this._invalidate(row.habit_id);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };

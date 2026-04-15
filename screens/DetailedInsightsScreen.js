@@ -367,7 +367,8 @@ const DetailedInsightsScreen = ({ navigation }) => {
           <Text style={styles.subtitle}>
             Discover how your habits impact {metricInfo.label.toLowerCase()}
             {selectedAnalysisType === 'percentage'
-              ? (selectedMetric === 'tiredness_score' || selectedMetric === 'dream_vividness_score'
+              ? (selectedMetric === 'tiredness_score' || selectedMetric === 'dream_vividness_score' ||
+                  (typeof selectedMetric === 'string' && selectedMetric.startsWith('subj_'))
                   ? ' (0–100%)'
                   : ' (as percentage of total sleep)')
               : ''}
