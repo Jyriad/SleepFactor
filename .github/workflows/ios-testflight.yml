@@ -1,0 +1,47 @@
+name: iOS TestFlight Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-submit-ios:
+    name: Build and Submit iOS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Write App Store Connect API key
+        run: |
+          echo "${{ secrets.ASC_API_KEY }}" > asc-api-key.p8
+          chmod 600 asc-api-key.p8
+
+      - name: Build iOS and auto-submit to TestFlight
+        run: eas build --platform ios --profile production --non-interactive --auto-increment --auto-submit
+        env:
+          EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
+      - name: Cleanup App Store Connect API key
+        if: always()
+        run: rm -f asc-api-key.p8
