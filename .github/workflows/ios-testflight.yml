@@ -43,9 +43,33 @@ jobs:
           EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
 
+      # EAS Submit reads ascAppId from eas.json (not from a CLI flag on this CLI version).
+      - name: Configure submit profile with App Store Connect app ID
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const id = (process.env.ASC_APP_ID || '').trim();
+          if (!id || !/^\d+$/.test(id)) {
+            console.error('Set repository secret ASC_APP_ID to your numeric App Store Connect Apple ID (App Information → Apple ID).');
+            process.exit(1);
+          }
+          const p = 'eas.json';
+          const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+          j.submit = j.submit || {};
+          j.submit.production = j.submit.production || {};
+          j.submit.production.ios = {
+            ...(j.submit.production.ios || {}),
+            ascAppId: id,
+          };
+          fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+          console.log('submit.production.ios.ascAppId configured for non-interactive submit.');
+          NODE
+        env:
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+
       - name: Submit latest iOS build to TestFlight
         id: submit_testflight
-        run: eas submit --platform ios --latest --profile production --non-interactive --asc-app-id "${{ secrets.ASC_APP_ID }}"
+        run: eas submit --platform ios --latest --profile production --non-interactive
         env:
           EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
           EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
