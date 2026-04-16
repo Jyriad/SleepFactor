@@ -35,9 +35,17 @@ jobs:
           echo "${{ secrets.ASC_API_KEY }}" > asc-api-key.p8
           chmod 600 asc-api-key.p8
 
-      - name: Build iOS and auto-submit to TestFlight
+      - name: Build iOS for TestFlight
         id: build_submit
-        run: eas build --platform ios --profile production --non-interactive --auto-submit
+        run: eas build --platform ios --profile production --non-interactive
+        env:
+          EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
+      - name: Submit latest iOS build to TestFlight
+        id: submit_testflight
+        run: eas submit --platform ios --latest --profile production --non-interactive --asc-app-id "${{ secrets.ASC_APP_ID }}"
         env:
           EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
           EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -54,7 +62,8 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Build/submit step outcome: ${{ steps.build_submit.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build step outcome: ${{ steps.build_submit.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Submit step outcome: ${{ steps.submit_testflight.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Overall job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ job.status }}" = "success" ]; then
