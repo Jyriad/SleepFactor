@@ -228,3 +228,25 @@ alwaysApply: false
 - **Session Replay SDK logging:** `MPSessionReplayConfig.enableLogging: true` prints **verbose Mixpanel logs** to the console. Prefer **`enableLogging: false`** unless actively debugging replay.
 - **Rules of Hooks (React Navigation + analytics):** `useCallback` / `useMemo` / `useEffect` for **navigation state** (e.g. `onStateChange` → `trackPageView`) must run on **every** render in a **fixed order**. **Never** place a hook **after** a conditional `return` (e.g. loading spinner while `onboardingComplete === null`). If the first render returns early and a later render runs an extra hook, React reports **“change in the order of Hooks”** / **“Rendered more hooks than during the previous render.”** **Fix:** move all hooks **above** any `if (...) return (...)` in the same component.
 - **Wiring note:** The Mixpanel onboarding **wizard** may target **web** (`mixpanel-browser` + HTML). For **Expo React Native**, use **`mixpanel-react-native`** (and optional Session Replay) instead; map the same project token and event names.
+
+---
+
+## EAS + GitHub Actions: TestFlight, versioning, and quota (April 2026)
+
+**What we learned**
+
+- **`eas build` auto-increment flags:** `--auto-increment` is not always a valid `eas build` flag across CLI versions. Prefer updating **`ios.buildNumber`** (and Android **`versionCode`**) in **`app.config.js`** / **`package.json`** explicitly in CI rather than relying on unsupported CLI flags.
+- **`eas.json` `autoIncrement` with `app.config.js`:** With **`appVersionSource: local`** and a dynamic **`app.config.js`**, EAS can error with **`autoIncrement option is not supported when using app.config.js`**. Do **not** enable **`build.*.autoIncrement`** in that setup; bump native counters in config instead.
+- **`eas submit` + App Store Connect app id:** Non-interactive iOS submit needs **`ascAppId`** in **`eas.json`** under **`submit.<profile>.ios`** (Expo docs). The **`eas submit`** CLI may **not** support **`--asc-app-id`** on some versions — injecting **`ascAppId`** at CI time (from secret **`ASC_APP_ID`**) or committing it under **`submit.production.ios`** avoids “Set ascAppId…” / “Nonexistent flag” failures.
+- **Apple duplicate build numbers:** If **`package.json`** version bumps in CI but **`ios.buildNumber`** in **`app.config.js`** does not, TestFlight uploads can fail (Apple requires a higher **CFBundleVersion** each upload). Keep **app version**, **iOS build number**, and **Android `versionCode`** owned by **one** automation step so they stay aligned.
+- **Android `versionCode`:** Production Play-style uploads need a monotonically increasing **`android.versionCode`**. If missing from **`app.config.js`**, add it and bump it with the same release automation as iOS build number.
+- **EAS build quota:** Combining Android + iOS in one workflow on every **`main`** merge burns **two** cloud builds per merge. Splitting into **auto version bump only** on merge plus **manual** “Android production” and “iOS TestFlight” workflows saves Expo monthly build usage when you only need one platform.
+- **Avoid workflow loops:** Version-bump commits pushed by **`github-actions[bot]`** should use **`[skip ci]`** in the commit message **and/or** `if: github.actor != 'github-actions[bot]'` on workflows that should not re-run from the bot’s push.
+- **App Store Connect API key (`.p8`):** Create keys under **App Store Connect → Users and Access → Integrations → App Store Connect API** (not the wrong Apple portal area). The **`.p8` downloads only once** at creation; if lost, create a new key and rotate secrets.
+- **Submit blocked with 403 `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`:** Apple blocks API uploads until **Agreements, Tax, and Banking** are accepted in App Store Connect (often after Apple updates terms). Fix is **account/admin** in App Store Connect, not code. Expo submission details page shows the JSON error; GitHub logs alone may look vague.
+- **Android “alpha / beta like TestFlight”:** Use **Google Play Console** testing tracks: **internal testing** (small team, fast), **closed testing** (alpha/beta — invited emails or Google Group), or **open testing** (public link, still pre-production). Builds are typically **AAB** uploaded to a track, testers install via **Play Store** (not sideload). Separate from this repo’s **GitHub APK** release path (direct install / GitHub Releases).
+
+**Testing**
+
+- **iOS:** After agreements and version bumps, manual TestFlight workflow should schedule submit; confirm in Expo submission page and App Store Connect **TestFlight** processing.
+- **Android:** Manual APK workflow should not depend on Apple; confirm **Play Console** or sideload path separately from iOS.
