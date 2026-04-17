@@ -1,0 +1,87 @@
+name: Auto Version Bump
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  bump-versions:
+    if: github.actor != 'github-actions[bot]'
+    name: Bump app + iOS + Android versions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Auto-increment release versions
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const packagePath = 'package.json';
+          const appConfigPath = 'app.config.js';
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+
+          const [major, minor, patch] = String(pkg.version).split('.').map(Number);
+          if (![major, minor, patch].every(Number.isFinite)) {
+            console.error(`Unexpected package version format: ${pkg.version}`);
+            process.exit(1);
+          }
+          const newVersion = `${major}.${minor}.${patch + 1}`;
+          pkg.version = newVersion;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+          let appConfig = fs.readFileSync(appConfigPath, 'utf8');
+          const iosMatch = appConfig.match(/buildNumber:\s*"(\d+)"/);
+          if (!iosMatch) {
+            console.error('Unable to find ios.buildNumber in app.config.js');
+            process.exit(1);
+          }
+          const nextBuildNumber = String(Number(iosMatch[1]) + 1);
+          appConfig = appConfig.replace(/buildNumber:\s*"\d+"/, `buildNumber: "${nextBuildNumber}"`);
+
+          const androidMatch = appConfig.match(/versionCode:\s*(\d+)/);
+          if (!androidMatch) {
+            console.error('Unable to find android.versionCode in app.config.js');
+            process.exit(1);
+          }
+          const nextVersionCode = String(Number(androidMatch[1]) + 1);
+          appConfig = appConfig.replace(/versionCode:\s*\d+/, `versionCode: ${nextVersionCode}`);
+          fs.writeFileSync(appConfigPath, appConfig);
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEW_VERSION=${newVersion}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEW_BUILD_NUMBER=${nextBuildNumber}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEW_ANDROID_VERSION_CODE=${nextVersionCode}\n`);
+          console.log(`Release version ${newVersion}, iOS build ${nextBuildNumber}, Android versionCode ${nextVersionCode}`);
+          NODE
+
+      - name: Commit and push version bump
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add package.json app.config.js
+          git commit -m "Release v${{ env.NEW_VERSION }} [skip ci]" || echo "No changes to commit"
+          git push
+
+      - name: Publish workflow summary
+        if: always()
+        run: |
+          echo "## Auto Version Bump Result" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App version: ${{ env.NEW_VERSION }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- iOS build number: ${{ env.NEW_BUILD_NUMBER }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Android versionCode: ${{ env.NEW_ANDROID_VERSION_CODE }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Overall job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
