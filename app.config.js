@@ -61,6 +61,8 @@ export default {
     },
     edgeToEdgeEnabled: true,
     package: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
+    // versionCode must increase for every new Android production binary.
+    versionCode: 1328,
     permissions: [
       "android.permission.health.READ_SLEEP",
       "android.permission.health.READ_STEPS",
