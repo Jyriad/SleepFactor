@@ -1,4 +1,4 @@
-name: Production Build
+name: Production Release
 
 on:
   push:
@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   build-production:
-    name: Build Production APK
+    if: github.actor != 'github-actions[bot]'
+    name: Build Production Android + iOS
     runs-on: ubuntu-latest
 
     steps:
@@ -38,29 +39,108 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Auto-increment version
+      - name: Write App Store Connect API key
         run: |
-          # Get current version from package.json
-          current_version=$(node -p "require('./package.json').version")
+          echo "${{ secrets.ASC_API_KEY }}" > asc-api-key.p8
+          chmod 600 asc-api-key.p8
 
-          # Auto-increment patch version (0.0.1)
-          IFS='.' read -ra VERSION_PARTS <<< "$current_version"
-          new_patch=$((VERSION_PARTS[2] + 1))
-          new_version="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.${new_patch}"
+      - name: Auto-increment release versions
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
 
-          echo "Current version: $current_version"
-          echo "New version: $new_version"
+          const packagePath = 'package.json';
+          const appConfigPath = 'app.config.js';
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 
-          # Update package.json
-          npm version --no-git-tag-version "$new_version"
+          const [major, minor, patch] = String(pkg.version).split('.').map(Number);
+          if (![major, minor, patch].every(Number.isFinite)) {
+            console.error(`Unexpected package version format: ${pkg.version}`);
+            process.exit(1);
+          }
+          const newVersion = `${major}.${minor}.${patch + 1}`;
+          pkg.version = newVersion;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
 
-          # Export for use in next steps
-          echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+          let appConfig = fs.readFileSync(appConfigPath, 'utf8');
+          const iosMatch = appConfig.match(/buildNumber:\s*"(\d+)"/);
+          if (!iosMatch) {
+            console.error('Unable to find ios.buildNumber in app.config.js');
+            process.exit(1);
+          }
+          const nextBuildNumber = String(Number(iosMatch[1]) + 1);
+          appConfig = appConfig.replace(/buildNumber:\s*"\d+"/, `buildNumber: "${nextBuildNumber}"`);
+
+          const androidMatch = appConfig.match(/versionCode:\s*(\d+)/);
+          let nextVersionCode;
+          if (androidMatch) {
+            nextVersionCode = String(Number(androidMatch[1]) + 1);
+            appConfig = appConfig.replace(/versionCode:\s*\d+/, `versionCode: ${nextVersionCode}`);
+          } else {
+            nextVersionCode = nextBuildNumber;
+            appConfig = appConfig.replace(
+              /package:\s*IS_DEV \? "com\.sleepfactor\.app\.dev" : "com\.sleepfactor\.app",/,
+              `package: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",\n    // versionCode must increase for every new Android production binary.\n    versionCode: ${nextVersionCode},`
+            );
+          }
+          fs.writeFileSync(appConfigPath, appConfig);
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEW_VERSION=${newVersion}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEW_BUILD_NUMBER=${nextBuildNumber}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEW_ANDROID_VERSION_CODE=${nextVersionCode}\n`);
+
+          console.log(`Release version ${newVersion}, iOS build ${nextBuildNumber}, Android versionCode ${nextVersionCode}`);
+          NODE
+
+      - name: Configure submit profile with App Store Connect app ID
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const id = (process.env.ASC_APP_ID || '').trim();
+          if (!id || !/^\d+$/.test(id)) {
+            console.error('Set repository secret ASC_APP_ID to your numeric App Store Connect Apple ID.');
+            process.exit(1);
+          }
+          const p = 'eas.json';
+          const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+          j.submit = j.submit || {};
+          j.submit.production = j.submit.production || {};
+          j.submit.production.ios = {
+            ...(j.submit.production.ios || {}),
+            ascAppId: id
+          };
+          fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+          console.log('submit.production.ios.ascAppId configured for non-interactive submit.');
+          NODE
+        env:
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
 
       - name: Build production APK
+        id: build_android
         run: eas build --platform android --profile production --non-interactive
         env:
           EAS_SKIP_AUTO_FINGERPRINT: 1
+
+      - name: Build iOS for TestFlight
+        id: build_ios
+        run: eas build --platform ios --profile production --non-interactive
+        env:
+          EAS_SKIP_AUTO_FINGERPRINT: 1
+          EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
+      - name: Submit latest iOS build to TestFlight
+        id: submit_ios
+        run: eas submit --platform ios --latest --profile production --non-interactive
+        env:
+          EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
+      - name: Cleanup App Store Connect API key
+        if: always()
+        run: rm -f asc-api-key.p8
 
       - name: Create release notes
         run: |
@@ -69,9 +149,17 @@ jobs:
           echo "## What's New" >> release_notes.md
           echo "- Bug fixes and improvements" >> release_notes.md
           echo "" >> release_notes.md
+          echo "## Versioning" >> release_notes.md
+          echo "- App version: ${{ env.NEW_VERSION }}" >> release_notes.md
+          echo "- iOS build number: ${{ env.NEW_BUILD_NUMBER }}" >> release_notes.md
+          echo "- Android versionCode: ${{ env.NEW_ANDROID_VERSION_CODE }}" >> release_notes.md
+          echo "" >> release_notes.md
           echo "## Build Information" >> release_notes.md
           echo "- Built on: $(date)" >> release_notes.md
           echo "- Commit: ${{ github.sha }}" >> release_notes.md
+          echo "- Android build outcome: ${{ steps.build_android.outcome }}" >> release_notes.md
+          echo "- iOS build outcome: ${{ steps.build_ios.outcome }}" >> release_notes.md
+          echo "- iOS submit outcome: ${{ steps.submit_ios.outcome }}" >> release_notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -88,6 +176,20 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add package.json
+          git add package.json app.config.js
           git commit -m "Release v${{ env.NEW_VERSION }} [skip ci]" || echo "No changes to commit"
           git push || echo "Push failed - this is normal for the first automated release"
+
+      - name: Publish workflow summary
+        if: always()
+        run: |
+          echo "## Production Release Result" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App version: ${{ env.NEW_VERSION }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- iOS build number: ${{ env.NEW_BUILD_NUMBER }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Android versionCode: ${{ env.NEW_ANDROID_VERSION_CODE }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Android build outcome: ${{ steps.build_android.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- iOS build outcome: ${{ steps.build_ios.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- iOS submit outcome: ${{ steps.submit_ios.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Overall job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
