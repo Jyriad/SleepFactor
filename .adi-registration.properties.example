@@ -1,0 +1,14 @@
+# Google Play / Android Developer Identity — one-time package verification
+#
+# 1. Copy this file to:  .adi-registration.properties  (same folder as package.json)
+# 2. Delete these comment lines. The file must contain ONLY the snippet Google gave you
+#    (the line that looks like random letters/numbers — exact copy from Play Console).
+# 3. Never commit .adi-registration.properties (it is listed in .gitignore).
+#
+# For EAS cloud builds without committing a local file: in the Expo dashboard,
+# add a project environment variable ADI_REGISTRATION_SNIPPET (Production) with
+# the same snippet value, or set it via the EAS CLI for environment variables.
+#
+# Replace the line below with your real snippet from Google, then delete all # lines above.
+
+PASTE_GOOGLE_SNIPPET_HERE

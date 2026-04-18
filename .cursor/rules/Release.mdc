@@ -16,10 +16,26 @@ This document consolidates **development testing**, **Git/version workflow**, **
 | Variant | Purpose | Bundle / package | How testers get it |
 |--------|---------|------------------|-------------------|
 | **SleepFactor Dev** | Fast iteration with Metro | `com.sleepfactor.app.dev` | EAS **development** profile (dev client); `npx expo start --dev-client` (+ tunnel or LAN) |
-| **SleepFactor** (Android prod) | Store-style release binary | `com.sleepfactor.app` | GitHub Releases **APK** after merge to `main` (automated workflow) |
-| **SleepFactor** (iOS prod) | TestFlight / App Store | `com.sleepfactor.app` | EAS **production** iOS build → **submit** to App Store Connect → **TestFlight** (and later App Store) |
+| **SleepFactor** (Android prod) | Store-style release binary | `com.sleepfactor.app` | **Manual** GitHub Action **Android Production Build** → EAS production **APK** (optional **GitHub Release** if you attach artifacts separately) |
+| **SleepFactor** (iOS prod) | TestFlight / App Store | `com.sleepfactor.app` | **Manual** GitHub Action **iOS TestFlight Release** → EAS **production** iOS build → **submit** → **TestFlight** (and later App Store) |
 
 **`eas.json`** sets **`APP_VARIANT`** to **`development`** or **`production`** per build profile so **`app.config.js`** resolves the correct bundle ID and display name (**SleepFactor Dev** vs **SleepFactor**). **`appVersionSource`** is **local** (versions follow **`package.json`** / app config).
+
+---
+
+## GitHub Actions on `main` (current release model)
+
+This repo uses **three** workflows so **Expo EAS build quota** is not spent on every merge:
+
+| Workflow file | GitHub name | When it runs | What it does |
+|---------------|-------------|----------------|---------------|
+| **`.github/workflows/versioning.yml`** | **Auto Version Bump** | **Automatically** on every push to **`main`** (not from the bot’s own bump commit) | Bumps together: **`package.json`** patch version, **`ios.buildNumber`** in **`app.config.js`**, and **`android.versionCode`** in **`app.config.js`**. Commits and pushes with **`[skip ci]`** so it does not re-trigger itself. |
+| **`.github/workflows/production-build.yml`** | **Android Production Build** | **Manual only** (`Run workflow`) | EAS **`eas build`** Android **`production`** APK. **Does not** bump versions — use the commit **`main`** is on **after** auto bump (or merge, wait for bump, then run). |
+| **`.github/workflows/ios-testflight.yml`** | **iOS TestFlight Release** | **Manual only** (`Run workflow`) | EAS **`eas build`** iOS **`production`**, then **`eas submit`** to App Store Connect / **TestFlight**. Injects **`ascAppId`** from secret **`ASC_APP_ID`** into **`eas.json`** for non-interactive submit. **Does not** bump versions. |
+
+**Secrets (Actions):** **`EXPO_TOKEN`** (EAS). iOS submit also needs **App Store Connect API** material in GitHub (**`ASC_API_KEY`**, **`ASC_API_KEY_ID`**, **`ASC_API_KEY_ISSUER_ID`**, **`ASC_APP_ID`**). If Apple returns **`FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`**, accept pending agreements in **App Store Connect → Agreements, Tax, and Banking** (not a code fix). See **`Learnings.mdc`** (EAS CI / TestFlight section) for pitfalls already hit in this project.
+
+**Typical release sequence after merging to `main`:** wait for **Auto Version Bump** to finish (green) → run **Android** and/or **iOS** manual workflows only for the platforms you want to ship this cycle.
 
 ---
 
@@ -27,8 +43,8 @@ This document consolidates **development testing**, **Git/version workflow**, **
 
 1. **Develop & test** — feature branch, **SleepFactor Dev**, dev server (**tunnel** preferred; **LAN** if tunnel/ngrok fails). **Android first** when possible; **also validate on iPhone** after native, HealthKit, or iOS-facing changes.
 2. **Review** — PR, checks, merge to **`main`** when approved.
-3. **Ship Android prod** — GitHub Actions builds production **APK**, bumps version (+0.0.1 pattern per **`versioning.mdc`** / workflow), GitHub Release.
-4. **Ship iOS beta/prod binary** — separate step: **EAS production iOS build** + **`eas submit`** → TestFlight (and App Store when ready). *Not* triggered automatically by the same merge unless you add or run that pipeline.
+3. **Version bump on `main`** — **Auto Version Bump** runs and aligns **`package.json`**, **iOS build number**, and **Android versionCode** in one commit.
+4. **Ship binaries when needed** — manually run **Android Production Build** and/or **iOS TestFlight Release** in GitHub Actions (each consumes EAS cloud builds only when you run it).
 
 ---
 
@@ -41,12 +57,12 @@ Use this when a release touches **Supabase** and/or needs a **new production iOS
 | **1. Dev testing** | Feature branch; **`npx expo start --dev-client`** (tunnel or LAN); test on **SleepFactor Dev**; shake → **Reload** to pick up JS. Rebuild the **dev client** only if native deps, permissions, or native app config changed (**see Phase 1**). |
 | **2. Production database** | Apply pending **Supabase migrations** to the **production** project the **production** app uses (CLI **`npx supabase db push`** when linked to prod, or **SQL Editor** in the dashboard). Schema must match the app **before** or **with** the store/TestFlight binary, or users can see errors. Example: migrations under **`supabase/migrations/`** (e.g. global consumption presets). |
 | **3. Commit** | Commit (or merge) the exact code you intend to ship so the EAS build is reproducible. |
-| **4. Version & iOS build number** | Bump **`package.json`** **`version`** when you want a new user-facing / runtime version. For **every** new upload to App Store Connect, increment **`ios.buildNumber`** in **`app.config.js`** (Apple rejects duplicate **CFBundleVersion** values). This repo sets it explicitly on the **`ios`** object (e.g. **`buildNumber: "1328"`** — increment the string for each new TestFlight/App Store upload). |
+| **4. Version & iOS build number** | On **`main`**, **Auto Version Bump** increments **`package.json`** **`version`**, **`ios.buildNumber`**, and **`android.versionCode`** together. For an extra TestFlight upload **without** merging again, you still need a **higher** **`ios.buildNumber`** than the last App Store Connect upload (do not reuse); normally the auto job handles this each merge. |
 | **5. EAS production iOS build** | **`eas build --platform ios --profile production`** (or **`npx eas-cli build …`**). Uses **`eas.json`** profile **`production`** (**`APP_VARIANT: production`**, **`com.sleepfactor.app`**). |
 | **6. Submit to Apple** | **`eas submit --platform ios --latest`** (or submit from the Expo dashboard). |
 | **7. TestFlight** | Wait for **processing** in App Store Connect; assign the build to **internal** / **external** groups; testers update via the **TestFlight** app. |
 
-**Android production APK** (GitHub Actions after merge to **`main`**) is a separate path; see **Phase 3a**.
+**Android production APK** is a **manual** GitHub Action; see **Phase 3a**.
 
 **Expo Updates / OTA:** JS-only fixes *may* ship via **EAS Update** if configured; **native** or **config-plugin** changes need a **new `eas build`**. When unsure, ship a new production binary.
 
@@ -106,7 +122,7 @@ npx expo start --dev-client --tunnel --clear   # if Metro looks stuck
 
 1. Open a **pull request** to **`main`**.
 2. Team review + automated checks (when configured).
-3. Merge when approved. This typically triggers **Android** production build via GitHub Actions — **not** automatically an **iOS TestFlight** upload unless you run EAS submit separately.
+3. Merge when approved. This triggers **Auto Version Bump** on **`main`** (version + native counters). **Android** and **iOS production EAS builds** run only when you **manually** start those workflows in **Actions**.
 
 ```bash
 git push origin feature/your-feature-name
@@ -114,21 +130,23 @@ git push origin feature/your-feature-name
 
 ---
 
-## Phase 3a: Android production release (automated via GitHub)
+## Phase 3a: Android production release (manual GitHub Action)
 
-**What it does:** Builds a **production APK** from **`main`**, bumps version (e.g. +0.0.1), publishes a **GitHub Release** with a download link.
+**What it does:** Runs **`eas build --platform android --profile production`** from the current **`main`** checkout. Uses **`EXPO_TOKEN`** and the same EAS **`production`** profile as local CLI builds.
 
-**When:** After merge to **`main`**, when the workflow is enabled and secrets (e.g. **`EXPO_TOKEN`**) are set.
+**When:** **Actions → Android Production Build → Run workflow** (branch **`main`**), after **Auto Version Bump** has completed so the tree matches the release numbers you intend to ship.
 
-**Install:** Download the APK from the repo’s **Releases** page and install on the production app id (**SleepFactor**, not Dev).
+**Versioning:** The workflow **does not** change **`package.json`** or **`app.config.js`**. Rely on the latest **Auto Version Bump** commit on **`main`**, or bump manually before running if you have an exceptional case.
 
-**Automatic behaviors (when workflow is set up):** version bump, clean build, release artifact — no manual local production APK required for that path.
+**Install / distribution:** Download the APK from the **EAS build** page for that run, or publish to **GitHub Releases** manually if you want a stable download link for testers (the workflow itself no longer auto-creates a GitHub Release).
 
 ---
 
 ## Phase 3b: iOS production / TestFlight (EAS — manual steps)
 
 Use this path for **TestFlight** and **App Store** binaries. Production iOS builds use **`eas.json`** profile **`production`**: **`distribution: store`**, **`APP_VARIANT: production`**, **`com.sleepfactor.app`**, **Release** configuration, **Xcode 16.4** image (as configured in-repo).
+
+**GitHub path (preferred for CI parity):** **Actions → iOS TestFlight Release → Run workflow** on **`main`** after **Auto Version Bump**. Same **`EXPO_TOKEN`** plus App Store Connect API secrets as configured in the repo.
 
 ### One-time / occasional setup
 
@@ -140,17 +158,14 @@ Use this path for **TestFlight** and **App Store** binaries. Production iOS buil
 ### Every new iOS build you want on TestFlight
 
 1. **Commit** the code you intend to ship (reproducible state).
-2. **Increment the iOS build number** (**`ios.buildNumber`** in **`app.config.js`**) for each new upload to Apple (Apple rejects duplicate **CFBundleVersion**). Also bump **`package.json`** **`version`** when you want a new marketing / **runtime** version (**`appVersionSource: local`**).
+2. **Versions on `main`:** ensure **Auto Version Bump** has run after your merge so **`package.json`** and **`ios.buildNumber`** (and Android **`versionCode`**) are ahead of the last store upload. Apple rejects duplicate **CFBundleVersion** — the auto job normally prevents drift.
 3. **Production Supabase:** apply any new migrations to the **production** database before testers use the new binary (see **Staged checklist** above).
-4. **Cloud build:**  
-   `eas build --platform ios --profile production`  
-   (or `npx eas-cli …` if `eas` is not global).
-5. **Upload to App Store Connect:**  
-   `eas submit --platform ios --latest`  
-   (or submit from the Expo dashboard).
-6. **Wait for processing** in App Store Connect (often ~5–15+ minutes). Email may notify when done.
-7. **TestFlight:** Open the app → **TestFlight** tab (not only the “Prepare for submission” App Store row). Add the new build to **Internal** and **External** groups as needed.
-8. **Testers:** Install/update via Apple’s **TestFlight** app (updates appear as **Update** for existing testers).
+4. **Cloud build + submit (pick one):**  
+   - **CI:** **Actions → iOS TestFlight Release → Run workflow** on **`main`**.  
+   - **Local:** `eas build --platform ios --profile production` then `eas submit --platform ios --latest` (or `npx eas-cli …` if `eas` is not global; submit from Expo dashboard also works).
+5. **Wait for processing** in App Store Connect (often ~5–15+ minutes). Email may notify when done.
+6. **TestFlight:** Open the app → **TestFlight** tab (not only the “Prepare for submission” App Store row). Add the new build to **Internal** and **External** groups as needed.
+7. **Testers:** Install/update via Apple’s **TestFlight** app (updates appear as **Update** for existing testers).
 
 **Internal testers:** Apple IDs on your **App Store Connect** team (**Users and Access**). Usually no separate Beta App Review for internal.
 
@@ -192,7 +207,7 @@ git push origin feature/your-feature-name
 - [ ] Errors are user-appropriate; performance acceptable on device
 - [ ] **Android** UI (primary day-to-day); **iPhone** when iOS/native changed
 - [ ] Dev server (**tunnel** or **LAN**) connects; live reload works on **SleepFactor Dev**
-- [ ] Production **APK** path still valid if you rely on GitHub Releases (when workflow runs)
+- [ ] Production **APK** path understood: **manual** Android workflow → APK from **EAS** (optional self-published **GitHub Release** link for testers)
 
 ---
 
@@ -200,14 +215,14 @@ git push origin feature/your-feature-name
 
 **Android (GitHub path):**
 
-- [ ] Workflow run succeeded; release artifact present
-- [ ] Version bumped as expected (**`versioning.mdc`**)
+- [ ] **Auto Version Bump** completed on **`main`** before the manual Android build
+- [ ] **Android Production Build** workflow run succeeded; APK obtained from EAS (or attached to a Release if you publish one)
 
 **iOS (EAS path):**
 
-- [ ] **Build number** incremented vs last App Store Connect upload
-- [ ] **`eas build`** iOS **production** succeeded
-- [ ] **`eas submit`** succeeded; build **processed** in App Store Connect
+- [ ] **Auto Version Bump** on **`main`** completed before the manual iOS release (or build numbers manually ahead of last App Store Connect upload)
+- [ ] **iOS TestFlight Release** workflow (or local **`eas build`**) **production** succeeded
+- [ ] **`eas submit`** (in workflow or locally) succeeded; build **processed** in App Store Connect
 - [ ] TestFlight **internal**/**external** groups point at the new build
 
 ---
@@ -272,7 +287,7 @@ eas submit --platform ios --latest
 npx eas-cli credentials -p ios
 ```
 
-**Android production APK:** After merge to **`main`**, use the repo’s **GitHub Actions** release artifact / **Releases** page (URL depends on org — replace placeholders in older docs with your real repo).
+**Android production APK:** After merge to **`main`**, wait for **Auto Version Bump**, then run **Android Production Build** manually; download the APK from the **EAS** build for that run (or publish a **GitHub Release** yourself if you want a stable link).
 
 ---
 
@@ -281,8 +296,9 @@ npx eas-cli credentials -p ios
 | Stage | Action |
 |-------|--------|
 | Dev | Branch → **SleepFactor Dev** + `expo start --dev-client` (tunnel/LAN) |
-| Merge | PR → **`main`** → Android **APK** workflow (if enabled) |
-| iOS beta | **`eas build` production iOS** → **`eas submit`** → **TestFlight** groups |
+| Merge | PR → **`main`** → **Auto Version Bump** (version + iOS build + Android versionCode) |
+| Android prod | **Actions → Android Production Build** (manual) → EAS APK |
+| iOS beta | **Actions → iOS TestFlight Release** (manual) → EAS build → submit → **TestFlight** groups |
 | Website | **SleepfactorWebsite** local serve → push → Pages smoke test |
 
 When advising **how to test**, state whether behavior should match **iOS and Android** or is **platform-specific** (per **`IOS-Android-testing.mdc`**).
