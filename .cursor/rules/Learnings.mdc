@@ -250,3 +250,15 @@ alwaysApply: false
 
 - **iOS:** After agreements and version bumps, manual TestFlight workflow should schedule submit; confirm in Expo submission page and App Store Connect **TestFlight** processing.
 - **Android:** Manual APK workflow should not depend on Apple; confirm **Play Console** or sideload path separately from iOS.
+
+---
+
+## Google Play Console & Android AAB (April 2026)
+
+**What we learned**
+
+- **Play requires `targetSdkVersion` 35 for new uploads:** Internal / closed / production uploads were rejected while the bundle targeted API **34** (“must target at least API level 35”). **`app.config.js`** → **`expo-build-properties`** → set **`android.targetSdkVersion`** to **`35`** (with **`compileSdkVersion`** **35** for this project). Bump, rebuild **AAB** (**`production-play`** profile or manual **`eas build`**), re-upload to the testing track.
+- **Privacy policy URL (sensitive permissions):** Play may require a **public privacy policy URL** before accepting a build when the merged manifest includes permissions Google classifies as sensitive (e.g. **`READ_PHONE_STATE`**, often merged from a dependency rather than declared explicitly in **`app.config.js`**). Add the URL under **Play Console → App content / Policy** (wording varies). The policy should match reality: e.g. marketing **waitlist** collects email and optional fields into **Supabase** — the site must not claim “no personal data from visitors” if that form exists.
+- **Android Developer Identity (ADI) / package registration:** Google may require proving signing-key ownership: **`assets/adi-registration.properties`** containing their account snippet, inside an APK signed with the key matching the registered fingerprint. This repo uses **`plugins/withAndroidAdiRegistration.js`** (runs only when **`APP_VARIANT`** is **`production`**). Provide **`ADI_REGISTRATION_SNIPPET`** as an **EAS project env var** for cloud builds, or a gitignored **`.adi-registration.properties`** at the repo root for local prebuild. Remove the env/file after verification if you do not want the file in routine production artifacts.
+- **AAB vs APK in CI:** **`eas.json`** **`production`** keeps **`android.buildType: apk`** for sideload-style testing; **`production-play`** uses **`app-bundle`** for Play. GitHub Action **Android Play Bundle (AAB)** runs **`eas build --platform android --profile production-play`**. Automated **`eas submit`** to Play was deferred; upload **`.aab`** manually in **Play Console → Testing** until submit is wired like iOS.
+- **Testing tracks:** **Internal testing** is the usual first step (small tester list, Play Store install flow analogous to TestFlight). Roll out the new **AAB** after Play finishes processing.
