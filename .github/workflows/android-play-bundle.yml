@@ -1,0 +1,48 @@
+name: Android Play Bundle (AAB)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-production-android-aab:
+    name: Build Production AAB for Play
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci --legacy-peer-deps && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build production AAB (Google Play)
+        run: eas build --platform android --profile production-play --non-interactive
+        env:
+          EAS_SKIP_AUTO_FINGERPRINT: 1
+
+      - name: Publish workflow summary
+        if: always()
+        run: |
+          echo "## Android Play Bundle (AAB) Build Result" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Profile: production-play (production APP_VARIANT; artifact is .aab for Play Console)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Overall job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

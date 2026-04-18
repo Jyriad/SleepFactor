@@ -36,6 +36,22 @@
         "resourceClass": "m-medium",
         "image": "macos-sequoia-15.6-xcode-16.4"
       }
+    },
+    "production-play": {
+      "distribution": "store",
+      "channel": "production",
+      "env": {
+        "APP_VARIANT": "production"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "resourceClass": "m-medium",
+        "image": "macos-sequoia-15.6-xcode-16.4"
+      }
     }
   },
   "submit": {
