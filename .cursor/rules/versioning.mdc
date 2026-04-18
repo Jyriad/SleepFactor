@@ -13,6 +13,6 @@ alwaysApply: true
 
 That commit is pushed with **`[skip ci]`** so it does not re-trigger itself.
 
-**Shipping binaries:** Android and iOS **production EAS builds** are **not** started by that job. Run **Android Production Build** and/or **iOS TestFlight Release** manually from GitHub Actions when you want to spend build quota and ship testers a new binary.
+**Shipping binaries:** Android and iOS **production EAS builds** are **not** started by that job. Run **Android Production Build** (APK), **Android Play Bundle (AAB)**, and/or **iOS TestFlight Release** manually from GitHub Actions when you want to spend build quota and ship testers a new binary.
 
 **Full workflow, secrets, and checklists:** **`Release.mdc`**.
