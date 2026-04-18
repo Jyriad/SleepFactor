@@ -104,6 +104,7 @@ export default {
       }
     ],
     "./plugins/withAndroidSplashIconBackground.js",
+    "./plugins/withAndroidAdiRegistration.js",
     [
       "expo-health-connect",
       {

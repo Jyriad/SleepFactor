@@ -60,3 +60,6 @@ check-*.js
 check-*.mjs
 
 .env.local
+
+# Google ADI one-time verification snippet (never commit)
+.adi-registration.properties
