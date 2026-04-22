@@ -8,9 +8,12 @@ import {
   TextInput,
   Alert,
   Platform,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../constants/colors';
@@ -41,6 +44,7 @@ const LogConsumptionScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { preferences } = useUserPreferences();
   const measurementRegion = preferences.measurementRegion || 'metric';
   const measurementSystem = preferences.measurementSystem || 'metric';
@@ -68,11 +72,63 @@ const LogConsumptionScreen = () => {
     return day;
   });
   const [androidTimePickerVisible, setAndroidTimePickerVisible] = useState(false);
+  const [iosTimePickerVisible, setIosTimePickerVisible] = useState(false);
+  const [iosDraftTime, setIosDraftTime] = useState(() => new Date(selectedDateObj));
+  const [selectedTimePreset, setSelectedTimePreset] = useState(null);
   const [quickAddAmount, setQuickAddAmount] = useState('');
   const [saving, setSaving] = useState(false);
 
   const customVolumeRef = useRef('');
   const [customAmountDisplayValue, setCustomAmountDisplayValue] = useState(selectedOption?.drug_amount ?? customDrugAmount ?? 0);
+
+  useEffect(() => {
+    const habitName = (habit?.name || '').toLowerCase();
+    if (!habitName.includes('alcohol')) return;
+    console.log('[AlcoholUnitDebug][LogConsumption] route params', {
+      habitId: habit?.id,
+      habitName: habit?.name,
+      routeHabitUnit: habit?.unit,
+      selectedOptionId: selectedOption?.id,
+      selectedOptionName: selectedOption?.name,
+      selectedOptionDrugUnit: selectedOption?.drug_unit,
+      selectedOptionServingUnit: selectedOption?.serving_unit,
+      selectedOptionDrugAmount: selectedOption?.drug_amount,
+    });
+  }, [
+    habit?.id,
+    habit?.name,
+    habit?.unit,
+    selectedOption?.id,
+    selectedOption?.name,
+    selectedOption?.drug_unit,
+    selectedOption?.serving_unit,
+    selectedOption?.drug_amount,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const habitName = (habit?.name || '').toLowerCase();
+    if (!habit?.id || !habitName.includes('alcohol')) return () => {};
+    (async () => {
+      const { data: habitRow, error } = await supabase
+        .from('habits')
+        .select('id,name,unit,type')
+        .eq('id', habit.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.log('[AlcoholUnitDebug][LogConsumption] fresh habit fetch error', {
+          habitId: habit.id,
+          error: error.message,
+        });
+        return;
+      }
+      console.log('[AlcoholUnitDebug][LogConsumption] fresh habit row', habitRow);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [habit?.id, habit?.name]);
 
   useEffect(() => {
     if (showCustomVolume) {
@@ -379,7 +435,14 @@ const LogConsumptionScreen = () => {
       return;
     }
     if (date) {
+      setSelectedTimePreset(null);
       setSelectedTime(mergeTimeOntoSelectedDay(date));
+    }
+  }, [mergeTimeOntoSelectedDay]);
+
+  const onIosDraftTimeChange = useCallback((_, date) => {
+    if (date) {
+      setIosDraftTime(mergeTimeOntoSelectedDay(date));
     }
   }, [mergeTimeOntoSelectedDay]);
 
@@ -620,12 +683,44 @@ const LogConsumptionScreen = () => {
     await performQuickSave(mergeTimeOntoSelectedDay(selectedTime));
   }, [performQuickSave, mergeTimeOntoSelectedDay, selectedTime]);
 
+  const handleSelectTimePreset = useCallback(
+    (presetKey) => {
+      if (saving) return;
+      if (presetKey === 'now') {
+        setSelectedTime(getNowOnSelectedDay());
+        setSelectedTimePreset('now');
+        return;
+      }
+      const presetMap = {
+        morning: 10,
+        afternoon: 15,
+        evening: 19,
+      };
+      const presetHour = presetMap[presetKey];
+      if (presetHour == null) return;
+      const t = new Date(selectedDateObj);
+      t.setHours(presetHour, 0, 0, 0);
+      setSelectedTime(t);
+      setSelectedTimePreset(presetKey);
+    },
+    [saving, getNowOnSelectedDay, selectedDateObj]
+  );
+
   const getActiveIngredientLabel = () => {
     const name = (habit?.name || '').toLowerCase();
     if (name.includes('caffeine')) return 'caffeine';
     if (name.includes('alcohol')) return 'alcohol';
     return null;
   };
+
+  const getServingUnitLabel = useCallback(
+    (option) => {
+      const name = (habit?.name || '').toLowerCase();
+      if (name.includes('alcohol')) return option?.serving_unit || 'ml';
+      return option?.serving_unit || 'units';
+    },
+    [habit?.name]
+  );
 
 
   useFocusEffect(
@@ -668,15 +763,7 @@ const LogConsumptionScreen = () => {
             <Text style={styles.headerSubtitle} numberOfLines={1}>{headerSubtitleText}</Text>
           ) : null}
         </View>
-        <TouchableOpacity
-          style={styles.headerSideButton}
-          onPress={confirmSave}
-          disabled={saving}
-          accessibilityRole="button"
-          accessibilityLabel={editingEvent ? 'Update' : 'Add'}
-        >
-          <Text style={[styles.headerAddText, saving && styles.headerActionDisabled]}>{editingEvent ? 'Update' : 'Add'}</Text>
-        </TouchableOpacity>
+        <View style={styles.headerSideSpacer} />
       </View>
 
       {loadingOptions ? (
@@ -686,7 +773,10 @@ const LogConsumptionScreen = () => {
       ) : (
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: spacing.xxl + tabBarHeight + 96 },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -696,7 +786,7 @@ const LogConsumptionScreen = () => {
               <Text style={styles.servingLabel}>
                 {selectedOption.name}
                 {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null
-                  ? ` ${refServingForDisplay} ${selectedOption.serving_unit || 'units'}`
+                  ? ` ${refServingForDisplay} ${getServingUnitLabel(selectedOption)}`
                   : ''}
                 {selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && effectiveDefaultVolForDisplay
                   ? ` ${formatVolume(effectiveDefaultVolForDisplay, measurementSystem)}`
@@ -772,7 +862,7 @@ const LogConsumptionScreen = () => {
                     />
                     <Text style={styles.customVolumeUnit}>
                       {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT
-                        ? selectedOption.serving_unit || 'units'
+                        ? getServingUnitLabel(selectedOption)
                         : getVolumeUnitLabel(measurementSystem)}
                     </Text>
                     <Text style={styles.customVolumeArrow}>→</Text>
@@ -793,13 +883,25 @@ const LogConsumptionScreen = () => {
           {isQuickAdd && (
             <View style={styles.amountInputContainer}>
               <Text style={styles.amountLabel}>
-                Amount ({habit?.name?.toLowerCase().includes('caffeine') ? 'mg' : 'units'})
+                Amount (
+                {habit?.name?.toLowerCase().includes('caffeine')
+                  ? 'mg'
+                  : habit?.name?.toLowerCase().includes('alcohol')
+                    ? 'ml'
+                    : 'units'}
+                )
               </Text>
               <TextInput
                 style={styles.amountInput}
                 value={quickAddAmount}
                 onChangeText={setQuickAddAmount}
-                placeholder={habit?.name?.toLowerCase().includes('caffeine') ? '95' : '1'}
+                placeholder={
+                  habit?.name?.toLowerCase().includes('caffeine')
+                    ? '95'
+                    : habit?.name?.toLowerCase().includes('alcohol')
+                      ? '12.7'
+                      : '1'
+                }
                 keyboardType="phone-pad"
                 autoCorrect={false}
                 maxLength={4}
@@ -808,71 +910,127 @@ const LogConsumptionScreen = () => {
           )}
 
           <View style={styles.timeSection}>
-            <Text style={styles.timeSectionLabel}>Time</Text>
-            {Platform.OS === 'ios' ? (
-              <View style={styles.timePickerIosWrap}>
-                <DateTimePicker
-                  value={selectedTime}
-                  mode="time"
-                  display="compact"
-                  onChange={onNativeTimeChange}
-                />
-              </View>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.timeRowAndroid}
-                  onPress={() => setAndroidTimePickerVisible(true)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Time ${formatTimeLabel(selectedTime)}, tap to change`}
-                >
-                  <Text style={styles.timeRowAndroidText}>{formatTimeLabel(selectedTime)}</Text>
-                  <Ionicons name="time-outline" size={22} color={colors.primary} />
-                </TouchableOpacity>
-                {androidTimePickerVisible && (
-                  <DateTimePicker
-                    value={selectedTime}
-                    mode="time"
-                    display="default"
-                    onChange={onNativeTimeChange}
-                  />
-                )}
-              </>
-            )}
-          </View>
+            <Text style={styles.timeSectionLabel}>When did you have it?</Text>
+            <Text style={styles.timeSectionHint}>Pick a preset or choose an exact time.</Text>
 
-          <View style={styles.quickTimeOptions}>
-            <Text style={styles.quickTimeLabel}>Quick time</Text>
-            <View style={styles.quickTimeButtons}>
+            <View style={styles.timePresetButtons}>
               {[
                 ['Now', 'now'],
-                ['Morning', 10],
-                ['Afternoon', 15],
-                ['Evening', 19],
+                ['Morning', 'morning'],
+                ['Afternoon', 'afternoon'],
+                ['Evening', 'evening'],
               ].map(([label, key]) => (
                 <TouchableOpacity
-                  key={label}
-                  style={[styles.quickTimeButton, saving && styles.quickTimeButtonDisabled]}
+                  key={String(key)}
+                  style={[
+                    styles.timePresetButton,
+                    selectedTimePreset === key && styles.timePresetButtonSelected,
+                    saving && styles.timePresetButtonDisabled,
+                  ]}
                   disabled={saving}
-                  onPress={() => {
-                    if (key === 'now') {
-                      performQuickSave(getNowOnSelectedDay());
-                    } else {
-                      const t = new Date(selectedDateObj);
-                      t.setHours(key, 0, 0, 0);
-                      performQuickSave(t);
-                    }
-                  }}
+                  onPress={() => handleSelectTimePreset(key)}
                 >
-                  <Text style={styles.quickTimeButtonText}>{label}</Text>
+                  <Text
+                    style={[
+                      styles.timePresetButtonText,
+                      selectedTimePreset === key && styles.timePresetButtonTextSelected,
+                    ]}
+                  >
+                    {label}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
+
+            <TouchableOpacity
+              style={styles.exactTimeButton}
+              onPress={() => {
+                setSelectedTimePreset(null);
+                if (Platform.OS === 'android') {
+                  setAndroidTimePickerVisible(true);
+                  return;
+                }
+                setIosDraftTime(selectedTime);
+                setIosTimePickerVisible(true);
+              }}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`Choose exact time, currently ${formatTimeLabel(selectedTime)}`}
+            >
+              <View>
+                <Text style={styles.exactTimeLabel}>Choose exact time</Text>
+                <Text style={styles.exactTimeValue}>{formatTimeLabel(selectedTime)}</Text>
+              </View>
+              <Ionicons name="time-outline" size={22} color={colors.primary} />
+            </TouchableOpacity>
+
+            {Platform.OS === 'android' && androidTimePickerVisible ? (
+              <DateTimePicker
+                value={selectedTime}
+                mode="time"
+                display="default"
+                onChange={onNativeTimeChange}
+              />
+            ) : null}
+
+            <Text style={styles.timePreviewText}>Logging for {formatTimeLabel(selectedTime)}</Text>
           </View>
           </View>
         </ScrollView>
       )}
+
+      {Platform.OS === 'ios' ? (
+        <Modal
+          visible={iosTimePickerVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setIosTimePickerVisible(false)}
+        >
+          <Pressable style={styles.iosTimeModalOverlay} onPress={() => setIosTimePickerVisible(false)}>
+            <Pressable style={styles.iosTimeModalSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.iosTimeModalHeader}>
+                <TouchableOpacity
+                  onPress={() => setIosTimePickerVisible(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel time selection"
+                >
+                  <Text style={styles.iosTimeModalCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedTimePreset(null);
+                    setSelectedTime(iosDraftTime);
+                    setIosTimePickerVisible(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Done selecting time"
+                >
+                  <Text style={styles.iosTimeModalDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={iosDraftTime}
+                mode="time"
+                display="spinner"
+                onChange={onIosDraftTimeChange}
+                style={styles.iosTimeModalPicker}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+
+      <View style={[styles.bottomActionBar, { bottom: tabBarHeight, paddingBottom: 2 + Math.min(insets.bottom, spacing.xs) }]}>
+        <TouchableOpacity
+          style={[styles.bottomActionButton, saving && styles.bottomActionButtonDisabled]}
+          onPress={confirmSave}
+          disabled={saving}
+          accessibilityRole="button"
+          accessibilityLabel={editingEvent ? 'Update consumption' : 'Add consumption'}
+        >
+          <Text style={styles.bottomActionButtonText}>{editingEvent ? 'Update consumption' : 'Add consumption'}</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
@@ -902,16 +1060,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     justifyContent: 'center',
   },
+  headerSideSpacer: {
+    minWidth: 64,
+  },
   headerCancelText: {
     fontSize: typography.sizes.body,
     color: colors.white,
     fontWeight: typography.weights.medium,
-  },
-  headerAddText: {
-    fontSize: typography.sizes.body,
-    color: colors.white,
-    fontWeight: typography.weights.semibold,
-    textAlign: 'right',
   },
   headerActionDisabled: {
     opacity: 0.45,
@@ -949,7 +1104,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.regular,
-    paddingBottom: spacing.xxl,
   },
   contentCard: {
     backgroundColor: colors.cardBackground,
@@ -1079,18 +1233,54 @@ const styles = StyleSheet.create({
     keyboardType: 'phone-pad',
   },
   timeSection: {
+    marginTop: spacing.sm,
     marginBottom: spacing.sm,
   },
   timeSectionLabel: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
     fontWeight: typography.weights.semibold,
   },
-  timePickerIosWrap: {
-    alignSelf: 'flex-start',
+  timeSectionHint: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
   },
-  timeRowAndroid: {
+  timePresetButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  timePresetButton: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    minWidth: 80,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  timePresetButtonSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  timePresetButtonText: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    fontWeight: typography.weights.medium,
+  },
+  timePresetButtonTextSelected: {
+    color: colors.white,
+    fontWeight: typography.weights.semibold,
+  },
+  timePresetButtonDisabled: {
+    opacity: 0.5,
+  },
+  exactTimeButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1100,41 +1290,79 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.regular,
     paddingVertical: spacing.sm,
     backgroundColor: colors.background,
+    marginBottom: spacing.sm,
   },
-  timeRowAndroidText: {
+  exactTimeLabel: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  exactTimeValue: {
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     fontWeight: typography.weights.medium,
   },
-  quickTimeOptions: {
-    marginBottom: spacing.sm,
+  iosTimeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
   },
-  quickTimeLabel: {
+  iosTimeModalSheet: {
+    backgroundColor: colors.cardBackground,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    paddingBottom: 28,
+  },
+  iosTimeModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.regular,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  iosTimeModalCancel: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+  },
+  iosTimeModalDone: {
+    fontSize: typography.sizes.body,
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
+  },
+  iosTimeModalPicker: {
+    width: '100%',
+    height: 216,
+  },
+  timePreviewText: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
-    marginBottom: spacing.xs,
   },
-  quickTimeButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
+  bottomActionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: spacing.regular,
+    paddingTop: spacing.sm,
+    backgroundColor: colors.cardBackground,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  quickTimeButton: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    minWidth: 72,
+  bottomActionButton: {
     backgroundColor: colors.primary,
     borderRadius: 8,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.regular,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickTimeButtonDisabled: {
+  bottomActionButtonDisabled: {
     opacity: 0.5,
   },
-  quickTimeButtonText: {
-    fontSize: typography.sizes.small,
-    color: '#FFFFFF',
+  bottomActionButtonText: {
+    fontSize: typography.sizes.body,
+    color: colors.white,
     fontWeight: typography.weights.semibold,
   },
 });

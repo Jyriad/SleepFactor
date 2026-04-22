@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import dataQualityService from './dataQualityService';
 import healthMetricsService from './healthMetricsService';
+import bedtimeHabitsService from './bedtimeHabitsService';
 import { addCalendarDay } from '../utils/dateHelpers';
 import {
   calculateMedian,
@@ -34,6 +35,26 @@ class InsightsService {
     // Cache for getHabitsInsights by (userId, metric, timeRange, analysisType, showNoSignificance). TTL 5 min.
     this._detailedInsightsCache = new Map();
     this._DETAILED_INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
+    // Recompute inferred bedtime values occasionally so chart data stays aligned with latest calculation rules.
+    this._bedtimeBackfillTracker = new Map();
+    this._BEDTIME_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+  }
+
+  async ensureBedtimeConsistencyBackfilled(userId, lookbackDays = 120) {
+    if (!userId) return;
+    const lastRunAt = this._bedtimeBackfillTracker.get(userId) || 0;
+    const now = Date.now();
+    if (now - lastRunAt < this._BEDTIME_BACKFILL_COOLDOWN_MS) return;
+
+    this._bedtimeBackfillTracker.set(userId, now);
+    try {
+      await bedtimeHabitsService.backfillBedtimeHabits(userId, lookbackDays);
+      this._detailedInsightsCache.clear();
+      this._taggedInsightsCache = null;
+      this._homeSummaryCache = null;
+    } catch (_error) {
+      // Keep insights loading even if backfill fails.
+    }
   }
 
   /**
@@ -187,6 +208,8 @@ class InsightsService {
    */
   async getHabitsInsights(userId, sleepMetric, startDate, endDate, options) {
     try {
+      await this.ensureBedtimeConsistencyBackfilled(userId);
+
       // Parse analysis options with defaults
       let useCoreSleep = false;
       let useEfficiency = false;
@@ -1242,6 +1265,8 @@ class InsightsService {
    * @private
    */
   async _getAllTaggedInsightsForHome(userId) {
+    await this.ensureBedtimeConsistencyBackfilled(userId);
+
     const dateRange = this.calculateDateRange('all');
     const metrics = await this.getAvailableSleepMetricsForUser(userId);
     const runsAbsolute = { useEfficiency: false, useCoreSleep: false };
@@ -1659,6 +1684,8 @@ class InsightsService {
    * Refreshes tagged insights cache (same payload as home).
    */
   async getInsightsTabGroups(userId) {
+    await this.ensureBedtimeConsistencyBackfilled(userId);
+
     const dateRange = this.calculateDateRange('all');
     const metrics = await this.getAvailableSleepMetricsForUser(userId);
     const runsAbsolute = { useEfficiency: false, useCoreSleep: false };

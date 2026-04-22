@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useAuth } from '../../contexts/AuthContext';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
@@ -24,6 +25,7 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
         step_number: currentStep,
         total_steps: totalSteps,
       });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       await onSlidesFinished();
     } finally {
       setLoading(false);
@@ -47,6 +49,7 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
         Next, we&apos;ll walk you through logging today&apos;s habits on the real home screen. You can skip anytime.
       </Text>
       <View style={styles.footer}>
+        <Text style={styles.enterSubtext}>We&apos;ll start with a 30-second tour of your new dashboard.</Text>
         <Button
           title={loading ? 'Opening…' : 'Enter app'}
           onPress={handleEnter}
@@ -97,6 +100,12 @@ const styles = StyleSheet.create({
   footer: {
     marginTop: 'auto',
     paddingBottom: spacing.md,
+  },
+  enterSubtext: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   primaryButton: {
     alignSelf: 'stretch',

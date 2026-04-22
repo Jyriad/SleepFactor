@@ -22,6 +22,8 @@ const ScrollableDateHeaderBar = ({
   onLayoutHeight = null,
   /** When true, header is absolute top so list/scroll can extend underneath for blur */
   overlay = true,
+  /** Increment after sleep sync writes rows so the week strip re-fetches bed icons from local data */
+  sleepStripRefreshKey = 0,
 }) => {
   const ctx = useDateHeader();
   const insets = useSafeAreaInsets();
@@ -66,6 +68,7 @@ const ScrollableDateHeaderBar = ({
           showTodayButton={!isHabitLogging}
           onExpandChange={handleExpandChange}
           onChromeHeightChange={setDateHeaderChromeHeight}
+          sleepStripRefreshKey={sleepStripRefreshKey}
           glass
         />
       </View>

@@ -45,7 +45,7 @@ const PREDEFINED_HABITS = [
 // Always available habits (manual section only; excludes inferred)
 const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Caffeine', type: 'quick_consumption', unit: 'mg', consumption_types: ['espresso', 'instant_coffee', 'energy_drink', 'soft_drink'] },
-  { name: 'Alcohol', type: 'quick_consumption', unit: 'units', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
+  { name: 'Alcohol', type: 'quick_consumption', unit: 'ml', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
 ];
 
 // Inferred habits: derived from automatic/health data (Bedtime from sleep; Exercise Time from HR + sleep).
@@ -57,7 +57,7 @@ const INFERRED_HABITS = [
     unit: 'minutes',
     description: 'How consistent your bedtime is over the last 5 nights (from sleep data)',
     infoTitle: 'What is Bedtime Consistency?',
-    infoBody: 'This is calculated from your synced sleep data. For each night we estimate when you went to bed (using your sleep start time). We then look at the last 5 nights and work out how far that night’s bedtime was from your average. The value is the difference in minutes—so a lower number means a more consistent bedtime.',
+    infoBody: 'This is calculated from your synced sleep data. For each night we estimate when you went to bed (using your sleep start time). We then look at the last 5 nights and compare that night to your average bedtime. The value is a signed difference in minutes: negative means earlier than your recent average, positive means later. Values closer to 0 mean better consistency.',
   },
   {
     name: 'Exercise Time Before Bed',

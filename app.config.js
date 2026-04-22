@@ -1,6 +1,18 @@
 // Dynamic configuration based on build environment
 const IS_DEV = process.env.APP_VARIANT === 'development' || process.env.EAS_BUILD_PROFILE === "development";
 const IS_PRODUCTION = process.env.EAS_BUILD_PROFILE === "production";
+/** Home screen / launcher label (dev puts "Dev" first so it stays visible when truncated). */
+const DISPLAY_NAME = IS_DEV ? "Dev SleepFactor" : "SleepFactor";
+
+/** App icon assets by platform. */
+const APP_ICON_FULLYSAFE = "./assets/branding/app-icon/1024x1024/AppLogoFullySafe.png";
+const APP_ICON_FULLYSAFE_COTTON = "./assets/branding/app-icon/1024x1024/AppLogoFullySafeCotton.png";
+const IOS_APP_ICON = IS_DEV ? APP_ICON_FULLYSAFE_COTTON : APP_ICON_FULLYSAFE;
+const ANDROID_LAUNCHER_ICON = APP_ICON_FULLYSAFE;
+
+/** iOS splash keeps the wordmark; Android 12+ draws splash inside a rounded square, so use the FullySafe mark there. */
+const SPLASH_WORDMARK = "./assets/branding/splash/primary-logo-white-background.png";
+const ANDROID_SPLASH_IMAGE = ANDROID_LAUNCHER_ICON;
 
 // Import version from package.json
 import packageInfo from './package.json';
@@ -31,32 +43,37 @@ export default {
   scheme: "sleepfactor",
   version: BASE_VERSION,
   orientation: "portrait",
-  icon: "./assets/branding/app-icon/1024x1024/icon-cotton-blue.png",
+  icon: IOS_APP_ICON,
   userInterfaceStyle: "light",
   newArchEnabled: true,
   splash: {
-    image: "./assets/branding/splash/primary-logo-white-background.png",
+    image: SPLASH_WORDMARK,
     resizeMode: "contain",
     backgroundColor: "#FFFFFF"
   },
   ios: {
+    icon: IOS_APP_ICON,
     supportsTablet: true,
     bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
     // CFBundleVersion — must increase on every upload to App Store Connect (production profile).
     buildNumber: "1332",
     usesAppleSignIn: true,
     infoPlist: {
-      CFBundleDisplayName: IS_DEV ? "SleepFactor Dev" : "SleepFactor",
+      CFBundleDisplayName: DISPLAY_NAME,
       // App Store export compliance; avoids EAS interactive prompt when not using custom encryption
       ITSAppUsesNonExemptEncryption: false
+    },
+    splash: {
+      image: SPLASH_WORDMARK,
+      resizeMode: "contain",
+      backgroundColor: "#FFFFFF"
     }
   },
   android: {
-    // Launcher icon only (iOS uses top-level `icon`). Matches AppLogoFullySafe artwork.
-    icon: "./assets/branding/app-icon/1024x1024/AppLogoFullySafe.png",
+    // Launcher icon only (iOS uses top-level `icon`).
+    icon: ANDROID_LAUNCHER_ICON,
     adaptiveIcon: {
-      foregroundImage:
-        "./assets/branding/app-icon/1024x1024/AppLogoFullySafe.png",
+      foregroundImage: ANDROID_LAUNCHER_ICON,
       backgroundColor: "#2469B2"
     },
     edgeToEdgeEnabled: true,
@@ -79,7 +96,12 @@ export default {
       "android.permission.health.READ_HEIGHT",
       "android.permission.health.READ_BODY_FAT",
       "android.permission.health.READ_RESTING_HEART_RATE"
-    ]
+    ],
+    splash: {
+      image: ANDROID_SPLASH_IMAGE,
+      resizeMode: "contain",
+      backgroundColor: "#FFFFFF"
+    }
   },
   web: {
     favicon: "./assets/branding/web/pwa-icon-192.png"
@@ -98,9 +120,17 @@ export default {
       "expo-splash-screen",
       {
         backgroundColor: "#FFFFFF",
-        image: "./assets/branding/splash/primary-logo-white-background.png",
         resizeMode: "contain",
-        imageWidth: 280
+        imageWidth: 280,
+        ios: {
+          image: SPLASH_WORDMARK
+        },
+        android: {
+          image: ANDROID_SPLASH_IMAGE,
+          backgroundColor: "#FFFFFF",
+          resizeMode: "contain",
+          imageWidth: 280
+        }
       }
     ],
     "./plugins/withAndroidSplashIconBackground.js",
@@ -149,19 +179,21 @@ export default {
     [
       "expo-notifications",
       {
-        icon: "./assets/branding/app-icon/1024x1024/icon-cotton-blue.png",
+        icon: ANDROID_LAUNCHER_ICON,
         color: "#2469B2",
         sounds: [],
         androidMode: "default"
       }
     ],
     ["@react-native-google-signin/google-signin", { iosUrlScheme: googleIosUrlScheme }],
-    "expo-apple-authentication"
+    "expo-apple-authentication",
+    "./plugins/withAndroidLauncherDisplayName.js"
   ],
   extra: {
     eas: {
       projectId: "430fa5de-f870-4b36-99b7-f5563e95a1f2"
-    }
+    },
+    androidLauncherDisplayName: DISPLAY_NAME
   },
   owner: "jyriad",
   // Use base version only so EAS Configure expo-updates and the build agree (avoids "1.327" vs "1.327 Dev" mismatch).

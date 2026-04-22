@@ -21,6 +21,7 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import AppToggle from '../../components/AppToggle';
+import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 import {
   trackOnboardingWearableMetricsLoaded,
   trackOnboardingWearableMetricsSaved,
@@ -136,6 +137,13 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
         <Text style={styles.body}>
           These are based on what we could read from your recent sync. Toggle which ones you want to track.
         </Text>
+        <View style={styles.whyCard}>
+          <Text style={styles.whyTitle}>Why this matters</Text>
+          <Text style={styles.whyBody}>
+            SleepFactor compares these metrics with your daily habits. For example, caffeine might reduce Deep Sleep
+            or Heart Rate Variability even when total sleep time still looks normal.
+          </Text>
+        </View>
         {metrics.length === 0 && permissionBlocked ? (
           <View style={styles.promptBox}>
             <Text style={styles.promptTitle}>Allow access to activity &amp; heart data</Text>
@@ -179,6 +187,7 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
         <Text style={styles.footerNote}>You can always change these at a later date.</Text>
       </ScrollView>
       <View style={styles.footer}>
+        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button title="Continue" onPress={onContinue} loading={saving} style={styles.btn} />
       </View>
     </SafeAreaView>
@@ -192,7 +201,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   scroll: {
-    paddingBottom: spacing.md,
+    paddingBottom: 120,
   },
   headerRow: {
     flexDirection: 'row',
@@ -224,6 +233,25 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
     marginBottom: spacing.lg,
+  },
+  whyCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  whyTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  whyBody: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: typography.lineHeights.small,
   },
   promptTitle: {
     fontSize: typography.sizes.body,
@@ -271,9 +299,21 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   footer: {
-    paddingBottom: spacing.md,
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '66',
+    backgroundColor: '#0F172AEE',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
+  },
+  footerBlur: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
 });

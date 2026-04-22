@@ -15,7 +15,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import {
   ML_PER_FL_OZ,
-  calculateAlcoholUnits,
+  calculateAlcoholMl,
 } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { isLiquidServingUnit } from '../utils/consumptionIntake';
@@ -143,13 +143,13 @@ const CreateConsumptionOptionModal = ({
       let finalDrugAmount;
       let finalDrugUnit;
       if (isAlcoholHabit) {
-        finalDrugAmount = calculateAlcoholUnits(volumeMl || 0, parseFloat(alcoholPercent) || 0);
+        finalDrugAmount = calculateAlcoholMl(volumeMl || 0, parseFloat(alcoholPercent) || 0);
         if (finalDrugAmount < 0.1) {
-          setAlcoholError('Volume and alcohol % give less than 0.1 units. Check your values.');
+          setAlcoholError('Volume and alcohol % give less than 0.1 ml of alcohol. Check your values.');
           setSaving(false);
           return;
         }
-        finalDrugUnit = 'units';
+        finalDrugUnit = 'ml';
       } else {
         finalDrugAmount = parseFloat(drugAmount);
         finalDrugUnit = getDrugUnit();
@@ -317,10 +317,10 @@ const CreateConsumptionOptionModal = ({
                       <View style={styles.previewOption}>
                         <Text style={styles.previewText}>
                           {name.trim() || 'Option Name'}{volume.trim() && alcoholPercent.trim()
-                            ? ` – ${volume} ${servingUnit}, ${alcoholPercent}% ABV ≈ ${calculateAlcoholUnits(
+                            ? ` – ${volume} ${servingUnit}, ${alcoholPercent}% ABV ≈ ${calculateAlcoholMl(
                                 servingUnit === 'ounces' ? parseFloat(volume || 0) * ML_PER_FL_OZ : parseFloat(volume || 0),
                                 parseFloat(alcoholPercent || 0)
-                              ).toFixed(1)} units`
+                              ).toFixed(1)} ml alcohol`
                             : ' – Enter volume and alcohol %'}
                         </Text>
                       </View>

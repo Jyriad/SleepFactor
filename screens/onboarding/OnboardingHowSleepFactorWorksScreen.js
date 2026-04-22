@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Animated, Easing } from 'react-native';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
@@ -7,6 +7,7 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 const SUB_STEPS = [
   {
@@ -55,19 +56,53 @@ export default function OnboardingHowSleepFactorWorksScreen({ navigation }) {
         <Text style={styles.title}>How SleepFactor thinks</Text>
         <View style={styles.list}>
           {visibleSteps.map((item) => (
-            <View key={item.stepNumber} style={styles.numberedRow}>
-              <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>{item.stepNumber}</Text>
-              </View>
-              <Text style={styles.numberedBody}>{item.body}</Text>
-            </View>
+            <AnimatedNumberedRow key={item.stepNumber} item={item} />
           ))}
+        </View>
+        <View style={styles.patienceCard}>
+          <Text style={styles.patienceTitle}>Why it takes about 10 days</Text>
+          <Text style={styles.patienceBody}>
+            Early data can be noisy, so SleepFactor first builds a baseline. After about 10 days, the patterns are
+            usually strong enough to trust.
+          </Text>
         </View>
       </ScrollView>
       <View style={styles.footer}>
+        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button title={primaryLabel} onPress={onPrimary} style={styles.btn} />
       </View>
     </SafeAreaView>
+  );
+}
+
+function AnimatedNumberedRow({ item }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(16)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [opacity, translateY]);
+
+  return (
+    <Animated.View style={[styles.numberedRow, { opacity, transform: [{ translateY }] }]}>
+      <View style={styles.stepBadge}>
+        <Text style={styles.stepBadgeText}>{item.stepNumber}</Text>
+      </View>
+      <Text style={styles.numberedBody}>{item.body}</Text>
+    </Animated.View>
   );
 }
 
@@ -93,7 +128,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: spacing.md,
+    paddingBottom: 120,
   },
   title: {
     fontSize: typography.sizes.xl,
@@ -103,6 +138,25 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: spacing.lg,
+  },
+  patienceCard: {
+    marginTop: spacing.xl,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  patienceTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  patienceBody: {
+    fontSize: typography.sizes.small,
+    lineHeight: typography.lineHeights.small,
+    color: colors.textSecondary,
   },
   numberedRow: {
     flexDirection: 'row',
@@ -133,9 +187,21 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
   },
   footer: {
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '66',
+    backgroundColor: '#0F172AEE',
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
+  },
+  footerBlur: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
 });

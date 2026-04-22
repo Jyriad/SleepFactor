@@ -63,6 +63,8 @@ const DateHeader = ({
   leftElement = null,
   rightElement = null,
   showTodayButton = true,
+  /** Bumped when device sleep sync saves new rows so the strip re-queries local sleep (bed icons). */
+  sleepStripRefreshKey = 0,
   onExpandChange,
   /**
    * Top row + drawer height (pixels) for scroll padding under overlay headers.
@@ -124,7 +126,7 @@ const DateHeader = ({
         setStripSleepDates(valid.map((r) => r.date));
       })
       .catch(() => setStripSleepDates([]));
-  }, [stripDates[0]?.date, stripDates[stripDates.length - 1]?.date]);
+  }, [stripDates[0]?.date, stripDates[stripDates.length - 1]?.date, sleepStripRefreshKey]);
 
   const handleTodayPress = () => {
     onDateChange(new Date(todayStr + 'T12:00:00'));

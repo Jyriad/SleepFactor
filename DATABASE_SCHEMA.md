@@ -108,7 +108,7 @@ Stores predefined and user-customizable consumption options for drug habits.
 - `user_id` (UUID, Nullable, Foreign Key) - References `users(id)`, NULL for system defaults
 - `habit_id` (UUID, Foreign Key) - References `habits(id)`
 - `name` (TEXT) - Display name of the option (e.g., "Espresso", "Diet Coke")
-- `drug_amount` (NUMERIC) - Numeric value (mg for caffeine, drinks for alcohol, 0 for none consumed)
+- `drug_amount` (NUMERIC) - Numeric value (mg for caffeine, ml of pure alcohol for alcohol, 0 for none consumed)
 - `icon` (TEXT, Nullable) - Icon name for UI display
 - `is_custom` (BOOLEAN) - True for user-created options, false for system defaults
 - `serving_options` (JSONB, Nullable) - Available serving multipliers as array (default: [0.5, 1, 1.5, 2])

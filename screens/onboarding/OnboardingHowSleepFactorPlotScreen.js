@@ -8,6 +8,7 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 import {
   WEEK1_DEMO,
   WEEK2_DEMO,
@@ -106,9 +107,17 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
             trendLineColor={colors.error}
           />
         </View>
+        <View style={styles.legendCard}>
+          <Text style={styles.legendTitle}>How to read this</Text>
+          <Text style={styles.legendBody}>
+            A downward trend doesn&apos;t always mean a habit is bad. It only shows a relationship worth
+            investigating for your own sleep.
+          </Text>
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
+        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button
           title={primaryLabel}
           onPress={onPrimary}
@@ -130,7 +139,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: spacing.md,
+    paddingBottom: 120,
   },
   headerRow: {
     flexDirection: 'row',
@@ -168,10 +177,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 240,
   },
+  legendCard: {
+    marginTop: spacing.md,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  legendTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  legendBody: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: typography.lineHeights.small,
+  },
   footer: {
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '66',
+    backgroundColor: '#0F172AEE',
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
   primaryBtn: {
     alignSelf: 'stretch',
+  },
+  footerBlur: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
 });
