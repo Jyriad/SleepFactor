@@ -253,6 +253,24 @@ alwaysApply: false
 
 ---
 
+## EAS bundling failures (shared iOS + Android root cause) (April 2026)
+
+**What we learned**
+
+- If **both** iOS TestFlight and Android AAB fail in EAS with **“Unknown error”** and mention the **Bundle JavaScript build phase / Metro bundling**, treat it as a shared JavaScript dependency issue first (not platform-specific signing or native credentials).
+- The useful error is inside the Metro section, e.g. **“Unable to resolve module `expo-haptics` … could not be found within the project”**. That means code imports a package that is not present in `package.json` dependencies.
+- **Fix pattern:** install the missing Expo package with `npx expo install <package>` (not plain npm version guessing), commit both `package.json` and lockfile, then rerun builds.
+- **Why this repeats:** local dev environments can sometimes mask missing dependency declarations; EAS cloud builds are stricter and fail during bundling if the dependency is not declared in the repo.
+
+**Release checklist add**
+
+- Before triggering TestFlight / AAB workflows, run a dependency sanity check:
+  - `npx expo install --check`
+  - ensure any newly imported package appears in `package.json`
+  - optionally run a local production-style bundle once to catch “module not found” early.
+
+---
+
 ## Google Play Console & Android AAB (April 2026)
 
 **What we learned**
