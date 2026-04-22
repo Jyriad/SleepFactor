@@ -1,5 +1,16 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Modal, TouchableWithoutFeedback } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  Modal,
+  TouchableWithoutFeedback,
+  Animated,
+  Easing,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import subjectiveMeasuresService from '../../services/subjectiveMeasuresService';
@@ -19,8 +30,31 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customMeasures, setCustomMeasures] = useState([]);
   const [saving, setSaving] = useState(false);
+  const tiredScale = useRef(new Animated.Value(1)).current;
+  const dreamScale = useRef(new Animated.Value(1)).current;
 
   const toggle = (key) => {
+    const scale = key === 'tired' ? tiredScale : dreamScale;
+    Animated.sequence([
+      Animated.timing(scale, {
+        toValue: 0.95,
+        duration: 90,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 1.02,
+        duration: 120,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 100,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
     if (key === 'tired') setTiredness((v) => !v);
     else setDream((v) => !v);
   };
@@ -44,26 +78,27 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
     }
   };
 
-  const renderCard = (item, selected) => (
-    <TouchableOpacity
-      key={item.id}
-      style={[styles.optionCard, selected && styles.optionCardSelected]}
-      onPress={() => toggle(item.id)}
-      activeOpacity={0.7}
-    >
-      <Ionicons
-        name="sunny-outline"
-        size={36}
-        color={selected ? colors.primary : colors.textLight}
-      />
-      <Text style={[styles.optionName, selected && styles.optionNameSelected]}>{item.name}</Text>
-      <Text style={styles.optionSub}>{item.sub}</Text>
-      {selected ? (
-        <View style={styles.checkWrap}>
-          <Ionicons name="checkmark-circle" size={24} color={colors.success} />
-        </View>
-      ) : null}
-    </TouchableOpacity>
+  const renderCard = (item, selected, scale) => (
+    <Animated.View key={item.id} style={{ flex: 1, transform: [{ scale }] }}>
+      <TouchableOpacity
+        style={[styles.optionCard, selected && styles.optionCardSelected]}
+        onPress={() => toggle(item.id)}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name="sunny-outline"
+          size={36}
+          color={selected ? colors.primary : colors.textLight}
+        />
+        <Text style={[styles.optionName, selected && styles.optionNameSelected]}>{item.name}</Text>
+        <Text style={styles.optionSub}>{item.sub}</Text>
+        {selected ? (
+          <View style={styles.checkWrap}>
+            <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+          </View>
+        ) : null}
+      </TouchableOpacity>
+    </Animated.View>
   );
 
   return (
@@ -80,11 +115,12 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
     >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <Text style={styles.subtitle}>
-          Choose which quick ratings you want (1–10). You can change this anytime in Profile.
+          Pick 1–2 quick ratings for a 5-second morning check-in to see how your feelings align with your watch
+          data.
         </Text>
         <View style={styles.grid}>
-          {renderCard(OPTION_TIRED, tiredness)}
-          {renderCard(OPTION_DREAM, dream)}
+          {renderCard(OPTION_TIRED, tiredness, tiredScale)}
+          {renderCard(OPTION_DREAM, dream, dreamScale)}
         </View>
         <TouchableOpacity
           style={styles.addCustomMeasureButton}
@@ -123,6 +159,7 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
               <View style={styles.modalContent}>
+                <View style={styles.dragHandle} />
                 <Text style={styles.modalTitle}>Custom measure</Text>
                 <Text style={styles.modalHint}>
                   Name what you want to rate each morning (for example Stress or Mood).
@@ -190,7 +227,7 @@ const styles = StyleSheet.create({
   },
   optionCardSelected: {
     borderColor: colors.primary,
-    backgroundColor: colors.primary + '08',
+    backgroundColor: colors.primary + '26',
   },
   optionName: {
     fontSize: typography.sizes.medium,
@@ -275,9 +312,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   modalContent: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.cardBackground,
     borderRadius: 16,
     padding: spacing.lg,
+  },
+  dragHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.textLight + '88',
+    marginBottom: spacing.md,
   },
   modalTitle: {
     fontSize: typography.sizes.h3,

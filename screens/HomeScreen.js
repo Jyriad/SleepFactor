@@ -476,6 +476,8 @@ const HomeScreen = () => {
   const [cacheLoading, setCacheLoading] = useState(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [showNewSleepBanner, setShowNewSleepBanner] = useState(false);
+  /** Bumped after health sync writes new sleep rows so DateHeader re-reads local sleep for the week strip (bed icons). */
+  const [sleepStripRefreshKey, setSleepStripRefreshKey] = useState(0);
   const [trackTiredness, setTrackTiredness] = useState(false);
   const [trackDreamVividness, setTrackDreamVividness] = useState(false);
   const [subjectiveAnyEnabled, setSubjectiveAnyEnabled] = useState(false);
@@ -1195,7 +1197,18 @@ const HomeScreen = () => {
   useEffect(() => {
     if (!lastSyncResult?.success || !user) return;
     fetchDashboard({ background: true });
-  }, [lastSyncResult?.success, lastSyncResult?.syncedRecords, fetchDashboard]);
+  }, [lastSyncResult?.success, lastSyncResult?.syncedRecords, fetchDashboard, user]);
+
+  // Week strip bed icons read local sleep rows; bump after sync writes so the header reloads without changing the visible week
+  useEffect(() => {
+    if (!lastSyncResult?.success || !user) return;
+    const wroteSleep =
+      lastSyncResult.resultType === 'SUCCESS_WITH_DATA' ||
+      (lastSyncResult.syncedRecords ?? 0) > 0;
+    if (wroteSleep) {
+      setSleepStripRefreshKey((k) => k + 1);
+    }
+  }, [lastSyncResult, user]);
 
   // Check permissions and show prompt if needed
   useEffect(() => {
@@ -1687,6 +1700,7 @@ const HomeScreen = () => {
       <ScrollableDateHeaderBar
         rightElement={streakIndicator}
         onLayoutHeight={setHomeGlassHeaderHeight}
+        sleepStripRefreshKey={sleepStripRefreshKey}
       />
       <ScrollView
         style={styles.scrollView}

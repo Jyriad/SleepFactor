@@ -24,9 +24,10 @@ const BASE_VERSION = Constants.expoConfig?.version || '1.0.0';
 // 3. Check __DEV__ flag (React Native global, true in development)
 const appName = Constants.expoConfig?.name;
 const bundleId = Constants.expoConfig?.ios?.bundleIdentifier || Constants.expoConfig?.android?.package;
-const IS_DEV_BUILD = 
-  appName === "SleepFactor Dev" || 
-  bundleId?.includes('.dev') || 
+const IS_DEV_BUILD =
+  appName === "Dev SleepFactor" ||
+  appName === "SleepFactor Dev" ||
+  bundleId?.includes('.dev') ||
   (typeof __DEV__ !== 'undefined' && __DEV__);
 // Append " Dev" if it's a dev build but version doesn't already have it
 const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 

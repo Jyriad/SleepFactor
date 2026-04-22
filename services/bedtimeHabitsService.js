@@ -116,11 +116,11 @@ class BedtimeHabitsService {
 
   /**
    * Calculate bedtime consistency for a given date
-   * Returns the absolute deviation in minutes from the average bedtime over the last 5 nights
-   * This represents "consistency" - smaller values mean more consistent bedtimes
+   * Returns the signed deviation in minutes from the average bedtime over the last 5 nights
+   * Negative values mean earlier-than-average bedtime, positive means later-than-average
    * @param {string} userId - User ID
    * @param {string} date - Date in YYYY-MM-DD format
-   * @returns {Promise<number|null>} Absolute deviation in minutes (always ≥ 0), or null if insufficient data
+   * @returns {Promise<number|null>} Signed deviation in minutes, or null if insufficient data
    */
   async calculateBedtimeConsistency(userId, date) {
     try {
@@ -197,12 +197,12 @@ class BedtimeHabitsService {
 
       const targetBedtimeMinutes = targetDetail.bedtimeMinutes;
 
-      // Calculate absolute deviation from average (consistency = how far from average, regardless of direction)
-      let deviation = Math.abs(targetBedtimeMinutes - averageBedtime);
+      // Keep direction so charts can distinguish earlier vs later bedtimes.
+      let deviation = targetBedtimeMinutes - averageBedtime;
 
       // Cap extreme deviations to prevent unrealistic values (max 8 hours inconsistency)
       const maxReasonableDeviation = 480; // 8 hours
-      const cappedDeviation = Math.min(maxReasonableDeviation, deviation); // Only upper bound since always positive
+      const cappedDeviation = Math.max(-maxReasonableDeviation, Math.min(maxReasonableDeviation, deviation));
 
       const roundedDeviation = Math.round(cappedDeviation);
 

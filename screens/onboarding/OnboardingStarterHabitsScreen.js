@@ -14,6 +14,7 @@ import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
 import { supabase } from '../../services/supabase';
 import AppToggle from '../../components/AppToggle';
 import { trackOnboardingStarterHabitsSaved } from '../../services/onboardingAnalytics';
+import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 export default function OnboardingStarterHabitsScreen({ navigation }) {
   const { user } = useAuth();
@@ -109,6 +110,9 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
           Alcohol and caffeine are two of the biggest levers on sleep for many people. Below are more common
           habits — toggle any off. You can add your own at the bottom.
         </Text>
+        <Text style={styles.subheading}>
+          Start with these common factors, or create your own.
+        </Text>
 
         <View style={styles.row}>
           <View>
@@ -169,6 +173,7 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
         <Text style={styles.sub}>You can always add more later.</Text>
       </ScrollView>
       <View style={styles.footer}>
+        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button title="Continue" onPress={onContinue} loading={loading} style={styles.btn} />
       </View>
     </SafeAreaView>
@@ -182,7 +187,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   scroll: {
-    paddingBottom: spacing.lg,
+    paddingBottom: 120,
   },
   headerRow: {
     flexDirection: 'row',
@@ -206,6 +211,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: typography.lineHeights.body,
     marginBottom: spacing.lg,
+  },
+  subheading: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
   },
   row: {
     flexDirection: 'row',
@@ -267,9 +277,21 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   footer: {
-    paddingBottom: spacing.md,
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '66',
+    backgroundColor: '#0F172AEE',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
+  },
+  footerBlur: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
 });

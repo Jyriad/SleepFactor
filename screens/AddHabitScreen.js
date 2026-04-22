@@ -123,7 +123,10 @@ const AddHabitScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Add Custom Habit</Text>
+        <View>
+          <Text style={styles.title}>Add Custom Habit</Text>
+          <Text style={styles.subtitle}>Use this for personal edge cases beyond the starter habits.</Text>
+        </View>
         <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
           <Ionicons name="close" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
@@ -262,6 +265,11 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.large,
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
+  },
+  subtitle: {
+    marginTop: 2,
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
   },
   closeButton: {
     padding: spacing.xs,

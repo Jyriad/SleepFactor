@@ -26,22 +26,32 @@ export const MEASUREMENT_SYSTEMS = {
 export const ML_PER_FL_OZ = 29.5735;
 
 // ml of pure ethanol per standard alcohol unit (WHO: 10g ethanol = 12.67 ml)
-// Formula: units = (volume_ml * ABV% / 100) / ML_PURE_ETHANOL_PER_UNIT
 export const ML_PURE_ETHANOL_PER_UNIT = 12.67;
 
 /**
- * Calculate alcohol units from volume (ml) and ABV %.
- * 1 unit = 10g pure ethanol (WHO standard).
+ * Calculate pure alcohol content (ml ethanol) from volume (ml) and ABV %.
  */
-export function calculateAlcoholUnits(volumeMl, abvPercent) {
+export function calculateAlcoholMl(volumeMl, abvPercent) {
   if (!volumeMl || !abvPercent || abvPercent <= 0) return 0;
   const pureEthanolMl = (volumeMl * abvPercent) / 100;
-  return Math.round((pureEthanolMl / ML_PURE_ETHANOL_PER_UNIT) * 10) / 10;
+  return Math.round(pureEthanolMl * 10) / 10;
 }
 
 /**
- * Derive ABV % from volume (ml) and units (reverse of calculateAlcoholUnits).
+ * Derive ABV % from volume (ml) and pure alcohol ml.
  */
+export function deriveAbvFromAlcoholMl(volumeMl, alcoholMl) {
+  if (!volumeMl || !alcoholMl || volumeMl <= 0) return 0;
+  const pureEthanolMl = alcoholMl;
+  return Math.round((pureEthanolMl / volumeMl) * 1000) / 10;
+}
+
+// Backward-compatible wrappers for older call sites.
+export function calculateAlcoholUnits(volumeMl, abvPercent) {
+  const alcoholMl = calculateAlcoholMl(volumeMl, abvPercent);
+  return Math.round((alcoholMl / ML_PURE_ETHANOL_PER_UNIT) * 10) / 10;
+}
+
 export function deriveAbvFromUnits(volumeMl, units) {
   if (!volumeMl || !units || volumeMl <= 0) return 0;
   const pureEthanolMl = units * ML_PURE_ETHANOL_PER_UNIT;
@@ -135,23 +145,23 @@ export const CONSUMPTION_REFERENCE = {
   alcohol: {
     [MEASUREMENT_REGIONS.US]: [
       // CDC: 12 oz beer (5%), 5 oz wine (12%), 1.5 oz spirits (40%)
-      { name: 'Beer', drug_amount: 1, default_volume: 355, serving_unit: 'ml', drug_unit: 'units', icon: 'beer' },
-      { name: 'Wine', drug_amount: 1, default_volume: 148, serving_unit: 'ml', drug_unit: 'units', icon: 'wine' },
-      { name: 'Liquor', drug_amount: 1, default_volume: 44, serving_unit: 'ml', drug_unit: 'units', icon: 'flask' },
-      { name: 'Cocktail', drug_amount: 1.5, default_volume: 177, serving_unit: 'ml', drug_unit: 'units', icon: 'wine' },
+      { name: 'Beer', drug_amount: 12.7, default_volume: 355, serving_unit: 'ml', drug_unit: 'ml', icon: 'beer' },
+      { name: 'Wine', drug_amount: 12.7, default_volume: 148, serving_unit: 'ml', drug_unit: 'ml', icon: 'wine' },
+      { name: 'Liquor', drug_amount: 12.7, default_volume: 44, serving_unit: 'ml', drug_unit: 'ml', icon: 'flask' },
+      { name: 'Cocktail', drug_amount: 19.0, default_volume: 177, serving_unit: 'ml', drug_unit: 'ml', icon: 'wine' },
     ],
     [MEASUREMENT_REGIONS.UK]: [
       // UK: pint 568ml, wine 175ml, shot 25ml
-      { name: 'Beer', drug_amount: 1, default_volume: 568, serving_unit: 'ml', drug_unit: 'units', icon: 'beer' },
-      { name: 'Wine', drug_amount: 1, default_volume: 175, serving_unit: 'ml', drug_unit: 'units', icon: 'wine' },
-      { name: 'Liquor', drug_amount: 1, default_volume: 25, serving_unit: 'ml', drug_unit: 'units', icon: 'flask' },
-      { name: 'Cocktail', drug_amount: 1.5, default_volume: 200, serving_unit: 'ml', drug_unit: 'units', icon: 'wine' },
+      { name: 'Beer', drug_amount: 12.7, default_volume: 568, serving_unit: 'ml', drug_unit: 'ml', icon: 'beer' },
+      { name: 'Wine', drug_amount: 12.7, default_volume: 175, serving_unit: 'ml', drug_unit: 'ml', icon: 'wine' },
+      { name: 'Liquor', drug_amount: 12.7, default_volume: 25, serving_unit: 'ml', drug_unit: 'ml', icon: 'flask' },
+      { name: 'Cocktail', drug_amount: 19.0, default_volume: 200, serving_unit: 'ml', drug_unit: 'ml', icon: 'wine' },
     ],
     [MEASUREMENT_REGIONS.METRIC]: [
-      { name: 'Beer', drug_amount: 1, default_volume: 330, serving_unit: 'ml', drug_unit: 'units', icon: 'beer' },
-      { name: 'Wine', drug_amount: 1, default_volume: 125, serving_unit: 'ml', drug_unit: 'units', icon: 'wine' },
-      { name: 'Liquor', drug_amount: 1, default_volume: 30, serving_unit: 'ml', drug_unit: 'units', icon: 'flask' },
-      { name: 'Cocktail', drug_amount: 1.5, default_volume: 150, serving_unit: 'ml', drug_unit: 'units', icon: 'wine' },
+      { name: 'Beer', drug_amount: 12.7, default_volume: 330, serving_unit: 'ml', drug_unit: 'ml', icon: 'beer' },
+      { name: 'Wine', drug_amount: 12.7, default_volume: 125, serving_unit: 'ml', drug_unit: 'ml', icon: 'wine' },
+      { name: 'Liquor', drug_amount: 12.7, default_volume: 30, serving_unit: 'ml', drug_unit: 'ml', icon: 'flask' },
+      { name: 'Cocktail', drug_amount: 19.0, default_volume: 150, serving_unit: 'ml', drug_unit: 'ml', icon: 'wine' },
     ],
   },
 };

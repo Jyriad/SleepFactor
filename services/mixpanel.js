@@ -12,11 +12,8 @@ let sessionReplayIdentify = null;
 
 function analyticsLog(message, extra) {
   if (!ANALYTICS_DEBUG) return;
-  if (extra) {
-    console.log(`[Mixpanel] ${message}`, extra);
-    return;
-  }
-  console.log(`[Mixpanel] ${message}`);
+  void message;
+  void extra;
 }
 
 /**

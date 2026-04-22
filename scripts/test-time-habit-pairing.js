@@ -19,11 +19,6 @@ function logDateToSleepDataDate(logDateStr) {
 }
 
 function runTest(logDates, sleepDates) {
-  console.log('--- Time habit pairing test ---');
-  console.log('Log dates (habit logged on):', logDates.join(', '));
-  console.log('Sleep dates in DB (wake dates):', sleepDates.join(', '));
-  console.log('');
-
   const sleepSet = new Set(sleepDates);
   let paired = 0;
 
@@ -31,11 +26,7 @@ function runTest(logDates, sleepDates) {
     const sleepDataDate = logDateToSleepDataDate(logDate);
     const found = sleepSet.has(sleepDataDate);
     if (found) paired++;
-    console.log(`  log ${logDate} → sleepDataDate ${sleepDataDate} ${found ? '✓ PAIRED' : '✗ no sleep row'}`);
   });
-
-  console.log('');
-  console.log('Expected paired count:', paired, '/', logDates.length);
   return paired;
 }
 
@@ -46,10 +37,7 @@ const sleepDates = ['2025-03-15', '2025-03-16'];
 const paired = runTest(logDates, sleepDates);
 
 if (paired === 2) {
-  console.log('\n✓ Logic is correct: both logs should pair (2/2).');
-  console.log('  If the app still shows 0/10, check Metro/console for [Insights Time] logs when you open the Insights tab.');
 } else {
-  console.log('\n✗ Unexpected result. Check date logic.');
 }
 
 process.exit(paired === 2 ? 0 : 1);

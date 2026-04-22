@@ -27,6 +27,7 @@ import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import InsightMinimumDataHelp from '../components/InsightMinimumDataHelp';
+import PercentageModeHelp from '../components/PercentageModeHelp';
 
 const { width: screenWidth } = Dimensions.get('window');
 const embeddedCardWidth = screenWidth - (spacing.regular * 4);
@@ -429,7 +430,12 @@ const InsightsScreen = ({ navigation, route }) => {
               !section.showTableHeader && styles.habitContainerNoTable,
             ]}
           >
-            <Text style={styles.habitName}>{sectionTitle}</Text>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.habitName}>{sectionTitle}</Text>
+              {analysisMode === 'percentage' ? (
+                <PercentageModeHelp iconSize={18} style={styles.sectionHelpIcon} />
+              ) : null}
+            </View>
             {section.showTableHeader ? (
               <View style={styles.tableHeader}>
                 <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>
@@ -448,7 +454,7 @@ const InsightsScreen = ({ navigation, route }) => {
         </View>
       );
     },
-    [focusedHabitId, layoutMode]
+    [analysisMode, focusedHabitId, layoutMode]
   );
 
   const renderItem = useCallback(
@@ -530,20 +536,6 @@ const InsightsScreen = ({ navigation, route }) => {
             </View>
             <View style={styles.switchSegments}>
               <TouchableOpacity
-                style={[styles.switchSegment, layoutMode === 'habit' && styles.switchSegmentActive]}
-                onPress={() => setLayoutMode('habit')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.switchSegmentText,
-                    layoutMode === 'habit' && styles.switchSegmentTextActive,
-                  ]}
-                >
-                  Habits
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={[styles.switchSegment, layoutMode === 'metric' && styles.switchSegmentActive]}
                 onPress={() => setLayoutMode('metric')}
                 activeOpacity={0.8}
@@ -555,6 +547,20 @@ const InsightsScreen = ({ navigation, route }) => {
                   ]}
                 >
                   Sleep metrics
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.switchSegment, layoutMode === 'habit' && styles.switchSegmentActive]}
+                onPress={() => setLayoutMode('habit')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.switchSegmentText,
+                    layoutMode === 'habit' && styles.switchSegmentTextActive,
+                  ]}
+                >
+                  Habits
                 </Text>
               </TouchableOpacity>
             </View>
@@ -575,7 +581,7 @@ const InsightsScreen = ({ navigation, route }) => {
                     analysisMode === 'absolute' && styles.switchSegmentTextActive,
                   ]}
                 >
-                  Absolute
+                  Minutes
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -589,7 +595,7 @@ const InsightsScreen = ({ navigation, route }) => {
                     analysisMode === 'percentage' && styles.switchSegmentTextActive,
                   ]}
                 >
-                  Percentage
+                  Sleep mix (%)
                 </Text>
               </TouchableOpacity>
             </View>
@@ -627,7 +633,7 @@ const InsightsScreen = ({ navigation, route }) => {
             metricViewEmpty ? (
               <View style={styles.metricEmptyWrap}>
                 <Text style={styles.metricEmptyText}>
-                  No correlations in this layout for the current view. Try Absolute or Percentage, or switch
+                  No correlations in this layout for the current view. Try Minutes or Sleep mix (%), or switch
                   back to Habits.
                 </Text>
               </View>
@@ -755,6 +761,15 @@ const styles = StyleSheet.create({
   },
   habitContainerHeader: {
     marginBottom: 0,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  sectionHelpIcon: {
+    marginLeft: spacing.xs,
   },
   habitContainerNoTable: {
     paddingBottom: spacing.xs,

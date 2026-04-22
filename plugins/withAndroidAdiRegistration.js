@@ -38,9 +38,6 @@ function withAndroidAdiRegistration(config) {
       }
 
       if (!snippet) {
-        console.warn(
-          "[withAndroidAdiRegistration] Skipping: set ADI_REGISTRATION_SNIPPET or add .adi-registration.properties for Google ADI verification APK builds."
-        );
         return config;
       }
 
@@ -55,9 +52,6 @@ function withAndroidAdiRegistration(config) {
       fs.mkdirSync(assetsDir, { recursive: true });
       const target = path.join(assetsDir, "adi-registration.properties");
       fs.writeFileSync(target, snippet + "\n", "utf8");
-      console.warn(
-        "[withAndroidAdiRegistration] Wrote adi-registration.properties for production Android build."
-      );
       return config;
     },
   ]);

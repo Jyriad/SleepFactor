@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
@@ -10,6 +11,7 @@ import OnboardingProgressHeader from '../../components/OnboardingProgressHeader'
 import { ONBOARDING_TOTAL_STEPS } from '../../constants/onboardingProgress';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { trackEvent } from '../../services/mixpanel';
+import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 export default function OnboardingStepLayout({
   step,
@@ -41,11 +43,13 @@ export default function OnboardingStepLayout({
 
   const handleNext = () => {
     trackEvent('Onboarding Step Continued', analyticsProperties);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onNext?.();
   };
 
   const handleBack = () => {
     trackEvent('Onboarding Step Back', analyticsProperties);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onBack?.();
   };
 
@@ -72,6 +76,7 @@ export default function OnboardingStepLayout({
       {title ? <Text style={styles.title}>{title}</Text> : null}
       <View style={styles.content}>{children}</View>
       <View style={styles.footer}>
+        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         {onBack ? (
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back</Text>
@@ -126,12 +131,25 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    paddingBottom: 112,
   },
   footer: {
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.regular,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '66',
+    backgroundColor: '#0F172AEE',
     paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.sm,
+  },
+  footerBlur: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
   backButton: {
     paddingVertical: spacing.md,

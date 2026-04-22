@@ -251,6 +251,12 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     userHasEditedDateRef.current = false;
     const habitsList = Array.isArray(payload.habits) ? payload.habits : [];
     const normalized = habitsList.map(normalizeHabit);
+    const alcoholHabits = normalized
+      .filter((h) => (h.type === 'drug' || h.type === 'quick_consumption') && (h.name || '').toLowerCase().includes('alcohol'))
+      .map((h) => ({ id: h.id, name: h.name, unit: h.unit }));
+    if (alcoholHabits.length > 0) {
+      console.log('[AlcoholUnitDebug][HabitLogging] apply payload', { dateStr, alcoholHabits });
+    }
     setHabits(normalized);
     const logsMap = typeof payload.logs === 'object' && payload.logs !== null ? { ...payload.logs } : {};
     normalized
@@ -298,6 +304,12 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           const cached = cachedRaw ? JSON.parse(cachedRaw) : null;
           const stillForDate = !cancelled && getDateString(selectedDateRef.current) === dateStr;
           if (stillForDate && cached && !cached.error) {
+            const cachedAlcohol = (cached.habits || [])
+              .filter((h) => (h.type === 'drug' || h.type === 'quick_consumption') && (h.name || '').toLowerCase().includes('alcohol'))
+              .map((h) => ({ id: h.id, name: h.name, unit: h.unit }));
+            if (cachedAlcohol.length > 0) {
+              console.log('[AlcoholUnitDebug][HabitLogging] AsyncStorage cache hit', { dateStr, alcoholHabits: cachedAlcohol });
+            }
             applyHabitLoggingPayload(cached, dateStr);
             setInMemoryState(user.id, dateStr, cached);
             setLoading(false);
@@ -315,6 +327,12 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
 
           const stillForDateAfterRpc = !cancelled && getDateString(selectedDateRef.current) === dateStr;
           if (stillForDateAfterRpc) {
+            const rpcAlcohol = (data?.habits || [])
+              .filter((h) => (h.type === 'drug' || h.type === 'quick_consumption') && (h.name || '').toLowerCase().includes('alcohol'))
+              .map((h) => ({ id: h.id, name: h.name, unit: h.unit }));
+            if (rpcAlcohol.length > 0) {
+              console.log('[AlcoholUnitDebug][HabitLogging] RPC result', { dateStr, alcoholHabits: rpcAlcohol });
+            }
             applyHabitLoggingPayload(data, dateStr);
             setInMemoryState(user.id, dateStr, data);
             setLoading(false);

@@ -8,17 +8,13 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { trackEvent } from '../../services/mixpanel';
+import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 const SLIDES = [
   {
-    title: "Can't log your habits one day, don't worry!",
+    title: 'Consistency over perfection',
     body:
-      "You don't have to log your habits each day — if you don't log on a day, that's fine; it just won't be used to calculate correlations. You can also manually exclude data if you think there was an anomaly.",
-  },
-  {
-    title: 'The more data, the better',
-    body:
-      'The more days you log a habit, the more sure the model can be that there is a real pattern. Ten days might be luck — a hundred days is evidence.',
+      "Missing a day is okay. The key is staying reasonably consistent over time so SleepFactor can separate random noise from real patterns.",
   },
   {
     title: 'Mix and match',
@@ -67,6 +63,7 @@ export default function OnboardingSleepFactorEducationScreen({ navigation }) {
         <Text style={styles.body}>{slide.body}</Text>
       </ScrollView>
       <View style={styles.footer}>
+        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button
           title={last ? 'Continue' : 'Next'}
           onPress={() => {
@@ -88,7 +85,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   scroll: {
-    paddingBottom: spacing.md,
+    paddingBottom: 120,
   },
   headerRow: {
     flexDirection: 'row',
@@ -105,6 +102,8 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     fontWeight: typography.weights.semibold,
     color: colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
     marginBottom: spacing.sm,
   },
   title: {
@@ -119,9 +118,21 @@ const styles = StyleSheet.create({
     lineHeight: typography.lineHeights.body,
   },
   footer: {
-    paddingBottom: spacing.md,
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '66',
+    backgroundColor: '#0F172AEE',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
+  },
+  footerBlur: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
 });

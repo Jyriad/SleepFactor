@@ -255,7 +255,6 @@ const AccountScreen = () => {
       setShowDeleteModal(false);
       // Auth state change will automatically navigate to login screen
     } catch (error) {
-      console.error('[AccountScreen] delete account failed:', error?.message || error);
       Alert.alert('Error', 'Failed to delete account. Please try again.');
     } finally {
       setDeleting(false);

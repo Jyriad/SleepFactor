@@ -13,7 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import { ML_PER_FL_OZ, calculateAlcoholUnits, deriveAbvFromUnits } from '../constants/consumptionReferenceData';
+import { ML_PER_FL_OZ, calculateAlcoholMl, deriveAbvFromAlcoholMl } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { INTAKE_BASIS, resolveIntakeBasis, isLiquidServingUnit } from '../utils/consumptionIntake';
 import Button from './Button';
@@ -80,7 +80,7 @@ const EditConsumptionOptionModal = ({
       setVolume(displayVolume);
       setServingUnit(storedUnit === 'fl oz' ? 'ounces' : (storedUnit || 'ml'));
       if (isAlcoholHabit && storedVolume > 0 && option.drug_amount > 0) {
-        const abv = deriveAbvFromUnits(storedVolume, parseFloat(option.drug_amount));
+        const abv = deriveAbvFromAlcoholMl(storedVolume, parseFloat(option.drug_amount));
         setAlcoholPercent(abv > 0 ? abv.toString() : '');
       } else {
         setAlcoholPercent('');
@@ -169,13 +169,13 @@ const EditConsumptionOptionModal = ({
       let finalDrugAmount;
       let finalDrugUnit;
       if (isAlcoholHabit) {
-        finalDrugAmount = calculateAlcoholUnits(volumeMl || 0, parseFloat(alcoholPercent) || 0);
+        finalDrugAmount = calculateAlcoholMl(volumeMl || 0, parseFloat(alcoholPercent) || 0);
         if (finalDrugAmount < 0.1) {
-          setAlcoholError('Volume and alcohol % give less than 0.1 units. Check your values.');
+          setAlcoholError('Volume and alcohol % give less than 0.1 ml of alcohol. Check your values.');
           setSaving(false);
           return;
         }
-        finalDrugUnit = 'units';
+        finalDrugUnit = 'ml';
       } else {
         finalDrugAmount = parseFloat(drugAmount);
         finalDrugUnit = getDrugUnit();
@@ -440,10 +440,10 @@ const EditConsumptionOptionModal = ({
                     <View style={styles.previewOption}>
                       <Text style={styles.previewText}>
                         {name.trim() || 'Option Name'}{volume.trim() && alcoholPercent.trim()
-                          ? ` – ${volume} ${servingUnit}, ${alcoholPercent}% ABV ≈ ${calculateAlcoholUnits(
+                          ? ` – ${volume} ${servingUnit}, ${alcoholPercent}% ABV ≈ ${calculateAlcoholMl(
                               servingUnit === 'ounces' ? parseFloat(volume || 0) * ML_PER_FL_OZ : parseFloat(volume || 0),
                               parseFloat(alcoholPercent || 0)
-                            ).toFixed(1)} units`
+                            ).toFixed(1)} ml alcohol`
                           : ' – Enter volume and alcohol %'}
                       </Text>
                     </View>

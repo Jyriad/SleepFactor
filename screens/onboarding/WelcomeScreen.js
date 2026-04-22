@@ -82,7 +82,7 @@ const WelcomeScreen = ({ navigation }) => {
         </Text>
 
         <EquationBox
-          title="Sleep data"
+          title="Wearable data"
           subtitle="Automatically sync sleep data from your wearable"
         >
           <Ionicons name="logo-apple" size={24} color={colors.textPrimary} />
@@ -90,17 +90,39 @@ const WelcomeScreen = ({ navigation }) => {
           <Ionicons name="watch-outline" size={24} color={colors.primary} />
         </EquationBox>
 
-        <Text style={styles.op}>+</Text>
+        <View style={styles.connector} />
+        <View style={styles.opWrap}>
+          <Text style={styles.op}>+</Text>
+        </View>
+        <View style={styles.connector} />
 
-        <EquationBox title="Log your habits" subtitle="Tell SleepFactor which habits you do each day">
+        <EquationBox title="Your habits" subtitle="Tell SleepFactor which habits you do each day">
           <Ionicons name="list-outline" size={26} color={colors.primary} />
         </EquationBox>
 
-        <Text style={styles.op}>=</Text>
+        <View style={styles.connector} />
+        <View style={styles.opWrap}>
+          <Text style={styles.op}>=</Text>
+        </View>
+        <View style={styles.connector} />
 
         <EquationBox
-          title="Insights"
-          subtitle="We analyse correlations between the habits you do and your sleep"
+          title="Morning feelings"
+          subtitle="Add a quick check-in so your subjective experience is included"
+        >
+          <Ionicons name="sunny-outline" size={24} color={colors.primary} />
+          <Ionicons name="happy-outline" size={24} color={colors.textPrimary} />
+        </EquationBox>
+
+        <View style={styles.connector} />
+        <View style={styles.opWrap}>
+          <Text style={styles.op}>=</Text>
+        </View>
+        <View style={styles.connector} />
+
+        <EquationBox
+          title="Deeper insights"
+          subtitle="We analyse how your habits, watch data, and feelings move together"
         >
           <Ionicons name="analytics-outline" size={26} color={colors.primary} />
         </EquationBox>
@@ -177,8 +199,31 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: typography.weights.bold,
     color: colors.primary,
-    marginVertical: spacing.xs,
     textAlign: 'center',
+  },
+  opWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.primary + '44',
+    backgroundColor: colors.primary + '12',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.primary,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 2,
+    marginVertical: spacing.xs,
+  },
+  connector: {
+    width: 1,
+    height: 10,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: colors.primary + '33',
+    borderRadius: 1,
   },
   footer: {
     alignSelf: 'stretch',

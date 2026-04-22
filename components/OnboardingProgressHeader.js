@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
@@ -8,13 +8,31 @@ import { typography, spacing } from '../constants';
  */
 export default function OnboardingProgressHeader({ currentStep, totalSteps, progress }) {
   const pct = Math.min(100, Math.max(0, Math.round(progress * 100)));
+  const [trackWidth, setTrackWidth] = useState(0);
+  const fillWidth = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (trackWidth <= 0) return;
+    Animated.timing(fillWidth, {
+      toValue: trackWidth * (pct / 100),
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [pct, trackWidth, fillWidth]);
+
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>
         {currentStep} / {totalSteps}
       </Text>
-      <View style={styles.track} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: pct }}>
-        <View style={[styles.fill, { width: `${pct}%` }]} />
+      <View
+        style={styles.track}
+        onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+        accessibilityRole="progressbar"
+        accessibilityValue={{ min: 0, max: 100, now: pct }}
+      >
+        <Animated.View style={[styles.fill, { width: fillWidth }]} />
       </View>
     </View>
   );
