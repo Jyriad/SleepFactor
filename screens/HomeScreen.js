@@ -1110,6 +1110,7 @@ const HomeScreen = () => {
       isRunning = true;
       lastAutoSyncRef.current = { dateString: todayDateString, timestamp: Date.now() };
       setAutoSyncLoading(true);
+      const autoSyncDaysBack = 30;
 
       // Set a timeout to prevent hanging (30 seconds max)
       const syncTimeoutId = setTimeout(() => {
@@ -1123,7 +1124,7 @@ const HomeScreen = () => {
         clearError();
         // Use force: true for today's date to ensure we always get the latest data
         // This prevents the sync from being filtered out if a record already exists
-        const result = await performSync({ force: true, userId: user.id });
+        const result = await performSync({ force: true, daysBack: autoSyncDaysBack, userId: user.id });
         clearTimeout(syncTimeoutId);
 
         if (!isCancelled && result.success) {
@@ -1891,8 +1892,13 @@ const HomeScreen = () => {
                   </View>
                 </View>
               );
-            } else if (!sleepData && isToday(selectedDate) && lastSyncResult?.success) {
-              // Sync just succeeded; refetch is in progress.
+            } else if (
+              !sleepData &&
+              isToday(selectedDate) &&
+              lastSyncResult?.success &&
+              (lastSyncResult.resultType === 'SUCCESS_WITH_DATA' || (lastSyncResult.syncedRecords ?? 0) > 0)
+            ) {
+              // Sync wrote data; brief post-sync fetch state while dashboard refetch applies it.
               return (
                 <View style={styles.sleepSectionInner}>
                   <View style={styles.sleepCardFill}>

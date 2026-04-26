@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
@@ -8,7 +8,6 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { trackEvent } from '../../services/mixpanel';
-import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 const SLIDES = [
   {
@@ -29,29 +28,34 @@ const SLIDES = [
 ];
 
 export default function OnboardingSleepFactorEducationScreen({ navigation }) {
-  const [index, setIndex] = useState(0);
-  const slide = SLIDES[index];
-  const last = index >= SLIDES.length - 1;
-  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingSleepFactorEducation', {
-    educationSlideIndex: index,
-  });
+  const [visibleCount, setVisibleCount] = useState(1);
+  const scrollRef = useRef(null);
+  const last = visibleCount >= SLIDES.length;
+  const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingSleepFactorEducation');
   const analyticsProperties = useMemo(
     () => ({
       step_name: 'OnboardingSleepFactorEducation',
       step_number: currentStep,
       total_steps: totalSteps,
-      education_slide_index: index,
+      education_visible_count: visibleCount,
     }),
-    [currentStep, totalSteps, index]
+    [currentStep, totalSteps, visibleCount]
   );
 
   useEffect(() => {
     trackEvent('Onboarding Step Viewed', analyticsProperties);
   }, [analyticsProperties]);
 
+  useEffect(() => {
+    if (visibleCount <= 1) return;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, [visibleCount]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
           <View style={styles.progressSlot}>
             <OnboardingProgressHeader currentStep={currentStep} totalSteps={totalSteps} progress={progress} />
@@ -59,17 +63,21 @@ export default function OnboardingSleepFactorEducationScreen({ navigation }) {
           <OnboardingSignOutLink />
         </View>
         <Text style={styles.kicker}>A bit about finding your sleep factor</Text>
-        <Text style={styles.title}>{slide.title}</Text>
-        <Text style={styles.body}>{slide.body}</Text>
+        {SLIDES.slice(0, visibleCount).map((slide, idx) => (
+          <View key={slide.title} style={styles.card}>
+            <Text style={styles.cardStep}>Step {idx + 1}</Text>
+            <Text style={styles.title}>{slide.title}</Text>
+            <Text style={styles.body}>{slide.body}</Text>
+          </View>
+        ))}
       </ScrollView>
       <View style={styles.footer}>
-        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button
           title={last ? 'Continue' : 'Next'}
           onPress={() => {
             trackEvent('Onboarding Step Continued', analyticsProperties);
-            if (last) navigation.navigate('OnboardingNotification');
-            else setIndex((i) => i + 1);
+            if (last) navigation.navigate('OnboardingInsightFound');
+            else setVisibleCount((c) => c + 1);
           }}
           style={styles.btn}
         />
@@ -106,11 +114,27 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     marginBottom: spacing.sm,
   },
+  card: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  cardStep: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.semibold,
+    color: colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: spacing.xs,
+  },
   title: {
-    fontSize: typography.sizes.xl,
+    fontSize: typography.sizes.large,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   body: {
     fontSize: typography.sizes.body,
@@ -122,17 +146,10 @@ const styles = StyleSheet.create({
     left: spacing.xl,
     right: spacing.xl,
     bottom: 0,
-    borderTopWidth: 1,
-    borderTopColor: colors.border + '66',
-    backgroundColor: '#0F172AEE',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
-  },
-  footerBlur: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
   },
 });

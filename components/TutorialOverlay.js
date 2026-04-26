@@ -16,6 +16,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useTutorialOptional } from '../contexts/TutorialContext';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
@@ -83,6 +84,7 @@ function SpotlightChrome({ rect, children }) {
 
 export default function TutorialOverlay() {
   const tutorial = useTutorialOptional();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   if (!tutorial) return null;
@@ -90,6 +92,8 @@ export default function TutorialOverlay() {
   const {
     storageStatus,
     phase,
+    hasPendingInsight,
+    pendingInsightAnalysisMode,
     spotlightRect,
     skipTutorial,
     toastVisible,
@@ -149,15 +153,43 @@ export default function TutorialOverlay() {
       <Modal visible={contractModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.toastCard}>
-            <Text style={styles.toastTitle}>Your first insight</Text>
-            <Text style={styles.toastBody}>
-              One day down — keep logging for about 9 more days to unlock your first high-confidence insight.
+            <Text style={styles.toastTitle}>
+              {hasPendingInsight ? 'An insight is waiting for you' : 'Your first insight'}
             </Text>
-            <Text style={[styles.toastBody, styles.modalSub]}>
-              Want a reminder to log before bed? You can turn that on anytime in Profile.
-            </Text>
-            <Pressable style={styles.toastBtn} onPress={dismissContractModal}>
-              <Text style={styles.toastBtnText}>Got it</Text>
+            {hasPendingInsight ? (
+              <Text style={styles.toastBody}>
+                Nice work completing setup. We already found an insight from your synced data - you can open it now on
+                your Insights page.
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.toastBody}>
+                  One day down — keep logging for about 9 more days to unlock your first high-confidence insight.
+                </Text>
+                <Text style={[styles.toastBody, styles.modalSub]}>
+                  Want a reminder to log before bed? You can turn that on anytime in Profile.
+                </Text>
+              </>
+            )}
+            <Pressable
+              style={styles.toastBtn}
+              onPress={() => {
+                dismissContractModal?.();
+                if (hasPendingInsight) {
+                  navigation.navigate('MainTabs', {
+                    screen: 'Insights',
+                    params: {
+                      screen: 'Insights',
+                      params: {
+                        openFirstInsight: true,
+                        preferredAnalysisMode: pendingInsightAnalysisMode,
+                      },
+                    },
+                  });
+                }
+              }}
+            >
+              <Text style={styles.toastBtnText}>{hasPendingInsight ? 'View insight' : 'Got it'}</Text>
             </Pressable>
           </View>
         </View>

@@ -24,6 +24,10 @@ import { TutorialProvider } from '../contexts/TutorialContext';
 import TutorialOverlay from '../components/TutorialOverlay';
 import { trackEvent, trackPageView } from '../services/mixpanel';
 import { ONBOARDING_ROUTE_STEP, getOnboardingProgress } from '../constants/onboardingProgress';
+import {
+  trackOnboardingFlowStarted,
+  trackOnboardingRouteTransition,
+} from '../services/onboardingAnalytics';
 
 const AccountScreen = lazy(() => import('../screens/AccountScreen'));
 const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
@@ -33,6 +37,35 @@ const SleepDataReviewScreen = lazy(() => import('../screens/SleepDataReviewScree
 const HabitDataReviewScreen = lazy(() => import('../screens/HabitDataReviewScreen'));
 
 const Stack = createNativeStackNavigator();
+const ONBOARDING_ROUTE_NAMES = new Set([
+  'Welcome',
+  'OnboardingAuth',
+  'OnboardingIntroStat',
+  'OnboardingGoalQuiz',
+  'OnboardingHowSleepFactorWorks',
+  'OnboardingHowSleepFactorPlot',
+  'OnboardingLetsGetSetup',
+  'OnboardingSleepSourcePicker',
+  'OnboardingHealthLab',
+  'OnboardingConnectedSuccess',
+  'OnboardingNewBeginning',
+  'OnboardingHabitTypes',
+  'OnboardingStarterHabits',
+  'OnboardingSubjectiveMeasures',
+  'OnboardingWearableMetrics',
+  'OnboardingPreferences',
+  'OnboardingSleepFactorEducation',
+  'OnboardingInsightFound',
+  'OnboardingNotification',
+  'OnboardingClosing',
+]);
+
+function getOnboardingStepIfKnown(routeName) {
+  if (!Object.prototype.hasOwnProperty.call(ONBOARDING_ROUTE_STEP, routeName)) {
+    return null;
+  }
+  return getOnboardingProgress(routeName).currentStep;
+}
 
 const LazyFallback = () => (
   <View style={styles.loadingContainer}>
@@ -44,6 +77,8 @@ const AppNavigator = ({ navigationRef }) => {
   const { isAuthenticated, loading, user } = useAuth();
   const splashHiddenRef = useRef(false);
   const lastTrackedOnboardingStepRef = useRef(null);
+  const onboardingFlowStartedRef = useRef(false);
+  const lastTrackedOnboardingRouteRef = useRef(null);
   const [onboardingComplete, setOnboardingComplete] = useState(null);
 
   useEffect(() => {
@@ -140,6 +175,39 @@ const AppNavigator = ({ navigationRef }) => {
         route && route.state ? getFocusedRouteNameFromRoute(route) : name;
       const screenLabel = focused || name || 'Unknown';
       trackPageView({ screenName: screenLabel, userId: user?.id });
+
+      const isOnboardingRoute = ONBOARDING_ROUTE_NAMES.has(screenLabel);
+      if (isOnboardingRoute && !onboardingFlowStartedRef.current) {
+        onboardingFlowStartedRef.current = true;
+        trackOnboardingFlowStarted({
+          entry_screen: screenLabel,
+          entry_step_number: getOnboardingStepIfKnown(screenLabel),
+        });
+      }
+
+      const previousOnboardingRoute = lastTrackedOnboardingRouteRef.current;
+      if (isOnboardingRoute) {
+        if (previousOnboardingRoute && previousOnboardingRoute !== screenLabel) {
+          const fromStep = getOnboardingStepIfKnown(previousOnboardingRoute);
+          const toStep = getOnboardingStepIfKnown(screenLabel);
+          const direction =
+            fromStep != null && toStep != null
+              ? toStep > fromStep
+                ? 'forward'
+                : toStep < fromStep
+                  ? 'back'
+                  : 'lateral'
+              : 'unknown';
+          trackOnboardingRouteTransition({
+            from_step_name: previousOnboardingRoute,
+            to_step_name: screenLabel,
+            from_step_number: fromStep,
+            to_step_number: toStep,
+            direction,
+          });
+        }
+        lastTrackedOnboardingRouteRef.current = screenLabel;
+      }
 
       const isKnownOnboardingRoute = Object.prototype.hasOwnProperty.call(
         ONBOARDING_ROUTE_STEP,

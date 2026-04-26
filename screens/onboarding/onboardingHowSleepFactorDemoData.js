@@ -1,37 +1,37 @@
 /**
  * Demo scatter for onboarding: three batches of 7 days.
- * Week 1: wide cloud, no clear slope (not a fake “negative” diagonal).
- * Week 2: starts to suggest an upward relationship.
- * Week 3: clearer positive correlation, but points still vary (not glued to the line).
+ * Week 1: broad, messy cloud with no obvious relationship yet.
+ * Week 2: still noisy, with only a faint positive tendency.
+ * Week 3: clearer positive pattern, but still with realistic outliers.
  */
 export const WEEK1_DEMO = [
-  { x: 1.4, y: 56 },
-  { x: 8.5, y: 53 },
-  { x: 2.3, y: 49 },
-  { x: 7.2, y: 58 },
-  { x: 4.6, y: 51 },
-  { x: 5.9, y: 60 },
-  { x: 3.1, y: 48 },
+  { x: 1.4, y: 63 },
+  { x: 2.7, y: 47 },
+  { x: 3.5, y: 58 },
+  { x: 4.6, y: 44 },
+  { x: 5.8, y: 61 },
+  { x: 7.0, y: 49 },
+  { x: 8.2, y: 56 },
 ];
 
 export const WEEK2_DEMO = [
-  { x: 1.5, y: 47 },
-  { x: 8.2, y: 78 },
-  { x: 2.3, y: 52 },
-  { x: 7.1, y: 73 },
-  { x: 5.0, y: 63 },
-  { x: 3.9, y: 57 },
-  { x: 6.8, y: 71 },
+  { x: 1.5, y: 48 },
+  { x: 2.8, y: 55 },
+  { x: 3.6, y: 50 },
+  { x: 4.9, y: 58 },
+  { x: 5.7, y: 53 },
+  { x: 6.9, y: 61 },
+  { x: 8.1, y: 57 },
 ];
 
 export const WEEK3_DEMO = [
-  { x: 4.2, y: 58 },
-  { x: 5.8, y: 71 },
-  { x: 3.2, y: 52 },
-  { x: 7.9, y: 74 },
-  { x: 6.2, y: 67 },
-  { x: 2.1, y: 46 },
-  { x: 8.2, y: 77 },
+  { x: 1.4, y: 46 },
+  { x: 2.7, y: 52 },
+  { x: 3.5, y: 50 },
+  { x: 4.8, y: 58 },
+  { x: 5.9, y: 55 },
+  { x: 7.0, y: 63 },
+  { x: 8.2, y: 59 },
 ];
 
 export const FULL_DEMO_POINTS = [...WEEK1_DEMO, ...WEEK2_DEMO, ...WEEK3_DEMO];

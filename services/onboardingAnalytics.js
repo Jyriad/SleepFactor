@@ -62,3 +62,18 @@ export function trackOnboardingWearableMetricsSaved(props) {
 export function trackOnboardingNotificationsResult(props) {
   trackEvent('Onboarding Notifications Result', baseProps(props));
 }
+
+/** First onboarding screen viewed in a flow/session. */
+export function trackOnboardingFlowStarted(props = {}) {
+  trackEvent('Onboarding Flow Started', baseProps(props));
+}
+
+/** Transition between onboarding screens (covers forward/back/jumps consistently). */
+export function trackOnboardingRouteTransition(props = {}) {
+  trackEvent('Onboarding Route Transition', baseProps(props));
+}
+
+/** User exits onboarding before normal completion (e.g. returning-user skip). */
+export function trackOnboardingFlowExited(props = {}) {
+  trackEvent('Onboarding Flow Exited', baseProps(props));
+}

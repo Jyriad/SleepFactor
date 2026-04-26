@@ -6,7 +6,6 @@ import bedtimeHabitsService from './bedtimeHabitsService';
 import syncAttemptTracker from './syncAttemptTracker';
 import { supabase } from './supabase';
 import { formatDateForDB } from '../utils/dateHelpers';
-import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 const LAST_SYNC_STORAGE_KEY = 'sleepSyncLastSuccessAt';
 
@@ -104,17 +103,6 @@ class SleepSyncService {
         }
       }
       allStages.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-      const mergedSpanMs =
-        earliestStart && latestEnd ? latestEnd.getTime() - earliestStart.getTime() : 0;
-      const mergedSpanHours = mergedSpanMs / 3600000;
-      if (sessions.length > 1 || mergedSpanHours > 11) {
-        sleepDebugLog('merge_sleep_by_date', {
-          date,
-          mergedSessionCount: sessions.length,
-          mergedSpanHours: Math.round(mergedSpanHours * 10) / 10,
-          totalSleepMinutesSum: total_sleep_minutes,
-        });
-      }
       const mergedRecord = {
         date,
         total_sleep_minutes,
@@ -240,7 +228,6 @@ class SleepSyncService {
         errors.push({ record: transformedData, error: error.message });
       }
     }
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {

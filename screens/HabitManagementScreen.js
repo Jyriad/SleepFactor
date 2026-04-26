@@ -13,6 +13,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
@@ -34,13 +35,6 @@ import GlassChromeBar from '../components/GlassChromeBar';
 import AppToggle from '../components/AppToggle';
 import HabitTrackingControl from '../components/HabitTrackingControl';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
-
-const PREDEFINED_HABITS = [
-  { name: 'Exercise', type: 'binary', unit: null },
-  { name: 'Reading', type: 'binary', unit: null },
-  { name: 'Room Temperature', type: 'numeric', unit: '°C' },
-  { name: 'Zinc Supplement', type: 'binary', unit: null },
-];
 
 // Always available habits (manual section only; excludes inferred)
 const ALWAYS_AVAILABLE_HABITS = [
@@ -74,6 +68,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const HabitManagementScreen = () => {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const navigation = useNavigation();
@@ -233,26 +228,12 @@ const HabitManagementScreen = () => {
         }
       }
 
-      // Create a set of existing habit names for faster lookups
-      const existingHabitNames = new Set(normalizedData.filter(h => !h.is_custom).map(h => h.name));
-      INFERRED_HABITS.forEach(h => existingHabitNames.add(h.name));
       const customHabits = normalizedData.filter(h => h.is_custom);
-
-      // Add regular predefined habits that user hasn't created yet (optimized)
-      const placeholderHabits = PREDEFINED_HABITS
-        .filter(predef => !existingHabitNames.has(predef.name))
-        .map((predef, index) => ({
-          ...predef,
-          id: `predef-${predef.name}`,
-          user_id: user.id,
-          is_custom: false,
-          is_active: true,
-          priority: index + ALWAYS_AVAILABLE_HABITS.length,
-        }));
-
-      // Get existing predefined habits
-      const existingPredefinedHabits = normalizedData.filter(h =>
-        !h.is_custom && PREDEFINED_HABITS.some(p => p.name === h.name)
+      const manualNonCustomFromDb = normalizedData.filter(
+        (h) =>
+          !h.is_custom &&
+          !healthMetricsService.isHealthMetricHabit(h) &&
+          !inferredNames.has(h.name)
       );
 
       // Get health metric habits (automatic tracking only)
@@ -260,7 +241,19 @@ const HabitManagementScreen = () => {
         !h.is_custom && healthMetricsService.isHealthMetricHabit(h)
       );
 
-      const allHabits = [...alwaysAvailableHabits, ...existingPredefinedHabits, ...placeholderHabits, ...customHabits, ...healthMetricHabits, ...inferredHabitsFromDb];
+      // De-duplicate manual non-custom habits by name while preserving latest DB rows.
+      const manualNonCustomByName = new Map();
+      [...manualNonCustomFromDb, ...alwaysAvailableHabits].forEach((habit) => {
+        if (habit?.name) manualNonCustomByName.set(habit.name, habit);
+      });
+      const manualNonCustomHabits = [...manualNonCustomByName.values()];
+
+      const allHabits = [
+        ...manualNonCustomHabits,
+        ...customHabits,
+        ...healthMetricHabits,
+        ...inferredHabitsFromDb,
+      ];
 
       // Partition: Your habits (manual), Automatic habits (health metrics only), Inferred habits
       const manual = allHabits.filter(habit =>
@@ -707,13 +700,6 @@ const HabitManagementScreen = () => {
     if (!user) return;
 
     try {
-      const isPlaceholder = habit.id && habit.id.startsWith('predef-');
-      if (isPlaceholder) {
-        // Create the habit as tracked (active)
-        await createPredefinedHabit(habit);
-        return;
-      }
-
       const newIsActive = habit.is_active === false; // Toggle from current state
 
       // Update habit
@@ -735,65 +721,6 @@ const HabitManagementScreen = () => {
       );
     } catch (error) {
       Alert.alert('Error', 'Failed to update habit');
-    }
-  };
-
-  const createPredefinedHabit = async (habit) => {
-    if (!user) return;
-
-    try {
-      // Check if it's an always available habit
-      const alwaysAvailableHabit = ALWAYS_AVAILABLE_HABITS.find(h => h.name === habit.name);
-      if (alwaysAvailableHabit) {
-        // Always available habits should already exist, but if not, create them
-        const { data, error } = await supabase
-          .from('habits')
-          .upsert({
-            user_id: user.id,
-            name: alwaysAvailableHabit.name,
-            type: alwaysAvailableHabit.type,
-            unit: alwaysAvailableHabit.unit,
-            consumption_types: alwaysAvailableHabit.consumption_types,
-            is_custom: false,
-            is_pinned: true,
-            priority: ALWAYS_AVAILABLE_HABITS.findIndex(h => h.name === habit.name),
-          }, {
-            onConflict: 'user_id,name'
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-      } else {
-        // Handle regular predefined habits
-        // Get max priority for pinned habits
-        const allHabits = [...manualHabits, ...automaticHabits];
-        const pinnedHabits = allHabits.filter(h => h.is_pinned);
-        const maxPriority = pinnedHabits.length > 0
-          ? Math.max(...pinnedHabits.map(h => h.priority || 0)) + 1
-          : 0;
-
-        const { data, error } = await supabase
-          .from('habits')
-          .upsert({
-            user_id: user.id,
-            name: habit.name,
-            type: habit.type,
-            unit: habit.unit,
-            is_custom: false,
-            is_pinned: true,
-            priority: maxPriority,
-          }, {
-            onConflict: 'user_id,name'
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-        loadHabits(true); // Force refresh
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add habit');
     }
   };
 
@@ -892,8 +819,6 @@ const HabitManagementScreen = () => {
   const renderSortableHabitRow = useCallback((habit) => {
     if (!habit) return null;
 
-    const isPlaceholder = habit.id && habit.id.startsWith('predef-');
-    const isAlwaysAvailable = habit.id && habit.id.startsWith('always-');
     const isCustom = habit.is_custom === true || habit.is_custom === 'true';
 
     const habitId = habit.id || habit.name;
@@ -913,42 +838,31 @@ const HabitManagementScreen = () => {
                   <View style={styles.nameContainerCompact}>
                     <Text style={styles.habitName}>{habit.name}</Text>
                   </View>
-
-                  {isPlaceholder && !isAlwaysAvailable ? (
+                  <View style={styles.statusAndChevronRow}>
+                    <HabitTrackingControl
+                      tracking={habit.is_active !== false}
+                      onPress={() => toggleHabitTracking(habit)}
+                    />
                     <TouchableOpacity
-                      style={styles.addButtonCompact}
-                      onPress={() => createPredefinedHabit(habit)}
+                      style={styles.chevronButton}
+                      onPress={() => toggleHabitExpanded(habitId)}
+                      activeOpacity={0.7}
                     >
-                      <Text style={styles.addButtonText}>Add</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.statusAndChevronRow}>
-                      <HabitTrackingControl
-                        tracking={habit.is_active !== false}
-                        onPress={() => toggleHabitTracking(habit)}
+                      <Ionicons
+                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={22}
+                        color={colors.textSecondary}
                       />
-                      <TouchableOpacity
-                        style={styles.chevronButton}
-                        onPress={() => toggleHabitExpanded(habitId)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                          size={22}
-                          color={colors.textSecondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 <Text style={styles.habitTypeLine}>
                   {getHabitTypeDescription(habit)}
-                  {isPlaceholder && ' (not added yet)'}
                 </Text>
               </TouchableOpacity>
 
-              {isExpanded && !isPlaceholder && (
+              {isExpanded && (
               <View style={styles.expandedSectionContainer}>
                 <View style={styles.expandedSection}>
                   {(habit.type === 'binary' || habit.type === 'quick_consumption') && (
@@ -1002,7 +916,6 @@ const HabitManagementScreen = () => {
     closeAllSwipeables,
     toggleHabitExpanded,
     toggleHabitTracking,
-    createPredefinedHabit,
     toggleLogAsNoByDefault,
     openEditHabit,
     openDeleteHabit,
@@ -1119,7 +1032,14 @@ const HabitManagementScreen = () => {
             ) : (
           <View style={styles.manualHabitsSection}>
             {manualHabits.length === 0 && (
-              <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.draggableListContent}>
+              <ScrollView
+                style={styles.scrollView}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[
+                  styles.draggableListContent,
+                  { paddingBottom: tabBarHeight + 96 },
+                ]}
+              >
                 <GlassChromeBar style={styles.headerGlassOuter}>
                   <View style={{ paddingTop: headerTopPadding }}>
                     <View style={styles.header}>
@@ -1235,12 +1155,6 @@ const HabitManagementScreen = () => {
                     })}
                   </View>
                 )}
-                <View style={styles.addCustomHabitContainer}>
-                  <TouchableOpacity style={styles.addCustomHabitButton} onPress={openAddHabit}>
-                    <Ionicons name="add-circle" size={24} color="#FFFFFF" />
-                    <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
-                  </TouchableOpacity>
-                </View>
               </ScrollView>
             )}
             {manualHabits.length > 0 && (
@@ -1251,6 +1165,7 @@ const HabitManagementScreen = () => {
                   contentContainerStyle={[
                     styles.draggableListContent,
                     styles.sortableScrollContent,
+                    { paddingBottom: tabBarHeight + 96 },
                   ]}
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
@@ -1300,15 +1215,20 @@ const HabitManagementScreen = () => {
                   </Sortable.Flex>
                   {footerAutomaticBlock}
                   {footerInferredBlock}
-                  <View style={styles.addCustomHabitContainer}>
-                    <TouchableOpacity style={styles.addCustomHabitButton} onPress={openAddHabit}>
-                      <Ionicons name="add-circle" size={24} color="#FFFFFF" />
-                      <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
-                    </TouchableOpacity>
-                  </View>
                 </Animated.ScrollView>
               </Sortable.PortalProvider>
             )}
+            <View
+              style={[
+                styles.pinnedAddCustomHabitContainer,
+                { bottom: 0, paddingBottom: Math.max(spacing.sm, tabBarHeight - spacing.lg) },
+              ]}
+            >
+              <TouchableOpacity style={styles.addCustomHabitButton} onPress={openAddHabit}>
+                <Ionicons name="add-circle" size={24} color="#FFFFFF" />
+                <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
+              </TouchableOpacity>
+            </View>
           </View>
             )}
           </View>
@@ -1553,7 +1473,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   draggableListContent: {
-    paddingBottom: 100, // Space so bottom content clears the navigation footer
+    paddingBottom: 140, // Extra space so scrolling content clears the pinned action button
   },
   footerSection: {
     paddingTop: spacing.lg,
@@ -1599,10 +1519,16 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: 6,
   },
-  addCustomHabitContainer: {
+  pinnedAddCustomHabitContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: spacing.regular,
-    paddingTop: spacing.md,
-    paddingBottom: 100, // Space so button area clears the navigation footer
+    paddingTop: spacing.sm,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   addCustomHabitButton: {
     flexDirection: 'row',

@@ -7,7 +7,6 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 const SUB_STEPS = [
   {
@@ -59,16 +58,8 @@ export default function OnboardingHowSleepFactorWorksScreen({ navigation }) {
             <AnimatedNumberedRow key={item.stepNumber} item={item} />
           ))}
         </View>
-        <View style={styles.patienceCard}>
-          <Text style={styles.patienceTitle}>Why it takes about 10 days</Text>
-          <Text style={styles.patienceBody}>
-            Early data can be noisy, so SleepFactor first builds a baseline. After about 10 days, the patterns are
-            usually strong enough to trust.
-          </Text>
-        </View>
       </ScrollView>
       <View style={styles.footer}>
-        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button title={primaryLabel} onPress={onPrimary} style={styles.btn} />
       </View>
     </SafeAreaView>
@@ -139,25 +130,6 @@ const styles = StyleSheet.create({
   list: {
     gap: spacing.lg,
   },
-  patienceCard: {
-    marginTop: spacing.xl,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  patienceTitle: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  patienceBody: {
-    fontSize: typography.sizes.small,
-    lineHeight: typography.lineHeights.small,
-    color: colors.textSecondary,
-  },
   numberedRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -191,17 +163,10 @@ const styles = StyleSheet.create({
     left: spacing.xl,
     right: spacing.xl,
     bottom: 0,
-    borderTopWidth: 1,
-    borderTopColor: colors.border + '66',
-    backgroundColor: '#0F172AEE',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
-  },
-  footerBlur: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
   },
 });

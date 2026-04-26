@@ -82,55 +82,6 @@ const LogConsumptionScreen = () => {
   const [customAmountDisplayValue, setCustomAmountDisplayValue] = useState(selectedOption?.drug_amount ?? customDrugAmount ?? 0);
 
   useEffect(() => {
-    const habitName = (habit?.name || '').toLowerCase();
-    if (!habitName.includes('alcohol')) return;
-    console.log('[AlcoholUnitDebug][LogConsumption] route params', {
-      habitId: habit?.id,
-      habitName: habit?.name,
-      routeHabitUnit: habit?.unit,
-      selectedOptionId: selectedOption?.id,
-      selectedOptionName: selectedOption?.name,
-      selectedOptionDrugUnit: selectedOption?.drug_unit,
-      selectedOptionServingUnit: selectedOption?.serving_unit,
-      selectedOptionDrugAmount: selectedOption?.drug_amount,
-    });
-  }, [
-    habit?.id,
-    habit?.name,
-    habit?.unit,
-    selectedOption?.id,
-    selectedOption?.name,
-    selectedOption?.drug_unit,
-    selectedOption?.serving_unit,
-    selectedOption?.drug_amount,
-  ]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const habitName = (habit?.name || '').toLowerCase();
-    if (!habit?.id || !habitName.includes('alcohol')) return () => {};
-    (async () => {
-      const { data: habitRow, error } = await supabase
-        .from('habits')
-        .select('id,name,unit,type')
-        .eq('id', habit.id)
-        .maybeSingle();
-      if (cancelled) return;
-      if (error) {
-        console.log('[AlcoholUnitDebug][LogConsumption] fresh habit fetch error', {
-          habitId: habit.id,
-          error: error.message,
-        });
-        return;
-      }
-      console.log('[AlcoholUnitDebug][LogConsumption] fresh habit row', habitRow);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [habit?.id, habit?.name]);
-
-  useEffect(() => {
     if (showCustomVolume) {
       setCustomAmountDisplayValue(customDrugAmount ?? 0);
       return;

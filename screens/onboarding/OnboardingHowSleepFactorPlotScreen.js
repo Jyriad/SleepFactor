@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Animated, Easing } from 'react-native';
 import ScatterPlot from '../../components/ScatterChart';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
@@ -8,7 +8,6 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 import {
   WEEK1_DEMO,
   WEEK2_DEMO,
@@ -24,6 +23,7 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
   const [weeksComplete, setWeeksComplete] = useState(0);
   const [animating, setAnimating] = useState(false);
   const timeoutIdsRef = useRef([]);
+  const previewOpacity = useRef(new Animated.Value(0)).current;
 
   const clearScheduled = useCallback(() => {
     timeoutIdsRef.current.forEach(clearTimeout);
@@ -31,6 +31,19 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
   }, []);
 
   useEffect(() => () => clearScheduled(), [clearScheduled]);
+
+  useEffect(() => {
+    if (weeksComplete <= 0) {
+      previewOpacity.setValue(0);
+      return;
+    }
+    Animated.timing(previewOpacity, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [weeksComplete, previewOpacity]);
 
   const runWeekAnimation = useCallback(
     (weekPoints, onDone) => {
@@ -52,6 +65,35 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
 
   const primaryLabel =
     weeksComplete >= 3 ? 'Continue' : `Week ${weeksComplete + 1}`;
+
+  const previewRowsByWeek = {
+    1: [
+      {
+        habit: 'Caffeine',
+        sleepData: 'Deep sleep',
+        link: 'No link',
+        impact: '--',
+        noCorrelation: true,
+      },
+    ],
+    2: [
+      {
+        habit: 'Caffeine',
+        sleepData: 'Deep sleep',
+        link: '+',
+        impact: '++',
+      },
+    ],
+    3: [
+      {
+        habit: 'Caffeine',
+        sleepData: 'Deep sleep',
+        link: '+++',
+        impact: '++',
+      },
+    ],
+  };
+  const previewRows = previewRowsByWeek[weeksComplete] || [];
 
   const onPrimary = () => {
     if (animating) return;
@@ -81,11 +123,9 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
           </View>
           <OnboardingSignOutLink />
         </View>
-        <Text style={styles.title}>There are lots of factors influencing your sleep.</Text>
+        <Text style={styles.title}>The more data, the better</Text>
         <Text style={styles.sub}>
-          The more data you have available the clearer it is which of these is impacting your sleep in
-          different ways. Every night you&apos;ll have one extra data point to help you understand your
-          sleep better.
+          Each day is a data point, so keep logging.
         </Text>
 
         <View style={styles.chartCard}>
@@ -107,17 +147,55 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
             trendLineColor={colors.error}
           />
         </View>
-        <View style={styles.legendCard}>
-          <Text style={styles.legendTitle}>How to read this</Text>
-          <Text style={styles.legendBody}>
-            A downward trend doesn&apos;t always mean a habit is bad. It only shows a relationship worth
-            investigating for your own sleep.
-          </Text>
-        </View>
+
+        {previewRows.length > 0 ? (
+          <Animated.View style={[styles.previewCard, { opacity: previewOpacity }]}>
+            <Text style={styles.previewTitle}>Your insights</Text>
+            <View style={styles.previewHeader}>
+              <Text style={[styles.previewHeaderText, styles.colHabit]}>Habit</Text>
+              <Text style={[styles.previewHeaderText, styles.colSleep]}>Sleep data</Text>
+              <Text style={[styles.previewHeaderText, styles.colLink]}>Link</Text>
+              <Text style={[styles.previewHeaderText, styles.colImpact]}>Impact</Text>
+            </View>
+            {previewRows.map((row) => (
+              <View key={`${row.habit}-${row.sleepData}`} style={styles.previewRow}>
+                <Text style={[styles.previewCell, styles.colHabit]}>{row.habit}</Text>
+                <Text style={[styles.previewCell, styles.colSleep]}>{row.sleepData}</Text>
+                <View style={[styles.signTag, styles.linkTag]}>
+                  <Text style={[styles.signText, row.noCorrelation ? styles.noCorrelationText : styles.linkText]}>
+                    {row.link}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.signTag,
+                    row.noCorrelation
+                      ? styles.impactNeutralTag
+                      : row.impact.startsWith('-')
+                        ? styles.impactNegativeTag
+                        : styles.impactPositiveTag,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.signText,
+                      row.noCorrelation
+                        ? styles.impactNeutralText
+                        : row.impact.startsWith('-')
+                          ? styles.impactNegativeText
+                          : styles.impactPositiveText,
+                    ]}
+                  >
+                    {row.impact}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </Animated.View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
-        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         <Button
           title={primaryLabel}
           onPress={onPrimary}
@@ -177,41 +255,107 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 240,
   },
-  legendCard: {
-    marginTop: spacing.md,
+  previewCard: {
+    alignSelf: 'stretch',
     backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
+    marginTop: spacing.md,
   },
-  legendTitle: {
+  previewTitle: {
     fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.sm,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.xs,
     marginBottom: spacing.xs,
   },
-  legendBody: {
-    fontSize: typography.sizes.small,
+  previewHeaderText: {
+    fontSize: typography.sizes.xs,
     color: colors.textSecondary,
-    lineHeight: typography.lineHeights.small,
+    fontWeight: typography.weights.semibold,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  previewCell: {
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+  },
+  colHabit: {
+    flex: 1.35,
+  },
+  colSleep: {
+    flex: 1.25,
+  },
+  colLink: {
+    flex: 0.7,
+    textAlign: 'center',
+  },
+  colImpact: {
+    flex: 0.7,
+    textAlign: 'center',
+  },
+  signTag: {
+    flex: 0.7,
+    borderRadius: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkTag: {
+    backgroundColor: colors.primary + '22',
+  },
+  impactNegativeTag: {
+    backgroundColor: colors.error + '22',
+  },
+  impactPositiveTag: {
+    backgroundColor: colors.success + '22',
+  },
+  impactNeutralTag: {
+    backgroundColor: colors.textSecondary + '22',
+  },
+  signText: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.medium,
+  },
+  linkText: {
+    color: colors.primary,
+  },
+  impactNegativeText: {
+    color: colors.error,
+  },
+  impactPositiveText: {
+    color: colors.success,
+  },
+  noCorrelationText: {
+    color: colors.textSecondary,
+  },
+  impactNeutralText: {
+    color: colors.textSecondary,
   },
   footer: {
     position: 'absolute',
     left: spacing.xl,
     right: spacing.xl,
     bottom: 0,
-    borderTopWidth: 1,
-    borderTopColor: colors.border + '66',
-    backgroundColor: '#0F172AEE',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
   primaryBtn: {
     alignSelf: 'stretch',
-  },
-  footerBlur: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
   },
 });

@@ -56,9 +56,6 @@ const getSleepMetricColor = (metricKey) => {
 const BinaryProgressBlock = ({ progress }) => {
   const yesPct = Math.min(100, (progress.binaryYes / progress.targetBinaryYes) * 100);
   const noPct = Math.min(100, (progress.binaryNo / progress.targetBinaryNo) * 100);
-  const showHelp =
-    progress.binaryYes < progress.targetBinaryYes ||
-    progress.binaryNo < progress.targetBinaryNo;
   return (
     <View style={styles.binaryProgressWrap}>
       <View style={styles.binaryBarRow}>
@@ -69,9 +66,6 @@ const BinaryProgressBlock = ({ progress }) => {
         <Text style={styles.binaryBarCount}>
           {progress.binaryYes}/{progress.targetBinaryYes}
         </Text>
-        {showHelp ? (
-          <InsightMinimumDataHelp variant="binary" iconSize={18} style={styles.buildingHelpIcon} />
-        ) : null}
       </View>
       <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
         <Text style={styles.binaryBarLabel}>No</Text>
@@ -89,7 +83,6 @@ const BinaryProgressBlock = ({ progress }) => {
 /** Numeric habit: full-width paired-nights progress (no table columns) */
 const NumericProgressBlock = ({ progress }) => {
   const pct = Math.min(100, (progress.pairedDays / progress.targetNumerical) * 100);
-  const showHelp = progress.pairedDays < progress.targetNumerical;
   return (
     <View style={styles.binaryProgressWrap}>
       <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
@@ -102,9 +95,6 @@ const NumericProgressBlock = ({ progress }) => {
         <Text style={styles.binaryBarCount}>
           {progress.pairedDays}/{progress.targetNumerical}
         </Text>
-        {showHelp ? (
-          <InsightMinimumDataHelp variant="numeric" iconSize={18} style={styles.buildingHelpIcon} />
-        ) : null}
       </View>
     </View>
   );
@@ -122,13 +112,22 @@ const InsightsScreen = ({ navigation, route }) => {
   const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const [analysisMode, setAnalysisMode] = useState('absolute');
   /** habit = one section per habit; metric = one section per sleep metric (habits as rows). */
-  const [layoutMode, setLayoutMode] = useState('metric');
+  const [layoutMode, setLayoutMode] = useState('habit');
   const [expandedRowKey, setExpandedRowKey] = useState(null);
+  const [autoExpandedFromRoute, setAutoExpandedFromRoute] = useState(false);
   const sectionListRef = useRef(null);
   const headerHeightRef = useRef(100);
 
   const focusedHabitId = route.params?.focusedHabitId;
+  const openFirstInsight = route.params?.openFirstInsight === true;
+  const preferredAnalysisMode = route.params?.preferredAnalysisMode;
   const groups = tabData.groups || [];
+
+  useEffect(() => {
+    if (preferredAnalysisMode === 'absolute' || preferredAnalysisMode === 'percentage') {
+      setAnalysisMode(preferredAnalysisMode);
+    }
+  }, [preferredAnalysisMode]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -266,7 +265,11 @@ const InsightsScreen = ({ navigation, route }) => {
     return ordered;
   }, [groups, analysisMode, availableMetrics, subjectiveData.groups]);
 
-  const activeSections = layoutMode === 'habit' ? sections : metricSections;
+  const metricViewEmpty =
+    layoutMode === 'metric' && metricSections.length === 0 && groups.length > 0;
+  const showMetricFallbackToHabitProgress = metricViewEmpty;
+  const activeSections =
+    layoutMode === 'habit' || showMetricFallbackToHabitProgress ? sections : metricSections;
 
   const anySignificant = useMemo(() => {
     if (layoutMode === 'habit') {
@@ -274,9 +277,6 @@ const InsightsScreen = ({ navigation, route }) => {
     }
     return metricSections.length > 0;
   }, [layoutMode, sections, metricSections]);
-
-  const metricViewEmpty =
-    layoutMode === 'metric' && metricSections.length === 0 && groups.length > 0;
 
   useEffect(() => {
     if (loading || !focusedHabitId || !groups.length) return;
@@ -306,6 +306,19 @@ const InsightsScreen = ({ navigation, route }) => {
       }, 400);
     }
   }, [loading, focusedHabitId, groups, layoutMode, metricSections]);
+
+  useEffect(() => {
+    if (loading || autoExpandedFromRoute || !openFirstInsight || expandedRowKey) return;
+    const firstSectionWithInsight = metricSections.find((s) =>
+      (s.data || []).some((d) => d.rowType === 'insight' && d.insight)
+    );
+    const firstInsightRow = firstSectionWithInsight?.data?.find(
+      (d) => d.rowType === 'insight' && d.insight
+    );
+    if (!firstInsightRow?.insight || !firstInsightRow?.habitId) return;
+    setExpandedRowKey(`${firstInsightRow.habitId}-${firstInsightRow.insight.metricKey}`);
+    setAutoExpandedFromRoute(true);
+  }, [loading, openFirstInsight, expandedRowKey, metricSections, autoExpandedFromRoute]);
 
   const getMetricInfo = useCallback(
     (metricKey) => availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0],
@@ -420,6 +433,10 @@ const InsightsScreen = ({ navigation, route }) => {
           ? section.data?.some((d) => d.habitId === focusedHabitId)
           : focusedHabitId === section.habitId);
 
+      const showBuildingHelp =
+        !section.showTableHeader &&
+        !!section.progress?.needsMoreData;
+
       return (
         <View style={styles.sectionWrapper}>
           <View
@@ -432,6 +449,13 @@ const InsightsScreen = ({ navigation, route }) => {
           >
             <View style={styles.sectionTitleRow}>
               <Text style={styles.habitName}>{sectionTitle}</Text>
+              {showBuildingHelp ? (
+                <InsightMinimumDataHelp
+                  variant={section.progress?.isBinary ? 'binary' : 'numeric'}
+                  iconSize={18}
+                  style={styles.sectionHelpIcon}
+                />
+              ) : null}
               {analysisMode === 'percentage' ? (
                 <PercentageModeHelp iconSize={18} style={styles.sectionHelpIcon} />
               ) : null}
@@ -536,20 +560,6 @@ const InsightsScreen = ({ navigation, route }) => {
             </View>
             <View style={styles.switchSegments}>
               <TouchableOpacity
-                style={[styles.switchSegment, layoutMode === 'metric' && styles.switchSegmentActive]}
-                onPress={() => setLayoutMode('metric')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.switchSegmentText,
-                    layoutMode === 'metric' && styles.switchSegmentTextActive,
-                  ]}
-                >
-                  Sleep metrics
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={[styles.switchSegment, layoutMode === 'habit' && styles.switchSegmentActive]}
                 onPress={() => setLayoutMode('habit')}
                 activeOpacity={0.8}
@@ -559,8 +569,24 @@ const InsightsScreen = ({ navigation, route }) => {
                     styles.switchSegmentText,
                     layoutMode === 'habit' && styles.switchSegmentTextActive,
                   ]}
+                  numberOfLines={1}
                 >
                   Habits
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.switchSegment, layoutMode === 'metric' && styles.switchSegmentActive]}
+                onPress={() => setLayoutMode('metric')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.switchSegmentText,
+                    layoutMode === 'metric' && styles.switchSegmentTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  Sleep metrics
                 </Text>
               </TouchableOpacity>
             </View>
@@ -580,6 +606,7 @@ const InsightsScreen = ({ navigation, route }) => {
                     styles.switchSegmentText,
                     analysisMode === 'absolute' && styles.switchSegmentTextActive,
                   ]}
+                  numberOfLines={1}
                 >
                   Minutes
                 </Text>
@@ -594,6 +621,7 @@ const InsightsScreen = ({ navigation, route }) => {
                     styles.switchSegmentText,
                     analysisMode === 'percentage' && styles.switchSegmentTextActive,
                   ]}
+                  numberOfLines={1}
                 >
                   Sleep mix (%)
                 </Text>
@@ -633,8 +661,8 @@ const InsightsScreen = ({ navigation, route }) => {
             metricViewEmpty ? (
               <View style={styles.metricEmptyWrap}>
                 <Text style={styles.metricEmptyText}>
-                  No correlations in this layout for the current view. Try Minutes or Sleep mix (%), or switch
-                  back to Habits.
+                  No correlations yet in this layout. We are showing tracking progress by habit until enough
+                  data builds up for sleep-metric links.
                 </Text>
               </View>
             ) : null
@@ -715,14 +743,18 @@ const styles = StyleSheet.create({
   },
   switchSegments: {
     flexDirection: 'row',
+    flex: 1,
     backgroundColor: colors.border,
     borderRadius: 10,
     padding: 2,
   },
   switchSegment: {
+    flex: 1,
     paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.regular,
+    paddingHorizontal: spacing.sm,
     borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   switchSegmentActive: {
     backgroundColor: colors.background,
@@ -733,9 +765,10 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   switchSegmentText: {
-    fontSize: typography.sizes.small,
+    fontSize: typography.sizes.xs,
     fontWeight: typography.weights.medium,
     color: colors.textSecondary,
+    flexShrink: 1,
   },
   switchSegmentTextActive: {
     color: colors.primary,

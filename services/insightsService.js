@@ -1410,9 +1410,13 @@ class InsightsService {
    * @param {number} limit - Max number of insights to return (default 10)
    * @returns {Promise<Array>} Array of { habitId, habitName, metricKey, metricLabel, analysisType, direction, strengthLabel, ... }
    */
-  async getTopInsightsForHome(userId, limit = 10) {
+  async getTopInsightsForHome(userId, limit = 10, options = {}) {
+    const { significantOnly = false } = options || {};
     const { topInsights } = await this.getHomeInsightsWithSummary(userId, limit);
-    return topInsights;
+    if (!significantOnly) return topInsights;
+    return (topInsights || []).filter(
+      (insight) => (insight?.confidenceLevel || 'none') !== 'none'
+    );
   }
 
   /**
