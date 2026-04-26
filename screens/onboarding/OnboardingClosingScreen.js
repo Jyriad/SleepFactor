@@ -40,13 +40,10 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
         </View>
         <OnboardingSignOutLink />
       </View>
-      <Text style={styles.title}>You&apos;re in</Text>
+      <Text style={styles.title}>You&apos;re all set...get tracking</Text>
       <Text style={styles.body}>
-        One day of logging is the start. Stay consistent for about 10 days to unlock your first high-confidence
-        insight.
-      </Text>
-      <Text style={styles.sub}>
-        Next, we&apos;ll walk you through logging today&apos;s habits on the real home screen. You can skip anytime.
+        Each day you log your sleep and your sleep data is synced is a data point to help you understand{' '}
+        <Text style={styles.bodyEmphasis}>what&apos;s impacting your sleep</Text>.
       </Text>
       <View style={styles.footer}>
         <Text style={styles.enterSubtext}>We&apos;ll start with a 30-second tour of your new dashboard.</Text>
@@ -89,13 +86,10 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     lineHeight: typography.lineHeights.body,
-    marginBottom: spacing.md,
-  },
-  sub: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    lineHeight: typography.lineHeights.small,
     marginBottom: spacing.xl,
+  },
+  bodyEmphasis: {
+    fontWeight: typography.weights.semibold,
   },
   footer: {
     marginTop: 'auto',

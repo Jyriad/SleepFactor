@@ -11,7 +11,6 @@ import OnboardingProgressHeader from '../../components/OnboardingProgressHeader'
 import { ONBOARDING_TOTAL_STEPS } from '../../constants/onboardingProgress';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { trackEvent } from '../../services/mixpanel';
-import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 
 export default function OnboardingStepLayout({
   step,
@@ -24,6 +23,7 @@ export default function OnboardingStepLayout({
   nextLabel = 'Next',
   showSkip = true,
   nextLoading = false,
+  contentPaddingBottom = 112,
 }) {
   const progress = totalSteps > 0 ? step / totalSteps : 0;
   const route = useRoute();
@@ -74,9 +74,8 @@ export default function OnboardingStepLayout({
         </View>
       </View>
       {title ? <Text style={styles.title}>{title}</Text> : null}
-      <View style={styles.content}>{children}</View>
+      <View style={[styles.content, { paddingBottom: contentPaddingBottom }]}>{children}</View>
       <View style={styles.footer}>
-        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
         {onBack ? (
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back</Text>
@@ -131,7 +130,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingBottom: 112,
   },
   footer: {
     position: 'absolute',
@@ -141,15 +139,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.regular,
-    borderTopWidth: 1,
-    borderTopColor: colors.border + '66',
-    backgroundColor: '#0F172AEE',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.sm,
-  },
-  footerBlur: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    paddingVertical: spacing.md,
   },
   backButton: {
     paddingVertical: spacing.md,

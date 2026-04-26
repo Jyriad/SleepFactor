@@ -212,7 +212,7 @@ const OnboardingNotificationScreen = ({ navigation }) => {
   return (
     <>
       <OnboardingStepLayout
-        step={16}
+        step={14}
         totalSteps={ONBOARDING_STEP_TOTAL}
         title="Reminders"
         onNext={handleEnable}

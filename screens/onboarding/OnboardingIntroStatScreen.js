@@ -19,15 +19,13 @@ export default function OnboardingIntroStatScreen({ navigation }) {
           </View>
           <OnboardingSignOutLink />
         </View>
-        <Text style={styles.title}>You&apos;re not alone</Text>
+        <Text style={styles.title}>75% of people have made changes to habits to improve their sleep.</Text>
         <Text style={styles.body}>
-          Did you know 75% of people have made changes to their life to try and improve their sleep?
+          Different things impact us all differently. SleepFactor can help you understand what impacts your sleep.
         </Text>
-        <Text style={styles.body}>
-          We&apos;ll help you understand what&apos;s impacting your sleep — whether that&apos;s analysing whether any
-          supplements you&apos;re taking are actually doing anything, to seeing how changes in your lifestyle can help
-          you sleep longer, deeper, or more efficiently.
-        </Text>
+        <Text style={styles.bodyLine}>No more guessing what helps you.</Text>
+        <Text style={styles.bodyLine}>No more one-size-fits-all sleep tips.</Text>
+        <Text style={styles.body}>Just data-driven insights about your sleep factors.</Text>
       </ScrollView>
       <View style={styles.footer}>
         <Button title="Next" onPress={() => navigation.navigate('OnboardingGoalQuiz')} style={styles.btn} />
@@ -66,7 +64,13 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     lineHeight: typography.lineHeights.body,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  bodyLine: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+    lineHeight: typography.lineHeights.body,
+    marginBottom: spacing.xs,
   },
   footer: {
     paddingHorizontal: spacing.xl,

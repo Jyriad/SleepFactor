@@ -13,7 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import healthMetricsService from '../../services/healthMetricsService';
 import healthService from '../../services/healthService';
 import sleepSyncService, { getHealthPermissionFailureAlertCopy } from '../../services/sleepSyncService';
-import { enableSelectedMetrics } from '../../services/onboardingWearableMetricsService';
+import { startOnboardingWearableSync } from '../../services/onboardingWearableSyncCoordinator';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
@@ -21,7 +21,6 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import AppToggle from '../../components/AppToggle';
-import TabBarBlurBackground from '../../components/TabBarBlurBackground';
 import {
   trackOnboardingWearableMetricsLoaded,
   trackOnboardingWearableMetricsSaved,
@@ -32,11 +31,22 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState([]);
   const [selected, setSelected] = useState({});
-  const [saving, setSaving] = useState(false);
   const [permissionBlocked, setPermissionBlocked] = useState(false);
   const [requestingPerm, setRequestingPerm] = useState(false);
 
   const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingWearableMetrics');
+  const hasPermissionForAnyMetric = useCallback(async (metricList) => {
+    const checkable = (metricList || [])
+      .map((metric) => healthMetricsService.getRecordTypeForMetric(metric.key))
+      .filter(Boolean);
+
+    if (checkable.length === 0) return false;
+    for (const recordType of checkable) {
+      const granted = await healthService.hasPermissionForRecordType(recordType);
+      if (granted) return true;
+    }
+    return false;
+  }, []);
 
   const loadMetrics = useCallback(async () => {
     if (!user?.id) {
@@ -57,12 +67,11 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
 
       let permBlocked = false;
       if (safeList.length === 0) {
-        const stepsOk = await healthService.hasPermissionForRecordType('Steps');
-        permBlocked = !stepsOk;
-        setPermissionBlocked(permBlocked);
-      } else {
-        setPermissionBlocked(false);
+        const allMetrics = healthMetricsService.getAvailableMetrics?.() || [];
+        const hasAnyPermission = await hasPermissionForAnyMetric(allMetrics);
+        permBlocked = !hasAnyPermission;
       }
+      setPermissionBlocked(permBlocked);
       trackOnboardingWearableMetricsLoaded({
         metric_count: safeList.length,
         permission_blocked: permBlocked,
@@ -77,7 +86,7 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [hasPermissionForAnyMetric, user?.id]);
 
   useEffect(() => {
     loadMetrics();
@@ -100,20 +109,17 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
     }
   };
 
-  const onContinue = async () => {
+  const onContinue = () => {
     if (!user?.id) return;
-    setSaving(true);
-    try {
-      const toEnable = metrics.filter((met) => selected[met.key]);
-      await enableSelectedMetrics(user.id, toEnable);
-      trackOnboardingWearableMetricsSaved({
-        enabled_count: toEnable.length,
-        available_metrics: metrics.length,
-      });
-      navigation.navigate('OnboardingSleepFactorEducation');
-    } finally {
-      setSaving(false);
-    }
+    const toEnable = metrics.filter((met) => selected[met.key]);
+    trackOnboardingWearableMetricsSaved({
+      enabled_count: toEnable.length,
+      available_metrics: metrics.length,
+    });
+    navigation.navigate('OnboardingPreferences');
+
+    // Kick off sync in background and let later onboarding steps wait briefly if needed.
+    startOnboardingWearableSync(user.id, toEnable);
   };
 
   if (loading) {
@@ -134,14 +140,10 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
           <OnboardingSignOutLink />
         </View>
         <Text style={styles.title}>We can also track correlations with other metrics from your wearable</Text>
-        <Text style={styles.body}>
-          These are based on what we could read from your recent sync. Toggle which ones you want to track.
-        </Text>
         <View style={styles.whyCard}>
-          <Text style={styles.whyTitle}>Why this matters</Text>
+          <Text style={styles.whyTitle}>We found the following metrics</Text>
           <Text style={styles.whyBody}>
-            SleepFactor compares these metrics with your daily habits. For example, caffeine might reduce Deep Sleep
-            or Heart Rate Variability even when total sleep time still looks normal.
+            We&apos;ll try and find any correlation between these metrics and the quality of sleep you get that night.
           </Text>
         </View>
         {metrics.length === 0 && permissionBlocked ? (
@@ -187,8 +189,7 @@ export default function OnboardingWearableMetricsScreen({ navigation }) {
         <Text style={styles.footerNote}>You can always change these at a later date.</Text>
       </ScrollView>
       <View style={styles.footer}>
-        <TabBarBlurBackground intensity={35} tint="dark" style={styles.footerBlur} />
-        <Button title="Continue" onPress={onContinue} loading={saving} style={styles.btn} />
+        <Button title="Continue" onPress={onContinue} style={styles.btn} />
       </View>
     </SafeAreaView>
   );
@@ -303,17 +304,10 @@ const styles = StyleSheet.create({
     left: spacing.xl,
     right: spacing.xl,
     bottom: 0,
-    borderTopWidth: 1,
-    borderTopColor: colors.border + '66',
-    backgroundColor: '#0F172AEE',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
   btn: {
     alignSelf: 'stretch',
-  },
-  footerBlur: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
   },
 });

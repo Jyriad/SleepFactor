@@ -4,13 +4,12 @@ import { requestHabitsRefresh } from './habitsRefreshTrigger';
 const STARTER_DEFS = [
   { key: 'exercise', name: 'Exercise', type: 'binary' },
   { key: 'last_meal', name: 'Last meal time', type: 'time' },
-  { key: 'eyemask', name: 'Eyemask', type: 'binary' },
 ];
 
 /**
  * Creates selected starter habits for onboarding. Skips keys not in selection.
  * @param {string} userId
- * @param {{ exercise?: boolean, lastMeal?: boolean, eyemask?: boolean }} selected
+ * @param {{ exercise?: boolean, lastMeal?: boolean }} selected
  */
 export async function createStarterHabits(userId, selected) {
   if (!userId) return { success: false };
@@ -28,7 +27,6 @@ export async function createStarterHabits(userId, selected) {
     let include = true;
     if (def.key === 'exercise') include = selected.exercise !== false;
     else if (def.key === 'last_meal') include = selected.lastMeal !== false;
-    else if (def.key === 'eyemask') include = selected.eyemask !== false;
     if (!include) continue;
 
     rows.push({

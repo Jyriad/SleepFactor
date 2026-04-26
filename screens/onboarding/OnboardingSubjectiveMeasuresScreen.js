@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,8 @@ import {
   ScrollView,
   Modal,
   TouchableWithoutFeedback,
-  Animated,
-  Easing,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,45 +19,14 @@ import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
 import { ONBOARDING_TOTAL_STEPS } from '../../constants/onboardingProgress';
 
-const OPTION_TIRED = { id: 'tired', name: 'Refreshed feeling', sub: 'How rested you felt on waking' };
-const OPTION_DREAM = { id: 'dream', name: 'Dream strength', sub: 'How vivid or strong dreams felt' };
-
 export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
   const { user } = useAuth();
-  const [tiredness, setTiredness] = useState(true);
-  const [dream, setDream] = useState(true);
+  const [tiredness, setTiredness] = useState(false);
+  const [dream, setDream] = useState(false);
   const [customName, setCustomName] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customMeasures, setCustomMeasures] = useState([]);
   const [saving, setSaving] = useState(false);
-  const tiredScale = useRef(new Animated.Value(1)).current;
-  const dreamScale = useRef(new Animated.Value(1)).current;
-
-  const toggle = (key) => {
-    const scale = key === 'tired' ? tiredScale : dreamScale;
-    Animated.sequence([
-      Animated.timing(scale, {
-        toValue: 0.95,
-        duration: 90,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      Animated.timing(scale, {
-        toValue: 1.02,
-        duration: 120,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      Animated.timing(scale, {
-        toValue: 1,
-        duration: 100,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start();
-    if (key === 'tired') setTiredness((v) => !v);
-    else setDream((v) => !v);
-  };
 
   const proceed = async () => {
     if (!user?.id) return;
@@ -78,34 +47,27 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
     }
   };
 
-  const renderCard = (item, selected, scale) => (
-    <Animated.View key={item.id} style={{ flex: 1, transform: [{ scale }] }}>
-      <TouchableOpacity
-        style={[styles.optionCard, selected && styles.optionCardSelected]}
-        onPress={() => toggle(item.id)}
-        activeOpacity={0.7}
-      >
-        <Ionicons
-          name="sunny-outline"
-          size={36}
-          color={selected ? colors.primary : colors.textLight}
-        />
-        <Text style={[styles.optionName, selected && styles.optionNameSelected]}>{item.name}</Text>
-        <Text style={styles.optionSub}>{item.sub}</Text>
-        {selected ? (
-          <View style={styles.checkWrap}>
-            <Ionicons name="checkmark-circle" size={24} color={colors.success} />
-          </View>
-        ) : null}
-      </TouchableOpacity>
-    </Animated.View>
+  const renderAddIcon = (selected, onPress) => (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[styles.addIconBtn, selected && styles.addIconBtnSelected]}
+      accessibilityRole="button"
+      accessibilityLabel={selected ? 'Added measure' : 'Add measure'}
+    >
+      <Ionicons
+        name={selected ? 'checkmark-circle' : 'add-circle-outline'}
+        size={28}
+        color={selected ? colors.success : colors.primary}
+      />
+    </TouchableOpacity>
   );
 
   return (
     <OnboardingStepLayout
       step={10}
       totalSteps={ONBOARDING_TOTAL_STEPS}
-      title="Morning check-in"
+      title="Smartwatch data doesn't always best reflect your sleep quality"
+      contentPaddingBottom={72}
       onNext={proceed}
       onBack={() => navigation.goBack()}
       onSkip={proceed}
@@ -115,13 +77,32 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
     >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <Text style={styles.subtitle}>
-          Pick 1–2 quick ratings for a 5-second morning check-in to see how your feelings align with your watch
-          data.
+          You can also submit scores of how you feel each day. We&apos;ll check if over time there&apos;s any
+          correlation with these feelings and habits you did the day before which may have impacted your sleep.
         </Text>
-        <View style={styles.grid}>
-          {renderCard(OPTION_TIRED, tiredness, tiredScale)}
-          {renderCard(OPTION_DREAM, dream, dreamScale)}
+        <View style={[styles.row, tiredness && styles.rowSelected]}>
+          <View>
+            <Text style={styles.optionName}>Refreshed feeling</Text>
+            <Text style={styles.optionSub}>How rested you felt on waking</Text>
+          </View>
+          {renderAddIcon(tiredness, () => setTiredness((v) => !v))}
         </View>
+        <View style={[styles.row, dream && styles.rowSelected]}>
+          <View>
+            <Text style={styles.optionName}>Dream strength</Text>
+            <Text style={styles.optionSub}>How vivid or strong dreams felt</Text>
+          </View>
+          {renderAddIcon(dream, () => setDream((v) => !v))}
+        </View>
+        {customMeasures.map((label) => (
+          <View key={label} style={styles.row}>
+            <View>
+              <Text style={styles.optionName}>{label}</Text>
+              <Text style={styles.optionSub}>Custom measure</Text>
+            </View>
+            {renderAddIcon(true, () => setCustomMeasures((prev) => prev.filter((x) => x !== label)))}
+          </View>
+        ))}
         <TouchableOpacity
           style={styles.addCustomMeasureButton}
           onPress={() => {
@@ -134,19 +115,6 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
           <Text style={styles.addCustomMeasureText}>Add a custom measure</Text>
         </TouchableOpacity>
 
-        {customMeasures.length > 0 ? (
-          <View style={styles.customSection}>
-            <Text style={styles.customSectionTitle}>Custom measures</Text>
-            <View style={styles.grid}>
-              {customMeasures.map((label) => (
-                <View key={label} style={styles.customMeasureCard}>
-                  <Ionicons name="sparkles-outline" size={28} color={colors.primary} />
-                  <Text style={styles.customMeasureName}>{label}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
       </ScrollView>
 
       <Modal
@@ -156,7 +124,11 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
         onRequestClose={() => setShowCustomModal(false)}
       >
         <TouchableWithoutFeedback onPress={() => setShowCustomModal(false)}>
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+          >
             <TouchableWithoutFeedback>
               <View style={styles.modalContent}>
                 <View style={styles.dragHandle} />
@@ -196,7 +168,7 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
                 </View>
               </View>
             </TouchableWithoutFeedback>
-          </View>
+          </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
       </Modal>
     </OnboardingStepLayout>
@@ -205,50 +177,33 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   scroll: {
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   subtitle: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     marginBottom: spacing.lg,
   },
-  grid: {
+  row: {
     flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  optionCard: {
-    flex: 1,
-    padding: spacing.regular,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: colors.border,
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  optionCardSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary + '26',
+  rowSelected: {
+    backgroundColor: colors.success + '10',
   },
   optionName: {
-    fontSize: typography.sizes.medium,
-    fontWeight: typography.weights.bold,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-  optionNameSelected: {
-    color: colors.primary,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
   },
   optionSub: {
     fontSize: typography.sizes.xs,
-    color: colors.textLight,
+    color: colors.textSecondary,
     marginTop: spacing.xs,
-    textAlign: 'center',
-  },
-  checkWrap: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
   },
   addCustomMeasureButton: {
     marginTop: spacing.lg,
@@ -268,32 +223,15 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: typography.weights.semibold,
   },
-  customSection: {
-    marginTop: spacing.md,
-  },
-  customSectionTitle: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-  },
-  customMeasureCard: {
-    flex: 1,
-    minHeight: 120,
-    padding: spacing.regular,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: colors.primary + '33',
+  addIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  customMeasureName: {
-    fontSize: typography.sizes.medium,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-    marginTop: spacing.sm,
-    textAlign: 'center',
+  addIconBtnSelected: {
+    backgroundColor: colors.success + '1F',
   },
   input: {
     borderWidth: 1,

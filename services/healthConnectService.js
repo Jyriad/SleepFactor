@@ -8,7 +8,6 @@ import {
 } from 'react-native-health-connect';
 import { formatDateForDB } from '../utils/dateHelpers';
 import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
-import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 /**
  * Split HC stage timeline when a third-party source stitches multiple sleeps with a long gap.
@@ -370,16 +369,6 @@ class HealthConnectService {
 
       if (!rawData.stages || !Array.isArray(rawData.stages) || rawData.stages.length === 0) {
         const sleepDate = formatDateForDB(endDate);
-        sleepDebugLog('health_connect_session', {
-          platform: 'android',
-          sleepDate,
-          sessionSpanHours: Math.round((totalDurationMs / 3600000) * 10) / 10,
-          totalSleepMinutesReported: totalSleepMinutesWall,
-          startIso: rawData.startTime,
-          endIso: rawData.endTime,
-          suspicious: totalDurationMs / 3600000 > 14,
-          splitChunks: 0,
-        });
         return {
           date: sleepDate,
           total_sleep_minutes: totalSleepMinutesWall,
@@ -405,16 +394,6 @@ class HealthConnectService {
       if (chunks.length === 1) {
         const agg = aggregateHealthConnectStageList(chunks[0]);
         const sleepDate = formatDateForDB(endDate);
-        sleepDebugLog('health_connect_session', {
-          platform: 'android',
-          sleepDate,
-          sessionSpanHours: Math.round((totalDurationMs / 3600000) * 10) / 10,
-          totalSleepMinutesReported: totalSleepMinutesWall,
-          startIso: rawData.startTime,
-          endIso: rawData.endTime,
-          suspicious: totalDurationMs / 3600000 > 14,
-          splitChunks: 1,
-        });
         return {
           date: sleepDate,
           total_sleep_minutes: totalSleepMinutesWall,
@@ -438,17 +417,6 @@ class HealthConnectService {
         const chunkMs = chunkEnd.getTime() - chunkStart.getTime();
         const chunkWallMin = Math.round(chunkMs / (1000 * 60));
         const sleepDate = formatDateForDB(chunkEnd);
-        sleepDebugLog('health_connect_session', {
-          platform: 'android',
-          sleepDate,
-          sessionSpanHours: Math.round((chunkMs / 3600000) * 10) / 10,
-          totalSleepMinutesReported: chunkWallMin,
-          startIso: chunk[0].startTime,
-          endIso: chunk[chunk.length - 1].endTime,
-          suspicious: chunkMs / 3600000 > 14,
-          splitChunks: chunks.length,
-          chunkIndex,
-        });
         return {
           date: sleepDate,
           total_sleep_minutes: chunkWallMin,

@@ -7,7 +7,6 @@ import {
 } from '@kingstinct/react-native-healthkit';
 import { formatDateForDB } from '../utils/dateHelpers';
 import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
-import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 /**
  * Apple's HK* type strings for react-native-healthkit v12+ (identifiers are strings, not HKQuantityTypeIdentifier.* objects).
@@ -441,45 +440,6 @@ class HealthKitService {
 
       /** Local wake / row date: morning you got up (Health Connect uses the same idea). */
       const assignedWakeDate = sessionEnd ? formatDateForDB(sessionEnd) : formatDateForDB(sessionStart);
-
-      const stagesSorted =
-        sleepStages.length > 0
-          ? [...sleepStages].sort(
-              (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-            )
-          : [];
-      let maxGapBetweenStagesMinutes = 0;
-      for (let i = 1; i < stagesSorted.length; i++) {
-        const gapMs =
-          new Date(stagesSorted[i].startTime).getTime() -
-          new Date(stagesSorted[i - 1].endTime).getTime();
-        const gapMin = gapMs / (1000 * 60);
-        if (gapMin > maxGapBetweenStagesMinutes) maxGapBetweenStagesMinutes = gapMin;
-      }
-      const sessionSpanMs =
-        sessionStart && sessionEnd ? sessionEnd.getTime() - sessionStart.getTime() : 0;
-      const timelineSpanMs =
-        stagesSorted.length > 0
-          ? new Date(stagesSorted[stagesSorted.length - 1].endTime).getTime() -
-            new Date(stagesSorted[0].startTime).getTime()
-          : 0;
-
-      sleepDebugLog('healthkit_transform', {
-        platform: 'ios',
-        clusterIndex: meta.clusterIndex,
-        strategy: meta.strategy,
-        assignedWakeDate,
-        localWakeDateFromSessionEnd: sessionEnd ? formatDateForDB(sessionEnd) : null,
-        sampleCount: sorted.length,
-        classifiedStageCount: sleepStages.length,
-        sessionSpanHours: Math.round((sessionSpanMs / 3600000) * 10) / 10,
-        timelineFirstToLastClassifiedHours: Math.round((timelineSpanMs / 3600000) * 10) / 10,
-        maxGapBetweenStagesMinutes: Math.round(maxGapBetweenStagesMinutes),
-        suspicious:
-          maxGapBetweenStagesMinutes >= 120 ||
-          sessionSpanMs / 3600000 > 14 ||
-          timelineSpanMs / 3600000 > 14,
-      });
 
       return {
         date: assignedWakeDate,

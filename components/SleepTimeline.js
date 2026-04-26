@@ -4,30 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
-import { sleepDebugLog } from '../utils/sleepDebugLog';
 
 const SLEEP_BAR_RADIUS = 8;
-
-function logTimelineDebug(sleepDataRow, td) {
-  if (!td || !sleepDataRow?.date) return;
-  let spanH = 0;
-  if (td.multipleSessions && td.sessions?.length) {
-    const t0 = Math.min(...td.sessions.map(s => s.sleepStart.getTime()));
-    const t1 = Math.max(...td.sessions.map(s => s.sleepEnd.getTime()));
-    spanH = (t1 - t0) / 3600000;
-  } else if (td.sleepStart && td.sleepEnd) {
-    spanH = (td.sleepEnd.getTime() - td.sleepStart.getTime()) / 3600000;
-  }
-  const rounded = Math.round(spanH * 10) / 10;
-  if (rounded > 10 || td.multipleSessions) {
-    sleepDebugLog('timeline_ui', {
-      date: sleepDataRow.date,
-      spanHours: rounded,
-      multipleSessions: !!td.multipleSessions,
-      sessionCount: td.sessions?.length ?? 1,
-    });
-  }
-}
 
 const SleepTimeline = ({ sleepData, compact = false }) => {
   const { formatTime } = useUserPreferences();
@@ -84,7 +62,6 @@ const SleepTimeline = ({ sleepData, compact = false }) => {
         sessions: sessionResults,
         totalDurationMinutes: sleepData.total_sleep_minutes || totalAll,
       };
-      logTimelineDebug(sleepData, multi);
       return multi;
     }
     if (sleepData.sleep_stages && Array.isArray(sleepData.sleep_stages) && sleepData.sleep_stages.length > 0) {
@@ -129,7 +106,6 @@ const SleepTimeline = ({ sleepData, compact = false }) => {
         sleepEnd,
         totalDurationMinutes,
       };
-      logTimelineDebug(sleepData, fromStages);
       return fromStages;
     } else {
       // Fall back to aggregated data (for HealthKit or manual entries)
@@ -216,7 +192,6 @@ const SleepTimeline = ({ sleepData, compact = false }) => {
         sleepEnd,
         totalDurationMinutes: totalTime,
       };
-      logTimelineDebug(sleepData, aggregated);
       return aggregated;
     }
   }, [sleepData]);

@@ -280,3 +280,21 @@ alwaysApply: false
 - **Android Developer Identity (ADI) / package registration:** Google may require proving signing-key ownership: **`assets/adi-registration.properties`** containing their account snippet, inside an APK signed with the key matching the registered fingerprint. This repo uses **`plugins/withAndroidAdiRegistration.js`** (runs only when **`APP_VARIANT`** is **`production`**). Provide **`ADI_REGISTRATION_SNIPPET`** as an **EAS project env var** for cloud builds, or a gitignored **`.adi-registration.properties`** at the repo root for local prebuild. Remove the env/file after verification if you do not want the file in routine production artifacts.
 - **AAB vs APK in CI:** **`eas.json`** **`production`** keeps **`android.buildType: apk`** for sideload-style testing; **`production-play`** uses **`app-bundle`** for Play. GitHub Action **Android Play Bundle (AAB)** runs **`eas build --platform android --profile production-play`**. Automated **`eas submit`** to Play was deferred; upload **`.aab`** manually in **Play Console → Testing** until submit is wired like iOS.
 - **Testing tracks:** **Internal testing** is the usual first step (small tester list, Play Store install flow analogous to TestFlight). Roll out the new **AAB** after Play finishes processing.
+
+---
+
+## Onboarding wearable sync + insight consistency (April 2026)
+
+**What we learned**
+
+- **Do heavy sync work once, not per metric:** In onboarding wearable setup, running sleep sync inside a per-metric loop causes unnecessary repeated work and delays. Better pattern: enable/sync each selected metric first, then run one full sleep sync once at the end.
+- **Never silently swallow onboarding sync failures:** If background sync errors are ignored, UI can claim setup succeeded while data is incomplete. Return a structured sync result (enabled count, metric-level failures, sleep-sync status) so downstream screens can make accurate decisions.
+- **Start sync earlier in onboarding:** Kicking off sleep sync as soon as connection success is confirmed gives insight generation more lead time before the “insight found” step, reducing race-condition misses.
+- **Use a shared onboarding sync coordinator:** A central job state (running/success/failed + result) lets later onboarding steps briefly wait for completion instead of guessing timing with arbitrary delays.
+- **Permission checks must cover all relevant record types:** Using only `Steps` as a proxy for wearable permission can produce false “permission blocked” states. Check across all supported metric record types and treat permission as available when any relevant type is granted.
+- **“Insight found” must use the same criteria as Insights UI:** Onboarding/tutorial should only announce an insight when it meets the same significance/visibility bar as the Insights screen. If checks differ, users can be told an insight exists and then land on an empty state.
+- **Pass preferred analysis mode when deep-linking to Insights:** If the discovered insight is in Sleep mix (%) rather than Minutes (or vice versa), route into Insights with the matching mode so the promised insight is visible immediately.
+
+**UX/content reliability note**
+
+- **For guaranteed line breaks in onboarding copy, split into separate text rows when needed:** Inline newline characters can render inconsistently in some layouts. Separate text elements are more reliable for preserving intended sentence breaks in onboarding copy blocks.

@@ -12,6 +12,7 @@ import {
   setTutorialCompleted,
   setTutorialSkipped,
 } from '../services/tutorialStorage';
+import insightsService from '../services/insightsService';
 
 /** @typedef {'idle' | 'home' | 'logging' | 'finishing'} TutorialPhase */
 
@@ -21,6 +22,8 @@ export function TutorialProvider({ children }) {
   const { user } = useAuth();
   const [storageStatus, setStorageStatus] = useState(null);
   const [phase, setPhase] = useState(/** @type {TutorialPhase} */ ('idle'));
+  const [hasPendingInsight, setHasPendingInsight] = useState(false);
+  const [pendingInsightAnalysisMode, setPendingInsightAnalysisMode] = useState('absolute');
   const [spotlightRect, setSpotlightRect] = useState(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [contractModalVisible, setContractModalVisible] = useState(false);
@@ -30,6 +33,7 @@ export function TutorialProvider({ children }) {
     if (!user?.id) {
       setStorageStatus(null);
       setPhase('idle');
+      setHasPendingInsight(false);
       setSpotlightRect(null);
       return;
     }
@@ -38,9 +42,22 @@ export function TutorialProvider({ children }) {
       if (cancelled) return;
       setStorageStatus(s);
       if (s === 'pending') {
+        try {
+          const top = await insightsService.getTopInsightsForHome(user.id, 1, { significantOnly: true });
+          if (cancelled) return;
+          const found = Array.isArray(top) && top.length > 0;
+          setHasPendingInsight(found);
+          setPendingInsightAnalysisMode(top?.[0]?.analysisType === 'percentage' ? 'percentage' : 'absolute');
+        } catch (_e) {
+          if (cancelled) return;
+          setHasPendingInsight(false);
+          setPendingInsightAnalysisMode('absolute');
+        }
         setPhase('home');
       } else {
         setPhase('idle');
+        setHasPendingInsight(false);
+        setPendingInsightAnalysisMode('absolute');
       }
       setSpotlightRect(null);
       setToastVisible(false);
@@ -105,6 +122,8 @@ export function TutorialProvider({ children }) {
     () => ({
       storageStatus,
       phase,
+      hasPendingInsight,
+      pendingInsightAnalysisMode,
       isHomeTutorialPhase,
       isLoggingTutorialPhase,
       spotlightRect,
@@ -122,6 +141,8 @@ export function TutorialProvider({ children }) {
     [
       storageStatus,
       phase,
+      hasPendingInsight,
+      pendingInsightAnalysisMode,
       isHomeTutorialPhase,
       isLoggingTutorialPhase,
       spotlightRect,

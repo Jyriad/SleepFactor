@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 import { ONBOARDING_GOAL_OPTIONS, setPendingOnboardingGoals } from '../../services/onboardingGoalStorage';
 
 export default function OnboardingGoalQuizScreen({ navigation }) {
@@ -26,7 +27,7 @@ export default function OnboardingGoalQuizScreen({ navigation }) {
   return (
     <OnboardingStepLayout
       step={2}
-      totalSteps={16}
+      totalSteps={ONBOARDING_STEP_TOTAL}
       title="What do you want to understand about your sleep?"
       onNext={onNext}
       onBack={() => navigation.goBack()}

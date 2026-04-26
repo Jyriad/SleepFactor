@@ -7,8 +7,10 @@ const DISPLAY_NAME = IS_DEV ? "Dev SleepFactor" : "SleepFactor";
 /** App icon assets by platform. */
 const APP_ICON_FULLYSAFE = "./assets/branding/app-icon/1024x1024/AppLogoFullySafe.png";
 const APP_ICON_FULLYSAFE_COTTON = "./assets/branding/app-icon/1024x1024/AppLogoFullySafeCotton.png";
-const IOS_APP_ICON = IS_DEV ? APP_ICON_FULLYSAFE_COTTON : APP_ICON_FULLYSAFE;
-const ANDROID_LAUNCHER_ICON = APP_ICON_FULLYSAFE;
+const APP_ICON_SQUARE_COTTON = "./assets/branding/app-icon/1024x1024/SquareLogoCotton.png";
+const APP_ICON_SQUARE_DARK = "./assets/branding/app-icon/1024x1024/SquareLogoDark.png";
+const IOS_APP_ICON = IS_DEV ? APP_ICON_SQUARE_COTTON : APP_ICON_SQUARE_DARK;
+const ANDROID_LAUNCHER_ICON = IS_DEV ? APP_ICON_FULLYSAFE_COTTON : APP_ICON_FULLYSAFE;
 
 /** iOS splash keeps the wordmark; Android 12+ draws splash inside a rounded square, so use the FullySafe mark there. */
 const SPLASH_WORDMARK = "./assets/branding/splash/primary-logo-white-background.png";
