@@ -23,9 +23,11 @@ export default function OnboardingIntroStatScreen({ navigation }) {
         <Text style={styles.body}>
           Different things impact us all differently. SleepFactor can help you understand what impacts your sleep.
         </Text>
-        <Text style={styles.bodyLine}>No more guessing what helps you.</Text>
-        <Text style={styles.bodyLine}>No more one-size-fits-all sleep tips.</Text>
-        <Text style={styles.body}>Just data-driven insights about your sleep factors.</Text>
+        <View style={styles.bulletList}>
+          <Text style={styles.bodyBullet}>• No more guessing what helps you.</Text>
+          <Text style={styles.bodyBullet}>• No more one-size-fits-all sleep tips.</Text>
+          <Text style={[styles.bodyBullet, styles.bodyBulletLast]}>• Just data-driven insights about your sleep factors.</Text>
+        </View>
       </ScrollView>
       <View style={styles.footer}>
         <Button title="Next" onPress={() => navigation.navigate('OnboardingGoalQuiz')} style={styles.btn} />
@@ -66,15 +68,22 @@ const styles = StyleSheet.create({
     lineHeight: typography.lineHeights.body,
     marginBottom: spacing.sm,
   },
-  bodyLine: {
+  bulletList: {
+    marginTop: spacing.sm,
+  },
+  bodyBullet: {
     fontSize: typography.sizes.body,
-    color: colors.textSecondary,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
     lineHeight: typography.lineHeights.body,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  bodyBulletLast: {
+    marginBottom: 0,
   },
   footer: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   btn: {
     alignSelf: 'stretch',

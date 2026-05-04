@@ -1,5 +1,13 @@
 import { supabase } from './supabase';
 
+function scheduleInsightsPersistenceInvalidate() {
+  import('./insightsService')
+    .then((mod) => {
+      mod.default.notifyInsightsUnderlyingDataChanged();
+    })
+    .catch(() => {});
+}
+
 function clampScore(value) {
   const n = Number(value);
   if (Number.isNaN(n)) return null;
@@ -183,6 +191,9 @@ class SleepDataService {
     const touchesBuiltIns = hasTirednessKey || hasDreamKey;
     if (!touchesBuiltIns) {
       this._clearRangeCache();
+      if (customByMeasureId && Object.keys(customByMeasureId).length > 0) {
+        scheduleInsightsPersistenceInvalidate();
+      }
       return null;
     }
 
@@ -209,6 +220,7 @@ class SleepDataService {
         .single();
       if (error) throw error;
       this._clearRangeCache();
+      scheduleInsightsPersistenceInvalidate();
       return data;
     }
 
@@ -240,6 +252,7 @@ class SleepDataService {
       .single();
     if (error) throw error;
     this._clearRangeCache();
+    scheduleInsightsPersistenceInvalidate();
     return data;
   }
 

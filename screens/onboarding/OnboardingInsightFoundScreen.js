@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
@@ -12,15 +12,20 @@ import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import insightsService from '../../services/insightsService';
 import BinaryHabitInsight from '../../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../../components/NumericalHabitInsight';
+import InsightSignalStrengthBars from '../../components/InsightSignalStrengthBars';
+import InsightCorrelationPill from '../../components/InsightCorrelationPill';
 import { waitForOnboardingWearableSync } from '../../services/onboardingWearableSyncCoordinator';
 import {
-  getCorrelationLabelShort,
-  getImpactLabelShort,
-  getCorrelationTagStyle,
+  getImpactSignalBarColors,
+  getImpactStrengthBarCount,
   getImpactTagStyle,
+  getInsightImpactAccessibilityLabel,
 } from '../../utils/insightLabels';
 
 const { width: screenWidth } = Dimensions.get('window');
+
+/** How many strongest insights to show on this onboarding step (ranked server-side). */
+const ONBOARDING_TOP_INSIGHTS_LIMIT = 3;
 
 function insightSummary(insight) {
   if (!insight) return '';
@@ -30,11 +35,17 @@ function insightSummary(insight) {
   return `${habit} is linked with ${dir} ${metric}.`;
 }
 
+function insightRowKey(insight, index) {
+  const hid = insight.habitId ?? insight.habit?.id ?? 'h';
+  return `${hid}-${insight.metricKey ?? 'm'}-${insight.analysisType ?? 'a'}-${index}`;
+}
+
 export default function OnboardingInsightFoundScreen({ navigation }) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [topInsight, setTopInsight] = useState(null);
-  const [expanded, setExpanded] = useState(false);
+  const [topInsights, setTopInsights] = useState([]);
+  /** Single expanded row key (accordion) to keep the step scannable when showing several insights. */
+  const [expandedKey, setExpandedKey] = useState(null);
 
   const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingInsightFound');
 
@@ -49,23 +60,23 @@ export default function OnboardingInsightFoundScreen({ navigation }) {
         await waitForOnboardingWearableSync(user.id, 8000);
         // Sync from the previous step may still be finishing, so retry briefly
         // with cache invalidation before deciding "no insight yet".
-        let found = null;
+        let found = [];
         for (let attempt = 0; attempt < 3; attempt++) {
           if (attempt > 0) {
             await new Promise((resolve) => setTimeout(resolve, 1200));
             insightsService.invalidateTaggedInsightsCache?.();
           }
-          const list = await insightsService.getTopInsightsForHome(user.id, 1, {
+          const list = await insightsService.getTopInsightsForHome(user.id, ONBOARDING_TOP_INSIGHTS_LIMIT, {
             significantOnly: true,
           });
           if (Array.isArray(list) && list.length > 0) {
-            found = list[0];
+            found = list;
             break;
           }
         }
-        if (!cancelled) setTopInsight(found);
+        if (!cancelled) setTopInsights(found);
       } catch (_e) {
-        if (!cancelled) setTopInsight(null);
+        if (!cancelled) setTopInsights([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -75,28 +86,19 @@ export default function OnboardingInsightFoundScreen({ navigation }) {
     };
   }, [user?.id]);
 
-  const title = useMemo(
-    () => {
-      if (loading) {
-        return "We're syncing your data to find any existing insights about your sleep";
-      }
-      return topInsight
-        ? "We've found an insight about what's impacting your sleep"
-        : "No insights yet, let's get tracking!";
-    },
-    [loading, topInsight]
-  );
+  const title = useMemo(() => {
+    if (loading) {
+      return "We're checking your wearable data for insights…";
+    }
+    if (topInsights.length === 1) {
+      return "We've already found an insight from your wearable data";
+    }
+    if (topInsights.length > 1) {
+      return "We've already found some insights from your wearable data";
+    }
+    return "No insights yet, let's get tracking!";
+  }, [loading, topInsights.length]);
 
-  const correlationLabel = getCorrelationLabelShort(topInsight?.confidenceLevel || 'none');
-  const impactLabel = getImpactLabelShort(
-    topInsight?.impactLevel || 'minimal',
-    topInsight?.direction === 'positive'
-  );
-  const correlationStyle = getCorrelationTagStyle(topInsight?.confidenceLevel || 'none');
-  const impactStyle = getImpactTagStyle(
-    topInsight?.impactLevel || 'minimal',
-    topInsight?.direction === 'positive'
-  );
   // Match embedded insight card width behavior from Insights screen.
   const embeddedWidth = Math.max(240, screenWidth - spacing.xl * 2 - spacing.sm * 2);
 
@@ -116,70 +118,91 @@ export default function OnboardingInsightFoundScreen({ navigation }) {
 
         {loading ? (
           <ActivityIndicator size="small" color={colors.primary} style={styles.loading} />
-        ) : topInsight ? (
+        ) : topInsights.length > 0 ? (
           <View style={styles.insightContainer}>
             <Text style={styles.cardLabel}>Detected from your synced data</Text>
             <View style={styles.tableHeader}>
               <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>Sleep metric</Text>
-              <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Link</Text>
+              <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Correlation</Text>
               <Text style={[styles.tableHeaderText, styles.tableHeaderTag]}>Impact</Text>
             </View>
-            <View style={styles.tableCard}>
-              <TouchableOpacity
-                style={styles.tableRowWrap}
-                activeOpacity={0.75}
-                onPress={() => setExpanded((v) => !v)}
-              >
-                <View style={styles.tableRowColumns}>
-                  <Text style={styles.tableCellMetric} numberOfLines={2}>
-                    {topInsight.metricLabel || 'Sleep metric'}
-                  </Text>
-                  <View style={[styles.tagBase, { backgroundColor: correlationStyle.backgroundColor }]}>
-                    <Text style={[styles.tagTextSmall, { color: correlationStyle.color }]} numberOfLines={1}>
-                      {correlationLabel}
-                    </Text>
-                  </View>
-                  <View style={[styles.tagBase, { backgroundColor: impactStyle.backgroundColor }]}>
-                    <Text style={[styles.tagTextSmall, { color: impactStyle.color }]} numberOfLines={1}>
-                      {impactLabel}
-                    </Text>
-                  </View>
+            {topInsights.map((topInsight, index) => {
+              const rowKey = insightRowKey(topInsight, index);
+              const isExpanded = expandedKey === rowKey;
+              const cl = topInsight?.confidenceLevel || 'none';
+              const il = topInsight?.impactLevel || 'minimal';
+              const dirPos = topInsight?.direction === 'positive';
+              const impactStyle = getImpactTagStyle(il, dirPos);
+              const impactBarColors = getImpactSignalBarColors(il, dirPos);
+              const impactBarFilled = getImpactStrengthBarCount(il);
+              return (
+                <View
+                  key={rowKey}
+                  style={[styles.tableCard, index > 0 ? styles.insightCardSpacer : null]}
+                >
+                  <TouchableOpacity
+                    style={styles.tableRowWrap}
+                    activeOpacity={0.75}
+                    onPress={() => setExpandedKey((k) => (k === rowKey ? null : rowKey))}
+                  >
+                    <View style={styles.tableRowColumns}>
+                      <Text style={styles.tableCellMetric} numberOfLines={2}>
+                        {topInsight.metricLabel || 'Sleep metric'}
+                      </Text>
+                      <InsightCorrelationPill confidenceLevel={cl} compact style={styles.tagBase} />
+                      <View style={[styles.tagBase, { backgroundColor: impactStyle.backgroundColor }]}>
+                        <InsightSignalStrengthBars
+                          filledCount={impactBarFilled}
+                          filledColor={impactBarColors.filled}
+                          emptyColor={impactBarColors.empty}
+                          accessibilityLabel={getInsightImpactAccessibilityLabel(il, dirPos)}
+                          compact
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.rowChevronPinned} pointerEvents="none">
+                      <Ionicons
+                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color={colors.textSecondary}
+                      />
+                    </View>
+                    <Text style={styles.cardMeta}>{insightSummary(topInsight)}</Text>
+                  </TouchableOpacity>
+                  {isExpanded ? (
+                    <View style={styles.expandedWrap}>
+                      {topInsight.type === 'binary' ? (
+                        <BinaryHabitInsight
+                          insight={topInsight}
+                          sleepMetric={{
+                            key: topInsight.metricKey,
+                            label: topInsight.metricLabel || 'Sleep metric',
+                          }}
+                          width={embeddedWidth}
+                          isPercentageMode={false}
+                          allowExpandNoSignificance
+                          isExpanded={true}
+                          embedded
+                        />
+                      ) : (
+                        <NumericalHabitInsight
+                          insight={topInsight}
+                          sleepMetric={{
+                            key: topInsight.metricKey,
+                            label: topInsight.metricLabel || 'Sleep metric',
+                          }}
+                          width={embeddedWidth}
+                          isPercentageMode={false}
+                          allowExpandNoSignificance
+                          isExpanded={true}
+                          embedded
+                        />
+                      )}
+                    </View>
+                  ) : null}
                 </View>
-                <View style={styles.rowChevronPinned} pointerEvents="none">
-                  <Ionicons
-                    name={expanded ? 'chevron-up' : 'chevron-down'}
-                    size={20}
-                    color={colors.textSecondary}
-                  />
-                </View>
-                <Text style={styles.cardMeta}>{insightSummary(topInsight)}</Text>
-              </TouchableOpacity>
-              {expanded ? (
-                <View style={styles.expandedWrap}>
-                  {topInsight.type === 'binary' ? (
-                    <BinaryHabitInsight
-                      insight={topInsight}
-                      sleepMetric={{ key: topInsight.metricKey, label: topInsight.metricLabel || 'Sleep metric' }}
-                      width={embeddedWidth}
-                      isPercentageMode={false}
-                      allowExpandNoSignificance
-                      isExpanded={true}
-                      embedded
-                    />
-                  ) : (
-                    <NumericalHabitInsight
-                      insight={topInsight}
-                      sleepMetric={{ key: topInsight.metricKey, label: topInsight.metricLabel || 'Sleep metric' }}
-                      width={embeddedWidth}
-                      isPercentageMode={false}
-                      allowExpandNoSignificance
-                      isExpanded={true}
-                      embedded
-                    />
-                  )}
-                </View>
-              ) : null}
-            </View>
+              );
+            })}
           </View>
         ) : (
           <Text style={styles.body}>
@@ -205,7 +228,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 120 + spacing.onboardingFooterExtraBottom,
   },
   headerRow: {
     flexDirection: 'row',
@@ -294,6 +317,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     overflow: 'hidden',
   },
+  insightCardSpacer: {
+    marginTop: spacing.sm,
+  },
   tableRowWrap: {
     padding: spacing.sm,
     borderLeftWidth: 4,
@@ -315,15 +341,11 @@ const styles = StyleSheet.create({
   },
   tagBase: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: 4,
     paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tagTextSmall: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.semibold,
   },
   rowChevronPinned: {
     position: 'absolute',
@@ -342,7 +364,8 @@ const styles = StyleSheet.create({
     right: spacing.xl,
     bottom: 0,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   btn: {
     alignSelf: 'stretch',

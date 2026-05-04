@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import Button from '../../components/Button';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   scroll: {
-    paddingBottom: 120,
+    paddingBottom: 120 + spacing.onboardingFooterExtraBottom,
   },
   headerRow: {
     flexDirection: 'row',
@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
@@ -186,7 +186,8 @@ const styles = StyleSheet.create({
     right: spacing.xl,
     bottom: 0,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   btn: {
     alignSelf: 'stretch',

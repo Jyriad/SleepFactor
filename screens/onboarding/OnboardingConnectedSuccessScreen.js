@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import SleepTimeline from '../../components/SleepTimeline';
 import sleepDataService from '../../services/sleepDataService';
-import sleepSyncService from '../../services/sleepSyncService';
 import { formatDateTitle, formatDateForDB } from '../../utils/dateHelpers';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
@@ -32,8 +31,7 @@ export default function OnboardingConnectedSuccessScreen({ navigation }) {
 
   useEffect(() => {
     let cancelled = false;
-    // Start a full sleep sync early so insights have more time to become available later.
-    void sleepSyncService.syncSleepData({ daysBack: 30, force: true, silent: true });
+    // Full 30‑day sleep + metrics backfill is started from Health Lab (quick path) or completed there before navigation (full path).
     (async () => {
       try {
         const end = formatDateForDB(new Date());
@@ -103,7 +101,7 @@ export default function OnboardingConnectedSuccessScreen({ navigation }) {
         <Text style={styles.statLine}>• Deep sleep: {formatDur(avgDeep)}</Text>
       </ScrollView>
       <View style={styles.footer}>
-        <Button title="Continue" onPress={() => navigation.navigate('OnboardingHabitTypes')} style={styles.btn} />
+        <Button title="Continue" onPress={() => navigation.navigate('OnboardingStarterHabits')} style={styles.btn} />
       </View>
     </SafeAreaView>
   );
@@ -154,7 +152,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   btn: {
     alignSelf: 'stretch',

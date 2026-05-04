@@ -2,7 +2,7 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography } from '../constants';
+import { typography, BUTTON_BORDER_RADIUS } from '../constants';
 
 /**
  * Tracking state control: "Tracking" + pause when active, play + "Paused" when not.
@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingVertical: 3,
     paddingHorizontal: 6,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     minHeight: 26,
     justifyContent: 'center',

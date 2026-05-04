@@ -85,31 +85,23 @@ const WelcomeScreen = ({ navigation }) => {
           title="Wearable data"
           subtitle="Automatically sync sleep data from your wearable"
         >
-          <Ionicons name="logo-apple" size={24} color={colors.textPrimary} />
-          <Ionicons name="logo-google" size={24} color={colors.textPrimary} />
           <Ionicons name="watch-outline" size={24} color={colors.primary} />
         </EquationBox>
 
-        <View style={styles.connector} />
         <View style={styles.opWrap}>
           <Text style={styles.op}>+</Text>
         </View>
-        <View style={styles.connector} />
 
         <EquationBox
-          title="Your habits + morning check-ins"
+          title="Your habits + check-ins"
           subtitle="Log your habits and a quick check-in to connect how you feel with your watch data"
         >
           <Ionicons name="list-outline" size={26} color={colors.primary} />
-          <Ionicons name="sunny-outline" size={24} color={colors.primary} />
-          <Ionicons name="happy-outline" size={24} color={colors.textPrimary} />
         </EquationBox>
 
-        <View style={styles.connector} />
         <View style={styles.opWrap}>
           <Text style={styles.op}>=</Text>
         </View>
-        <View style={styles.connector} />
 
         <EquationBox
           title="Deeper insights"
@@ -187,40 +179,22 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   op: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: typography.weights.bold,
     color: colors.primary,
     textAlign: 'center',
   },
   opWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.primary + '44',
-    backgroundColor: colors.primary + '12',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 1,
-    marginVertical: 4,
-  },
-  connector: {
-    width: 1,
-    height: 7,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    borderColor: colors.primary + '33',
-    borderRadius: 1,
+    paddingVertical: spacing.xs,
   },
   footer: {
     alignSelf: 'stretch',
     marginTop: spacing.lg,
     maxWidth: 360,
     width: '100%',
+    paddingBottom: spacing.onboardingFooterExtraBottom,
   },
   primaryButton: {
     alignSelf: 'stretch',

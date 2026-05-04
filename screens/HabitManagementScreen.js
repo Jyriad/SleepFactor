@@ -27,7 +27,7 @@ import insightsService from '../services/insightsService';
 import sleepSyncService from '../services/sleepSyncService';
 import exerciseTimeBeforeBedService from '../services/exerciseTimeBeforeBedService';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import PageLoadingView from '../components/PageLoadingView';
@@ -1361,7 +1361,7 @@ const styles = StyleSheet.create({
   editButton: {
     padding: spacing.sm,
     backgroundColor: colors.primary + '10',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     marginRight: spacing.sm,
   },
   habitHeaderCompact: {

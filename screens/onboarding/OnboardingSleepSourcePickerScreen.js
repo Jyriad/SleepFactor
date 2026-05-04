@@ -175,7 +175,8 @@ const styles = StyleSheet.create({
   },
   skip: {
     marginTop: 'auto',
-    paddingVertical: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg + spacing.onboardingFooterExtraBottom,
     alignItems: 'center',
   },
   skipText: {

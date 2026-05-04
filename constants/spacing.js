@@ -14,5 +14,7 @@ export const spacing = {
   cardMargin: 12,
   screenPadding: 16,
   sectionSpacing: 24,
+  /** Bottom inset under primary onboarding actions (Next, Continue, etc.) */
+  onboardingFooterExtraBottom: 20,
 };
 

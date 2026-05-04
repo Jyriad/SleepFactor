@@ -12,7 +12,7 @@ export default function OnboardingNewBeginningScreen({ navigation }) {
       step={7}
       totalSteps={ONBOARDING_STEP_TOTAL}
       title="New beginning"
-      onNext={() => navigation.navigate('OnboardingHabitTypes')}
+      onNext={() => navigation.navigate('OnboardingStarterHabits')}
       onBack={() => navigation.goBack()}
       nextLabel="Continue"
       showSkip={false}

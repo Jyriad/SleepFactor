@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import insightsService from './insightsService';
 
 function randomSlug() {
   const bytes = new Uint8Array(8);
@@ -34,7 +35,9 @@ export async function ensureBuiltinMeasures(userId) {
 
   const { data: urow } = await supabase
     .from('users')
-    .select('track_tiredness, track_dream_vividness')
+    .select(
+      'track_tiredness, track_dream_vividness, track_ease_sleep, subjective_remove_tiredness_measure, subjective_remove_dream_measure, subjective_remove_ease_sleep_measure'
+    )
     .eq('id', userId)
     .single();
 
@@ -57,9 +60,21 @@ export async function ensureBuiltinMeasures(userId) {
       sort_order: 1,
       enabled: urow?.track_dream_vividness === true,
     },
+    {
+      slug: 'ease_sleep',
+      label: 'Easily fell asleep',
+      hint: 'How easily did you fall asleep?',
+      left_label: 'Very difficult',
+      right_label: 'Very easily',
+      sort_order: 2,
+      enabled: urow?.track_ease_sleep === true,
+    },
   ];
 
   for (const b of builtins) {
+    if (b.slug === 'tiredness' && urow?.subjective_remove_tiredness_measure) continue;
+    if (b.slug === 'dream_vividness' && urow?.subjective_remove_dream_measure) continue;
+    if (b.slug === 'ease_sleep' && urow?.subjective_remove_ease_sleep_measure) continue;
     await supabase.from('user_subjective_measures').upsert(
       {
         user_id: userId,
@@ -102,6 +117,7 @@ export async function setMeasureEnabled(userId, measureId, enabled) {
     const updates = {};
     if (row.slug === 'tiredness') updates.track_tiredness = enabled;
     if (row.slug === 'dream_vividness') updates.track_dream_vividness = enabled;
+    if (row.slug === 'ease_sleep') updates.track_ease_sleep = enabled;
     if (Object.keys(updates).length > 0) {
       await supabase.from('users').update(updates).eq('id', userId);
     }
@@ -114,6 +130,7 @@ export async function setMeasureEnabled(userId, measureId, enabled) {
     }
   }
 
+  insightsService.notifyInsightsUnderlyingDataChanged();
   return { success: true };
 }
 
@@ -142,6 +159,7 @@ export async function addCustomMeasure(userId, { label, hint, leftLabel, rightLa
     .select('id')
     .single();
   if (error) return { success: false, error: error.message };
+  insightsService.notifyInsightsUnderlyingDataChanged();
   return { success: true, id: data?.id };
 }
 
@@ -157,13 +175,68 @@ export async function deleteCustomMeasure(userId, measureId) {
 
   const { error } = await supabase.from('user_subjective_measures').delete().eq('id', measureId).eq('user_id', userId);
   if (error) return { success: false, error: error.message };
+  insightsService.notifyInsightsUnderlyingDataChanged();
   return { success: true };
 }
 
 /**
- * True if any configured measure is enabled (for morning check-in scheduling).
+ * Remove a measure from the user’s list: custom rows, or built-in Refreshed feeling / Dream strength.
+ * Built-in removal sets flags so they are not re-seeded. Legacy list ids (e.g. legacy-tiredness) are handled.
  */
-/** Map measure_id -> score for a sleep date (custom measures only; built-ins use sleep_data). */
+export async function deleteSubjectiveMeasure(userId, measureId) {
+  if (!userId || measureId == null) return { success: false, error: 'Invalid' };
+  const mid = String(measureId);
+  if (mid === 'legacy-tiredness' || mid === 'legacy-dream' || mid === 'legacy-ease_sleep') {
+    const updates =
+      mid === 'legacy-tiredness'
+        ? { track_tiredness: false, subjective_remove_tiredness_measure: true }
+        : mid === 'legacy-dream'
+          ? { track_dream_vividness: false, subjective_remove_dream_measure: true }
+          : { track_ease_sleep: false, subjective_remove_ease_sleep_measure: true };
+    const { error } = await supabase.from('users').update(updates).eq('id', userId);
+    if (error) return { success: false, error: error.message };
+    insightsService.notifyInsightsUnderlyingDataChanged();
+    return { success: true };
+  }
+
+  const { data: row, error: fetchErr } = await supabase
+    .from('user_subjective_measures')
+    .select('id, slug, is_builtin')
+    .eq('user_id', userId)
+    .eq('id', measureId)
+    .maybeSingle();
+  if (fetchErr) return { success: false, error: fetchErr.message };
+  if (!row) return { success: false, error: 'Not found' };
+
+  if (!row.is_builtin) {
+    return deleteCustomMeasure(userId, measureId);
+  }
+  if (row.slug !== 'tiredness' && row.slug !== 'dream_vividness' && row.slug !== 'ease_sleep') {
+    return { success: false, error: 'Cannot remove this measure' };
+  }
+
+  const { error: delErr } = await supabase
+    .from('user_subjective_measures')
+    .delete()
+    .eq('id', row.id)
+    .eq('user_id', userId);
+  if (delErr) return { success: false, error: delErr.message };
+
+  const updates =
+    row.slug === 'tiredness'
+      ? { track_tiredness: false, subjective_remove_tiredness_measure: true }
+      : row.slug === 'dream_vividness'
+        ? { track_dream_vividness: false, subjective_remove_dream_measure: true }
+        : { track_ease_sleep: false, subjective_remove_ease_sleep_measure: true };
+  const { error: uErr } = await supabase.from('users').update(updates).eq('id', userId);
+  if (uErr) return { success: false, error: uErr.message };
+  insightsService.notifyInsightsUnderlyingDataChanged();
+  return { success: true };
+}
+
+/**
+ * Map measure_id -> score for a sleep date (custom measures only; built-ins use sleep_data).
+ */
 export async function getCustomScoresForDate(userId, dateStr) {
   if (!userId || !dateStr) return {};
   const { data, error } = await supabase
@@ -179,6 +252,9 @@ export async function getCustomScoresForDate(userId, dateStr) {
   return map;
 }
 
+/**
+ * True if any configured measure is enabled (for morning check-in scheduling).
+ */
 export async function hasAnySubjectiveMeasureEnabled(userId) {
   if (!userId) return false;
   const { count, error } = await supabase
@@ -196,6 +272,7 @@ export default {
   setMeasureEnabled,
   addCustomMeasure,
   deleteCustomMeasure,
+  deleteSubjectiveMeasure,
   getCustomScoresForDate,
   hasAnySubjectiveMeasureEnabled,
 };

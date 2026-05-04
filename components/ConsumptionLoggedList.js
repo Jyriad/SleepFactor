@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import insightsService from '../services/insightsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
@@ -88,11 +89,14 @@ async function updateBedtimeDrugLevel(userId, habitId, selectedDate) {
       bedtime_at: targetBedtime.toISOString(),
     };
 
-    await supabase
+    const { error: dlError } = await supabase
       .from('drug_levels')
       .upsert(drugLevelEntry, {
         onConflict: 'user_id,habit_id,date',
       });
+    if (!dlError) {
+      insightsService.notifyInsightsUnderlyingDataChanged();
+    }
   } catch (error) {
     // best-effort
   }

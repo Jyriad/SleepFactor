@@ -7,6 +7,7 @@ import HomeScreen from '../screens/HomeScreen';
 import HabitLoggingScreen from '../screens/HabitLoggingScreen';
 import LogConsumptionScreen from '../screens/LogConsumptionScreen';
 import SleepQualityLogScreen from '../screens/SleepQualityLogScreen';
+import SubjectiveMeasuresScreen from '../screens/SubjectiveMeasuresScreen';
 import { colors } from '../constants/colors';
 import { formatDateForDB } from '../utils/dateHelpers';
 
@@ -176,6 +177,11 @@ const HomeStackWrapper = ({ initialNavigate }) => {
               <Stack.Screen
                 name="SleepQualityLog"
                 component={SleepQualityLogScreen}
+                options={{ contentStyle: { backgroundColor: colors.background } }}
+              />
+              <Stack.Screen
+                name="SubjectiveMeasures"
+                component={SubjectiveMeasuresScreen}
                 options={{ contentStyle: { backgroundColor: colors.background } }}
               />
             </Stack.Navigator>

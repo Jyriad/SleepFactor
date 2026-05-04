@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { ML_PER_FL_OZ, calculateAlcoholMl, deriveAbvFromAlcoholMl } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { INTAKE_BASIS, resolveIntakeBasis, isLiquidServingUnit } from '../utils/consumptionIntake';
@@ -548,7 +548,7 @@ const styles = StyleSheet.create({
   textInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
@@ -576,7 +576,7 @@ const styles = StyleSheet.create({
   unitOption: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.background,
@@ -600,7 +600,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.regular,
     padding: spacing.regular,
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -626,7 +626,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.regular,
     padding: spacing.regular,
     backgroundColor: colors.warning + '10',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.warning + '30',
   },
@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
   actionButton: {
     paddingVertical: spacing.regular,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
     minWidth: 80,
   },

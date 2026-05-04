@@ -4,7 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, w
 import ScatterPlot from '../../components/ScatterChart';
 import { getCorrelationTagStyle } from '../../utils/insightLabels';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
 import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 
@@ -22,9 +22,9 @@ const SCATTERED_DATA = [
 ];
 
 const BADGES = [
-  { level: 'low', label: 'Low' },
+  { level: 'low', label: 'Weak' },
   { level: 'medium', label: 'Medium' },
-  { level: 'high', label: 'High' },
+  { level: 'high', label: 'Strong' },
 ];
 
 const OnboardingConfidenceScreen = ({ navigation }) => {
@@ -55,7 +55,7 @@ const OnboardingConfidenceScreen = ({ navigation }) => {
       onSkip={() => navigation.navigate('OnboardingNotification')}
     >
       <Text style={styles.body}>
-        Strong (high confidence) = tight clusters of data. Weak (low confidence) = scattered points — we need more days of logging to verify.
+        Strong correlation = tight clusters of data. Weak correlation = scattered points — we need more days of logging to verify.
       </Text>
       <View style={styles.badgesRow}>
         {BADGES.map(({ level, label }) => {
@@ -77,7 +77,7 @@ const OnboardingConfidenceScreen = ({ navigation }) => {
       </View>
       <View style={styles.chartsRow}>
         <View style={styles.chartBlock}>
-          <Text style={styles.chartLabel}>High confidence</Text>
+          <Text style={styles.chartLabel}>Strong correlation</Text>
           <ScatterPlot
             data={TIGHT_DATA}
             width={CHART_WIDTH * 0.9}
@@ -86,7 +86,7 @@ const OnboardingConfidenceScreen = ({ navigation }) => {
           />
         </View>
         <View style={styles.chartBlock}>
-          <Text style={styles.chartLabel}>Low confidence</Text>
+          <Text style={styles.chartLabel}>Weak correlation</Text>
           <ScatterPlot
             data={SCATTERED_DATA}
             width={CHART_WIDTH * 0.9}
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: spacing.regular,
     paddingVertical: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   badgeText: {
     fontSize: typography.sizes.small,

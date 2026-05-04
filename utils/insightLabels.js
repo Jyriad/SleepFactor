@@ -3,15 +3,23 @@
  * Used across Home, Insights screen, and insight cards so wording is consistent.
  */
 
-/** Correlation: how much we trust the result (from confidenceLevel) */
+/** Correlation: how much we trust the pattern (from confidenceLevel) */
 const CORRELATION_LABELS = {
   high: 'Strong correlation',
-  medium: 'Moderate correlation',
-  low: 'Limited correlation',
+  medium: 'Medium correlation',
+  low: 'Weak correlation',
   none: 'Not enough data',
 };
 
-/** Impact size only (for building direction-aware labels) — legacy wording; UI uses symbols via getImpactLabelShort */
+/** One-word strength for correlation pills (matches onboarding: Weak / Medium / Strong). */
+const CORRELATION_STRENGTH_SHORT = {
+  high: 'Strong',
+  medium: 'Medium',
+  low: 'Weak',
+  none: '—',
+};
+
+/** Impact size only (for building direction-aware labels); compact UI uses {@link getImpactStrengthBarCount} + signal bars. */
 const IMPACT_SIZE_LABELS = {
   large: 'Large',
   moderate: 'Moderate',
@@ -44,8 +52,14 @@ export function getCorrelationLabel(confidenceLevel) {
   return CORRELATION_LABELS[confidenceLevel] ?? CORRELATION_LABELS.none;
 }
 
+/** Weak / Medium / Strong (or — when insufficient data), for correlation pills and compact tables. */
+export function getCorrelationStrengthLabelShort(confidenceLevel) {
+  if (!confidenceLevel) return CORRELATION_STRENGTH_SHORT.none;
+  return CORRELATION_STRENGTH_SHORT[confidenceLevel] ?? CORRELATION_STRENGTH_SHORT.none;
+}
+
 /**
- * Impact badge text: same symbols as {@link getImpactLabelShort} (+ / ++ / +++ or - / -- / ---).
+ * Impact badge text (legacy +/- symbols). Prefer {@link getImpactStrengthBarCount} + signal bars in UI.
  * @param {string} impactLevel - large | moderate | small | minimal
  * @param {boolean} isPositive - true for positive impact on sleep
  * @returns {string}
@@ -54,23 +68,13 @@ export function getImpactLabel(impactLevel, isPositive = true) {
   return getImpactLabelShort(impactLevel, isPositive);
 }
 
-/** Link / confidence strength symbols (same pattern as impact: + / ++ / +++). */
-const CORRELATION_SYMBOLS = {
-  high: '+++',
-  medium: '++',
-  low: '+',
-  none: '—',
-};
-
 /**
- * Short link-strength label for compact UI (pills, table cells): + / ++ / +++ or — when insufficient data.
+ * Compact correlation label (legacy name). Same as {@link getCorrelationStrengthLabelShort}.
  * @param {string} confidenceLevel - high | medium | low | none
  * @returns {string}
  */
 export function getCorrelationLabelShort(confidenceLevel) {
-  if (!confidenceLevel) return CORRELATION_SYMBOLS.none;
-  const key = CORRELATION_SYMBOLS[confidenceLevel] ? confidenceLevel : 'none';
-  return CORRELATION_SYMBOLS[key];
+  return getCorrelationStrengthLabelShort(confidenceLevel);
 }
 
 /**
@@ -86,8 +90,55 @@ export function getImpactLabelShort(impactLevel, isPositive = true) {
   return table[key];
 }
 
+/** Filled bars (1–3) for impact badges: aligns with former + / ++ / +++ granularity. */
+export function getImpactStrengthBarCount(impactLevel) {
+  if (!impactLevel) impactLevel = 'minimal';
+  switch (impactLevel) {
+    case 'large':
+    case 'moderate':
+      return 3;
+    case 'small':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
 /**
- * Tag style for link / confidence strength: blue tiers (mirrors impact’s green/red tier brightness).
+ * Bar colors on impact tag backgrounds.
+ * @returns {{ filled: string, empty: string }}
+ */
+export function getImpactSignalBarColors(impactLevel, isPositive) {
+  const { color } = getImpactTagStyle(impactLevel, isPositive);
+  const lightOnDark = color === '#FFFFFF';
+  if (lightOnDark) {
+    return { filled: '#FFFFFF', empty: 'rgba(255,255,255,0.38)' };
+  }
+  if (isPositive) {
+    return { filled: color, empty: 'rgba(6, 78, 59, 0.24)' };
+  }
+  return { filled: color, empty: 'rgba(127, 29, 29, 0.24)' };
+}
+
+/** VoiceOver / TalkBack description for correlation strength badge */
+export function getInsightCorrelationAccessibilityLabel(confidenceLevel) {
+  return `${getCorrelationLabel(confidenceLevel)}. Correlation strength.`;
+}
+
+/** VoiceOver / TalkBack description for sleep impact badge */
+export function getInsightImpactAccessibilityLabel(impactLevel, isPositive) {
+  const strengthWord =
+    impactLevel === 'large' || impactLevel === 'moderate'
+      ? 'Strong'
+      : impactLevel === 'small'
+        ? 'Medium'
+        : 'Weak';
+  const direction = isPositive ? 'Helps your sleep' : 'Hurts your sleep';
+  return `${direction}. Effect strength: ${strengthWord}.`;
+}
+
+/**
+ * Tag style for correlation confidence: blue tiers (mirrors impact’s green/red tier brightness).
  * @param {string} confidenceLevel - high | medium | low | none
  * @returns {{ backgroundColor: string, color: string }}
  */

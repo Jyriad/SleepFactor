@@ -19,6 +19,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,6 +27,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTutorialOptional } from '../contexts/TutorialContext';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
+import offlineWriteQueueService from '../services/offlineWriteQueueService';
+import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import drugLevelService from '../services/drugLevelService';
@@ -44,7 +47,7 @@ import {
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
@@ -137,6 +140,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const route = routeProp ?? routeFromHook;
   const navigation = navigationProp ?? navigationFromHook;
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { user } = useAuth();
   const tutorial = useTutorialOptional();
   const tutorialToastSentRef = useRef(false);
@@ -172,6 +176,17 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const refreshConsumptionEventsRef = useRef(() => {});
   const flatListRef = useRef(null);
   const tabBarQuickActionHandledRef = useRef(null);
+  const [loggedSnackbarVisible, setLoggedSnackbarVisible] = useState(false);
+  const loggedSnackbarTimeoutRef = useRef(null);
+
+  useEffect(
+    () => () => {
+      if (loggedSnackbarTimeoutRef.current) {
+        clearTimeout(loggedSnackbarTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   // After add/edit/delete habit, refetch list so new habits (e.g. time) appear — same trigger as Habit Management.
   useFocusEffect(
@@ -354,7 +369,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       if (habitLogsForDateRef.current !== selectedStr) return;
       if (!userHasEditedDateRef.current) return;
       saveHabitLogsToStorage();
-      saveRegularHabitsToDatabase();
     }, 300);
 
     return () => clearTimeout(timeoutId);
@@ -362,9 +376,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
 
   const saveSingleHabitLog = async (habitId, value) => {
     if (!user) return;
+    const dateString = getDateString(selectedDateRef.current);
     try {
-      const dateString = getDateString(selectedDateRef.current);
-
       if (value !== '' && value !== null && value !== undefined) {
         const { error: logsError } = await supabase
           .from('habit_logs')
@@ -383,58 +396,32 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           );
 
         if (logsError) throw logsError;
+        insightsService.notifyInsightsUnderlyingDataChanged();
       } else {
-        await supabase
+        const { error: deleteError } = await supabase
           .from('habit_logs')
           .delete()
           .eq('user_id', user.id)
           .eq('habit_id', habitId)
           .eq('date', dateString);
+        if (deleteError) throw deleteError;
+        insightsService.notifyInsightsUnderlyingDataChanged();
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to save habit log. Please try again.');
-    }
-  };
-
-  const saveRegularHabitsToDatabase = async () => {
-    if (!user) return;
-
-    try {
-      const dateString = getDateString(selectedDate);
-      
-      const habitLogEntries = Object.entries(habitLogs)
-        .filter(([habitId, value]) => value !== '' && value !== null && value !== undefined)
-        .map(([habitId, value]) => ({
-          user_id: user.id,
-          habit_id: habitId,
-          date: dateString,
-          value: String(value),
-        }));
-
-      if (habitLogEntries.length > 0) {
-        const { error: logsError } = await supabase
-          .from('habit_logs')
-          .upsert(habitLogEntries, {
-            onConflict: 'user_id,habit_id,date',
-          });
-
-        if (logsError) throw logsError;
+      const isDelete = value === '' || value === null || value === undefined;
+      if (isDelete) {
+        await offlineWriteQueueService.enqueue(
+          offlineWriteQueueService.ACTION_TYPES.HABIT_LOG_DELETE,
+          { userId: user.id, habitId, date: dateString },
+          { dedupeKey: `habit:${user.id}:${habitId}:${dateString}` }
+        );
+      } else {
+        await offlineWriteQueueService.enqueue(
+          offlineWriteQueueService.ACTION_TYPES.HABIT_LOG_UPSERT,
+          { userId: user.id, habitId, date: dateString, value },
+          { dedupeKey: `habit:${user.id}:${habitId}:${dateString}` }
+        );
       }
-
-      // Remove habit_logs rows for habits the user cleared (un-logged)
-      const clearedHabitIds = Object.entries(habitLogs)
-        .filter(([, value]) => value === '' || value === null || value === undefined)
-        .map(([habitId]) => habitId);
-      if (clearedHabitIds.length > 0) {
-        await supabase
-          .from('habit_logs')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('date', dateString)
-          .in('habit_id', clearedHabitIds);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to save habit log. Please try again.');
     }
   };
 
@@ -583,6 +570,17 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     refreshConsumptionEventsRef.current?.();
   }, [user?.id]);
 
+  const showLoggedSnackbar = useCallback(() => {
+    if (loggedSnackbarTimeoutRef.current) {
+      clearTimeout(loggedSnackbarTimeoutRef.current);
+    }
+    setLoggedSnackbarVisible(true);
+    loggedSnackbarTimeoutRef.current = setTimeout(() => {
+      setLoggedSnackbarVisible(false);
+      loggedSnackbarTimeoutRef.current = null;
+    }, 2000);
+  }, []);
+
   const handleOpenLogConsumption = useCallback((params, habitId) => {
     navigation.navigate('LogConsumption', {
       ...params,
@@ -591,9 +589,10 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         drugLevelService.invalidateLevelNowCache(user?.id, habitId);
         setLevelRefreshKey((k) => k + 1);
         refreshConsumptionEventsRef.current?.();
+        showLoggedSnackbar();
       },
     });
-  }, [navigation, user?.id]);
+  }, [navigation, user?.id, showLoggedSnackbar]);
 
   // Main tab bar long-press: open habit logging scrolled to caffeine/alcohol with that section expanded
   useEffect(() => {
@@ -931,6 +930,25 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       />
       </>
       )}
+      {loggedSnackbarVisible && (
+        <View
+          style={[
+            styles.loggedSnackbarContainer,
+            { paddingBottom: tabBarHeight + spacing.sm + Math.min(insets.bottom, 12) },
+          ]}
+          pointerEvents="none"
+        >
+          <View style={styles.loggedSnackbar}>
+            <Ionicons
+              name="checkmark-circle"
+              size={20}
+              color={colors.white}
+              style={styles.loggedSnackbarIcon}
+            />
+            <Text style={styles.loggedSnackbarText}>Logged</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -939,6 +957,39 @@ const styles = StyleSheet.create({
   bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loggedSnackbarContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    zIndex: 2000,
+  },
+  loggedSnackbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(17, 41, 75, 0.95)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: BUTTON_BORDER_RADIUS,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  loggedSnackbarIcon: {
+    marginRight: spacing.xs,
+  },
+  loggedSnackbarText: {
+    ...typography.body,
+    color: colors.white,
+    fontWeight: typography.weights.semibold,
   },
   minimalHeaderOverlay: {
     position: 'absolute',
@@ -989,7 +1040,7 @@ const styles = StyleSheet.create({
   },
   habitRow: {
     backgroundColor: colors.cardBackground,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.sm,
     marginBottom: spacing.xs,
     borderWidth: 1,

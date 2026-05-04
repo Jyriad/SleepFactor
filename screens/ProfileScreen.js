@@ -33,13 +33,13 @@ const IS_DEV_BUILD =
 const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 
   ? `${BASE_VERSION} Dev` 
   : BASE_VERSION;
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { signOut } from '../services/auth';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
 import AuthProviderBadges from '../components/AuthProviderBadges';
@@ -48,9 +48,8 @@ import useHealthSync from '../hooks/useHealthSync';
 import sleepSyncService from '../services/sleepSyncService';
 import sleepDataService from '../services/sleepDataService';
 import habitReminderNotifications from '../services/habitReminderNotifications';
-import morningCheckinNotifications from '../services/morningCheckinNotifications';
-import subjectiveMeasuresService from '../services/subjectiveMeasuresService';
 import homeCacheService from '../services/homeCacheService';
+import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
@@ -115,15 +114,9 @@ const ProfileScreen = () => {
   const [showHabitReminderTimePicker, setShowHabitReminderTimePicker] = useState(false);
   const [reminderPickerHour, setReminderPickerHour] = useState(20);
   const [reminderPickerMinute, setReminderPickerMinute] = useState(0);
-  const [morningCheckinTime, setMorningCheckinTime] = useState(null);
-  const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
-  const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
-  const [morningCheckinPickerMinute, setMorningCheckinPickerMinute] = useState(0);
   const [sleepDataModalVisible, setSleepDataModalVisible] = useState(false);
-  const [subjectiveMeasures, setSubjectiveMeasures] = useState([]);
-  const [addMeasureModalVisible, setAddMeasureModalVisible] = useState(false);
-  const [newMeasureLabel, setNewMeasureLabel] = useState('');
-  const [measuresBusy, setMeasuresBusy] = useState(false);
+  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false);
+  const [marketingToggleSaving, setMarketingToggleSaving] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -140,80 +133,22 @@ const ProfileScreen = () => {
     habitReminderNotifications.getHabitReminderTime().then(setHabitReminderTime);
   }, []);
 
-  const loadSubjectiveMorningPrefs = useCallback(async () => {
-    if (!user?.id) return;
-
-    const applyMorningTimeFromUserRow = (data) => {
-      if (!data) return;
-      const t = data.morning_checkin_time;
-      if (t && typeof t === 'string') {
-        const [h, m] = t.split(':').map(Number);
-        setMorningCheckinTime(isNaN(h) ? null : `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`);
-      } else {
-        setMorningCheckinTime(null);
-      }
-    };
-
-    let list = [];
-    try {
-      await subjectiveMeasuresService.ensureBuiltinMeasures(user.id);
-      const fetched = await subjectiveMeasuresService.listSubjectiveMeasures(user.id);
-      list = Array.isArray(fetched) ? fetched : [];
-    } catch (_e) {
-      list = [];
-    }
-
-    const { data: userRow, error: userRowErr } = await supabase
-      .from('users')
-      .select('track_tiredness, track_dream_vividness, morning_checkin_time')
-      .eq('id', user.id)
-      .single();
-
-    if (!userRowErr && userRow) {
-      applyMorningTimeFromUserRow(userRow);
-    }
-
-    if (list.length === 0 && userRow && !userRowErr) {
-      list = [
-        {
-          id: 'legacy-tiredness',
-          slug: 'tiredness',
-          label: 'Refreshed feeling',
-          hint: null,
-          left_label: 'Not refreshed',
-          right_label: 'Very refreshed',
-          sort_order: 0,
-          enabled: userRow.track_tiredness === true,
-          is_builtin: true,
-          _legacy: true,
-        },
-        {
-          id: 'legacy-dream',
-          slug: 'dream_vividness',
-          label: 'Dream strength',
-          hint: null,
-          left_label: 'No memory',
-          right_label: 'Very strong',
-          sort_order: 1,
-          enabled: userRow.track_dream_vividness === true,
-          is_builtin: true,
-          _legacy: true,
-        },
-      ];
-    }
-
-    setSubjectiveMeasures(list);
-  }, [user?.id]);
-
   useEffect(() => {
-    loadSubjectiveMorningPrefs();
-  }, [loadSubjectiveMorningPrefs]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadSubjectiveMorningPrefs();
-    }, [loadSubjectiveMorningPrefs])
-  );
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('marketing_email_opt_in')
+        .eq('id', user.id)
+        .single();
+      if (cancelled || error) return;
+      setMarketingEmailOptIn(data?.marketing_email_opt_in === true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // Fetch Caffeine & Alcohol habits for half-life settings
   useEffect(() => {
@@ -288,6 +223,7 @@ const ProfileScreen = () => {
       }
       await clearConsumptionOptionsDiskCache();
       await homeCacheService.clearForUser(userId);
+      await insightsService.clearInsightsDiskCacheForUser(userId);
     } catch (error) {
     }
   };
@@ -405,6 +341,31 @@ const ProfileScreen = () => {
       }
     } catch (error) {
       Alert.alert('Sync Error', 'An unexpected error occurred during sync');
+    }
+  };
+
+  const handleToggleMarketingEmails = async () => {
+    if (!user?.id || marketingToggleSaving) return;
+    const nextValue = !marketingEmailOptIn;
+    setMarketingEmailOptIn(nextValue);
+    setMarketingToggleSaving(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from('users')
+        .update({
+          marketing_email_opt_in: nextValue,
+          marketing_consent_source: 'app_profile',
+          marketing_consent_updated_at: nowIso,
+          marketing_unsubscribed_at: nextValue ? null : nowIso,
+        })
+        .eq('id', user.id);
+      if (error) throw error;
+    } catch (error) {
+      setMarketingEmailOptIn(!nextValue);
+      Alert.alert('Could not update email preference', 'Please try again.');
+    } finally {
+      setMarketingToggleSaving(false);
     }
   };
 
@@ -763,188 +724,46 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               )}
             </View>
-            <Text style={styles.sectionSubTitle}>Morning check-in</Text>
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
-              <Text style={styles.morningCheckinIntro}>
-                {subjectiveMeasures.some((x) => x._legacy)
-                  ? 'Turn on the measures you want in your morning check-in. We can connect your habits to both sleep data and how rested you feel. Custom measures will appear here once your account is fully updated.'
-                  : 'Track how you felt each morning, not just sleep numbers. SleepFactor can analyze how your habits affect both objective sleep metrics and your subjective feelings.'}
-              </Text>
-              {subjectiveMeasures.map((m, idx) => (
-                <View
-                  key={m.id}
-                  style={[styles.toggleRow, idx > 0 && styles.toggleRowSpaced]}
-                >
-                  <View style={[styles.toggleLabelContainer, !m.is_builtin && styles.toggleLabelWithDelete]}>
-                    <Text style={styles.label}>{m.label}</Text>
-                    {!m.is_builtin && !m._legacy && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          Alert.alert(
-                            'Remove measure',
-                            `Remove "${m.label}"? Past scores for this measure will be deleted.`,
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Remove',
-                                style: 'destructive',
-                                onPress: async () => {
-                                  const res = await subjectiveMeasuresService.deleteCustomMeasure(user.id, m.id);
-                                  if (!res.success) {
-                                    Alert.alert('Error', res.error || 'Could not remove.');
-                                    return;
-                                  }
-                                  await loadSubjectiveMorningPrefs();
-                                  await morningCheckinNotifications.rescheduleIfEnabled();
-                                },
-                              },
-                            ]
-                          );
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={colors.error} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.toggleSwitch, m.enabled && styles.toggleSwitchOn]}
-                    onPress={async () => {
-                      if (!user?.id || measuresBusy) return;
-                      const next = !m.enabled;
-                      setMeasuresBusy(true);
-                      try {
-                        if (m._legacy) {
-                          const updates = {};
-                          if (m.slug === 'tiredness') updates.track_tiredness = next;
-                          if (m.slug === 'dream_vividness') updates.track_dream_vividness = next;
-                          if (next) {
-                            const { data: u } = await supabase
-                              .from('users')
-                              .select('morning_checkin_time')
-                              .eq('id', user.id)
-                              .maybeSingle();
-                            if (
-                              u &&
-                              (u.morning_checkin_time == null || String(u.morning_checkin_time).trim() === '')
-                            ) {
-                              updates.morning_checkin_time = '08:00:00';
-                            }
-                          }
-                          const { error: upErr } = await supabase.from('users').update(updates).eq('id', user.id);
-                          if (upErr) {
-                            Alert.alert('Error', 'Could not update. Try again.');
-                            return;
-                          }
-                        } else {
-                          const res = await subjectiveMeasuresService.setMeasureEnabled(user.id, m.id, next);
-                          if (!res.success) {
-                            Alert.alert('Error', 'Could not update. Try again.');
-                            return;
-                          }
-                        }
-                        await loadSubjectiveMorningPrefs();
-                        await morningCheckinNotifications.rescheduleIfEnabled();
-                      } finally {
-                        setMeasuresBusy(false);
-                      }
-                    }}
-                    disabled={measuresBusy}
-                  >
-                    <View style={[styles.toggleKnob, m.enabled && styles.toggleKnobOn]} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {!subjectiveMeasures.some((x) => x._legacy) && (
-                <TouchableOpacity
-                  style={styles.addCustomMeasureButton}
-                  onPress={() => {
-                    setNewMeasureLabel('');
-                    setAddMeasureModalVisible(true);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
-                  <Text style={styles.addCustomMeasureText}>Add a custom measure</Text>
-                </TouchableOpacity>
-              )}
-              {subjectiveMeasures.some((x) => x.enabled) && (
-                <TouchableOpacity
-                  style={styles.habitReminderTimeRow}
-                  onPress={() => {
-                    const t = morningCheckinTime || '08:00';
-                    const [h, m] = t.split(':').map(Number);
-                    setMorningCheckinPickerHour(isNaN(h) ? 8 : h);
-                    setMorningCheckinPickerMinute(isNaN(m) ? 0 : m);
-                    setShowMorningCheckinTimePicker(true);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.label}>Morning check-in time</Text>
-                  <Text style={styles.value}>
-                    {morningCheckinTime ? formatReminderTimeForDisplay(morningCheckinTime, preferences.timeFormat === '24') : 'Not set'}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Product emails</Text>
+                  <Text style={styles.description}>
+                    Receive occasional updates and tips by email. You can unsubscribe at any time.
                   </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <Modal
-              visible={addMeasureModalVisible}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setAddMeasureModalVisible(false)}
-            >
-              <TouchableWithoutFeedback onPress={() => setAddMeasureModalVisible(false)}>
-                <View style={styles.reminderTimeModalOverlay}>
-                  <TouchableWithoutFeedback>
-                    <View style={styles.reminderTimeModalContent}>
-                      <Text style={styles.reminderTimeModalTitle}>Custom measure</Text>
-                      <Text style={styles.addMeasureHint}>
-                        Name what you want to rate each morning (e.g. Stress, Mood). You’ll use a 1–10 slider.
-                      </Text>
-                      <TextInput
-                        style={styles.addMeasureInput}
-                        value={newMeasureLabel}
-                        onChangeText={setNewMeasureLabel}
-                        placeholder="Measure name"
-                        placeholderTextColor={colors.textLight}
-                        maxLength={120}
-                      />
-                      <View style={styles.reminderTimeModalFooter}>
-                        <TouchableOpacity
-                          style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
-                          onPress={() => setAddMeasureModalVisible(false)}
-                        >
-                          <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
-                          onPress={async () => {
-                            if (!user?.id) return;
-                            const label = newMeasureLabel.trim();
-                            if (!label) return;
-                            setMeasuresBusy(true);
-                            try {
-                              const res = await subjectiveMeasuresService.addCustomMeasure(user.id, { label });
-                              if (!res.success) {
-                                Alert.alert('Error', res.error || 'Could not add.');
-                                return;
-                              }
-                              setAddMeasureModalVisible(false);
-                              await loadSubjectiveMorningPrefs();
-                              await morningCheckinNotifications.rescheduleIfEnabled();
-                            } finally {
-                              setMeasuresBusy(false);
-                            }
-                          }}
-                        >
-                          <Text style={styles.reminderTimeDoneButtonText}>Add</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </TouchableWithoutFeedback>
                 </View>
-              </TouchableWithoutFeedback>
-            </Modal>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    marketingEmailOptIn && styles.toggleSwitchOn,
+                    marketingToggleSaving && styles.toggleSwitchDisabled,
+                  ]}
+                  disabled={marketingToggleSaving}
+                  onPress={handleToggleMarketingEmails}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      marketingEmailOptIn && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+            <Text style={styles.sectionSubTitle}>Morning check-in</Text>
+            <NavigationCard
+              icon="sunny-outline"
+              title="Set up how you feel"
+              subtitle="Choose what to rate each morning, add custom measures, and set a reminder"
+              onPress={() =>
+                navigation.dispatch(
+                  CommonActions.navigate({
+                    name: 'Home',
+                    params: { screen: 'SubjectiveMeasures' },
+                  })
+                )
+              }
+            />
             <Modal
               visible={showHabitReminderTimePicker}
               transparent
@@ -998,73 +817,6 @@ const ProfileScreen = () => {
                             setHabitReminderTime(timeStr);
                             habitReminderNotifications.setHabitReminderTime(timeStr);
                             setShowHabitReminderTimePicker(false);
-                          }}
-                        >
-                          <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </TouchableWithoutFeedback>
-                </View>
-              </TouchableWithoutFeedback>
-            </Modal>
-            <Modal
-              visible={showMorningCheckinTimePicker}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setShowMorningCheckinTimePicker(false)}
-            >
-              <TouchableWithoutFeedback onPress={() => setShowMorningCheckinTimePicker(false)}>
-                <View style={styles.reminderTimeModalOverlay}>
-                  <TouchableWithoutFeedback>
-                    <View style={styles.reminderTimeModalContent}>
-                      <Text style={styles.reminderTimeModalTitle}>Morning check-in time</Text>
-                      <View style={styles.reminderTimePickerRow}>
-                        <View style={styles.reminderPickerGroup}>
-                          <Text style={styles.reminderTimeLabel}>Hour</Text>
-                          <Picker
-                            pickerData={habitReminderHourData}
-                            selectedValue={morningCheckinPickerHour.toString()}
-                            onValueChange={(val) => setMorningCheckinPickerHour(parseInt(val, 10))}
-                            textColor={colors.textSecondary}
-                            selectTextColor={colors.primary}
-                            textSize={20}
-                            itemHeight={50}
-                            style={styles.reminderWheelPicker}
-                          />
-                        </View>
-                        <View style={styles.reminderPickerGroup}>
-                          <Text style={styles.reminderTimeLabel}>Minute</Text>
-                          <Picker
-                            pickerData={habitReminderMinuteData}
-                            selectedValue={morningCheckinPickerMinute.toString()}
-                            onValueChange={(val) => setMorningCheckinPickerMinute(parseInt(val, 10))}
-                            textColor={colors.textSecondary}
-                            selectTextColor={colors.primary}
-                            textSize={20}
-                            itemHeight={50}
-                            style={styles.reminderWheelPicker}
-                          />
-                        </View>
-                      </View>
-                      <View style={styles.reminderTimeModalFooter}>
-                        <TouchableOpacity
-                          style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
-                          onPress={() => setShowMorningCheckinTimePicker(false)}
-                        >
-                          <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
-                          onPress={async () => {
-                            const timeStr = `${morningCheckinPickerHour}:${String(morningCheckinPickerMinute).padStart(2, '0')}`;
-                            setMorningCheckinTime(timeStr);
-                            setShowMorningCheckinTimePicker(false);
-                            if (user?.id) {
-                              const { error } = await supabase.from('users').update({ morning_checkin_time: `${timeStr}:00` }).eq('id', user.id);
-                              if (error) return;
-                              await morningCheckinNotifications.rescheduleIfEnabled();
-                            }
                           }}
                         >
                           <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
@@ -1175,7 +927,7 @@ const styles = StyleSheet.create({
   dataSourceLogoWrap: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     backgroundColor: colors.border + '66',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1300,48 +1052,6 @@ const styles = StyleSheet.create({
   cardWithTopMargin: {
     marginTop: spacing.md,
   },
-  morningCheckinIntro: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginBottom: spacing.regular,
-  },
-  toggleLabelWithDelete: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  addCustomMeasureButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  addCustomMeasureText: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.primary,
-  },
-  addMeasureHint: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-    lineHeight: 20,
-  },
-  addMeasureInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    fontSize: typography.sizes.body,
-    color: colors.textPrimary,
-    marginBottom: spacing.regular,
-  },
-  toggleRowSpaced: {
-    marginTop: spacing.regular,
-  },
   habitReminderTimeRow: {
     marginTop: spacing.regular,
     paddingTop: spacing.sm,
@@ -1402,7 +1112,7 @@ const styles = StyleSheet.create({
   reminderTimeModalButton: {
     flex: 1,
     paddingVertical: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1444,7 +1154,7 @@ const styles = StyleSheet.create({
   halfLifeInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     fontSize: typography.sizes.body,
@@ -1461,7 +1171,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -1495,7 +1205,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -1519,7 +1229,7 @@ const styles = StyleSheet.create({
   sensitivityOption: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.xs,
@@ -1571,6 +1281,9 @@ const styles = StyleSheet.create({
   toggleSwitchOn: {
     backgroundColor: colors.primary,
   },
+  toggleSwitchDisabled: {
+    opacity: 0.65,
+  },
   toggleKnob: {
     width: 22,
     height: 22,
@@ -1592,7 +1305,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
     backgroundColor: colors.primary + '20',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignSelf: 'flex-start',
   },
   openSettingsButtonText: {

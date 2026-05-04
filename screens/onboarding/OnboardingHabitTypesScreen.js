@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
 import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 import ScatterPlot from '../../components/ScatterChart';
@@ -253,10 +253,10 @@ export default function OnboardingHabitTypesScreen({ navigation }) {
   return (
     <>
       <OnboardingStepLayout
-        step={8}
+        step={9}
         totalSteps={ONBOARDING_STEP_TOTAL}
-        title="There are 4 types of habits you can track"
-        onNext={() => navigation.navigate('OnboardingStarterHabits')}
+        title="How different habits are analysed"
+        onNext={() => navigation.navigate('OnboardingSubjectiveMeasures')}
         onBack={() => navigation.goBack()}
         nextLabel="Continue"
         showSkip={false}
@@ -454,7 +454,7 @@ const styles = StyleSheet.create({
   doneBtn: {
     marginTop: spacing.md,
     backgroundColor: colors.primary,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     alignItems: 'center',
   },

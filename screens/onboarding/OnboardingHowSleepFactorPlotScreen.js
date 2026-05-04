@@ -13,6 +13,20 @@ import {
   WEEK2_DEMO,
   WEEK3_DEMO,
 } from './onboardingHowSleepFactorDemoData';
+import InsightSignalStrengthBars from '../../components/InsightSignalStrengthBars';
+import InsightCorrelationPill from '../../components/InsightCorrelationPill';
+import {
+  getImpactSignalBarColors,
+  getImpactStrengthBarCount,
+  getImpactTagStyle,
+  getInsightImpactAccessibilityLabel,
+} from '../../utils/insightLabels';
+
+/** Muted bar colors when impact is unknown (same gray tier as correlation “none”). */
+const NEUTRAL_IMPACT_BAR_COLORS = {
+  filled: '#6B7280',
+  empty: 'rgba(107, 114, 128, 0.32)',
+};
 
 const STAGGER_MS = 200;
 
@@ -71,8 +85,7 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
       {
         habit: 'Caffeine',
         sleepData: 'Deep sleep',
-        link: 'No link',
-        impact: '--',
+        linkConfidence: 'none',
         noCorrelation: true,
       },
     ],
@@ -80,16 +93,20 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
       {
         habit: 'Caffeine',
         sleepData: 'Deep sleep',
-        link: '+',
-        impact: '++',
+        linkConfidence: 'low',
+        impactLevel: 'small',
+        impactPositive: true,
+        noCorrelation: false,
       },
     ],
     3: [
       {
         habit: 'Caffeine',
         sleepData: 'Deep sleep',
-        link: '+++',
-        impact: '++',
+        linkConfidence: 'high',
+        impactLevel: 'small',
+        impactPositive: true,
+        noCorrelation: false,
       },
     ],
   };
@@ -154,43 +171,41 @@ export default function OnboardingHowSleepFactorPlotScreen({ navigation }) {
             <View style={styles.previewHeader}>
               <Text style={[styles.previewHeaderText, styles.colHabit]}>Habit</Text>
               <Text style={[styles.previewHeaderText, styles.colSleep]}>Sleep data</Text>
-              <Text style={[styles.previewHeaderText, styles.colLink]}>Link</Text>
+              <Text style={[styles.previewHeaderText, styles.colLink]}>Correlation</Text>
               <Text style={[styles.previewHeaderText, styles.colImpact]}>Impact</Text>
             </View>
-            {previewRows.map((row) => (
-              <View key={`${row.habit}-${row.sleepData}`} style={styles.previewRow}>
-                <Text style={[styles.previewCell, styles.colHabit]}>{row.habit}</Text>
-                <Text style={[styles.previewCell, styles.colSleep]}>{row.sleepData}</Text>
-                <View style={[styles.signTag, styles.linkTag]}>
-                  <Text style={[styles.signText, row.noCorrelation ? styles.noCorrelationText : styles.linkText]}>
-                    {row.link}
-                  </Text>
+            {previewRows.map((row) => {
+              const impactNeutral = row.noCorrelation === true;
+              const impactBg = impactNeutral
+                ? { backgroundColor: colors.textSecondary + '22' }
+                : { backgroundColor: getImpactTagStyle(row.impactLevel, row.impactPositive).backgroundColor };
+              const impactBarColors = impactNeutral
+                ? NEUTRAL_IMPACT_BAR_COLORS
+                : getImpactSignalBarColors(row.impactLevel, row.impactPositive);
+              const impactBars = impactNeutral ? 0 : getImpactStrengthBarCount(row.impactLevel);
+              return (
+                <View key={`${row.habit}-${row.sleepData}-${row.linkConfidence}`} style={styles.previewRow}>
+                  <Text style={[styles.previewCell, styles.colHabit]}>{row.habit}</Text>
+                  <Text style={[styles.previewCell, styles.colSleep]}>{row.sleepData}</Text>
+                  <View style={styles.signTag}>
+                    <InsightCorrelationPill confidenceLevel={row.linkConfidence} compact />
+                  </View>
+                  <View style={[styles.signTag, impactBg]}>
+                    <InsightSignalStrengthBars
+                      filledCount={impactBars}
+                      filledColor={impactBarColors.filled}
+                      emptyColor={impactBarColors.empty}
+                      accessibilityLabel={
+                        impactNeutral
+                          ? 'Not enough data to show sleep impact.'
+                          : getInsightImpactAccessibilityLabel(row.impactLevel, row.impactPositive)
+                      }
+                      compact
+                    />
+                  </View>
                 </View>
-                <View
-                  style={[
-                    styles.signTag,
-                    row.noCorrelation
-                      ? styles.impactNeutralTag
-                      : row.impact.startsWith('-')
-                        ? styles.impactNegativeTag
-                        : styles.impactPositiveTag,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.signText,
-                      row.noCorrelation
-                        ? styles.impactNeutralText
-                        : row.impact.startsWith('-')
-                          ? styles.impactNegativeText
-                          : styles.impactPositiveText,
-                    ]}
-                  >
-                    {row.impact}
-                  </Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </Animated.View>
         ) : null}
       </ScrollView>
@@ -217,7 +232,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 120 + spacing.onboardingFooterExtraBottom,
   },
   headerRow: {
     flexDirection: 'row',
@@ -316,44 +331,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  linkTag: {
-    backgroundColor: colors.primary + '22',
-  },
-  impactNegativeTag: {
-    backgroundColor: colors.error + '22',
-  },
-  impactPositiveTag: {
-    backgroundColor: colors.success + '22',
-  },
-  impactNeutralTag: {
-    backgroundColor: colors.textSecondary + '22',
-  },
-  signText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-  },
-  linkText: {
-    color: colors.primary,
-  },
-  impactNegativeText: {
-    color: colors.error,
-  },
-  impactPositiveText: {
-    color: colors.success,
-  },
-  noCorrelationText: {
-    color: colors.textSecondary,
-  },
-  impactNeutralText: {
-    color: colors.textSecondary,
-  },
   footer: {
     position: 'absolute',
     left: spacing.xl,
     right: spacing.xl,
     bottom: 0,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   primaryBtn: {
     alignSelf: 'stretch',

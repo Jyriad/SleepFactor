@@ -17,10 +17,12 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import insightsService from '../services/insightsService';
 import { supabase } from '../services/supabase';
+import offlineWriteQueueService from '../services/offlineWriteQueueService';
 import sleepDataService from '../services/sleepDataService';
 import {
   getLastCustomAmountForOption,
@@ -348,7 +350,8 @@ const LogConsumptionScreen = () => {
         calculated_at: new Date().toISOString(),
         bedtime_at: targetBedtime.toISOString(),
       };
-      await supabase.from('drug_levels').upsert(drugLevelEntry, { onConflict: 'user_id,habit_id,date' });
+      const { error: dlErr } = await supabase.from('drug_levels').upsert(drugLevelEntry, { onConflict: 'user_id,habit_id,date' });
+      if (!dlErr) insightsService.notifyInsightsUnderlyingDataChanged();
     } catch (err) {}
   }, [userId]);
 
@@ -476,24 +479,31 @@ const LogConsumptionScreen = () => {
       .gte('consumed_at', startOfDay.toISOString())
       .lte('consumed_at', endOfDay.toISOString());
 
+    const writeRow = {
+      habit_id: habit.id,
+      user_id: userId,
+      consumed_at: consumptionTime.toISOString(),
+      amount: totalAmount,
+      volume: loggedVolumeMl,
+      drink_type: drinkType,
+      logged_intake_basis: loggedIntakeBasis,
+      logged_volume_ml: loggedVolumeMl,
+      logged_serving_count: loggedServingCount,
+    };
+
     const { data, error } = await supabase
       .from('habit_consumption_events')
-      .insert({
-        habit_id: habit.id,
-        user_id: userId,
-        consumed_at: consumptionTime.toISOString(),
-        amount: totalAmount,
-        volume: loggedVolumeMl,
-        drink_type: drinkType,
-        logged_intake_basis: loggedIntakeBasis,
-        logged_volume_ml: loggedVolumeMl,
-        logged_serving_count: loggedServingCount,
-      })
+      .insert(writeRow)
       .select()
       .single();
 
     if (error) {
-      Alert.alert('Error', `Failed to add consumption: ${error.message || 'Unknown error'}`);
+      await offlineWriteQueueService.enqueue(
+        offlineWriteQueueService.ACTION_TYPES.CONSUMPTION_CREATE,
+        { row: writeRow }
+      );
+      onSaveSuccess?.();
+      navigation.goBack();
       return;
     }
     try {
@@ -563,21 +573,28 @@ const LogConsumptionScreen = () => {
       }
     }
 
+    const updates = {
+      consumed_at: consumptionTime.toISOString(),
+      amount: totalAmount,
+      volume: loggedVolumeMl,
+      drink_type: resolvedOption?.id || consumptionType,
+      logged_intake_basis: loggedIntakeBasis,
+      logged_volume_ml: loggedVolumeMl,
+      logged_serving_count: loggedServingCount,
+    };
+
     const { error: updateError } = await supabase
       .from('habit_consumption_events')
-      .update({
-        consumed_at: consumptionTime.toISOString(),
-        amount: totalAmount,
-        volume: loggedVolumeMl,
-        drink_type: resolvedOption?.id || consumptionType,
-        logged_intake_basis: loggedIntakeBasis,
-        logged_volume_ml: loggedVolumeMl,
-        logged_serving_count: loggedServingCount,
-      })
+      .update(updates)
       .eq('id', eventId);
 
     if (updateError) {
-      Alert.alert('Error', `Failed to update consumption: ${updateError.message || 'Unknown error'}`);
+      await offlineWriteQueueService.enqueue(
+        offlineWriteQueueService.ACTION_TYPES.CONSUMPTION_UPDATE,
+        { eventId, userId, updates }
+      );
+      onSaveSuccess?.();
+      navigation.goBack();
       return;
     }
     try {
@@ -1081,7 +1098,7 @@ const styles = StyleSheet.create({
   servingButton: {
     flex: 1,
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.xs,
     alignItems: 'center',
@@ -1112,7 +1129,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     padding: spacing.sm,
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -1176,7 +1193,7 @@ const styles = StyleSheet.create({
   amountInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingHorizontal: spacing.regular,
     paddingVertical: spacing.sm,
     fontSize: typography.sizes.body,
@@ -1210,7 +1227,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     alignItems: 'center',
     backgroundColor: colors.background,
@@ -1237,7 +1254,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingHorizontal: spacing.regular,
     paddingVertical: spacing.sm,
     backgroundColor: colors.background,
@@ -1303,7 +1320,7 @@ const styles = StyleSheet.create({
   },
   bottomActionButton: {
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.regular,
     alignItems: 'center',
     justifyContent: 'center',

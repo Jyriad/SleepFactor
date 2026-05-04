@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { DRUG_PRESETS, getPresetsForHabit } from '../constants/drugPresets';
 import Button from './Button';
 
@@ -437,7 +437,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     backgroundColor: colors.cardBackground,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -495,7 +495,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.regular,
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     fontSize: typography.sizes.body,
@@ -539,7 +539,7 @@ const styles = StyleSheet.create({
   },
   presetButton: {
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
     marginRight: spacing.sm,
@@ -585,7 +585,7 @@ const styles = StyleSheet.create({
   quickAddButton: {
     flex: 1,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     alignItems: 'center',
   },
@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
   timeInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     fontSize: typography.sizes.body,
@@ -644,7 +644,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     overflow: 'hidden',
   },
   ampmButton: {

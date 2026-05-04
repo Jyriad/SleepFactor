@@ -1,5 +1,14 @@
 import { supabase } from './supabase';
 
+/** Avoid static import cycle (insightsService imports dataQualityService). */
+function scheduleInsightsPersistenceInvalidate() {
+  import('./insightsService')
+    .then((mod) => {
+      mod.default.notifyInsightsUnderlyingDataChanged();
+    })
+    .catch(() => {});
+}
+
 /**
  * Service for data quality management including outlier detection and data exclusion
  */
@@ -439,6 +448,8 @@ class DataQualityService {
 
       if (error) throw error;
 
+      scheduleInsightsPersistenceInvalidate();
+
       return {
         success: true,
         message: 'Sleep data excluded successfully'
@@ -487,6 +498,8 @@ class DataQualityService {
         .eq('id', logId);
 
       if (error) throw error;
+
+      scheduleInsightsPersistenceInvalidate();
 
       return {
         success: true,
@@ -568,6 +581,8 @@ class DataQualityService {
       } else {
         throw new Error('Invalid table name');
       }
+
+      scheduleInsightsPersistenceInvalidate();
 
       return {
         success: true,

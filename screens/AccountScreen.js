@@ -19,10 +19,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
+import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
 import accountDeletionService from '../services/accountDeletionService';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import Button from '../components/Button';
 import AuthProviderBadges from '../components/AuthProviderBadges';
 import { getAccountIdentifier, getLinkedIdentityProviders } from '../utils/authDisplay';
@@ -104,6 +105,7 @@ const AccountScreen = () => {
       }
       await clearConsumptionOptionsDiskCache();
       await homeCacheService.clearForUser(userId);
+      await insightsService.clearInsightsDiskCacheForUser(userId);
     } catch (_e) {
       /* non-fatal */
     }
@@ -636,7 +638,7 @@ const styles = StyleSheet.create({
   activityIconWrap: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     backgroundColor: colors.primary + '14',
     alignItems: 'center',
     justifyContent: 'center',
@@ -669,7 +671,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     backgroundColor: colors.error,
-    borderRadius: 16,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.lg,
     borderWidth: 0,
   },
@@ -742,7 +744,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.regular,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
   },
   modalCancelButton: {
@@ -794,7 +796,7 @@ const styles = StyleSheet.create({
   deleteDataOption: {
     paddingVertical: spacing.regular,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.error,
     marginBottom: spacing.sm,

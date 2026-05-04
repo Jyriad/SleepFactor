@@ -12,6 +12,7 @@ import AppNavigator from './navigation/AppNavigator';
 import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
 import morningCheckinNotifications from './services/morningCheckinNotifications';
+import offlineWriteQueueService from './services/offlineWriteQueueService';
 import { colors } from './constants/colors';
 import { applyAndroidTransparentStatusBar } from './utils/androidStatusBar';
 import { FONT_FAMILY } from './constants/fonts';
@@ -119,6 +120,14 @@ export default Sentry.wrap(function App() {
     };
   }, []);
 
+  // Start offline write queue and keep flushing whenever app is active.
+  useEffect(() => {
+    offlineWriteQueueService.start();
+    return () => {
+      offlineWriteQueueService.stop();
+    };
+  }, []);
+
   // Habit reminder: one-shot at next occurrence; reschedule on app start and when app becomes active
   useEffect(() => {
     habitReminderNotifications.setupRescheduleListener();
@@ -135,6 +144,7 @@ export default Sentry.wrap(function App() {
       if (nextState === 'active') {
         habitReminderNotifications.rescheduleIfEnabled();
         morningCheckinNotifications.rescheduleIfEnabled();
+        offlineWriteQueueService.flushNow();
       }
     });
     return () => sub?.remove();

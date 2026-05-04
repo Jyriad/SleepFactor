@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,36 +15,56 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import subjectiveMeasuresService from '../../services/subjectiveMeasuresService';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
 import { ONBOARDING_TOTAL_STEPS } from '../../constants/onboardingProgress';
+
+async function persistSubjectiveOnboardingChoices(
+  userId,
+  { tiredness, dream, easeSleep, customLabels }
+) {
+  await subjectiveMeasuresService.ensureBuiltinMeasures(userId);
+  const list = await subjectiveMeasuresService.listSubjectiveMeasures(userId);
+  const t = list.find((m) => m.slug === 'tiredness');
+  const d = list.find((m) => m.slug === 'dream_vividness');
+  const e = list.find((m) => m.slug === 'ease_sleep');
+  const toggles = [];
+  if (t) toggles.push(subjectiveMeasuresService.setMeasureEnabled(userId, t.id, tiredness));
+  if (d) toggles.push(subjectiveMeasuresService.setMeasureEnabled(userId, d.id, dream));
+  if (e) toggles.push(subjectiveMeasuresService.setMeasureEnabled(userId, e.id, easeSleep));
+  await Promise.all(toggles);
+  await Promise.all(
+    (customLabels || []).map((label) => subjectiveMeasuresService.addCustomMeasure(userId, { label }))
+  );
+}
 
 export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
   const { user } = useAuth();
   const [tiredness, setTiredness] = useState(false);
   const [dream, setDream] = useState(false);
+  const [easeSleep, setEaseSleep] = useState(false);
   const [customName, setCustomName] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customMeasures, setCustomMeasures] = useState([]);
-  const [saving, setSaving] = useState(false);
+  const proceedStartedRef = useRef(false);
 
-  const proceed = async () => {
-    if (!user?.id) return;
-    setSaving(true);
-    try {
-      await subjectiveMeasuresService.ensureBuiltinMeasures(user.id);
-      const list = await subjectiveMeasuresService.listSubjectiveMeasures(user.id);
-      const t = list.find((m) => m.slug === 'tiredness');
-      const d = list.find((m) => m.slug === 'dream_vividness');
-      if (t) await subjectiveMeasuresService.setMeasureEnabled(user.id, t.id, tiredness);
-      if (d) await subjectiveMeasuresService.setMeasureEnabled(user.id, d.id, dream);
-      for (const label of customMeasures) {
-        await subjectiveMeasuresService.addCustomMeasure(user.id, { label });
-      }
-      navigation.navigate('OnboardingWearableMetrics');
-    } finally {
-      setSaving(false);
-    }
+  const proceed = () => {
+    if (!user?.id || proceedStartedRef.current) return;
+    proceedStartedRef.current = true;
+
+    const payload = {
+      tiredness,
+      dream,
+      easeSleep,
+      customLabels: [...customMeasures],
+    };
+    const userId = user.id;
+
+    navigation.navigate('OnboardingWearableMetrics');
+
+    void persistSubjectiveOnboardingChoices(userId, payload).catch((err) => {
+      console.warn('[OnboardingSubjectiveMeasures] background save failed', err);
+    });
   };
 
   const renderAddIcon = (selected, onPress) => (
@@ -66,19 +86,24 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
     <OnboardingStepLayout
       step={10}
       totalSteps={ONBOARDING_TOTAL_STEPS}
-      title="Smartwatch data doesn't always best reflect your sleep quality"
-      contentPaddingBottom={72}
+      title={
+        <Text style={styles.onboardingHeroTitle}>
+          Also track how you{' '}
+          <Text style={styles.onboardingHeroTitleUnderline}>feel</Text>
+          {' '}
+          each morning
+        </Text>
+      }
+      contentPaddingBottom={72 + spacing.onboardingFooterExtraBottom}
       onNext={proceed}
       onBack={() => navigation.goBack()}
       onSkip={proceed}
       nextLabel="Next"
-      nextLoading={saving}
       showSkip
     >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <Text style={styles.subtitle}>
-          You can also submit scores of how you feel each day. We&apos;ll check if over time there&apos;s any
-          correlation with these feelings and habits you did the day before which may have impacted your sleep.
+          Submit scores each day about how you felt about your sleep last night.
         </Text>
         <View style={[styles.row, tiredness && styles.rowSelected]}>
           <View>
@@ -93,6 +118,13 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
             <Text style={styles.optionSub}>How vivid or strong dreams felt</Text>
           </View>
           {renderAddIcon(dream, () => setDream((v) => !v))}
+        </View>
+        <View style={[styles.row, easeSleep && styles.rowSelected]}>
+          <View>
+            <Text style={styles.optionName}>Easily fell asleep</Text>
+            <Text style={styles.optionSub}>How easily did you fall asleep?</Text>
+          </View>
+          {renderAddIcon(easeSleep, () => setEaseSleep((v) => !v))}
         </View>
         {customMeasures.map((label) => (
           <View key={label} style={styles.row}>
@@ -176,6 +208,17 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  onboardingHeroTitle: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  onboardingHeroTitleUnderline: {
+    fontSize: typography.sizes.large,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    textDecorationLine: 'underline',
+  },
   scroll: {
     paddingBottom: spacing.sm,
   },
@@ -280,7 +323,7 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',

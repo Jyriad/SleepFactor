@@ -113,7 +113,7 @@ export async function scheduleMorningCheckin() {
     await Notifications.scheduleNotificationAsync({
       identifier: MORNING_CHECKIN_NOTIFICATION_ID,
       content: {
-        title: 'How did you sleep?',
+        title: 'How do you feel?',
         body: 'Log how you felt this morning.',
         data: { type: 'morning_checkin' },
         channelId: Platform.OS === 'android' ? MORNING_CHECKIN_CHANNEL_ID : undefined,
