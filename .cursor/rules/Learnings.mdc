@@ -136,7 +136,7 @@ alwaysApply: false
 
 **iOS build failures — Swift / HealthKit / Nitro**
 
-- **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (e.g. `macos-sequoia-15.6-xcode-16.4` under `development.ios`) can help without a larger VM.
+- **Swift compiler crash** (stack dump, “Please submit a bug report”) while compiling `ReactNativeHealthkit`: often **Xcode / resource** related. **`resourceClass: "large"`** on iOS requires a **paid** EAS plan; free tier cannot use it. Trying a **newer `image`** (production uses **`macos-sequoia-15.6-xcode-26.2`**; pin the same under `development.ios` if dev builds regress) can help without a larger VM.
 - **`AnyMap` has no member `isBigInt` / `getBigInt`:** Nitro **0.33.8+** removed BigInt helpers on `AnyMap`; `@kingstinct/react-native-healthkit` **12.x** still calls them. **Pin `react-native-nitro-modules` to `0.33.7`** until HealthKit (and Expo/RN) are upgraded to versions that target newer Nitro. Do not upgrade Nitro past 0.33.7 blindly on Expo 52 + HealthKit 12 without verifying compatibility.
 
 ---
