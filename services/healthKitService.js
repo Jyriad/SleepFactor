@@ -362,8 +362,6 @@ class HealthKitService {
       let inBedStart = null;
       let inBedEnd = null;
 
-      let lastAwakeStart = null;
-
       let sessionStart = null;
       let sessionEnd = null;
       const sleepStages = [];
@@ -425,11 +423,8 @@ class HealthKitService {
 
           case CategoryValueSleepAnalysis.awake:
             awakeMinutes += durationMinutes;
-
-            if (!lastAwakeStart) {
-              lastAwakeStart = startTime;
-              awakeningsCount += 1;
-            }
+            // One HK awake sample becomes one SleepTimeline awake segment — count sections the same way
+            awakeningsCount += 1;
             break;
           default:
             break;
