@@ -160,7 +160,7 @@ git push origin feature/your-feature-name
 
 ## Phase 3b: iOS production / TestFlight (EAS — manual steps)
 
-Use this path for **TestFlight** and **App Store** binaries. Production iOS builds use **`eas.json`** profile **`production`**: **`distribution: store`**, **`APP_VARIANT: production`**, **`com.sleepfactor.app`**, **Release** configuration, **Xcode 16.4** image (as configured in-repo).
+Use this path for **TestFlight** and **App Store** binaries. Production iOS builds use **`eas.json`** profile **`production`**: **`distribution: store`**, **`APP_VARIANT: production`**, **`com.sleepfactor.app`**, **Release** configuration, **Xcode 26.2** EAS image (App Store Connect minimum SDK; configured in **`eas.json`**).
 
 **GitHub path (preferred for CI parity):** **Actions → iOS TestFlight Release → Run workflow** on **`main`** after **Auto Version Bump**. Same **`EXPO_TOKEN`** plus App Store Connect API secrets as configured in the repo.
 

@@ -4,8 +4,7 @@
  */
 import { StyleSheet } from 'react-native';
 import { colors } from './colors';
-import { FONT_FAMILY } from './fonts';
-import { typography } from './typography';
+import { appFont, typography } from './typography';
 import { spacing } from './spacing';
 
 /** One radius for `Button`, custom Touchables that behave like CTAs, and matching inputs/segment wrappers. */
@@ -14,10 +13,9 @@ export const BUTTON_BORDER_RADIUS = 12;
 /** Inner pill radius for segmented controls with ~2px gutter (matches prior 10/8 pairing). */
 export const BUTTON_SEGMENT_INNER_RADIUS = BUTTON_BORDER_RADIUS - 4;
 
-/** Bold (700) matches the VF named instance and reads consistent with card titles; semibold was unreliable on RN + VF. */
+/** Keep button labels on the same baseline type style as app copy. */
 const labelBase = {
-  fontFamily: FONT_FAMILY,
-  fontWeight: typography.weights.bold,
+  ...appFont,
 };
 
 export const buttonStyles = StyleSheet.create({
