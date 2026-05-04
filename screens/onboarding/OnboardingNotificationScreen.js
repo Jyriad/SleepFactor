@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from 'react-native-wheel-pick';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
 import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 import { useAuth } from '../../contexts/AuthContext';
@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     backgroundColor: colors.cardBackground,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
   reminderTimeModalButton: {
     flex: 1,
     paddingVertical: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
     justifyContent: 'center',
   },

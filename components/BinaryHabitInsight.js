@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, typography, spacing } from '../constants';
+import { colors, typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
 import InsightMinimumDataHelp from './InsightMinimumDataHelp';
 import { generateBinaryHeadline } from '../utils/insightHeadlines';
+import InsightSignalStrengthBars from './InsightSignalStrengthBars';
+import InsightCorrelationPill from './InsightCorrelationPill';
 import {
-  getCorrelationLabelShort,
-  getImpactLabel,
-  getCorrelationTagStyle,
+  getImpactSignalBarColors,
+  getImpactStrengthBarCount,
   getImpactTagStyle,
+  getInsightImpactAccessibilityLabel,
 } from '../utils/insightLabels';
 
 const BinaryHabitInsight = ({
@@ -84,11 +86,9 @@ const BinaryHabitInsight = ({
   const impactBarPercentage = Math.min(100, Math.max(0, higherIsBetter ? 50 + (percentChange * 2) : 50 - (percentChange * 2)));
   const impactBarDirection = (difference > 0 && higherIsBetter) || (difference < 0 && !higherIsBetter) ? 'right' : 'left';
 
-  // Correlation (confidence) and impact (effect size + direction) - standardised across app
-  const correlationLabel = getCorrelationLabelShort(confidenceLevel);
-  const impactLabel = getImpactLabel(impactLevel, isPositiveImpact);
-  const correlationTagStyle = getCorrelationTagStyle(confidenceLevel);
   const impactTagStyle = getImpactTagStyle(impactLevel, isPositiveImpact);
+  const impactBarColors = getImpactSignalBarColors(impactLevel, isPositiveImpact);
+  const impactBarFilled = getImpactStrengthBarCount(impactLevel);
   const isStrongOrModerateEvidence = confidenceLevel === 'high' || confidenceLevel === 'medium';
   const evidenceColor = isStrongOrModerateEvidence ? colors.success : colors.warning;
   // In percentage mode, awakenings uses "per hour" not "%"
@@ -172,12 +172,15 @@ const BinaryHabitInsight = ({
           <Text style={styles.impactHeadline}>{headline}</Text>
           <View style={styles.collapsedFooter}>
             <View style={styles.badgeRow}>
-              <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-                <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
-              </View>
+              <InsightCorrelationPill confidenceLevel={confidenceLevel} />
               {confidenceLevel !== 'none' && (
                 <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-                  <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
+                  <InsightSignalStrengthBars
+                    filledCount={impactBarFilled}
+                    filledColor={impactBarColors.filled}
+                    emptyColor={impactBarColors.empty}
+                    accessibilityLabel={getInsightImpactAccessibilityLabel(impactLevel, isPositiveImpact)}
+                  />
                 </View>
               )}
             </View>
@@ -206,12 +209,15 @@ const BinaryHabitInsight = ({
             </View>
           </View>
           <View style={styles.expandedTagsRow}>
-            <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
-            </View>
+            <InsightCorrelationPill confidenceLevel={confidenceLevel} />
             {confidenceLevel !== 'none' && (
               <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
+                <InsightSignalStrengthBars
+                  filledCount={impactBarFilled}
+                  filledColor={impactBarColors.filled}
+                  emptyColor={impactBarColors.empty}
+                  accessibilityLabel={getInsightImpactAccessibilityLabel(impactLevel, isPositiveImpact)}
+                />
               </View>
             )}
           </View>
@@ -413,12 +419,15 @@ const BinaryHabitInsight = ({
         {/* Stability Badge - same design as expanded view */}
         <View style={styles.collapsedFooter}>
           <View style={styles.badgeRow}>
-            <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
-            </View>
+            <InsightCorrelationPill confidenceLevel={confidenceLevel} />
             {confidenceLevel !== 'none' && (
               <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-                <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
+                <InsightSignalStrengthBars
+                  filledCount={impactBarFilled}
+                  filledColor={impactBarColors.filled}
+                  emptyColor={impactBarColors.empty}
+                  accessibilityLabel={getInsightImpactAccessibilityLabel(impactLevel, isPositiveImpact)}
+                />
               </View>
             )}
           </View>
@@ -507,12 +516,15 @@ const BinaryHabitInsight = ({
           </View>
         </View>
         <View style={styles.expandedTagsRow}>
-          <View style={[styles.stabilityBadge, { backgroundColor: correlationTagStyle.backgroundColor }]}>
-            <Text style={[styles.stabilityBadgeText, { color: correlationTagStyle.color }]}>{correlationLabel}</Text>
-          </View>
+          <InsightCorrelationPill confidenceLevel={confidenceLevel} />
           {confidenceLevel !== 'none' && (
             <View style={[styles.stabilityBadge, { backgroundColor: impactTagStyle.backgroundColor }]}>
-              <Text style={[styles.stabilityBadgeText, { color: impactTagStyle.color }]}>{impactLabel}</Text>
+              <InsightSignalStrengthBars
+                filledCount={impactBarFilled}
+                filledColor={impactBarColors.filled}
+                emptyColor={impactBarColors.empty}
+                accessibilityLabel={getInsightImpactAccessibilityLabel(impactLevel, isPositiveImpact)}
+              />
             </View>
           )}
         </View>
@@ -701,7 +713,7 @@ const styles = StyleSheet.create({
   },
   warningContent: {
     backgroundColor: colors.warning + '10',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     marginHorizontal: spacing.regular,
     marginBottom: spacing.regular,
@@ -752,7 +764,7 @@ const styles = StyleSheet.create({
   },
   insightsContainer: {
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     marginTop: spacing.regular,
   },
@@ -772,7 +784,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: colors.primary + '10',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     marginBottom: spacing.regular,
     borderWidth: 1,
@@ -788,7 +800,7 @@ const styles = StyleSheet.create({
   },
   adviceContainer: {
     backgroundColor: colors.success + '10',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     marginVertical: spacing.regular,
     borderWidth: 1,
@@ -812,7 +824,7 @@ const styles = StyleSheet.create({
   },
   detailsContainer: {
     backgroundColor: colors.cardBackground,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
@@ -936,15 +948,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderRadius: 6,
     flexShrink: 1,
     maxWidth: '100%',
-  },
-  stabilityBadgeText: {
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: typography.weights.medium,
   },
   expandHint: {
     flexDirection: 'row',
@@ -968,7 +975,7 @@ const styles = StyleSheet.create({
   },
   dataMaturityContainer: {
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     marginHorizontal: spacing.regular,
     marginTop: spacing.regular,

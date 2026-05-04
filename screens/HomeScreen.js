@@ -29,9 +29,10 @@ import drugLevelService from '../services/drugLevelService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
 import useHealthSync from '../hooks/useHealthSync';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import Button from '../components/Button';
 import AppToggle from '../components/AppToggle';
+import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
 // Sleep Data Rendering Components
 const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
   <HealthConnectPrompt
@@ -440,7 +441,15 @@ const HomeScreen = () => {
   /** Space for absolute glass date header so scroll content sits below it */
   const [homeGlassHeaderHeight, setHomeGlassHeaderHeight] = useState(140);
   const [topInsights, setTopInsights] = useState(null);
-  const [insightsSummaryByMetric, setInsightsSummaryByMetric] = useState(null);
+  const [insightsHomeMetricRows, setInsightsHomeMetricRows] = useState(null);
+  const topInsightsRef = useRef(null);
+  const insightsHomeMetricRowsRef = useRef(null);
+  useEffect(() => {
+    topInsightsRef.current = topInsights;
+  }, [topInsights]);
+  useEffect(() => {
+    insightsHomeMetricRowsRef.current = insightsHomeMetricRows;
+  }, [insightsHomeMetricRows]);
   const [loading, setLoading] = useState(true);
   /** Habit card + Log Habits: show as soon as we have disk or network dashboard (avoid spinner on cold start). */
   const [habitSummaryReady, setHabitSummaryReady] = useState(false);
@@ -510,6 +519,16 @@ const HomeScreen = () => {
   // Don't show "No sleep data" for today until we've completed at least one sync attempt
   const todaySyncAttemptedRef = useRef(false);
   const splashReadySentRef = useRef(false);
+
+  /** Same width as subjective card CTA row (narrower than full habit card) so both home buttons align. */
+  const pairedHomeCTAWidth = useMemo(() => {
+    const w = Dimensions.get('window').width;
+    return w - spacing.regular * 2 - spacing.regular * 2 - 36 * 2;
+  }, []);
+  const homePairedCTAButtonStyle = useMemo(
+    () => [{ alignSelf: 'center' }, { width: pairedHomeCTAWidth }],
+    [pairedHomeCTAWidth]
+  );
 
   // Health sync hook
   const {
@@ -716,6 +735,28 @@ const HomeScreen = () => {
     }
   }, [user?.id, loading, habitSummaryReady, splash]);
 
+  /** Home sleep-insights strip: deferred so dashboard paints first */
+  const loadHomeInsightsStrip = useCallback(() => {
+    if (!user?.id) return;
+    InteractionManager.runAfterInteractions(() => {
+      insightsService
+        .getHomeInsightsWithSummary(user.id, 10, {
+          onStaleRefresh: ({ topInsights: top, homeMetricRows }) => {
+            setTopInsights(top);
+            setInsightsHomeMetricRows(homeMetricRows);
+          },
+        })
+        .then(({ topInsights: top, homeMetricRows }) => {
+          setTopInsights(top);
+          setInsightsHomeMetricRows(homeMetricRows);
+        })
+        .catch(() => {
+          setTopInsights([]);
+          setInsightsHomeMetricRows([]);
+        });
+    });
+  }, [user?.id]);
+
   const fetchDashboard = useCallback(async (opts = {}) => {
     const { background = false, retryAttempt = 0 } = opts;
     const MAX_STARTUP_RETRIES = 2;
@@ -834,6 +875,11 @@ const HomeScreen = () => {
         const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
         if (prevSerialized === serialized && isAlreadyRenderedForDate) {
           if (!background) setLoading(false);
+          // Dashboard was restored from cache or matched RPC, but hydration never ran the insights deferred path.
+          // If the strip was never populated, fetch it anyway (fixes perpetual "Loading insights...").
+          if (topInsightsRef.current === null || insightsHomeMetricRowsRef.current === null) {
+            loadHomeInsightsStrip();
+          }
           return;
         }
       } catch (_) {}
@@ -841,21 +887,7 @@ const HomeScreen = () => {
       homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, dashboardPayload);
       await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, dashboardPayload);
       if (!background) setLoading(false);
-      // Defer insight calculation so dashboard and sleep card paint first
-      InteractionManager.runAfterInteractions(() => {
-        insightsService.getHomeInsightsWithSummary(user.id, 10, {
-          onStaleRefresh: ({ topInsights: top, summaryByMetric }) => {
-            setTopInsights(top);
-            setInsightsSummaryByMetric(summaryByMetric);
-          },
-        }).then(({ topInsights: top, summaryByMetric }) => {
-          setTopInsights(top);
-          setInsightsSummaryByMetric(summaryByMetric);
-        }).catch(() => {
-          setTopInsights([]);
-          setInsightsSummaryByMetric([]);
-        });
-      });
+      loadHomeInsightsStrip();
     } catch (err) {
       const message = String(err?.message || '');
       const isLikelyAuthWarmup =
@@ -881,7 +913,7 @@ const HomeScreen = () => {
 
     inFlightDashboardByDateRef.current.set(dateStr, runPromise);
     await runPromise;
-  }, [user?.id, selectedDate, getDateString, getToday, getYesterday, applyDashboardPayload, isValidDashboardPayload]);
+  }, [user?.id, selectedDate, getDateString, getToday, getYesterday, applyDashboardPayload, isValidDashboardPayload, loadHomeInsightsStrip]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -891,6 +923,15 @@ const HomeScreen = () => {
         // flash white. Other tabs set their own status bar when they gain focus.
       };
     }, [])
+  );
+
+  // Hydrate the Sleep Insights strip when Home gains focus if dashboard cache short-circuit skipped it.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id) return;
+      if (topInsightsRef.current !== null && insightsHomeMetricRowsRef.current !== null) return;
+      loadHomeInsightsStrip();
+    }, [user?.id, loadHomeInsightsStrip])
   );
 
   // On first Home focus in a fresh app session, always center on today.
@@ -1792,6 +1833,7 @@ const HomeScreen = () => {
             totalHabitCount={totalHabitCount}
             onPress={handleLogHabits}
             loading={!habitSummaryReady}
+            buttonStyle={homePairedCTAButtonStyle}
           />
         </View>
 
@@ -1799,11 +1841,19 @@ const HomeScreen = () => {
         {(subjectiveAnyEnabled || trackTiredness || trackDreamVividness) && (
           <View style={styles.section}>
             <View style={styles.howYouFeltCard}>
-              {!isToday(selectedDate) && (
-                <Text style={styles.howYouFeltDateHint}>
-                  How you felt — {formatDateTitle(selectedDate)}
-                </Text>
-              )}
+              <View style={styles.howYouFeltCardInner}>
+                <View style={styles.howYouFeltHelpAnchor} pointerEvents="box-none">
+                  <SubjectiveInsightsInfoButton
+                    accountLegacy={false}
+                    style={styles.howYouFeltHelpButton}
+                    iconSize={20}
+                  />
+                </View>
+                {!isToday(selectedDate) && (
+                  <Text style={styles.howYouFeltDateHint}>
+                    How you felt — {formatDateTitle(selectedDate)}
+                  </Text>
+                )}
               {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) ||
               (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ||
               (Array.isArray(lastNightSubjectiveData?.extra) && lastNightSubjectiveData.extra.length > 0) ? (
@@ -1835,12 +1885,16 @@ const HomeScreen = () => {
                     ))}
                 </View>
               ) : null}
-              <Button
-                title="How did you sleep?"
-                variant="outline"
-                size="compact"
-                onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
-              />
+              <View style={styles.howYouFeltButtonRow}>
+                <Button
+                  title="How did you sleep?"
+                  variant="outline"
+                  size="compact"
+                  onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
+                  style={homePairedCTAButtonStyle}
+                />
+              </View>
+              </View>
             </View>
           </View>
         )}
@@ -1993,9 +2047,30 @@ const HomeScreen = () => {
             onPress={() => navigation.navigate('MainTabs', { screen: 'Habits' })}
           />
           <SleepInsightsHomeCard
-            topInsights={topInsights}
-            summaryByMetric={insightsSummaryByMetric}
-            onPress={() => navigation.navigate('MainTabs', { screen: 'Insights' })}
+            homeMetricRows={insightsHomeMetricRows}
+            onPressHeader={() =>
+              navigation.navigate('MainTabs', {
+                screen: 'Insights',
+                params: {
+                  screen: 'Insights',
+                  params: {},
+                },
+              })
+            }
+            onPressMetricRow={(row) =>
+              navigation.navigate('MainTabs', {
+                screen: 'Insights',
+                params: {
+                  screen: 'Insights',
+                  params: {
+                    focusedHabitId: row.habitId,
+                    focusedMetricKey: row.metricKey,
+                    preferredAnalysisMode: row.preferredAnalysisMode,
+                    expandMetricInsight: true,
+                  },
+                },
+              })
+            }
           />
         </View>
       </ScrollView>
@@ -2039,7 +2114,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.small,
     paddingHorizontal: spacing.regular,
     marginHorizontal: spacing.regular,
-    marginBottom: spacing.small,
+    marginBottom: spacing.regular,
     borderWidth: 1,
     borderColor: colors.success + '40',
   },
@@ -2075,7 +2150,7 @@ const styles = StyleSheet.create({
   },
   todayReminderButton: {
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
     alignSelf: 'center',
@@ -2294,11 +2369,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  howYouFeltCardInner: {
+    position: 'relative',
+    paddingLeft: 36,
+    paddingRight: 36,
+  },
+  howYouFeltHelpAnchor: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 1,
+  },
+  howYouFeltHelpButton: {
+    margin: 0,
+  },
   howYouFeltDateHint: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
+  },
+  howYouFeltButtonRow: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: spacing.xs,
   },
   howYouFeltRows: {
     marginBottom: 2,
@@ -2355,7 +2449,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.regular,
     paddingVertical: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     marginTop: spacing.regular,
   },
   connectButtonText: {

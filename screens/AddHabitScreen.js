@@ -15,7 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
   textInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.regular,
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
   typeButton: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.background,
@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.regular,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
   },
   cancelButton: {

@@ -6,6 +6,7 @@ import bedtimeHabitsService from './bedtimeHabitsService';
 import syncAttemptTracker from './syncAttemptTracker';
 import { supabase } from './supabase';
 import { formatDateForDB } from '../utils/dateHelpers';
+import insightsService from './insightsService';
 
 const LAST_SYNC_STORAGE_KEY = 'sleepSyncLastSuccessAt';
 
@@ -267,6 +268,14 @@ class SleepSyncService {
     const todayInSaved = savedRecords.some(r => r.date === today);
     if (!todayInSaved) {
       await syncAttemptTracker.recordAttempt({ date: today, outcome: 'success' });
+    }
+
+    if (savedRecords.length > 0) {
+      try {
+        insightsService.notifyInsightsUnderlyingDataChanged({ warmupDelayMs: 120 });
+      } catch (_e) {
+        /* non-fatal */
+      }
     }
 
     return {

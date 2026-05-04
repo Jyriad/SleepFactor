@@ -27,7 +27,7 @@ import {
 import { useSplash } from '../contexts/SplashContext';
 import { colors } from '../constants/colors';
 import { applyAndroidStatusBarForLightScreen } from '../utils/androidStatusBar';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from '../constants';
 import Button from '../components/Button';
 import BannerLogoLight from '../assets/BannerLogoLight.svg';
 
@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   toggleContainer: {
     flexDirection: 'row',
     backgroundColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: 4,
     marginBottom: spacing.regular,
   },
@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.md,
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: BUTTON_SEGMENT_INNER_RADIUS,
   },
   activeToggle: {
     backgroundColor: colors.primary,
@@ -376,7 +376,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     paddingRight: 50, // Space for eye icon

@@ -6,7 +6,9 @@ Sends a welcome email via Resend when someone joins the beta waitlist. Triggered
 
 - **RESEND_API_KEY** (required) – Your Resend API key.
 - **RESEND_FROM_EMAIL** (optional) – Sender address, e.g. `SleepFactor <hello@yourdomain.com>`. Defaults to `SleepFactor <onboarding@resend.dev>` if not set.
-- **RESEND_LOGO_URL** (optional) – Full URL to the logo image shown in the email header. Defaults to `https://www.sleepfactor.app/logo.png`.
+- **RESEND_SITE_URL** (optional) – Canonical website URL used for links in the email. Defaults to `https://www.sleepfactor.app`.
+- **RESEND_LOGO_URL** (optional) – Full URL to the wordmark logo shown in the email header. Defaults to `${RESEND_SITE_URL}/logo.png`.
+- **RESEND_ICON_URL** (optional) – Full URL to the app icon shown in the email header. Defaults to `${RESEND_SITE_URL}/favicon.svg`.
 
 ## Create the Database Webhook (one-time, in Dashboard)
 

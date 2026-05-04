@@ -3,5 +3,5 @@ export * from './colors';
 export * from './fonts';
 export * from './typography';
 export * from './spacing';
-export { buttonStyles } from './buttonStyles';
+export { buttonStyles, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from './buttonStyles';
 

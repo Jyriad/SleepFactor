@@ -23,7 +23,7 @@ export default function OnboardingStepLayout({
   nextLabel = 'Next',
   showSkip = true,
   nextLoading = false,
-  contentPaddingBottom = 112,
+  contentPaddingBottom = 112 + spacing.onboardingFooterExtraBottom,
 }) {
   const progress = totalSteps > 0 ? step / totalSteps : 0;
   const route = useRoute();
@@ -73,7 +73,12 @@ export default function OnboardingStepLayout({
           ) : null}
         </View>
       </View>
-      {title ? <Text style={styles.title}>{title}</Text> : null}
+      {title != null &&
+        (typeof title === 'string' ? (
+          <Text style={styles.title}>{title}</Text>
+        ) : (
+          <View style={styles.titleContainer}>{title}</View>
+        ))}
       <View style={[styles.content, { paddingBottom: contentPaddingBottom }]}>{children}</View>
       <View style={styles.footer}>
         {onBack ? (
@@ -128,6 +133,9 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.lg,
   },
+  titleContainer: {
+    marginBottom: spacing.lg,
+  },
   content: {
     flex: 1,
   },
@@ -139,7 +147,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.regular,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   backButton: {
     paddingVertical: spacing.md,

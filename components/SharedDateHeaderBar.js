@@ -43,7 +43,6 @@ const SharedDateHeaderBar = () => {
             loggedDates={ctx.loggedDates}
             datesWithUnsavedChanges={ctx.datesWithUnsavedChanges}
             leftElement={backButton}
-            showTodayButton={!isHabitLogging}
           />
         </View>
       </View>

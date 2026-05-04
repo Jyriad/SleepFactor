@@ -10,8 +10,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import consumptionOptionsService from '../services/consumptionOptionsService';
+import insightsService from '../services/insightsService';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
@@ -207,8 +208,8 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           onConflict: 'user_id,habit_id,date',
         });
 
-      if (logError) {
-      } else {
+      if (!logError) {
+        insightsService.notifyInsightsUnderlyingDataChanged();
       }
 
     } catch (error) {
@@ -522,7 +523,7 @@ const styles = StyleSheet.create({
   },
   modalServingButton: {
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.sm,
     alignItems: 'center',
     minWidth: 60,
@@ -553,7 +554,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     padding: spacing.md,
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -696,7 +697,7 @@ const styles = StyleSheet.create({
   quickTimeButton: {
     flex: 1,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -715,7 +716,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.regular,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
   },
   cancelButton: {
@@ -752,7 +753,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   menuOptionText: {
     fontSize: typography.sizes.body,
@@ -794,7 +795,7 @@ const styles = StyleSheet.create({
   amountInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     fontSize: typography.sizes.body,

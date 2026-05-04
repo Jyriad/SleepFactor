@@ -65,7 +65,6 @@ const ScrollableDateHeaderBar = ({
           datesWithUnsavedChanges={ctx.datesWithUnsavedChanges}
           leftElement={backButton}
           rightElement={rightElement}
-          showTodayButton={!isHabitLogging}
           onExpandChange={handleExpandChange}
           onChromeHeightChange={setDateHeaderChromeHeight}
           sleepStripRefreshKey={sleepStripRefreshKey}

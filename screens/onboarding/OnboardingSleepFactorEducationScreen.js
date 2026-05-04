@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   scroll: {
-    paddingBottom: 120,
+    paddingBottom: 120 + spacing.onboardingFooterExtraBottom,
   },
   headerRow: {
     flexDirection: 'row',
@@ -147,7 +147,8 @@ const styles = StyleSheet.create({
     right: spacing.xl,
     bottom: 0,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   btn: {
     alignSelf: 'stretch',

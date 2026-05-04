@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTutorialOptional } from '../contexts/TutorialContext';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
     backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   skipText: {
     color: colors.white,
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   modalBackdrop: {
     flex: 1,
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     backgroundColor: colors.primary,
     paddingVertical: spacing.sm,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
   },
   toastBtnText: {

@@ -12,7 +12,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import HabitToggle from './HabitToggle';
 import DrugHabitInput from './DrugHabitInput';
 import QuickConsumptionInput from './QuickConsumptionInput';
@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
   numericInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     fontSize: typography.sizes.body,
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
   textInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     fontSize: typography.sizes.body,
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.regular,
     backgroundColor: colors.background,

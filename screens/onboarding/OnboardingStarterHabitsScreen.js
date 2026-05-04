@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
 import { colors } from '../../constants/colors';
-import { typography, spacing } from '../../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import Button from '../../components/Button';
 import { Ionicons } from '@expo/vector-icons';
 import OnboardingSignOutLink from './OnboardingSignOutLink';
@@ -13,6 +13,7 @@ import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { createStarterHabits } from '../../services/onboardingStarterHabitsService';
 import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
 import { supabase } from '../../services/supabase';
+import { requestHabitsRefresh } from '../../services/habitsRefreshTrigger';
 import { trackOnboardingStarterHabitsSaved } from '../../services/onboardingAnalytics';
 
 export default function OnboardingStarterHabitsScreen({ navigation }) {
@@ -25,6 +26,7 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
   const [customHabits, setCustomHabits] = useState([]);
   const [customHabitsLoading, setCustomHabitsLoading] = useState(true);
   const [scrollToCustomAfterAdd, setScrollToCustomAfterAdd] = useState(false);
+  const [removingCustomId, setRemovingCustomId] = useState(null);
   const scrollRef = useRef(null);
 
   const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingStarterHabits');
@@ -65,6 +67,29 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
     });
     setScrollToCustomAfterAdd(false);
   }, [scrollToCustomAfterAdd, customHabitsLoading, customHabits.length]);
+
+  const removeCustomHabit = useCallback(
+    async (habit) => {
+      if (!user?.id || removingCustomId) return;
+      setRemovingCustomId(habit.id);
+      try {
+        const { error } = await supabase
+          .from('habits')
+          .delete()
+          .eq('id', habit.id)
+          .eq('user_id', user.id)
+          .eq('is_custom', true);
+        if (error) throw error;
+        requestHabitsRefresh();
+        await loadCustomHabits();
+      } catch (e) {
+        Alert.alert("Couldn't remove habit", e?.message || 'Please try again.');
+      } finally {
+        setRemovingCustomId(null);
+      }
+    },
+    [user?.id, removingCustomId, loadCustomHabits],
+  );
 
   const onAddHabit = () => {
     navigation.navigate('OnboardingAddHabit', {
@@ -119,18 +144,18 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
         exercise_on: exercise,
         last_meal_on: lastMeal,
       });
-      navigation.navigate('OnboardingSubjectiveMeasures');
+      navigation.navigate('OnboardingHabitTypes');
     } finally {
       setLoading(false);
     }
   };
 
-  const renderAddIcon = (selected, onPress) => (
+  const renderAddIcon = (selected, onPress, accessibilityLabelWhenSelected = 'Added') => (
     <TouchableOpacity
       onPress={onPress}
       style={[styles.addIconBtn, selected && styles.addIconBtnSelected]}
       accessibilityRole="button"
-      accessibilityLabel={selected ? 'Added' : 'Add habit'}
+      accessibilityLabel={selected ? accessibilityLabelWhenSelected : 'Add habit'}
     >
       <Ionicons
         name={selected ? 'checkmark-circle' : 'add-circle-outline'}
@@ -151,11 +176,7 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
         </View>
         <Text style={styles.title}>Choose what to track</Text>
         <Text style={styles.body}>
-          Alcohol and caffeine are two of the biggest levers on sleep for many people. Below are more common
-          habits. Tap the plus to add any that you want to track.
-        </Text>
-        <Text style={styles.subheading}>
-          Start with these common factors, or create your own.
+          Below are more common habits. Tap the plus to add any that you want to track, or create your own.
         </Text>
 
         <View style={[styles.row, caffeine && styles.rowSelected]}>
@@ -173,7 +194,7 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
           {renderAddIcon(alcohol, () => setAlcohol((v) => !v))}
         </View>
 
-        <View style={[styles.row, styles.rowDivider, exercise && styles.rowSelected]}>
+        <View style={[styles.row, exercise && styles.rowSelected]}>
           <View>
             <Text style={styles.habitName}>Exercise</Text>
             <Text style={styles.hint}>Binary</Text>
@@ -194,7 +215,7 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
           </View>
         ) : customHabits.length > 0 ? (
           customHabits.map((h) => (
-            <View key={h.id} style={styles.row}>
+            <View key={h.id} style={[styles.row, styles.rowSelected]}>
               <View>
                 <View style={styles.habitNameRow}>
                   <Text style={styles.habitName}>{h.name}</Text>
@@ -204,9 +225,15 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
                 </View>
                 <Text style={styles.hint}>{h.type === 'numeric' ? 'Number' : h.type === 'time' ? 'Time' : 'Yes / No'}</Text>
               </View>
-              <View style={styles.addIconBtnSelected}>
-                <Ionicons name="add-circle" size={28} color={colors.success} />
-              </View>
+              {removingCustomId === h.id ? (
+                <View style={[styles.addIconBtn, styles.addIconBtnSelected]} accessibilityLabel="Removing habit">
+                  <ActivityIndicator size="small" color={colors.success} />
+                </View>
+              ) : (
+                renderAddIcon(true, () => {
+                  void removeCustomHabit(h);
+                }, 'Remove habit')
+              )}
             </View>
           ))
         ) : null}
@@ -230,7 +257,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   scroll: {
-    paddingBottom: 180,
+    paddingBottom: 180 + spacing.onboardingFooterExtraBottom,
   },
   headerRow: {
     flexDirection: 'row',
@@ -255,11 +282,6 @@ const styles = StyleSheet.create({
     lineHeight: typography.lineHeights.body,
     marginBottom: spacing.lg,
   },
-  subheading: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -270,11 +292,6 @@ const styles = StyleSheet.create({
   },
   rowSelected: {
     backgroundColor: colors.success + '10',
-  },
-  rowDivider: {
-    marginTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
   habitName: {
     fontSize: typography.sizes.body,
@@ -293,7 +310,7 @@ const styles = StyleSheet.create({
   customTag: {
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     backgroundColor: colors.primary + '1A',
     borderWidth: 1,
     borderColor: colors.primary + '40',
@@ -313,7 +330,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     backgroundColor: colors.cardBackground,
   },
   addBtnText: {
@@ -334,7 +351,8 @@ const styles = StyleSheet.create({
     right: spacing.xl,
     bottom: 0,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
     backgroundColor: colors.background,
   },
   btn: {

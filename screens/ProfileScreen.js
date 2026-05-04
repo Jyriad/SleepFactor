@@ -39,7 +39,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { signOut } from '../services/auth';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import Button from '../components/Button';
 import NavigationCard from '../components/NavigationCard';
 import AuthProviderBadges from '../components/AuthProviderBadges';
@@ -49,6 +49,7 @@ import sleepSyncService from '../services/sleepSyncService';
 import sleepDataService from '../services/sleepDataService';
 import habitReminderNotifications from '../services/habitReminderNotifications';
 import homeCacheService from '../services/homeCacheService';
+import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
@@ -222,6 +223,7 @@ const ProfileScreen = () => {
       }
       await clearConsumptionOptionsDiskCache();
       await homeCacheService.clearForUser(userId);
+      await insightsService.clearInsightsDiskCacheForUser(userId);
     } catch (error) {
     }
   };
@@ -925,7 +927,7 @@ const styles = StyleSheet.create({
   dataSourceLogoWrap: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     backgroundColor: colors.border + '66',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1110,7 +1112,7 @@ const styles = StyleSheet.create({
   reminderTimeModalButton: {
     flex: 1,
     paddingVertical: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1152,7 +1154,7 @@ const styles = StyleSheet.create({
   halfLifeInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     fontSize: typography.sizes.body,
@@ -1169,7 +1171,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -1203,7 +1205,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -1227,7 +1229,7 @@ const styles = StyleSheet.create({
   sensitivityOption: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.xs,
@@ -1303,7 +1305,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
     backgroundColor: colors.primary + '20',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignSelf: 'flex-start',
   },
   openSettingsButtonText: {

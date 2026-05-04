@@ -1,4 +1,5 @@
 import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
+import Constants from 'expo-constants';
 import { Mixpanel } from 'mixpanel-react-native';
 
 const TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN || '';
@@ -14,6 +15,51 @@ function analyticsLog(message, extra) {
   if (!ANALYTICS_DEBUG) return;
   void message;
   void extra;
+}
+
+/** Matches Profile dev detection: dev client / bundle id `.dev` / dev display names */
+function getAnalyticsEnvironment() {
+  const appName = Constants.expoConfig?.name;
+  const bundleId = Constants.expoConfig?.ios?.bundleIdentifier || Constants.expoConfig?.android?.package;
+  const isDev =
+    bundleId?.includes('.dev') ||
+    appName === 'Dev SleepFactor' ||
+    appName === 'SleepFactor Dev' ||
+    (typeof __DEV__ !== 'undefined' && __DEV__);
+  return isDev ? 'Dev' : 'Prod';
+}
+
+/**
+ * Marketing semver string plus numeric form for filtering (e.g. 1.328). Float is imperfect for semver
+ * (1.10 vs 1.9) — use `app_version` string when order matters.
+ */
+function getAppVersionAnalyticsProps() {
+  const native = Constants.nativeApplicationVersion;
+  const fromConfig = Constants.expoConfig?.version;
+  const raw = String(native || fromConfig || '0').trim();
+  const app_version = raw.split(/\s+/)[0];
+  const app_version_decimal = parseFloat(app_version);
+  const out = {
+    app_version,
+    ...(Number.isFinite(app_version_decimal) ? { app_version_decimal } : {}),
+  };
+  return out;
+}
+
+function buildAnalyticsSuperProperties() {
+  return {
+    Environment: getAnalyticsEnvironment(),
+    ...getAppVersionAnalyticsProps(),
+  };
+}
+
+function registerAnalyticsSuperProperties(mp) {
+  if (!mp?.registerSuperProperties) return;
+  try {
+    mp.registerSuperProperties(buildAnalyticsSuperProperties());
+  } catch (_) {
+    /* native race or web */
+  }
 }
 
 /**
@@ -50,11 +96,12 @@ export async function initMixpanel() {
     const mp = new Mixpanel(TOKEN, trackAutomaticEvents, useNative);
     await mp.init(
       false,
-      { data_source: 'sleepfactor-rn' },
+      { data_source: 'sleepfactor-rn', ...buildAnalyticsSuperProperties() },
       API_HOST,
       false
     );
     mixpanelInstance = mp;
+    registerAnalyticsSuperProperties(mp);
     analyticsLog('Initialized analytics client.', { apiHost: API_HOST, useNative });
 
     if (isMixpanelSessionReplayNativeAvailable()) {
@@ -157,5 +204,6 @@ export async function resetAnalytics() {
   const mp = await initMixpanel();
   if (!mp) return;
   mp.reset();
+  registerAnalyticsSuperProperties(mp);
   analyticsLog('Reset analytics identity.');
 }

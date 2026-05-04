@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
 const CORE_SLEEP_EXPLANATION = `Core sleep is the first part of your night that you almost always get. The app uses your own sleep history to work out a length (the 20th percentile), so about 80% of your nights are at least that long.
 
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     alignItems: 'center',
   },
   doneButtonText: {

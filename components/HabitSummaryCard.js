@@ -5,7 +5,7 @@ import { typography, spacing } from '../constants';
 import { formatDateTitle } from '../utils/dateHelpers';
 import Button from './Button';
 
-const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading }) => {
+const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading, buttonStyle }) => {
   const dateTitle = formatDateTitle(date);
   const hasHabits = habitCount > 0;
 
@@ -30,7 +30,7 @@ const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading 
         title={loading ? '...' : "Log Habits"}
         onPress={onPress}
         size="compact"
-        style={styles.button}
+        style={[styles.button, buttonStyle]}
         disabled={loading}
       />
     </View>

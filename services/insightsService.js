@@ -2,6 +2,15 @@ import { supabase } from './supabase';
 import dataQualityService from './dataQualityService';
 import healthMetricsService from './healthMetricsService';
 import bedtimeHabitsService from './bedtimeHabitsService';
+import {
+  INSIGHTS_DISK_SCHEMA_VERSION,
+  bumpInsightsInvalidationGeneration,
+  clearInsightsDiskBlobForUser,
+  getInsightsInvalidationGeneration,
+  isInsightsDiskEnvelopeValid,
+  loadInsightsDiskBlob,
+  saveInsightsDiskBlob,
+} from './insightsPersistentCache';
 import { addCalendarDay } from '../utils/dateHelpers';
 import {
   calculateMedian,
@@ -15,6 +24,8 @@ import {
   calculateCorrelationPValue,
   calculateGroupDifferencePValue
 } from '../utils/statistics';
+import { getCorrelationLabel } from '../utils/insightLabels';
+import { generateBinaryHeadline, generateNumericalHeadline } from '../utils/insightHeadlines';
 
 /** Set true to re-enable Profile toggle + automatic outlier exclusion (dataQualityService unchanged). */
 const AUTO_EXCLUDE_OUTLIERS_ENABLED = false;
@@ -38,6 +49,9 @@ class InsightsService {
     // Recompute inferred bedtime values occasionally so chart data stays aligned with latest calculation rules.
     this._bedtimeBackfillTracker = new Map();
     this._BEDTIME_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+    /** Debounced background full-package recompute after data invalidation */
+    this._warmComputeTimer = null;
+    this._INSIGHTS_WARM_DEFAULT_MS = 550;
   }
 
   async ensureBedtimeConsistencyBackfilled(userId, lookbackDays = 120) {
@@ -49,12 +63,20 @@ class InsightsService {
     this._bedtimeBackfillTracker.set(userId, now);
     try {
       await bedtimeHabitsService.backfillBedtimeHabits(userId, lookbackDays);
-      this._detailedInsightsCache.clear();
-      this._taggedInsightsCache = null;
-      this._homeSummaryCache = null;
+      this._bumpInsightsDataRevision();
     } catch (_error) {
       // Keep insights loading even if backfill fails.
     }
+  }
+
+  /**
+   * Drops in-memory caches and bumps on-disk revision so persisted insights are rebuilt.
+   */
+  _bumpInsightsDataRevision() {
+    this._homeSummaryCache = null;
+    this._taggedInsightsCache = null;
+    this._detailedInsightsCache.clear();
+    bumpInsightsInvalidationGeneration().catch(() => {});
   }
 
   /**
@@ -1248,23 +1270,118 @@ class InsightsService {
    * tracking so that Insights and Home show up-to-date habit lists on next load.
    */
   invalidateHomeSummaryCache() {
-    this._homeSummaryCache = null;
-    this._taggedInsightsCache = null;
+    this._bumpInsightsDataRevision();
+    this._scheduleInsightsWarmRecompute(this._INSIGHTS_WARM_DEFAULT_MS);
   }
 
   /**
    * Clear the tagged insights cache (Home + Insights tab). Call when data may have changed.
    */
   invalidateTaggedInsightsCache() {
-    this._taggedInsightsCache = null;
+    this._bumpInsightsDataRevision();
+    this._scheduleInsightsWarmRecompute(this._INSIGHTS_WARM_DEFAULT_MS);
   }
 
   /**
-   * Run all 12 insight combinations (6 metrics × absolute/percentage), no core sleep.
-   * Returns flattened array with each insight tagged with metricKey, metricLabel, analysisType.
+   * Call after logout (or delete account). Removes persisted snapshots for this user.
+   */
+  async clearInsightsDiskCacheForUser(userId) {
+    if (this._warmComputeTimer != null) {
+      clearTimeout(this._warmComputeTimer);
+      this._warmComputeTimer = null;
+    }
+    await clearInsightsDiskBlobForUser(userId);
+  }
+
+  /**
+   * Call after any write that affects habit/sleep/subjective insights data.
+   * @param {{ warmupDelayMs?: number }} options - Delay before background precompute (0 = asap). Rapid logs debounce via timer reset.
+   */
+  notifyInsightsUnderlyingDataChanged(options = {}) {
+    this._bumpInsightsDataRevision();
+    const delay =
+      options && options.warmupDelayMs != null
+        ? options.warmupDelayMs
+        : this._INSIGHTS_WARM_DEFAULT_MS;
+    this._scheduleInsightsWarmRecompute(delay);
+  }
+
+  _scheduleInsightsWarmRecompute(delayMs) {
+    if (this._warmComputeTimer != null) {
+      clearTimeout(this._warmComputeTimer);
+      this._warmComputeTimer = null;
+    }
+    const run = () => {
+      this._warmComputeTimer = null;
+      void this._runInsightsWarmCompute();
+    };
+    if (delayMs <= 0) {
+      run();
+      return;
+    }
+    this._warmComputeTimer = setTimeout(run, delayMs);
+  }
+
+  async _runInsightsWarmCompute() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
+      if (!userId) return;
+      await this.getInsightsScreenBundle(userId);
+    } catch (_e) {
+      // Non-fatal; next screen open recomputes
+    }
+  }
+
+  async _mergePersistInsightsEnvelope(userId, partial) {
+    try {
+      if (!userId) return;
+      const gen = await getInsightsInvalidationGeneration();
+      const existing = await loadInsightsDiskBlob(userId);
+      const base =
+        existing &&
+        existing.userId === userId &&
+        existing.savedInvalidationGeneration === gen
+          ? { ...existing }
+          : {
+              schemaVersion: INSIGHTS_DISK_SCHEMA_VERSION,
+              userId,
+              savedInvalidationGeneration: gen,
+              tagged: [],
+              tabGroups: null,
+              subjectiveGroups: undefined,
+              savedAt: Date.now(),
+            };
+
+      const merged = {
+        ...base,
+        ...partial,
+        schemaVersion: INSIGHTS_DISK_SCHEMA_VERSION,
+        userId,
+        savedInvalidationGeneration: gen,
+        savedAt: Date.now(),
+      };
+
+      const taggedProvided = Object.prototype.hasOwnProperty.call(partial, 'tagged');
+      const tabProvided = Object.prototype.hasOwnProperty.call(partial, 'tabGroups');
+      const subjProvided = Object.prototype.hasOwnProperty.call(partial, 'subjectiveGroups');
+
+      if (taggedProvided && !tabProvided && !subjProvided) {
+        merged.tabGroups = null;
+        merged.subjectiveGroups = undefined;
+      }
+
+      await saveInsightsDiskBlob(userId, merged);
+    } catch (_e) {
+      // ignore
+    }
+  }
+
+  /**
+   * Fetches habit & sleep sources and builds the full tagged insight list (all metrics × runs).
    * @private
    */
-  async _getAllTaggedInsightsForHome(userId) {
+  async _fetchInsightsSourcesAndTagged(userId) {
     await this.ensureBedtimeConsistencyBackfilled(userId);
 
     const dateRange = this.calculateDateRange('all');
@@ -1276,7 +1393,7 @@ class InsightsService {
       this.getActiveHabits(userId),
       this.getHabitLogs(userId, dateRange.startDate, dateRange.endDate, false),
       this.getDrugLevels(userId, dateRange.startDate, dateRange.endDate),
-      this.getSleepData(userId, dateRange.startDate, dateRange.endDate, false)
+      this.getSleepData(userId, dateRange.startDate, dateRange.endDate, false),
     ]);
 
     const tagged = [];
@@ -1308,8 +1425,87 @@ class InsightsService {
         }
       }
     }
+
+    return { habits, habitLogs, drugLevels, sleepData, tagged };
+  }
+
+  /**
+   * Per-habit rows for Insights tab (progress bars + significance rows).
+   * @private
+   */
+  _assembleInsightsTabGroupRows(habits, habitLogs, drugLevels, sleepData, tagged) {
+    const sleepByDate = {};
+    (sleepData || []).forEach((s) => {
+      sleepByDate[s.date] = s;
+    });
+
+    const logsByHabit = this.groupLogsByHabit(habitLogs);
+    const drugLevelsByHabit = this.groupDrugLevelsByHabit(drugLevels);
+
+    const groups = (habits || []).map((habit) => {
+      const habitData =
+        habit.type === 'quick_consumption'
+          ? drugLevelsByHabit[habit.id] || []
+          : logsByHabit[habit.id] || [];
+      const placeholder = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
+
+      const habitTagged = tagged.filter((t) => t.habit && t.habit.id === habit.id);
+      const significantAbsolute = habitTagged.filter(
+        (t) => t.analysisType === 'absolute' && (t.confidenceLevel || 'none') !== 'none'
+      );
+      const significantPercentage = habitTagged.filter(
+        (t) => t.analysisType === 'percentage' && (t.confidenceLevel || 'none') !== 'none'
+      );
+      const analyzedAbsolute = habitTagged.some((t) => t.analysisType === 'absolute');
+      const analyzedPercentage = habitTagged.some((t) => t.analysisType === 'percentage');
+
+      const ready = !!placeholder.readyForAnalysis;
+      const noLinkAbsolute =
+        ready && analyzedAbsolute && significantAbsolute.length === 0;
+      const noLinkPercentage =
+        ready && analyzedPercentage && significantPercentage.length === 0;
+
+      return {
+        habitId: habit.id,
+        habitName: habit.name || 'Habit',
+        habit,
+        timesLogged: placeholder.totalDataPoints ?? habitData.length,
+        progress: {
+          isBinary: habit.type === 'binary',
+          pairedDays: placeholder.daysWithPairedData,
+          binaryYes: placeholder.binaryYesPaired,
+          binaryNo: placeholder.binaryNoPaired,
+          targetNumerical: this.MIN_DATA_POINTS,
+          targetBinaryYes: this.MIN_BINARY_YES,
+          targetBinaryNo: this.MIN_BINARY_NO,
+          ready,
+          needsMoreData: placeholder.needsMoreData,
+        },
+        insightsAbsolute: significantAbsolute,
+        insightsPercentage: significantPercentage,
+        noLinkAbsolute,
+        noLinkPercentage,
+      };
+    });
+
+    groups.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
+
+    return groups.filter((g) => {
+      if (!healthMetricsService.isHealthMetricHabit(g.habit)) return true;
+      return (g.timesLogged || 0) > 0;
+    });
+  }
+
+  /**
+   * Run all 12 insight combinations (6 metrics × absolute/percentage), no core sleep.
+   * Returns flattened array with each insight tagged with metricKey, metricLabel, analysisType.
+   * @private
+   */
+  async _getAllTaggedInsightsForHome(userId) {
+    const { tagged } = await this._fetchInsightsSourcesAndTagged(userId);
     const now = Date.now();
     this._taggedInsightsCache = { userId, tagged, timestamp: now };
+    await this._mergePersistInsightsEnvelope(userId, { tagged });
     return tagged;
   }
 
@@ -1334,8 +1530,114 @@ class InsightsService {
   }
 
   _getStrengthLabel(confidenceLevel) {
-    const map = { high: 'Strong correlation', medium: 'Moderate correlation', low: 'Limited correlation', none: 'Not enough data' };
-    return map[confidenceLevel] || map.none;
+    return getCorrelationLabel(confidenceLevel);
+  }
+
+  _insightStrengthComparable(insight) {
+    const confidenceOrder = { high: 0, medium: 1, low: 2, none: 3 };
+    const impactOrder = { large: 0, moderate: 1, small: 2, minimal: 3 };
+    const effect =
+      insight.type === 'binary'
+        ? Math.abs((insight.yesStats?.median ?? 0) - (insight.noStats?.median ?? 0))
+        : Math.abs(insight.correlation ?? 0);
+    return {
+      confidence: confidenceOrder[insight.confidenceLevel] ?? 3,
+      impact: impactOrder[insight.impactLevel ?? 'minimal'] ?? 3,
+      pValue: (insight.pValue != null && !isNaN(insight.pValue)) ? Number(insight.pValue) : 1,
+      effect,
+    };
+  }
+
+  /**
+   * Prefer stronger evidence, then larger effect (|r| or median gap for binary).
+   * @returns negative if a wins, positive if b wins, 0 if equal
+   */
+  _compareInsightsStronger(a, b) {
+    const A = this._insightStrengthComparable(a);
+    const B = this._insightStrengthComparable(b);
+    if (A.confidence !== B.confidence) return A.confidence - B.confidence;
+    if (A.impact !== B.impact) return A.impact - B.impact;
+    if (A.pValue !== B.pValue) return A.pValue - B.pValue;
+    return B.effect - A.effect;
+  }
+
+  _capitalizeHeadline(text) {
+    if (text == null || typeof text !== 'string' || text.length === 0) return text;
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  _headlineForHomeMetricRow(insight, metricMeta) {
+    const sleepMetric = {
+      key: metricMeta.key,
+      label: metricMeta.label,
+      unit: metricMeta.unit,
+    };
+    const isPct = insight.analysisType === 'percentage';
+    const habit = insight.habit || { name: 'Habit', unit: '' };
+
+    if (insight.type === 'binary') {
+      const raw = generateBinaryHeadline(
+        habit,
+        insight.yesStats,
+        insight.noStats,
+        sleepMetric,
+        insight.yesDataPoints ?? 0,
+        insight.noDataPoints ?? 0,
+        isPct,
+        insight.confidenceLevel
+      );
+      return this._capitalizeHeadline(raw);
+    }
+
+    const dataPoints = (insight.dataPoints || []).map((dp) => ({
+      x: dp.habitValue ?? dp.x,
+      y: dp.sleepValue ?? dp.y,
+    }));
+
+    const raw = generateNumericalHeadline(
+      habit,
+      insight.correlation,
+      insight.correlationStrength,
+      insight.trendDirection,
+      sleepMetric,
+      dataPoints,
+      isPct,
+      insight.confidenceLevel
+    );
+    return this._capitalizeHeadline(raw);
+  }
+
+  /**
+   * One row per sleep metric: strongest correlated habit headline for the homepage card.
+   */
+  _buildHomeMetricRowsFromTagged(tagged, metricsOrder) {
+    const order = metricsOrder || this.getAvailableSleepMetrics();
+    const correlated = (tagged || []).filter((i) => (i.confidenceLevel || 'none') !== 'none');
+    const byMetric = new Map();
+    for (const ins of correlated) {
+      const k = ins.metricKey;
+      const hid = ins.habit?.id;
+      if (!k || !hid) continue;
+      if (!byMetric.has(k)) byMetric.set(k, []);
+      byMetric.get(k).push(ins);
+    }
+
+    const rows = [];
+    for (const m of order) {
+      const candidates = byMetric.get(m.key);
+      if (!candidates?.length) continue;
+      const best = [...candidates].sort((a, b) => this._compareInsightsStronger(a, b))[0];
+      rows.push({
+        metricKey: m.key,
+        metricLabel: m.label,
+        headline: this._headlineForHomeMetricRow(best, m),
+        habitId: best.habit.id,
+        habitName: best.habit.name,
+        preferredAnalysisMode: best.analysisType === 'percentage' ? 'percentage' : 'absolute',
+        impactDirection: best.direction === 'negative' ? 'negative' : 'positive',
+      });
+    }
+    return rows;
   }
 
   _buildHomeSummaryFromTagged(tagged, limit, metricsOrder) {
@@ -1364,26 +1666,9 @@ class InsightsService {
       impactLevel: insight.impactLevel,
       ...insight,
     }));
-    const correlated = tagged.filter((i) => (i.confidenceLevel || 'none') !== 'none');
-    const byMetric = {};
-    for (const insight of correlated) {
-      const key = insight.metricKey;
-      const habitId = insight.habit?.id;
-      if (!key || !habitId) continue;
-      if (!byMetric[key]) byMetric[key] = { positive: new Set(), negative: new Set() };
-      if (insight.direction === 'positive') byMetric[key].positive.add(habitId);
-      if (insight.direction === 'negative') byMetric[key].negative.add(habitId);
-    }
     const order = metricsOrder || this.getAvailableSleepMetrics();
-    const summaryByMetric = order
-      .map((m) => ({
-        metricKey: m.key,
-        metricLabel: m.label,
-        positiveCount: (byMetric[m.key]?.positive?.size ?? 0),
-        negativeCount: (byMetric[m.key]?.negative?.size ?? 0),
-      }))
-      .filter((row) => row.positiveCount > 0 || row.negativeCount > 0);
-    return { topInsights, summaryByMetric };
+    const homeMetricRows = this._buildHomeMetricRowsFromTagged(tagged, order);
+    return { topInsights, homeMetricRows };
   }
 
   _buildGroupedFromTagged(tagged) {
@@ -1424,8 +1709,8 @@ class InsightsService {
    * Uses cached result if fresh (5 min TTL); optionally runs background refresh and calls onStaleRefresh when done.
    * @param {string} userId - User ID
    * @param {number} limit - Max number of top insights (default 10)
-   * @param {{ onStaleRefresh?: (result: { topInsights, summaryByMetric }) => void }} opts - If cache was used, onStaleRefresh is called when background refresh completes
-   * @returns {Promise<{ topInsights: Array, summaryByMetric: Array }>}
+   * @param {{ onStaleRefresh?: (result: { topInsights, homeMetricRows }) => void }} opts - If cache was used, onStaleRefresh is called when background refresh completes
+   * @returns {Promise<{ topInsights: Array, homeMetricRows: Array<{ metricKey, metricLabel, headline, habitId, habitName, preferredAnalysisMode }> }>}
    */
   async getHomeInsightsWithSummary(userId, limit = 10, opts = {}) {
     const now = Date.now();
@@ -1447,6 +1732,15 @@ class InsightsService {
         }).catch(() => {});
       }
       return result;
+    }
+
+    const gen = await getInsightsInvalidationGeneration();
+    const diskEnv = await loadInsightsDiskBlob(userId);
+    if (diskEnv && isInsightsDiskEnvelopeValid(diskEnv, userId, gen)) {
+      const taggedDisk = diskEnv.tagged;
+      this._taggedInsightsCache = { userId, tagged: taggedDisk, timestamp: Date.now() };
+      const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
+      return this._buildHomeSummaryFromTagged(taggedDisk, limit, metricsOrder);
     }
 
     const tagged = await this._getAllTaggedInsightsForHome(userId);
@@ -1478,6 +1772,14 @@ class InsightsService {
         }).catch(() => {});
       }
       return result;
+    }
+
+    const gen = await getInsightsInvalidationGeneration();
+    const diskEnv = await loadInsightsDiskBlob(userId);
+    if (diskEnv && isInsightsDiskEnvelopeValid(diskEnv, userId, gen)) {
+      const taggedDisk = diskEnv.tagged;
+      this._taggedInsightsCache = { userId, tagged: taggedDisk, timestamp: Date.now() };
+      return this._buildGroupedFromTagged(taggedDisk);
     }
 
     const tagged = await this._getAllTaggedInsightsForHome(userId);
@@ -1684,119 +1986,62 @@ class InsightsService {
   }
 
   /**
-   * Progress + per-habit sections for Insights tab: every active habit, significant rows, building / no-link states.
-   * Refreshes tagged insights cache (same payload as home).
+   * Progress + per-habit sections only. Prefer {@link getInsightsScreenBundle} so subjective links share the snapshot.
    */
   async getInsightsTabGroups(userId) {
-    await this.ensureBedtimeConsistencyBackfilled(userId);
+    const { habitGroups } = await this.getInsightsScreenBundle(userId);
+    return habitGroups;
+  }
 
-    const dateRange = this.calculateDateRange('all');
-    const metrics = await this.getAvailableSleepMetricsForUser(userId);
-    const runsAbsolute = { useEfficiency: false, useCoreSleep: false };
-    const runsPercentage = { useEfficiency: true, useCoreSleep: false };
+  /**
+   * Single load for the Insights tab: habit sections plus subjective correlations. Hydrates disk when valid.
+   */
+  async getInsightsScreenBundle(userId) {
+    const gen = await getInsightsInvalidationGeneration();
+    const diskEnv = await loadInsightsDiskBlob(userId);
 
-    const [habits, habitLogs, drugLevels, sleepData] = await Promise.all([
-      this.getActiveHabits(userId),
-      this.getHabitLogs(userId, dateRange.startDate, dateRange.endDate, false),
-      this.getDrugLevels(userId, dateRange.startDate, dateRange.endDate),
-      this.getSleepData(userId, dateRange.startDate, dateRange.endDate, false),
-    ]);
-
-    const sleepByDate = {};
-    (sleepData || []).forEach((s) => {
-      sleepByDate[s.date] = s;
-    });
-
-    const logsByHabit = this.groupLogsByHabit(habitLogs);
-    const drugLevelsByHabit = this.groupDrugLevelsByHabit(drugLevels);
-
-    const tagged = [];
-    for (const metricInfo of metrics) {
-      for (const options of [runsAbsolute, runsPercentage]) {
-        const { validInsights } = this._computeInsightsFromData(
-          habits,
-          habitLogs,
-          drugLevels,
-          sleepData,
-          metricInfo.key,
-          options.useEfficiency
-        );
-        if (validInsights && validInsights.length) {
-          const analysisType = options.useEfficiency ? 'percentage' : 'absolute';
-          for (const insight of validInsights) {
-            if (!insight.habit || !insight.habit.id) continue;
-            const direction = this._getInsightDirection(insight, metricInfo.key);
-            const strengthLabel = this._getStrengthLabel(insight.confidenceLevel);
-            tagged.push({
-              ...insight,
-              metricKey: metricInfo.key,
-              metricLabel: metricInfo.label,
-              analysisType,
-              direction,
-              strengthLabel,
-            });
-          }
-        }
-      }
+    if (
+      diskEnv &&
+      isInsightsDiskEnvelopeValid(diskEnv, userId, gen) &&
+      Array.isArray(diskEnv.tabGroups) &&
+      Array.isArray(diskEnv.subjectiveGroups)
+    ) {
+      this._taggedInsightsCache = {
+        userId,
+        tagged: diskEnv.tagged,
+        timestamp: Date.now(),
+      };
+      return {
+        habitGroups: { groups: diskEnv.tabGroups },
+        subjectiveData: { groups: diskEnv.subjectiveGroups },
+      };
     }
+
+    const { habits, habitLogs, drugLevels, sleepData, tagged } =
+      await this._fetchInsightsSourcesAndTagged(userId);
+
+    const filteredGroups = this._assembleInsightsTabGroupRows(
+      habits,
+      habitLogs,
+      drugLevels,
+      sleepData,
+      tagged
+    );
 
     this._taggedInsightsCache = { userId, tagged, timestamp: Date.now() };
 
-    const groups = (habits || []).map((habit) => {
-      const habitData =
-        habit.type === 'quick_consumption'
-          ? drugLevelsByHabit[habit.id] || []
-          : logsByHabit[habit.id] || [];
-      const placeholder = this.createPlaceholderInsight(habit, habitData, sleepByDate, sleepData);
+    const subjectiveData = await this.getSubjectiveSleepMetricLinks(userId);
 
-      const habitTagged = tagged.filter((t) => t.habit && t.habit.id === habit.id);
-      const significantAbsolute = habitTagged.filter(
-        (t) => t.analysisType === 'absolute' && (t.confidenceLevel || 'none') !== 'none'
-      );
-      const significantPercentage = habitTagged.filter(
-        (t) => t.analysisType === 'percentage' && (t.confidenceLevel || 'none') !== 'none'
-      );
-      const analyzedAbsolute = habitTagged.some((t) => t.analysisType === 'absolute');
-      const analyzedPercentage = habitTagged.some((t) => t.analysisType === 'percentage');
-
-      const ready = !!placeholder.readyForAnalysis;
-      const noLinkAbsolute =
-        ready && analyzedAbsolute && significantAbsolute.length === 0;
-      const noLinkPercentage =
-        ready && analyzedPercentage && significantPercentage.length === 0;
-
-      return {
-        habitId: habit.id,
-        habitName: habit.name || 'Habit',
-        habit,
-        timesLogged: placeholder.totalDataPoints ?? habitData.length,
-        progress: {
-          isBinary: habit.type === 'binary',
-          pairedDays: placeholder.daysWithPairedData,
-          binaryYes: placeholder.binaryYesPaired,
-          binaryNo: placeholder.binaryNoPaired,
-          targetNumerical: this.MIN_DATA_POINTS,
-          targetBinaryYes: this.MIN_BINARY_YES,
-          targetBinaryNo: this.MIN_BINARY_NO,
-          ready,
-          needsMoreData: placeholder.needsMoreData,
-        },
-        insightsAbsolute: significantAbsolute,
-        insightsPercentage: significantPercentage,
-        noLinkAbsolute,
-        noLinkPercentage,
-      };
+    await this._mergePersistInsightsEnvelope(userId, {
+      tagged,
+      tabGroups: filteredGroups,
+      subjectiveGroups: subjectiveData.groups,
     });
 
-    groups.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
-
-    // Hide wearable metrics that have never logged (no clutter; manage toggles on Habit management)
-    const filtered = groups.filter((g) => {
-      if (!healthMetricsService.isHealthMetricHabit(g.habit)) return true;
-      return (g.timesLogged || 0) > 0;
-    });
-
-    return { groups: filtered };
+    return {
+      habitGroups: { groups: filteredGroups },
+      subjectiveData,
+    };
   }
 
   /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,16 +12,18 @@ import Constants from 'expo-constants';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import insightsService from '../services/insightsService';
 import BinaryHabitInsight from '../components/BinaryHabitInsight';
 import NumericalHabitInsight from '../components/NumericalHabitInsight';
+import InsightSignalStrengthBars from '../components/InsightSignalStrengthBars';
+import InsightCorrelationPill from '../components/InsightCorrelationPill';
 import {
-  getCorrelationLabelShort,
-  getImpactLabelShort,
-  getCorrelationTagStyle,
+  getImpactSignalBarColors,
+  getImpactStrengthBarCount,
   getImpactTagStyle,
+  getInsightImpactAccessibilityLabel,
 } from '../utils/insightLabels';
 import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
@@ -116,12 +118,22 @@ const InsightsScreen = ({ navigation, route }) => {
   const [expandedRowKey, setExpandedRowKey] = useState(null);
   const [autoExpandedFromRoute, setAutoExpandedFromRoute] = useState(false);
   const sectionListRef = useRef(null);
+  /** Holds target for scrollToLocation retries when the row is not yet measured (long lists / bottom sections). */
+  const pendingMetricScrollRef = useRef(null);
   const headerHeightRef = useRef(100);
 
   const focusedHabitId = route.params?.focusedHabitId;
+  const focusedMetricKey = route.params?.focusedMetricKey;
+  const expandMetricInsight = route.params?.expandMetricInsight === true;
   const openFirstInsight = route.params?.openFirstInsight === true;
   const preferredAnalysisMode = route.params?.preferredAnalysisMode;
   const groups = tabData.groups || [];
+
+  useLayoutEffect(() => {
+    if (expandMetricInsight && focusedMetricKey && focusedHabitId) {
+      setLayoutMode('metric');
+    }
+  }, [expandMetricInsight, focusedMetricKey, focusedHabitId]);
 
   useEffect(() => {
     if (preferredAnalysisMode === 'absolute' || preferredAnalysisMode === 'percentage') {
@@ -136,12 +148,9 @@ const InsightsScreen = ({ navigation, route }) => {
 
   const loadTab = useCallback(() => {
     if (!user?.id) return Promise.resolve();
-    return Promise.all([
-      insightsService.getInsightsTabGroups(user.id),
-      insightsService.getSubjectiveSleepMetricLinks(user.id),
-    ]).then(([habitGroups, subjectiveGroups]) => {
+    return insightsService.getInsightsScreenBundle(user.id).then(({ habitGroups, subjectiveData }) => {
       setTabData(habitGroups);
-      setSubjectiveData(subjectiveGroups);
+      setSubjectiveData(subjectiveData);
     });
   }, [user?.id]);
 
@@ -278,34 +287,118 @@ const InsightsScreen = ({ navigation, route }) => {
     return metricSections.length > 0;
   }, [layoutMode, sections, metricSections]);
 
+  const performPendingMetricScroll = useCallback(() => {
+    const pending = pendingMetricScrollRef.current;
+    const list = sectionListRef.current;
+    if (!pending || !list || pending.sectionIndex < 0) return;
+    try {
+      list.scrollToLocation({
+        sectionIndex: pending.sectionIndex,
+        itemIndex: pending.itemIndex,
+        viewPosition: 0,
+        animated: pending.attempt > 0,
+      });
+    } catch (_e) {
+      /* scrollToLocation can fail if list isn't ready */
+    }
+  }, []);
+
+  const onScrollToIndexFailedMetric = useCallback(
+    (_info) => {
+      const pending = pendingMetricScrollRef.current;
+      if (!pending) return;
+      pending.attempt = (pending.attempt || 0) + 1;
+      if (pending.attempt > 10) {
+        pendingMetricScrollRef.current = null;
+        return;
+      }
+      const delay = Math.min(100 + pending.attempt * 120, 800);
+      setTimeout(() => performPendingMetricScroll(), delay);
+    },
+    [performPendingMetricScroll]
+  );
+
   useEffect(() => {
-    if (loading || !focusedHabitId || !groups.length) return;
+    if (loading || !focusedHabitId || !groups.length) {
+      pendingMetricScrollRef.current = null;
+      return undefined;
+    }
     let sectionIndex = -1;
     let itemIndex = 0;
     if (layoutMode === 'habit') {
       sectionIndex = groups.findIndex((g) => g.habitId === focusedHabitId);
+    } else if (focusedMetricKey) {
+      sectionIndex = metricSections.findIndex((s) => s.metricKey === focusedMetricKey);
+      if (sectionIndex >= 0) {
+        itemIndex = metricSections[sectionIndex].data.findIndex(
+          (d) =>
+            d.rowType === 'insight' &&
+            d.habitId === focusedHabitId &&
+            d.insight?.metricKey === focusedMetricKey
+        );
+        if (itemIndex < 0) itemIndex = 0;
+      }
     } else {
       sectionIndex = metricSections.findIndex((s) =>
         s.data.some((d) => d.habitId === focusedHabitId)
       );
       if (sectionIndex >= 0) {
-        itemIndex = metricSections[sectionIndex].data.findIndex(
-          (d) => d.habitId === focusedHabitId
-        );
+        itemIndex = metricSections[sectionIndex].data.findIndex((d) => d.habitId === focusedHabitId);
         if (itemIndex < 0) itemIndex = 0;
       }
     }
-    if (sectionIndex >= 0 && sectionListRef.current) {
-      setTimeout(() => {
-        sectionListRef.current?.scrollToLocation({
-          sectionIndex,
-          itemIndex,
-          viewPosition: 0,
-          animated: true,
-        });
-      }, 400);
+    if (sectionIndex < 0) {
+      pendingMetricScrollRef.current = null;
+      return undefined;
     }
-  }, [loading, focusedHabitId, groups, layoutMode, metricSections]);
+    pendingMetricScrollRef.current = {
+      sectionIndex,
+      itemIndex,
+      attempt: 0,
+    };
+    const t = setTimeout(() => performPendingMetricScroll(), 450);
+    return () => clearTimeout(t);
+  }, [
+    loading,
+    focusedHabitId,
+    focusedMetricKey,
+    groups,
+    layoutMode,
+    metricSections,
+    performPendingMetricScroll,
+  ]);
+
+  useEffect(() => {
+    if (loading || !expandMetricInsight || !focusedHabitId || !focusedMetricKey || layoutMode !== 'metric') {
+      return undefined;
+    }
+    const section = metricSections.find((s) => s.metricKey === focusedMetricKey);
+    const row = section?.data?.find(
+      (d) =>
+        d.rowType === 'insight' &&
+        d.habitId === focusedHabitId &&
+        d.insight?.metricKey === focusedMetricKey
+    );
+    if (!row) return undefined;
+    setExpandedRowKey(`${focusedHabitId}-${focusedMetricKey}`);
+    const t = setTimeout(() => {
+      navigation.setParams?.({
+        expandMetricInsight: undefined,
+        focusedMetricKey: undefined,
+        focusedHabitId: undefined,
+        openFirstInsight: undefined,
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [
+    loading,
+    expandMetricInsight,
+    focusedHabitId,
+    focusedMetricKey,
+    layoutMode,
+    metricSections,
+    navigation,
+  ]);
 
   useEffect(() => {
     if (loading || autoExpandedFromRoute || !openFirstInsight || expandedRowKey) return;
@@ -330,10 +423,11 @@ const InsightsScreen = ({ navigation, route }) => {
     const rowKey = `${habitId}-${insight.metricKey}`;
     const isExpanded = expandedRowKey === rowKey;
     const isPositive = insight.direction === 'positive';
-    const correlationLabel = getCorrelationLabelShort(insight.confidenceLevel);
-    const impactLabel = getImpactLabelShort(insight.impactLevel || 'minimal', isPositive);
-    const correlationStyle = getCorrelationTagStyle(insight.confidenceLevel);
-    const impactStyle = getImpactTagStyle(insight.impactLevel || 'minimal', isPositive);
+    const confidenceLevel = insight.confidenceLevel;
+    const impactLevel = insight.impactLevel || 'minimal';
+    const impactStyle = getImpactTagStyle(impactLevel, isPositive);
+    const impactBarColors = getImpactSignalBarColors(impactLevel, isPositive);
+    const impactBarFilled = getImpactStrengthBarCount(impactLevel);
     const metricColor = getSleepMetricColor(insight.metricKey);
     const sleepMetricInfo = getMetricInfo(insight.metricKey);
     const firstCell = primaryLabel ?? insight.metricLabel;
@@ -358,21 +452,19 @@ const InsightsScreen = ({ navigation, route }) => {
             >
               {firstCell}
             </Text>
-            <View style={[styles.tagBase, styles.tagCorrelation, { backgroundColor: correlationStyle.backgroundColor }]}>
-              <Text
-                style={[styles.tagTextSmall, styles.tagCorrelationLabel, { color: correlationStyle.color }]}
-                numberOfLines={1}
-              >
-                {correlationLabel}
-              </Text>
-            </View>
+            <InsightCorrelationPill
+              confidenceLevel={confidenceLevel}
+              compact
+              style={styles.tagCorrelation}
+            />
             <View style={[styles.tagBase, styles.tagImpact, { backgroundColor: impactStyle.backgroundColor }]}>
-              <Text
-                style={[styles.tagTextSmall, styles.tagImpactLabel, { color: impactStyle.color }]}
-                numberOfLines={1}
-              >
-                {impactLabel}
-              </Text>
+              <InsightSignalStrengthBars
+                filledCount={impactBarFilled}
+                filledColor={impactBarColors.filled}
+                emptyColor={impactBarColors.empty}
+                accessibilityLabel={getInsightImpactAccessibilityLabel(impactLevel, isPositive)}
+                compact
+              />
             </View>
           </View>
           <View style={styles.rowChevronPinned} pointerEvents="none">
@@ -465,7 +557,7 @@ const InsightsScreen = ({ navigation, route }) => {
                 <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>
                   {isMetricLayout ? 'Habit' : 'Sleep metric'}
                 </Text>
-                <Text style={[styles.tableHeaderText, styles.tableHeaderTagCorrelation]}>Link</Text>
+                <Text style={[styles.tableHeaderText, styles.tableHeaderTagCorrelation]}>Correlation</Text>
                 <Text
                   style={[styles.tableHeaderText, styles.tableHeaderTagImpact]}
                   numberOfLines={1}
@@ -503,7 +595,7 @@ const InsightsScreen = ({ navigation, route }) => {
           <View style={styles.sectionWrapper}>
             <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast, styles.noLinkPad]}>
               <Text style={styles.noLinkOneLine} numberOfLines={1}>
-                No link found yet · Logged {n} time{n !== 1 ? 's' : ''}
+                No correlation found yet · Logged {n} time{n !== 1 ? 's' : ''}
               </Text>
             </View>
           </View>
@@ -657,6 +749,7 @@ const InsightsScreen = ({ navigation, route }) => {
           renderSectionHeader={renderSectionHeader}
           renderItem={renderItem}
           keyExtractor={sectionListKeyExtractor}
+          onScrollToIndexFailed={onScrollToIndexFailedMetric}
           ListEmptyComponent={
             metricViewEmpty ? (
               <View style={styles.metricEmptyWrap}>
@@ -666,19 +759,6 @@ const InsightsScreen = ({ navigation, route }) => {
                 </Text>
               </View>
             ) : null
-          }
-          ListFooterComponent={
-            <View style={styles.sectionWrapper}>
-              <TouchableOpacity
-                style={styles.detailedCta}
-                onPress={() => navigation.navigate('DetailedInsights')}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="options-outline" size={22} color={colors.primary} />
-                <Text style={styles.detailedCtaText}>View every correlation (all metrics & options)</Text>
-                <Ionicons name="chevron-forward" size={22} color={colors.textLight} />
-              </TouchableOpacity>
-            </View>
           }
           contentContainerStyle={styles.sectionListContent}
         />
@@ -745,14 +825,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flex: 1,
     backgroundColor: colors.border,
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: 2,
   },
   switchSegment: {
     flex: 1,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
-    borderRadius: 8,
+    borderRadius: BUTTON_SEGMENT_INNER_RADIUS,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -908,10 +988,10 @@ const styles = StyleSheet.create({
     flex: 3.5,
     minWidth: 0,
   },
-  /** Narrow — compact + / ++ / +++ only; metric column takes remaining width */
+  /** Correlation (text) / impact (bars); metric column takes remaining width */
   tableHeaderTagCorrelation: {
-    flex: 0.52,
-    minWidth: 34,
+    flex: 0.62,
+    minWidth: 58,
     textAlign: 'center',
     width: '100%',
   },
@@ -972,14 +1052,14 @@ const styles = StyleSheet.create({
     lineHeight: typography.lineHeights.xs,
   },
   tagBase: {
-    paddingVertical: 2,
+    paddingVertical: 4,
     paddingHorizontal: 6,
     borderRadius: 6,
     minWidth: 0,
   },
   tagCorrelation: {
-    flex: 0.52,
-    minWidth: 34,
+    flex: 0.62,
+    minWidth: 56,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -988,20 +1068,6 @@ const styles = StyleSheet.create({
     minWidth: 40,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tagTextSmall: {
-    fontSize: 10,
-    fontWeight: typography.weights.medium,
-    lineHeight: 14,
-  },
-  /** Full-width so text centers inside the pill (Text otherwise shrinks to content width) */
-  tagCorrelationLabel: {
-    width: '100%',
-    textAlign: 'center',
-  },
-  tagImpactLabel: {
-    width: '100%',
-    textAlign: 'center',
   },
   rowChevronPinned: {
     position: 'absolute',
@@ -1065,24 +1131,6 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
     textAlign: 'center',
-  },
-  detailedCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.regular,
-    marginTop: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  detailedCtaText: {
-    flex: 1,
-    marginLeft: spacing.sm,
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
   },
   emptyState: {
     alignItems: 'center',

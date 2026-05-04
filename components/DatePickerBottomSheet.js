@@ -49,11 +49,13 @@ export default function DatePickerBottomSheet() {
     ctx?.selectedDate ? new Date(ctx.selectedDate) : new Date()
   );
 
+  const selectedCalendarDayKey =
+    ctx?.selectedDate != null ? formatDateForDB(ctx.selectedDate) : null;
+
   useEffect(() => {
-    if (ctx?.selectedDate) {
-      setCurrentMonth(new Date(ctx.selectedDate));
-    }
-  }, [ctx?.selectedDate]);
+    if (!selectedCalendarDayKey) return;
+    setCurrentMonth(new Date(selectedCalendarDayKey + 'T12:00:00'));
+  }, [selectedCalendarDayKey]);
 
   const snapPoints = useMemo(() => [1, SHEET_OPEN_HEIGHT], []);
 

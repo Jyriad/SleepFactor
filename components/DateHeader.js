@@ -56,6 +56,15 @@ const SPRING_CONFIG = { damping: 24, stiffness: 280 };
 
 const TOP_ROW_HEIGHT_FALLBACK = 48;
 
+/** Calendar shows a month grid; keep it on “now” whenever the strip’s day is stuck in an earlier calendar month (e.g. April selected, real-world May). */
+function calendarMonthAnchorForSelection(selectedDayKey, todayDayKey) {
+  const todayMonthKey = todayDayKey.slice(0, 7);
+  if (!selectedDayKey) return new Date(`${todayMonthKey}-01T12:00:00`);
+  const selMonthKey = selectedDayKey.slice(0, 7);
+  if (selMonthKey < todayMonthKey) return new Date(`${todayMonthKey}-01T12:00:00`);
+  return new Date(selectedDayKey + 'T12:00:00');
+}
+
 const DateHeader = ({
   selectedDate,
   onDateChange,
@@ -77,15 +86,21 @@ const DateHeader = ({
   const [stripSleepDates, setStripSleepDates] = useState([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [topRowHeight, setTopRowHeight] = useState(0);
-  const [currentMonth, setCurrentMonth] = useState(() =>
-    selectedDate ? new Date(selectedDate) : new Date()
-  );
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const todayKey = getToday();
+    const sel =
+      selectedDate != null ? formatDateForDB(selectedDate) : null;
+    return calendarMonthAnchorForSelection(sel, todayKey);
+  });
 
   const expandHeight = useSharedValue(COLLAPSED_DRAWER_HEIGHT);
   const startHeight = useSharedValue(COLLAPSED_DRAWER_HEIGHT);
 
   const selectedDateStr =
     typeof selectedDate === 'string' ? selectedDate : formatDateForDB(selectedDate);
+  /** Stable YYYY-MM-DD so browsing months by swipe isn’t undone when parents pass a fresh Date reference. */
+  const selectedCalendarDayKey =
+    selectedDate != null ? formatDateForDB(selectedDate) : null;
   const todayStr = getToday();
   const stripCenterDate = selectedDate
     ? (typeof selectedDate === 'string' ? new Date(selectedDate + 'T12:00:00') : selectedDate)
@@ -94,6 +109,11 @@ const DateHeader = ({
     isWithinLast7Days(stripCenterDate)
       ? getDateStripArrayLast7Days()
       : getDateStripArrayCentered(stripCenterDate, STRIP_DAYS);
+  /** Stable bounds id so we only trim/refetch sleep strip state when the visible week actually changes. */
+  const stripRangeKey =
+    stripDates.length > 0
+      ? `${stripDates[0].date}:${stripDates[stripDates.length - 1].date}`
+      : '';
   const stripLabel = (() => {
     if (isWithinLast7Days(stripCenterDate)) return 'This week';
     if (stripDates.length === 0) return 'This week';
@@ -111,21 +131,42 @@ const DateHeader = ({
   const displayTitle = formatDateTitle(selectedDate);
   const showToday = showTodayButton && displayTitle !== 'Today';
 
+  /**
+   * When collapsed, align the carousel month with the strip’s day—but never leave the calendar
+   * stuck in a past month once real-world dates have moved on (handles reload + reopen reliably).
+   * While expanded, swiping owns `currentMonth` until the user collapses again.
+   */
   useEffect(() => {
-    if (selectedDate) setCurrentMonth(new Date(selectedDate));
-  }, [selectedDate]);
+    if (isExpanded) return;
+    setCurrentMonth(calendarMonthAnchorForSelection(selectedCalendarDayKey, todayStr));
+  }, [isExpanded, selectedCalendarDayKey, todayStr]);
+
+  /** Keep bed icons for days still in the strip when the week window changes; avoids a blank flash until the new range fetch returns. */
+  useEffect(() => {
+    if (!stripRangeKey) return;
+    const allowed = new Set(stripDates.map((x) => x.date));
+    setStripSleepDates((prev) => prev.filter((d) => allowed.has(d)));
+  }, [stripRangeKey]);
 
   useEffect(() => {
     if (stripDates.length === 0) return;
     const start = stripDates[0].date;
     const end = stripDates[stripDates.length - 1].date;
+    let cancelled = false;
     sleepDataService
       .getSleepDataForRange(start, end)
       .then((data) => {
+        if (cancelled) return;
         const valid = (data || []).filter((r) => !r.exclude_from_insights);
         setStripSleepDates(valid.map((r) => r.date));
       })
-      .catch(() => setStripSleepDates([]));
+      .catch(() => {
+        if (cancelled) return;
+        /* keep trimmed stripSleepDates — don’t wipe UI on transient DB errors */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [stripDates[0]?.date, stripDates[stripDates.length - 1]?.date, sleepStripRefreshKey]);
 
   const handleTodayPress = () => {
@@ -153,11 +194,6 @@ const DateHeader = ({
     reportChromeHeight();
   }, [reportChromeHeight]);
 
-  const openDrawer = useCallback(() => {
-    expandHeight.value = withSpring(EXPANDED_DRAWER_HEIGHT, SPRING_CONFIG);
-    notifyOpened();
-  }, [notifyOpened]);
-
   const closeDrawer = useCallback(() => {
     notifyClosed();
     expandHeight.value = withTiming(COLLAPSED_DRAWER_HEIGHT, { duration: CLOSE_ANIMATION_DURATION_MS });
@@ -170,27 +206,6 @@ const DateHeader = ({
     },
     [onDateChange, closeDrawer]
   );
-
-  const goToPrevMonth = useCallback(() => {
-    setCurrentMonth((prev) => {
-      const next = new Date(prev);
-      next.setMonth(next.getMonth() - 1);
-      return next;
-    });
-  }, []);
-
-  const goToNextMonth = useCallback(() => {
-    const today = new Date();
-    setCurrentMonth((prev) => {
-      const next = new Date(prev);
-      next.setMonth(next.getMonth() + 1);
-      const canForward =
-        next.getFullYear() < today.getFullYear() ||
-        (next.getFullYear() === today.getFullYear() &&
-          next.getMonth() <= today.getMonth());
-      return canForward ? next : prev;
-    });
-  }, []);
 
   /** Lower = vertical pan claims the gesture sooner (less “dead” movement before drag). */
   const VERTICAL_PAN_ACTIVATE_PX = 8;
@@ -258,20 +273,6 @@ const DateHeader = ({
 
   const composedHandleGesture = handleTapGesture;
 
-  const HORIZONTAL_PAN_ACTIVATE_PX = 24;
-  const SWIPE_THRESHOLD_PX = 40;
-  const horizontalMonthPanGesture = Gesture.Pan()
-    .activeOffsetX([-HORIZONTAL_PAN_ACTIVATE_PX, HORIZONTAL_PAN_ACTIVATE_PX])
-    .onEnd((e) => {
-      const tx = e.translationX;
-      const vx = e.velocityX;
-      if (tx > SWIPE_THRESHOLD_PX || vx > 300) {
-        runOnJS(goToPrevMonth)();
-      } else if (tx < -SWIPE_THRESHOLD_PX || vx < -300) {
-        runOnJS(goToNextMonth)();
-      }
-    });
-
   const drawerAnimatedStyle = useAnimatedStyle(() => ({
     height: expandHeight.value,
     overflow: 'hidden',
@@ -294,18 +295,21 @@ const DateHeader = ({
             }}
           >
           <View style={styles.leftSlot}>
-            {leftElement != null ? (
-              leftElement
-            ) : showToday ? (
-              <TouchableOpacity
-                onPress={handleTodayPress}
-                style={styles.todayButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="arrow-undo-outline" size={18} color={colors.primary} style={styles.todayButtonIcon} />
-                <Text style={styles.todayButtonText}>Today</Text>
-              </TouchableOpacity>
-            ) : null}
+            {(leftElement != null || showToday) && (
+              <View style={styles.leftSlotInner}>
+                {leftElement}
+                {showToday ? (
+                  <TouchableOpacity
+                    onPress={handleTodayPress}
+                    style={[styles.todayButton, leftElement != null && styles.todayButtonBesideBack]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="arrow-undo-outline" size={18} color={colors.primary} style={styles.todayButtonIcon} />
+                    <Text style={styles.todayButtonText}>Today</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
           </View>
           <View style={styles.dateChip}>
             <Text style={glass ? styles.dateChipTextGlass : styles.dateChipText}>{displayTitle}</Text>
@@ -322,6 +326,8 @@ const DateHeader = ({
                 const isToday = dateItem.date === todayStr;
                 const isLogged = loggedDates.includes(dateItem.date);
                 const hasSleep = stripSleepDates.includes(dateItem.date);
+                const stripDayStatus =
+                  isLogged && hasSleep ? 'complete' : isLogged || hasSleep ? 'partial' : 'empty';
                 return (
                   <TouchableOpacity
                     key={dateItem.date}
@@ -341,7 +347,17 @@ const DateHeader = ({
                     <View
                       style={[
                         glass ? styles.datePillGlass : styles.datePill,
+                        !isSelected && stripDayStatus === 'partial' &&
+                          (glass ? styles.datePillGlassStatusPartial : styles.datePillStatusPartial),
+                        !isSelected && stripDayStatus === 'complete' &&
+                          (glass ? styles.datePillGlassStatusComplete : styles.datePillStatusComplete),
                         isSelected && (glass ? styles.datePillSelectedGlass : styles.datePillSelected),
+                        isSelected &&
+                          stripDayStatus === 'partial' &&
+                          (glass ? styles.datePillSelectedGlassPartial : styles.datePillSelectedPartial),
+                        isSelected &&
+                          stripDayStatus === 'complete' &&
+                          (glass ? styles.datePillSelectedGlassComplete : styles.datePillSelectedComplete),
                         isToday && styles.datePillToday,
                       ]}
                     >
@@ -389,17 +405,15 @@ const DateHeader = ({
               })}
             </View>
           </View>
-          <GestureDetector gesture={horizontalMonthPanGesture}>
-            <Animated.View style={[styles.calendarWrap, calendarWrapStyle]}>
-              <DatePickerCalendar
-                currentMonth={currentMonth}
-                setCurrentMonth={setCurrentMonth}
-                selectedDateStr={selectedDateStr}
-                onDateSelect={handleDateSelectFromCalendar}
-                glass={glass}
-              />
-            </Animated.View>
-          </GestureDetector>
+          <Animated.View style={[styles.calendarWrap, calendarWrapStyle]}>
+            <DatePickerCalendar
+              currentMonth={currentMonth}
+              setCurrentMonth={setCurrentMonth}
+              selectedDateStr={selectedDateStr}
+              onDateSelect={handleDateSelectFromCalendar}
+              glass={glass}
+            />
+          </Animated.View>
           <GestureDetector gesture={composedHandleGesture}>
             <View style={styles.dragHandleBarWrap}>
               <View style={glass ? styles.dragHandleBarGlass : styles.dragHandleBar} />
@@ -433,7 +447,14 @@ const styles = StyleSheet.create({
   },
   leftSlot: {
     minWidth: 72,
+    maxWidth: '46%',
     alignItems: 'flex-start',
+  },
+  leftSlotInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    gap: spacing.xs,
   },
   rightSlot: {
     minWidth: 72,
@@ -446,6 +467,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: 20,
+    flexShrink: 0,
+  },
+  todayButtonBesideBack: {
+    paddingHorizontal: spacing.sm,
   },
   todayButtonIcon: {
     marginRight: spacing.xs,
@@ -456,6 +481,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   dateChip: {
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 0,
@@ -529,13 +556,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
+  /** Sleep or habits logged, but not both — soft accent tint */
+  datePillStatusPartial: {
+    backgroundColor: 'rgba(176, 205, 235, 0.48)',
+  },
+  /** Sleep synced and habits logged — soft success tint */
+  datePillStatusComplete: {
+    backgroundColor: 'rgba(16, 185, 129, 0.42)',
+  },
   datePillSelected: {
     backgroundColor: colors.white,
     borderWidth: 0,
   },
+  datePillSelectedPartial: {
+    backgroundColor: '#E8F4FC',
+  },
+  datePillSelectedComplete: {
+    backgroundColor: '#ECFDF5',
+  },
   datePillToday: {
     borderWidth: 2,
-    borderColor: colors.accent,
+    borderColor: colors.primaryDark,
   },
   datePillIndicatorLeft: {
     position: 'absolute',
@@ -586,10 +627,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
+  datePillGlassStatusPartial: {
+    backgroundColor: 'rgba(36, 105, 178, 0.16)',
+  },
+  datePillGlassStatusComplete: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+  },
   datePillSelectedGlass: {
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  datePillSelectedGlassPartial: {
+    backgroundColor: '#E8F4FC',
+  },
+  datePillSelectedGlassComplete: {
+    backgroundColor: '#ECFDF5',
   },
   datePillNumberGlass: {
     fontSize: typography.sizes.small,

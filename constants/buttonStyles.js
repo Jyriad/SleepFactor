@@ -8,6 +8,12 @@ import { FONT_FAMILY } from './fonts';
 import { typography } from './typography';
 import { spacing } from './spacing';
 
+/** One radius for `Button`, custom Touchables that behave like CTAs, and matching inputs/segment wrappers. */
+export const BUTTON_BORDER_RADIUS = 12;
+
+/** Inner pill radius for segmented controls with ~2px gutter (matches prior 10/8 pairing). */
+export const BUTTON_SEGMENT_INNER_RADIUS = BUTTON_BORDER_RADIUS - 4;
+
 /** Bold (700) matches the VF named instance and reads consistent with card titles; semibold was unreliable on RN + VF. */
 const labelBase = {
   fontFamily: FONT_FAMILY,
@@ -19,7 +25,7 @@ export const buttonStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
-    borderRadius: 12,
+    borderRadius: BUTTON_BORDER_RADIUS,
     minHeight: 44,
     paddingVertical: spacing.regular,
     paddingHorizontal: spacing.xl,
@@ -51,10 +57,10 @@ export const buttonStyles = StyleSheet.create({
     borderColor: colors.primary,
   },
   outlineRadiusDefault: {
-    borderRadius: 12,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   outlineRadiusCompact: {
-    borderRadius: 10,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   disabled: {
     opacity: 0.5,

@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { formatDateForDB, getToday } from '../utils/dateHelpers';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,12 +32,13 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
     }
   }, [visible, currentMonth, user]);
 
-  // Update current month when selectedDate changes and modal opens
+  const selectedCalendarDayKey =
+    visible && selectedDate != null ? formatDateForDB(selectedDate) : null;
+
   useEffect(() => {
-    if (visible && selectedDate) {
-      setCurrentMonth(new Date(selectedDate));
-    }
-  }, [visible, selectedDate]);
+    if (!selectedCalendarDayKey) return;
+    setCurrentMonth(new Date(selectedCalendarDayKey + 'T12:00:00'));
+  }, [visible, selectedCalendarDayKey]);
 
   // Helper function to check if a habit is an automated bedtime habit
   const isAutomatedBedtimeHabit = (habit) => {
@@ -412,7 +413,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
   },
   dateText: {
     fontSize: typography.sizes.body,

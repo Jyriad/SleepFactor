@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 120,
+    paddingBottom: 120 + spacing.onboardingFooterExtraBottom,
   },
   title: {
     fontSize: typography.sizes.xl,
@@ -164,7 +164,8 @@ const styles = StyleSheet.create({
     right: spacing.xl,
     bottom: 0,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   btn: {
     alignSelf: 'stretch',

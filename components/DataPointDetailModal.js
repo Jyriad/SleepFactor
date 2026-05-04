@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, typography, spacing } from '../constants';
+import { colors, typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import dataQualityService from '../services/dataQualityService';
 import sleepDataService from '../services/sleepDataService';
@@ -776,7 +776,7 @@ const styles = StyleSheet.create({
   timelineContainer: {
     marginTop: spacing.xs,
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -787,7 +787,7 @@ const styles = StyleSheet.create({
   },
   habitItem: {
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     padding: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,

@@ -13,13 +13,23 @@ import { typography, spacing } from '../constants';
  * @param {function(number)} onValueChange - receives integer 1–10 (called on slide complete)
  * @param {string} leftLabel - optional, e.g. "Not refreshed"
  * @param {string} rightLabel - optional, e.g. "Very refreshed"
+ * @param {Object} [containerStyle] - optional styles merged with the root view (e.g. margin when wrapped in a card)
  */
-const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel }) => {
+const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel, containerStyle }) => {
   const propValue = value == null ? 5 : Math.max(1, Math.min(10, value));
   const hasSelection = value != null;
   const [localValue, setLocalValue] = useState(propValue);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const isSlidingRef = useRef(false);
   const completedValueRef = useRef(null);
+
+  const useGreyStyle = !hasSelection && !hasInteracted;
+
+  useEffect(() => {
+    if (value == null) {
+      setHasInteracted(false);
+    }
+  }, [value]);
 
   useEffect(() => {
     if (!isSlidingRef.current) {
@@ -33,6 +43,7 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel 
   const handleSlidingStart = () => {
     isSlidingRef.current = true;
     completedValueRef.current = null;
+    setHasInteracted(true);
   };
 
   const handleValueChange = (v) => {
@@ -48,7 +59,7 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel 
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       <Text style={styles.label}>{label}</Text>
       <Text style={styles.hint}>{hint}</Text>
       <Slider
@@ -60,9 +71,9 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel 
         onSlidingStart={handleSlidingStart}
         onValueChange={handleValueChange}
         onSlidingComplete={handleSlidingComplete}
-        minimumTrackTintColor={colors.primary}
+        minimumTrackTintColor={useGreyStyle ? colors.border : colors.primary}
         maximumTrackTintColor={colors.border}
-        thumbTintColor={colors.primary}
+        thumbTintColor={useGreyStyle ? colors.textLight : colors.primary}
         useNativeDriver={false}
       />
       <View style={styles.labelsRow}>

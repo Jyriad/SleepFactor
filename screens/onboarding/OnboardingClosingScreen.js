@@ -40,7 +40,7 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
         </View>
         <OnboardingSignOutLink />
       </View>
-      <Text style={styles.title}>You&apos;re all set...get tracking</Text>
+      <Text style={styles.title}>You&apos;re all set...let&apos;s find which habits are impacting your sleep</Text>
       <Text style={styles.body}>
         Each day you log your sleep and your sleep data is synced is a data point to help you understand{' '}
         <Text style={styles.bodyEmphasis}>what&apos;s impacting your sleep</Text>.
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     marginTop: 'auto',
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
   },
   enterSubtext: {
     fontSize: typography.sizes.small,

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { colors } from '../constants/colors';
-import { typography, spacing } from '../constants';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
 const HabitToggle = ({ value, onChange, yesCount = 0, noCount = 0 }) => {
   // value can be true, false, or null/undefined (not selected)
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
   button: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.regular,
-    borderRadius: 8,
+    borderRadius: BUTTON_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.background,

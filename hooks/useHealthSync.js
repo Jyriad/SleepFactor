@@ -127,9 +127,10 @@ export const useHealthSync = ({
    * @param {boolean} options.force - Force sync even if recently synced
    * @param {number} options.daysBack - Number of days to sync (default: 7)
    * @param {string} options.userId - User ID for health metrics sync
+   * @param {boolean} options.skipHealthMetrics - When true, only sleep sync (for onboarding fast path etc.)
    * @returns {Promise<Object>} Sync result
    */
-  const performSync = useCallback(async ({ force = false, daysBack = 7, userId } = {}) => {
+  const performSync = useCallback(async ({ force = false, daysBack = 7, userId, skipHealthMetrics = false } = {}) => {
     if (!isInitialized) {
       throw new Error('Health sync service not initialized');
     }
@@ -145,7 +146,7 @@ export const useHealthSync = ({
       let healthMetricsResult = null;
       let combinedResult = { ...sleepResult };
 
-      if (sleepResult.success && userId) {
+      if (sleepResult.success && userId && !skipHealthMetrics) {
         // If sleep sync succeeded and we have userId, also sync health metrics
         try {
           const endDate = new Date();

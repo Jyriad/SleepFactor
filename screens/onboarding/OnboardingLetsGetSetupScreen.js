@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.md + spacing.onboardingFooterExtraBottom,
     minHeight: 56,
   },
   busy: {

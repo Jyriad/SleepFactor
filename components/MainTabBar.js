@@ -247,7 +247,7 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuRow} onPress={onMenuSleepQuality} activeOpacity={0.7}>
                 <Ionicons name="moon-outline" size={22} color={colors.primary} style={styles.menuIcon} />
-                <Text style={styles.menuRowText}>How did you sleep?</Text>
+                <Text style={styles.menuRowText}>How do you feel?</Text>
               </TouchableOpacity>
             </Pressable>
           </View>
