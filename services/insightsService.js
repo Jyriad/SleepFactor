@@ -52,6 +52,9 @@ class InsightsService {
     /** Debounced background full-package recompute after data invalidation */
     this._warmComputeTimer = null;
     this._INSIGHTS_WARM_DEFAULT_MS = 550;
+    this._isWarmComputing = false;
+    this._warmComputeQueued = false;
+    this._insightsBundleInFlightByUser = new Map();
   }
 
   async ensureBedtimeConsistencyBackfilled(userId, lookbackDays = 120) {
@@ -1323,6 +1326,11 @@ class InsightsService {
   }
 
   async _runInsightsWarmCompute() {
+    if (this._isWarmComputing) {
+      this._warmComputeQueued = true;
+      return;
+    }
+    this._isWarmComputing = true;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id;
@@ -1330,6 +1338,12 @@ class InsightsService {
       await this.getInsightsScreenBundle(userId);
     } catch (_e) {
       // Non-fatal; next screen open recomputes
+    } finally {
+      this._isWarmComputing = false;
+      if (this._warmComputeQueued) {
+        this._warmComputeQueued = false;
+        void this._runInsightsWarmCompute();
+      }
     }
   }
 
@@ -1997,6 +2011,23 @@ class InsightsService {
    * Single load for the Insights tab: habit sections plus subjective correlations. Hydrates disk when valid.
    */
   async getInsightsScreenBundle(userId) {
+    const inFlight = this._insightsBundleInFlightByUser.get(userId);
+    if (inFlight) {
+      return inFlight;
+    }
+    const bundlePromise = this._getInsightsScreenBundleInternal(userId);
+    this._insightsBundleInFlightByUser.set(userId, bundlePromise);
+    try {
+      return await bundlePromise;
+    } finally {
+      const current = this._insightsBundleInFlightByUser.get(userId);
+      if (current === bundlePromise) {
+        this._insightsBundleInFlightByUser.delete(userId);
+      }
+    }
+  }
+
+  async _getInsightsScreenBundleInternal(userId) {
     const gen = await getInsightsInvalidationGeneration();
     const diskEnv = await loadInsightsDiskBlob(userId);
 

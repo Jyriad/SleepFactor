@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -70,6 +70,7 @@ const SleepQualityLogScreen = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasSavedScores, setHasSavedScores] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const enabledMeasures = useMemo(
     () => (measures || []).filter((m) => m.enabled === true),
@@ -79,6 +80,13 @@ const SleepQualityLogScreen = () => {
   const setScoreForMeasure = useCallback((measureId, value) => {
     setScoresByMeasureId((prev) => ({ ...prev, [measureId]: value }));
   }, []);
+
+  // Refresh measure configuration when returning from "Set up what you log".
+  useFocusEffect(
+    useCallback(() => {
+      setRefreshTick((t) => t + 1);
+    }, [])
+  );
 
   useEffect(() => {
     if (!user?.id || !dateStr) {
@@ -172,7 +180,7 @@ const SleepQualityLogScreen = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, dateStr]);
+  }, [user?.id, dateStr, refreshTick]);
 
   const handleSave = async () => {
     if (!user?.id || !dateStr) return;
@@ -471,8 +479,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
   },
   measureCardSlider: {
     marginBottom: 0,

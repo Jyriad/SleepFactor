@@ -31,7 +31,8 @@ export async function listSubjectiveMeasures(userId) {
  */
 export async function ensureBuiltinMeasures(userId) {
   if (!userId) return;
-  // RLS ensures rows are only written for auth.uid(); do not gate on getUser() — session timing can skip upserts.
+  // Built-ins should exist ONLY for users who opted in (track_* = true),
+  // and we must NOT overwrite enabled state on existing rows.
 
   const { data: urow } = await supabase
     .from('users')
@@ -41,7 +42,8 @@ export async function ensureBuiltinMeasures(userId) {
     .eq('id', userId)
     .single();
 
-  const builtins = [
+  // Which built-ins should exist for this user?
+  const desired = [
     {
       slug: 'tiredness',
       label: 'Refreshed feeling',
@@ -49,7 +51,8 @@ export async function ensureBuiltinMeasures(userId) {
       left_label: 'Not refreshed',
       right_label: 'Very refreshed',
       sort_order: 0,
-      enabled: urow?.track_tiredness === true,
+      enabled: true,
+      shouldExist: urow?.track_tiredness === true,
     },
     {
       slug: 'dream_vividness',
@@ -58,7 +61,8 @@ export async function ensureBuiltinMeasures(userId) {
       left_label: 'No memory',
       right_label: 'Very strong',
       sort_order: 1,
-      enabled: urow?.track_dream_vividness === true,
+      enabled: true,
+      shouldExist: urow?.track_dream_vividness === true,
     },
     {
       slug: 'ease_sleep',
@@ -67,28 +71,48 @@ export async function ensureBuiltinMeasures(userId) {
       left_label: 'Very difficult',
       right_label: 'Very easily',
       sort_order: 2,
-      enabled: urow?.track_ease_sleep === true,
+      enabled: true,
+      shouldExist: urow?.track_ease_sleep === true,
     },
   ];
 
-  for (const b of builtins) {
+  // Fetch existing slugs so we only INSERT missing rows (no updates).
+  let existingSlugs = new Set();
+  try {
+    const { data: existingRows } = await supabase
+      .from('user_subjective_measures')
+      .select('slug')
+      .eq('user_id', userId)
+      .in('slug', ['tiredness', 'dream_vividness', 'ease_sleep']);
+    existingSlugs = new Set((existingRows || []).map((r) => r.slug).filter(Boolean));
+  } catch (_e) {
+    existingSlugs = new Set();
+  }
+
+  const rowsToInsert = [];
+  for (const b of desired) {
     if (b.slug === 'tiredness' && urow?.subjective_remove_tiredness_measure) continue;
     if (b.slug === 'dream_vividness' && urow?.subjective_remove_dream_measure) continue;
     if (b.slug === 'ease_sleep' && urow?.subjective_remove_ease_sleep_measure) continue;
-    await supabase.from('user_subjective_measures').upsert(
-      {
-        user_id: userId,
-        slug: b.slug,
-        label: b.label,
-        hint: b.hint,
-        left_label: b.left_label,
-        right_label: b.right_label,
-        sort_order: b.sort_order,
-        enabled: b.enabled,
-        is_builtin: true,
-      },
-      { onConflict: 'user_id,slug' }
-    );
+    if (!b.shouldExist) continue;
+    if (existingSlugs.has(b.slug)) continue;
+
+    rowsToInsert.push({
+      user_id: userId,
+      slug: b.slug,
+      label: b.label,
+      hint: b.hint,
+      left_label: b.left_label,
+      right_label: b.right_label,
+      sort_order: b.sort_order,
+      enabled: true,
+      is_builtin: true,
+    });
+  }
+
+  if (rowsToInsert.length > 0) {
+    // ON CONFLICT DO NOTHING keeps this idempotent and avoids overwriting enabled state.
+    await supabase.from('user_subjective_measures').insert(rowsToInsert, { onConflict: 'user_id,slug' });
   }
 }
 
@@ -119,7 +143,8 @@ export async function setMeasureEnabled(userId, measureId, enabled) {
     if (row.slug === 'dream_vividness') updates.track_dream_vividness = enabled;
     if (row.slug === 'ease_sleep') updates.track_ease_sleep = enabled;
     if (Object.keys(updates).length > 0) {
-      await supabase.from('users').update(updates).eq('id', userId);
+      const { error: userUpErr } = await supabase.from('users').update(updates).eq('id', userId);
+      if (userUpErr) return { success: false, error: userUpErr.message };
     }
   }
 
@@ -161,6 +186,31 @@ export async function addCustomMeasure(userId, { label, hint, leftLabel, rightLa
   if (error) return { success: false, error: error.message };
   insightsService.notifyInsightsUnderlyingDataChanged();
   return { success: true, id: data?.id };
+}
+
+/**
+ * Update an existing subjective measure (built-in or custom) display fields.
+ */
+export async function updateSubjectiveMeasure(userId, measureId, { label, hint, leftLabel, rightLabel }) {
+  if (!userId || !measureId) return { success: false, error: 'Invalid measure' };
+  const trimmed = (label || '').trim();
+  if (!trimmed) return { success: false, error: 'Enter a name' };
+
+  const { error } = await supabase
+    .from('user_subjective_measures')
+    .update({
+      label: trimmed.slice(0, 120),
+      hint: hint != null && String(hint).trim() !== '' ? String(hint).slice(0, 300) : null,
+      left_label: (leftLabel || 'Low').slice(0, 80),
+      right_label: (rightLabel || 'High').slice(0, 80),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', measureId)
+    .eq('user_id', userId);
+
+  if (error) return { success: false, error: error.message };
+  insightsService.notifyInsightsUnderlyingDataChanged();
+  return { success: true };
 }
 
 export async function deleteCustomMeasure(userId, measureId) {
@@ -271,6 +321,7 @@ export default {
   ensureBuiltinMeasures,
   setMeasureEnabled,
   addCustomMeasure,
+  updateSubjectiveMeasure,
   deleteCustomMeasure,
   deleteSubjectiveMeasure,
   getCustomScoresForDate,

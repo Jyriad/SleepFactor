@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Slider from 'react-native-smooth-slider';
+import Slider from '@react-native-community/slider';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
 /**
  * 1-10 score slider for morning subjective measures.
- * Uses react-native-smooth-slider (gesture-handler) for smooth drag and local state to avoid flicker.
+ * Uses @react-native-community/slider for stable thumb/track sync.
  * @param {string} label - e.g. "Refreshed feeling"
  * @param {string} hint - e.g. "How refreshed did you feel when you first woke up?"
  * @param {number|null} value - 1–10 or null (shows 5 as placeholder)
@@ -47,7 +47,10 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel,
   };
 
   const handleValueChange = (v) => {
-    setLocalValue(Math.round(v));
+    const rounded = Math.round(v);
+    // Only update when integer value actually changes (1..10),
+    // which keeps drag smooth while still updating the center number.
+    setLocalValue((prev) => (prev === rounded ? prev : rounded));
   };
 
   const handleSlidingComplete = (v) => {
@@ -74,17 +77,20 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel,
         minimumTrackTintColor={useGreyStyle ? colors.border : colors.primary}
         maximumTrackTintColor={colors.border}
         thumbTintColor={useGreyStyle ? colors.textLight : colors.primary}
-        useNativeDriver={false}
       />
       <View style={styles.labelsRow}>
-        {leftLabel ? <Text style={styles.axisLabel}>{leftLabel}</Text> : <View />}
-        <Text style={[styles.valueLabel, !hasSelection && styles.valueLabelPlaceholder]}>
-          {hasSelection ? localValue : 'Not selected'}
+        <View style={styles.axisLabelSlot}>
+          {leftLabel ? <Text style={[styles.axisLabel, styles.axisLabelLeft]}>{leftLabel}</Text> : null}
+        </View>
+        <Text style={styles.valueLabel}>
+          {hasSelection ? localValue : ''}
         </Text>
-        {rightLabel ? <Text style={styles.axisLabel}>{rightLabel}</Text> : <View />}
+        <View style={styles.axisLabelSlot}>
+          {rightLabel ? <Text style={[styles.axisLabel, styles.axisLabelRight]}>{rightLabel}</Text> : null}
+        </View>
       </View>
       {!hasSelection && (
-        <Text style={styles.unselectedHint}>Move the slider to choose a score</Text>
+        <Text style={styles.unselectedHint}>Not selected - move slider</Text>
       )}
     </View>
   );
@@ -92,7 +98,7 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel,
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs,
   },
   label: {
     fontSize: typography.sizes.medium,
@@ -103,37 +109,47 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   slider: {
     width: '100%',
-    height: 40,
+    height: 28,
   },
   labelsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: spacing.xs,
     paddingHorizontal: 4,
+  },
+  axisLabelSlot: {
+    flex: 1,
+    minHeight: 18,
   },
   axisLabel: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
   },
+  axisLabelLeft: {
+    textAlign: 'left',
+    paddingRight: spacing.sm,
+  },
+  axisLabelRight: {
+    textAlign: 'right',
+    paddingLeft: spacing.sm,
+  },
   valueLabel: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
     color: colors.primary,
+    marginHorizontal: spacing.xs,
   },
-  valueLabelPlaceholder: {
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
-  },
+  valueLabelPlaceholder: {},
   unselectedHint: {
     marginTop: spacing.xs,
     fontSize: typography.sizes.small,
-    color: colors.textSecondary,
+    color: colors.warning || '#F59E0B',
     textAlign: 'center',
+    fontWeight: typography.weights.medium,
   },
 });
 
