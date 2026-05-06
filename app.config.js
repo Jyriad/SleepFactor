@@ -58,7 +58,7 @@ export default {
     supportsTablet: true,
     bundleIdentifier: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
     // CFBundleVersion — must increase on every upload to App Store Connect (production profile).
-    buildNumber: "1338",
+    buildNumber: "1339",
     usesAppleSignIn: true,
     infoPlist: {
       CFBundleDisplayName: DISPLAY_NAME,
@@ -81,7 +81,7 @@ export default {
     edgeToEdgeEnabled: true,
     package: IS_DEV ? "com.sleepfactor.app.dev" : "com.sleepfactor.app",
     // versionCode must increase for every new Android production binary.
-    versionCode: 1338,
+    versionCode: 1339,
     permissions: [
       "android.permission.health.READ_SLEEP",
       "android.permission.health.READ_STEPS",
