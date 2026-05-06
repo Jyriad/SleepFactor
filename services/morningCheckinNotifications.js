@@ -48,7 +48,11 @@ async function userHasAnySubjectiveMeasureEnabled(userId, userRow) {
   } catch (_e) {
     /* table may not exist before migration */
   }
-  return userRow?.track_tiredness === true || userRow?.track_dream_vividness === true;
+  return (
+    userRow?.track_tiredness === true ||
+    userRow?.track_dream_vividness === true ||
+    userRow?.track_ease_sleep === true
+  );
 }
 
 async function ensureMorningCheckinChannel(Notifications) {
@@ -80,7 +84,7 @@ export async function scheduleMorningCheckin() {
     }
     const { data: userRow, error } = await supabase
       .from('users')
-      .select('track_tiredness, track_dream_vividness, morning_checkin_time')
+      .select('track_tiredness, track_dream_vividness, track_ease_sleep, morning_checkin_time')
       .eq('id', user.id)
       .single();
     if (error) {
@@ -151,7 +155,7 @@ export async function rescheduleIfEnabled() {
     }
     const { data: userRow, error } = await supabase
       .from('users')
-      .select('track_tiredness, track_dream_vividness, morning_checkin_time')
+      .select('track_tiredness, track_dream_vividness, track_ease_sleep, morning_checkin_time')
       .eq('id', user.id)
       .single();
     if (error) {

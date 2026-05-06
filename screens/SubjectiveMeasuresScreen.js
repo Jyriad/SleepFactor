@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import insightsService from '../services/insightsService';
 import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import { supabase } from '../services/supabase';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
+import ScoreSlider from '../components/ScoreSlider';
 
 function formatReminderTimeForDisplay(timeStr, use24Hour) {
   if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || '20:00';
@@ -50,8 +51,13 @@ const SubjectiveMeasuresScreen = () => {
 
   const [subjectiveMeasures, setSubjectiveMeasures] = useState([]);
   const [addMeasureModalVisible, setAddMeasureModalVisible] = useState(false);
+  const [editingMeasure, setEditingMeasure] = useState(null);
   const [newMeasureLabel, setNewMeasureLabel] = useState('');
+  const [newMeasureHint, setNewMeasureHint] = useState('');
+  const [newMeasureLeftLabel, setNewMeasureLeftLabel] = useState('Low');
+  const [newMeasureRightLabel, setNewMeasureRightLabel] = useState('High');
   const [measuresBusy, setMeasuresBusy] = useState(false);
+  const toggleRequestSeqRef = useRef({});
   const [morningCheckinTime, setMorningCheckinTime] = useState(null);
   const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
   const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
@@ -111,7 +117,7 @@ const SubjectiveMeasuresScreen = () => {
 
     if (list.length === 0 && userRow && !userRowErr) {
       const rows = [];
-      if (!userRow.subjective_remove_tiredness_measure) {
+      if (!userRow.subjective_remove_tiredness_measure && userRow.track_tiredness === true) {
         rows.push({
           id: 'legacy-tiredness',
           slug: 'tiredness',
@@ -125,7 +131,7 @@ const SubjectiveMeasuresScreen = () => {
           _legacy: true,
         });
       }
-      if (!userRow.subjective_remove_dream_measure) {
+      if (!userRow.subjective_remove_dream_measure && userRow.track_dream_vividness === true) {
         rows.push({
           id: 'legacy-dream',
           slug: 'dream_vividness',
@@ -139,7 +145,7 @@ const SubjectiveMeasuresScreen = () => {
           _legacy: true,
         });
       }
-      if (!userRow.subjective_remove_ease_sleep_measure) {
+      if (!userRow.subjective_remove_ease_sleep_measure && userRow.track_ease_sleep === true) {
         rows.push({
           id: 'legacy-ease_sleep',
           slug: 'ease_sleep',
@@ -211,6 +217,29 @@ const SubjectiveMeasuresScreen = () => {
     m.slug === 'dream_vividness' ||
     m.slug === 'ease_sleep' ||
     !m.is_builtin;
+  const canEdit = (m) => !m._legacy;
+
+  const resetMeasureDraft = () => {
+    setNewMeasureLabel('');
+    setNewMeasureHint('');
+    setNewMeasureLeftLabel('Low');
+    setNewMeasureRightLabel('High');
+  };
+
+  const openAddMeasureModal = () => {
+    setEditingMeasure(null);
+    resetMeasureDraft();
+    setAddMeasureModalVisible(true);
+  };
+
+  const openEditMeasureModal = (measure) => {
+    setEditingMeasure(measure);
+    setNewMeasureLabel(measure.label || '');
+    setNewMeasureHint(measure.hint || '');
+    setNewMeasureLeftLabel(measure.left_label || 'Low');
+    setNewMeasureRightLabel(measure.right_label || 'High');
+    setAddMeasureModalVisible(true);
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -225,7 +254,7 @@ const SubjectiveMeasuresScreen = () => {
               <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
             </TouchableOpacity>
             <View style={styles.headerTitleBlock}>
-              <Text style={styles.title}>Morning check-in</Text>
+              <Text style={styles.title}>How did you sleep?</Text>
               <Text style={styles.subtitle}>How you feel and custom measures</Text>
             </View>
             <SubjectiveInsightsInfoButton accountLegacy={accountLegacy} />
@@ -248,33 +277,49 @@ const SubjectiveMeasuresScreen = () => {
                 key={m.id}
                 style={[styles.toggleRow, idx > 0 && styles.toggleRowSpaced]}
               >
-                <View style={[styles.toggleLabelContainer, canDelete(m) && styles.toggleLabelWithDelete]}>
+                <View style={[styles.toggleLabelContainer, styles.toggleLabelWithActions]}>
                   <Text style={styles.label}>{m.label}</Text>
-                  {canDelete(m) && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        const { title, message } = confirmDeleteVerbiage(m);
-                        Alert.alert(title, message, [
-                          { text: 'Cancel', style: 'cancel' },
-                          {
-                            text: 'Remove',
-                            style: 'destructive',
-                            onPress: () => onConfirmDelete(m),
-                          },
-                        ]);
-                      }}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={colors.error} />
-                    </TouchableOpacity>
-                  )}
+                  <View style={styles.toggleActionsRow}>
+                    {canEdit(m) && (
+                      <TouchableOpacity
+                        onPress={() => openEditMeasureModal(m)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="create-outline" size={18} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                    {canDelete(m) && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          const { title, message } = confirmDeleteVerbiage(m);
+                          Alert.alert(title, message, [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Remove',
+                              style: 'destructive',
+                              onPress: () => onConfirmDelete(m),
+                            },
+                          ]);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
                 <TouchableOpacity
                   style={[styles.toggleSwitch, m.enabled && styles.toggleSwitchOn]}
                   onPress={async () => {
-                    if (!user?.id || measuresBusy) return;
+                    if (!user?.id) return;
                     const next = !m.enabled;
-                    setMeasuresBusy(true);
+                    const previousEnabled = m.enabled;
+                    const reqSeq = (toggleRequestSeqRef.current[m.id] || 0) + 1;
+                    toggleRequestSeqRef.current[m.id] = reqSeq;
+                    // Optimistic UI: make the switch feel instant.
+                    setSubjectiveMeasures((prev) =>
+                      prev.map((row) => (row.id === m.id ? { ...row, enabled: next } : row))
+                    );
                     try {
                       if (m._legacy) {
                         const updates = {};
@@ -296,6 +341,11 @@ const SubjectiveMeasuresScreen = () => {
                         }
                         const { error: upErr } = await supabase.from('users').update(updates).eq('id', user.id);
                         if (upErr) {
+                          if (toggleRequestSeqRef.current[m.id] === reqSeq) {
+                            setSubjectiveMeasures((prev) =>
+                              prev.map((row) => (row.id === m.id ? { ...row, enabled: previousEnabled } : row))
+                            );
+                          }
                           Alert.alert('Error', 'Could not update. Try again.');
                           return;
                         }
@@ -303,17 +353,18 @@ const SubjectiveMeasuresScreen = () => {
                       } else {
                         const res = await subjectiveMeasuresService.setMeasureEnabled(user.id, m.id, next);
                         if (!res.success) {
+                          if (toggleRequestSeqRef.current[m.id] === reqSeq) {
+                            setSubjectiveMeasures((prev) =>
+                              prev.map((row) => (row.id === m.id ? { ...row, enabled: previousEnabled } : row))
+                            );
+                          }
                           Alert.alert('Error', 'Could not update. Try again.');
                           return;
                         }
                       }
-                      await loadSubjectiveMorningPrefs();
                       await morningCheckinNotifications.rescheduleIfEnabled();
-                    } finally {
-                      setMeasuresBusy(false);
-                    }
+                    } finally {}
                   }}
-                  disabled={measuresBusy}
                 >
                   <View style={[styles.toggleKnob, m.enabled && styles.toggleKnobOn]} />
                 </TouchableOpacity>
@@ -323,8 +374,7 @@ const SubjectiveMeasuresScreen = () => {
               <TouchableOpacity
                 style={styles.addCustomMeasureButton}
                 onPress={() => {
-                  setNewMeasureLabel('');
-                  setAddMeasureModalVisible(true);
+                  openAddMeasureModal();
                 }}
                 activeOpacity={0.7}
               >
@@ -359,15 +409,27 @@ const SubjectiveMeasuresScreen = () => {
         visible={addMeasureModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setAddMeasureModalVisible(false)}
+        onRequestClose={() => {
+          setAddMeasureModalVisible(false);
+          setEditingMeasure(null);
+        }}
       >
-        <TouchableWithoutFeedback onPress={() => setAddMeasureModalVisible(false)}>
+        <TouchableWithoutFeedback
+          onPress={() => {
+            setAddMeasureModalVisible(false);
+            setEditingMeasure(null);
+          }}
+        >
           <View style={styles.reminderTimeModalOverlay}>
             <TouchableWithoutFeedback>
               <View style={styles.reminderTimeModalContent}>
-                <Text style={styles.reminderTimeModalTitle}>Custom measure</Text>
+                <Text style={styles.reminderTimeModalTitle}>
+                  {editingMeasure ? 'Edit measure' : 'Custom measure'}
+                </Text>
                 <Text style={styles.addMeasureHint}>
-                  Name what you want to rate each morning (e.g. Stress, Mood). You’ll use a 1–10 slider.
+                  {editingMeasure
+                    ? 'Update how this measure appears in your morning check-in.'
+                    : 'Name what you want to rate each morning (e.g. Stress, Mood). You’ll use a 1–10 slider.'}
                 </Text>
                 <TextInput
                   style={styles.addMeasureInput}
@@ -377,10 +439,58 @@ const SubjectiveMeasuresScreen = () => {
                   placeholderTextColor={colors.textLight}
                   maxLength={120}
                 />
+                <TextInput
+                  style={styles.addMeasureInput}
+                  value={newMeasureHint}
+                  onChangeText={setNewMeasureHint}
+                  placeholder="Description shown below title (optional)"
+                  placeholderTextColor={colors.textLight}
+                  maxLength={300}
+                  multiline
+                />
+                <View style={styles.scaleLabelsRow}>
+                  <View style={styles.scaleLabelGroup}>
+                    <Text style={styles.scaleLabelTitle}>From</Text>
+                    <TextInput
+                      style={[styles.addMeasureInput, styles.scaleLabelInput]}
+                      value={newMeasureLeftLabel}
+                      onChangeText={setNewMeasureLeftLabel}
+                      placeholder="e.g. Calm"
+                      placeholderTextColor={colors.textLight}
+                      maxLength={80}
+                    />
+                  </View>
+                  <View style={styles.scaleLabelGroup}>
+                    <Text style={styles.scaleLabelTitle}>To</Text>
+                    <TextInput
+                      style={[styles.addMeasureInput, styles.scaleLabelInput]}
+                      value={newMeasureRightLabel}
+                      onChangeText={setNewMeasureRightLabel}
+                      placeholder="e.g. Stressed"
+                      placeholderTextColor={colors.textLight}
+                      maxLength={80}
+                    />
+                  </View>
+                </View>
+                <View style={styles.previewCard}>
+                  <Text style={styles.previewTitle}>Preview</Text>
+                  <ScoreSlider
+                    label={newMeasureLabel.trim() || 'Your custom measure'}
+                    hint={newMeasureHint.trim() || 'Description will appear here'}
+                    value={null}
+                    onValueChange={() => {}}
+                    leftLabel={newMeasureLeftLabel.trim() || 'Low'}
+                    rightLabel={newMeasureRightLabel.trim() || 'High'}
+                    containerStyle={styles.previewSlider}
+                  />
+                </View>
                 <View style={styles.reminderTimeModalFooter}>
                   <TouchableOpacity
                     style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
-                    onPress={() => setAddMeasureModalVisible(false)}
+                    onPress={() => {
+                      setAddMeasureModalVisible(false);
+                      setEditingMeasure(null);
+                    }}
                   >
                     <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
                   </TouchableOpacity>
@@ -390,14 +500,31 @@ const SubjectiveMeasuresScreen = () => {
                       if (!user?.id) return;
                       const label = newMeasureLabel.trim();
                       if (!label) return;
+                      const hint = newMeasureHint.trim();
+                      const leftLabel = newMeasureLeftLabel.trim() || 'Low';
+                      const rightLabel = newMeasureRightLabel.trim() || 'High';
                       setMeasuresBusy(true);
                       try {
-                        const res = await subjectiveMeasuresService.addCustomMeasure(user.id, { label });
+                        const res = editingMeasure
+                          ? await subjectiveMeasuresService.updateSubjectiveMeasure(user.id, editingMeasure.id, {
+                              label,
+                              hint: hint || null,
+                              leftLabel,
+                              rightLabel,
+                            })
+                          : await subjectiveMeasuresService.addCustomMeasure(user.id, {
+                              label,
+                              hint: hint || null,
+                              leftLabel,
+                              rightLabel,
+                            });
                         if (!res.success) {
-                          Alert.alert('Error', res.error || 'Could not add.');
+                          Alert.alert('Error', res.error || 'Could not save.');
                           return;
                         }
                         setAddMeasureModalVisible(false);
+                        setEditingMeasure(null);
+                        resetMeasureDraft();
                         await loadSubjectiveMorningPrefs();
                         await morningCheckinNotifications.rescheduleIfEnabled();
                       } finally {
@@ -405,7 +532,9 @@ const SubjectiveMeasuresScreen = () => {
                       }
                     }}
                   >
-                    <Text style={styles.reminderTimeDoneButtonText}>Add</Text>
+                    <Text style={styles.reminderTimeDoneButtonText}>
+                      {editingMeasure ? 'Save' : 'Add'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -543,11 +672,17 @@ const styles = StyleSheet.create({
   toggleCard: {
     marginTop: spacing.xs,
   },
-  toggleLabelWithDelete: {
+  toggleLabelWithActions: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  toggleActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginLeft: spacing.sm,
   },
   addCustomMeasureButton: {
     flexDirection: 'row',
@@ -576,6 +711,40 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     marginBottom: spacing.regular,
+  },
+  scaleLabelsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.regular,
+  },
+  scaleLabelInput: {
+    marginBottom: 0,
+  },
+  scaleLabelGroup: {
+    flex: 1,
+  },
+  scaleLabelTitle: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    fontWeight: typography.weights.semibold,
+  },
+  previewCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.regular,
+    backgroundColor: colors.background,
+  },
+  previewTitle: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    fontWeight: typography.weights.semibold,
+  },
+  previewSlider: {
+    marginBottom: 0,
   },
   toggleRowSpaced: {
     marginTop: spacing.regular,
