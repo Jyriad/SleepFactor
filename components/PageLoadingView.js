@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -18,7 +18,7 @@ const STROKE_WIDTH = 3;
 const R = (RING_SIZE - STROKE_WIDTH) / 2;
 const HALF_CIRCUMFERENCE = Math.PI * R;
 
-const PageLoadingView = () => {
+const PageLoadingView = ({ message }) => {
   const rotation = useSharedValue(0);
 
   useEffect(() => {
@@ -56,6 +56,7 @@ const PageLoadingView = () => {
           <SquareLogoLight width={LOGO_SIZE} height={LOGO_SIZE} />
         </View>
       </View>
+      {message ? <Text style={styles.message}>{message}</Text> : null}
     </View>
   );
 };
@@ -85,6 +86,13 @@ const styles = StyleSheet.create({
   logoContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  message: {
+    marginTop: 14,
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: 24,
   },
 });
 
