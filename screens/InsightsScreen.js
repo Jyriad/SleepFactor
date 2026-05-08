@@ -732,7 +732,7 @@ const InsightsScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {loading ? (
-        <PageLoadingView />
+        <PageLoadingView message="Loading your insights. This may take up to a minute." />
       ) : groups.length === 0 ? (
         <View style={styles.scrollView}>
           {listHeader}
