@@ -1,4 +1,9 @@
 import { supabase } from './supabase';
+import { formatDateForDB } from '../utils/dateHelpers';
+import {
+  getPreferredSleepSource,
+  allowedSleepDataSources,
+} from './preferredSleepSourceService';
 
 function scheduleInsightsPersistenceInvalidate() {
   import('./insightsService')
@@ -23,10 +28,57 @@ class SleepDataService {
     this.tableName = 'sleep_data';
     /** In-memory cache for getSleepDataForRange: key `${userId}:${start}-${end}` -> { data } */
     this._rangeCache = {};
+    /** Cached visible wake dates for week strip (RPC matches dashboard rules) */
+    this._stripVisibilityCache = {};
   }
 
   _clearRangeCache() {
     this._rangeCache = {};
+  }
+
+  /** Public: invalidate cached reads after preference or sleep writes */
+  clearReadCache() {
+    this._clearRangeCache();
+    this._stripVisibilityCache = {};
+  }
+
+  async _applyPreferredSourceFilter(query, userId) {
+    const pref = await getPreferredSleepSource(userId);
+    const allowed = allowedSleepDataSources(pref);
+    if (!allowed) return query;
+    return query.in('source', allowed);
+  }
+
+  async _cacheSegmentForUser(userId) {
+    const pref = await getPreferredSleepSource(userId);
+    return pref ?? 'legacy';
+  }
+
+  /**
+   * Dates in range that already have an upsert from a specific sleep_data.source (for incremental sync).
+   * @param {string} startDate - YYYY-MM-DD
+   * @param {string} endDate - YYYY-MM-DD
+   * @param {string} source - healthkit | health_connect | manual
+   * @returns {Promise<Set<string>>}
+   */
+  async getDatesWithSourceInRange(startDate, endDate, source) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('date')
+      .eq('user_id', user.id)
+      .eq('source', source)
+      .gte('date', startDate)
+      .lte('date', endDate);
+
+    if (error) {
+      throw error;
+    }
+
+    return new Set((data || []).map((r) => r.date));
   }
 
   /**
@@ -269,11 +321,13 @@ class SleepDataService {
         throw new Error('User not authenticated');
       }
 
-      const { data, error } = await supabase
+      let q = supabase
         .from(this.tableName)
         .select('*')
         .eq('user_id', user.id)
-        .eq('date', date)
+        .eq('date', date);
+      q = await this._applyPreferredSourceFilter(q, user.id);
+      const { data, error } = await q
         .order('updated_at', { ascending: false }) // Get most recent first
         .limit(1); // Take only the most recent record
 
@@ -292,9 +346,10 @@ class SleepDataService {
    * Get sleep data for a date range
    * @param {string} startDate - Start date in YYYY-MM-DD format
    * @param {string} endDate - End date in YYYY-MM-DD format
+   * @param {{ cacheNonce?: number }} [opts] - Pass a changing cacheNonce (e.g. strip refresh counter) so callers are not stuck with a cached empty range after focus/retry.
    * @returns {Promise<Array>} Array of sleep data records
    */
-  async getSleepDataForRange(startDate, endDate) {
+  async getSleepDataForRange(startDate, endDate, opts) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
@@ -302,18 +357,25 @@ class SleepDataService {
         throw new Error('User not authenticated');
       }
 
-      const cacheKey = `${user.id}:${startDate}-${endDate}`;
+      const cacheNonce =
+        opts != null && typeof opts === 'object' && typeof opts.cacheNonce === 'number'
+          ? opts.cacheNonce
+          : 0;
+
+      const seg = await this._cacheSegmentForUser(user.id);
+      const cacheKey = `${user.id}:${startDate}-${endDate}:${seg}:n${cacheNonce}`;
       if (this._rangeCache[cacheKey]) {
         return this._rangeCache[cacheKey];
       }
 
-      const { data, error } = await supabase
+      let q = supabase
         .from(this.tableName)
         .select('*')
         .eq('user_id', user.id)
         .gte('date', startDate)
-        .lte('date', endDate)
-        .order('date', { ascending: false });
+        .lte('date', endDate);
+      q = await this._applyPreferredSourceFilter(q, user.id);
+      const { data, error } = await q.order('date', { ascending: false });
 
       if (error) {
         throw error;
@@ -322,6 +384,51 @@ class SleepDataService {
       const result = data || [];
       this._rangeCache[cacheKey] = result;
       return result;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Wake dates visible for the home week strip bed icons — same filtering as public.get_home_dashboard_data.
+   * @param {string} startDate - YYYY-MM-DD
+   * @param {string} endDate - YYYY-MM-DD
+   * @param {{ cacheNonce?: number }} [opts]
+   * @returns {Promise<string[]>} YYYY-MM-DD strings
+   */
+  async fetchVisibleSleepDatesForStrip(startDate, endDate, opts) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const cacheNonce =
+        opts != null && typeof opts === 'object' && typeof opts.cacheNonce === 'number'
+          ? opts.cacheNonce
+          : 0;
+
+      const cacheKey = `${user.id}:${startDate}:${endDate}:stripVis:n${cacheNonce}`;
+      if (this._stripVisibilityCache[cacheKey]) {
+        return this._stripVisibilityCache[cacheKey];
+      }
+
+      const { data, error } = await supabase.rpc('get_visible_sleep_dates_in_range', {
+        p_user_id: user.id,
+        p_start: startDate,
+        p_end: endDate,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const dates = (data || []).map((row) =>
+        typeof row === 'string' ? row : formatDateForDB(row)
+      );
+      this._stripVisibilityCache[cacheKey] = dates;
+      return dates;
     } catch (error) {
       throw error;
     }
@@ -440,13 +547,14 @@ class SleepDataService {
         throw new Error('User not authenticated');
       }
 
-      const { data, error } = await supabase
+      let q = supabase
         .from(this.tableName)
         .select('*')
         .eq('user_id', user.id)
         .order('date', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
+      q = await this._applyPreferredSourceFilter(q, user.id);
+      const { data, error } = await q.single();
 
       if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
         throw error;
@@ -475,11 +583,13 @@ class SleepDataService {
       startDate.setDate(startDate.getDate() - days);
       const startDateString = startDate.toISOString().split('T')[0];
 
-      const { data, error } = await supabase
+      let q = supabase
         .from(this.tableName)
         .select('*')
         .eq('user_id', user.id)
         .gte('date', startDateString);
+      q = await this._applyPreferredSourceFilter(q, user.id);
+      const { data, error } = await q;
 
       if (error) {
         throw error;

@@ -12,6 +12,7 @@ import {
   Modal,
   Linking,
   InteractionManager,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -55,6 +56,19 @@ import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
+import {
+  getPreferredSleepSource,
+  invalidatePreferredSleepSourceCache,
+  setPreferredSleepSource as savePreferredSleepSourceToAccount,
+  SLEEP_SOURCE,
+  labelForSleepSource,
+  nativeHealthSourceForThisDevice,
+} from '../services/preferredSleepSourceService';
+import {
+  connectFitbitAccount,
+  disconnectFitbitAccount,
+  isFitbitLinkedForUser,
+} from '../services/fitbitConnectionService';
 /** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
 import GlassChromeBar from '../components/GlassChromeBar';
@@ -138,6 +152,10 @@ const ProfileScreen = () => {
   const [morningReminderPickerHour, setMorningReminderPickerHour] = useState(8);
   const [morningReminderPickerMinute, setMorningReminderPickerMinute] = useState(0);
   const [sleepDataModalVisible, setSleepDataModalVisible] = useState(false);
+  const [preferredSleepSource, setPreferredSleepSourceState] = useState(null);
+  const [fitbitLinked, setFitbitLinkedState] = useState(false);
+  const [fitbitBusy, setFitbitBusy] = useState(false);
+  const [officialSourceSaving, setOfficialSourceSaving] = useState(false);
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false);
   const [marketingToggleSaving, setMarketingToggleSaving] = useState(false);
   const [morningCheckinSaving, setMorningCheckinSaving] = useState(false);
@@ -150,6 +168,55 @@ const ProfileScreen = () => {
     value: i.toString(),
     label: i.toString().padStart(2, '0'),
   })), []);
+
+  /** Apple Health on iOS only; Google Health Connect on Android only; manual on both. */
+  const officialSourcePickerOptions = useMemo(() => {
+    const native = nativeHealthSourceForThisDevice();
+    const wearable =
+      native === SLEEP_SOURCE.HEALTHKIT
+        ? [
+            {
+              id: SLEEP_SOURCE.HEALTHKIT,
+              icon: 'logo-apple',
+              title: 'Apple Health',
+              sub: 'Use nights synced from an iPhone or Apple Watch',
+            },
+          ]
+        : [
+            {
+              id: SLEEP_SOURCE.HEALTH_CONNECT,
+              icon: 'logo-google',
+              title: 'Google Health Connect',
+              sub: 'Use nights synced from Android with Health Connect',
+            },
+          ];
+    return [
+      ...wearable,
+      {
+        id: SLEEP_SOURCE.FITBIT,
+        icon: 'watch-outline',
+        title: 'Fitbit',
+        sub: 'Nights sync from your Fitbit account (iPhone or Android)',
+      },
+      {
+        id: SLEEP_SOURCE.MANUAL,
+        icon: 'document-text-outline',
+        title: 'Manual only',
+        sub: 'No automatic wearable sync for charts',
+      },
+    ];
+  }, []);
+
+  const mismatchedWearablePreference = useMemo(() => {
+    if (preferredSleepSource == null) return false;
+    if (
+      preferredSleepSource !== SLEEP_SOURCE.HEALTHKIT &&
+      preferredSleepSource !== SLEEP_SOURCE.HEALTH_CONNECT
+    ) {
+      return false;
+    }
+    return preferredSleepSource !== nativeHealthSourceForThisDevice();
+  }, [preferredSleepSource]);
 
   // Load habit reminder preferences
   useEffect(() => {
@@ -298,6 +365,7 @@ const ProfileScreen = () => {
   );
 
   // Clear user-specific cached data from AsyncStorage
+  // Clear user-specific cached data from AsyncStorage
   const clearUserCaches = async (userId) => {
     try {
       const keys = await AsyncStorage.getAllKeys();
@@ -320,6 +388,56 @@ const ProfileScreen = () => {
     } catch (error) {
     }
   };
+
+  const refreshOfficialSleepSource = useCallback(async () => {
+    if (!user?.id) return;
+    const p = await getPreferredSleepSource(user.id);
+    setPreferredSleepSourceState(p);
+  }, [user?.id]);
+
+  const refreshFitbitLinkFlag = useCallback(async () => {
+    if (!user?.id) {
+      setFitbitLinkedState(false);
+      return;
+    }
+    setFitbitLinkedState(await isFitbitLinkedForUser(user.id));
+  }, [user?.id]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshOfficialSleepSource();
+      refreshFitbitLinkFlag();
+    }, [refreshOfficialSleepSource, refreshFitbitLinkFlag])
+  );
+
+  const handleSelectOfficialSleepSource = async (src) => {
+    if (!user?.id || officialSourceSaving) return;
+    if (preferredSleepSource === src) return;
+    if (src === SLEEP_SOURCE.FITBIT) {
+      const linked = await isFitbitLinkedForUser(user.id);
+      if (!linked) {
+        Alert.alert(
+          'Connect Fitbit first',
+          'Use “Connect Fitbit account“ below (you’ll sign in with Fitbit in the browser). Then choose Fitbit again as your official source.',
+        );
+        return;
+      }
+    }
+    setOfficialSourceSaving(true);
+    try {
+      await savePreferredSleepSourceToAccount(user.id, src);
+      setPreferredSleepSourceState(src);
+      await clearUserCaches(user.id);
+      try {
+        insightsService.notifyInsightsUnderlyingDataChanged({ warmupDelayMs: 120 });
+      } catch (_e) {}
+    } catch (e) {
+      Alert.alert('Could not save', e?.message || 'Please try again.');
+    } finally {
+      setOfficialSourceSaving(false);
+    }
+  };
+
   const {
     hasPermissions,
     isInitialized,
@@ -380,10 +498,11 @@ const ProfileScreen = () => {
     );
   };
 
-  const getDataSourceDisplay = (connected) => {
-    if (!isInitialized) return 'Initializing...';
-    if (!connected) return 'Not connected — tap for options';
-    return Platform.OS === 'android' ? 'Google Health Connect' : 'Apple Health';
+  const getOfficialSleepSummary = () => {
+    if (preferredSleepSource != null) {
+      return labelForSleepSource(preferredSleepSource);
+    }
+    return 'Tap to choose';
   };
 
   const openSystemPermissions = async () => {
@@ -397,6 +516,63 @@ const ProfileScreen = () => {
   const handleSleepDataSourcePress = () => {
     setSleepDataModalVisible(true);
     refreshProfilePermissionState(true);
+    refreshOfficialSleepSource();
+    refreshFitbitLinkFlag();
+  };
+
+  const hasConfiguredFitbitOAuth = Boolean(process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID?.trim?.());
+
+  const handleConnectFitbit = async () => {
+    if (!user?.id || fitbitBusy) return;
+    setFitbitBusy(true);
+    try {
+      const r = await connectFitbitAccount();
+      await refreshFitbitLinkFlag();
+      await invalidatePreferredSleepSourceCache(user.id);
+      await refreshOfficialSleepSource();
+      await refreshPermissionState();
+      if (!r.ok) {
+        Alert.alert(
+          'Could not connect Fitbit',
+          r.reason === 'missing_client_id'
+            ? 'This build is missing the Fitbit setup step. Ask the SleepFactor team to add the Fitbit client ID.'
+            : r.reason === 'cancelled'
+              ? 'You closed the Fitbit login window.'
+              : (r.message || 'Please try again.'),
+        );
+        return;
+      }
+      Alert.alert('Fitbit linked', 'You can choose “Fitbit” as your official sleep source above, then run a sync.');
+    } catch (_e) {
+      Alert.alert('Fitbit', 'Something went wrong. Please try again.');
+    } finally {
+      setFitbitBusy(false);
+    }
+  };
+
+  const handleDisconnectFitbit = () => {
+    Alert.alert(
+      'Disconnect Fitbit?',
+      'This removes the link to Fitbit on our servers and clears Fitbit as your official source if selected.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect Fitbit',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await disconnectFitbitAccount();
+              await refreshFitbitLinkFlag();
+              await refreshOfficialSleepSource();
+              await refreshPermissionState();
+              Alert.alert('Fitbit disconnected', 'You can link again anytime from this screen.');
+            } catch (_e) {
+              Alert.alert('Error', 'Could not disconnect Fitbit.');
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleDisconnect = () => {
@@ -413,12 +589,19 @@ const ProfileScreen = () => {
               const result = await sleepSyncService.disconnect();
               if (result.success) {
                 await refreshPermissionState();
-                Alert.alert(
-                  'System settings',
-                  Platform.OS === 'android'
-                    ? 'To fully remove access: open Health Connect → App permissions → SleepFactor.'
-                    : 'To fully remove access: Settings → Privacy & Security → Health → SleepFactor.'
-                );
+                if (preferredSleepSource === SLEEP_SOURCE.FITBIT || fitbitLinked) {
+                  Alert.alert(
+                    'Fitbit reminder',
+                    'You still have Fitbit linked. Use “Disconnect Fitbit” under Sleep data source if you want to remove Fitbit too.',
+                  );
+                } else {
+                  Alert.alert(
+                    'System settings',
+                    Platform.OS === 'android'
+                      ? 'To fully remove access: open Health Connect → App permissions → SleepFactor.'
+                      : 'To fully remove access: Settings → Privacy & Security → Health → SleepFactor.',
+                  );
+                }
               } else {
                 Alert.alert('Could not disconnect', result.error || 'Please try again.');
               }
@@ -440,18 +623,41 @@ const ProfileScreen = () => {
       });
 
       if (result.success) {
-        const syncedRecords = result.syncedRecords || 0;
-        
-        // After successful sleep data sync, backfill bedtime habits for same range
-        try {
-          await bedtimeHabitsService.backfillBedtimeHabits(user.id, 100);
-        } catch (bedtimeError) {
-          // Don't fail the entire sync if bedtime habits backfill fails
+        if (result.skippedDueToPreferredSource) {
+          Alert.alert(
+            'Sync not run on this phone',
+            result.message ||
+              'This device does not match your official sleep source. Open the app on the device that syncs that source, or change official sleep source above.',
+          );
+          return;
         }
-        
+        const syncedRecords = result.syncedRecords || 0;
+        const fm =
+          typeof result.fitnessMetricsSynced === 'number'
+            ? result.fitnessMetricsSynced
+            : typeof result.healthMetricsSynced === 'number'
+              ? result.healthMetricsSynced
+              : typeof result.fitbitPayload?.syncedMetricWrites === 'number'
+                ? result.fitbitPayload.syncedMetricWrites
+                : null;
+
+        // After successful sleep data sync, backfill bedtime habits for same range (native HK/HC paths)
+        if (!result.fitbitPayload) {
+          try {
+            await bedtimeHabitsService.backfillBedtimeHabits(user.id, 100);
+          } catch (bedtimeError) {
+            /* non fatal */
+          }
+        }
+
+        const fitbitSuffix =
+          result.fitbitPayload && fm != null
+            ? `\nFitbit activity habits updated (${fm} log rows).\n`
+            : '';
+
         Alert.alert(
           'Sync Complete',
-          `Successfully synced all available sleep data (last 100 days) and health metrics.\n\nSynced ${syncedRecords} records.\n\nBedtime habits have been updated.`
+          `Successfully synced sleep for the last 100 days (and related data where available).\n\nSleep nights written this run: ${syncedRecords}.${fitbitSuffix}`,
         );
       } else {
         Alert.alert('Sync Failed', result.error || 'Failed to sync data');
@@ -618,7 +824,7 @@ const ProfileScreen = () => {
               onPress={handleSleepDataSourcePress}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="Sleep data source, tap to manage sync and permissions"
+              accessibilityLabel={`Sleep data source, ${getOfficialSleepSummary()}. Double tap to open.`}
             >
               <View style={styles.dataSourceRow}>
                 <View style={styles.dataSourceLogoWrap}>
@@ -630,8 +836,7 @@ const ProfileScreen = () => {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Sleep data source</Text>
-                  <Text style={styles.value}>{getDataSourceDisplay(hasPermissions)}</Text>
-                  <Text style={styles.dataSourceHint}>Tap to sync, permissions, or disconnect</Text>
+                  <Text style={styles.value}>{getOfficialSleepSummary()}</Text>
                 </View>
                 <Ionicons
                   name="chevron-forward"
@@ -669,22 +874,126 @@ const ProfileScreen = () => {
                   <View
                     style={[
                       styles.sleepDataStatusDot,
-                      hasPermissions ? styles.sleepDataStatusDotOn : styles.sleepDataStatusDotOff,
+                      preferredSleepSource === SLEEP_SOURCE.FITBIT
+                        ? (fitbitLinked
+                          ? styles.sleepDataStatusDotOn
+                          : styles.sleepDataStatusDotOff)
+                        : (hasPermissions
+                          ? styles.sleepDataStatusDotOn
+                          : styles.sleepDataStatusDotOff),
                     ]}
                   />
                   <Text style={styles.sleepDataStatusText}>
-                    {hasPermissions
-                      ? `Connected · ${Platform.OS === 'android' ? 'Google Health Connect' : 'Apple Health'}`
-                      : 'Not connected'}
+                    {preferredSleepSource === SLEEP_SOURCE.FITBIT
+                      ? fitbitLinked
+                        ? 'Fitbit account linked · official source'
+                        : 'Fitbit · not linked yet'
+                      : hasPermissions
+                        ? `Apple / Google · ${
+                          Platform.OS === 'android'
+                            ? 'Google Health Connect'
+                            : 'Apple Health'
+                          } connected`
+                        : 'Apple / Google sleep access not granted'}
                   </Text>
                 </View>
                 <Text style={styles.sleepDataModalBody}>
-                  {Platform.OS === 'android'
+                  {preferredSleepSource === SLEEP_SOURCE.FITBIT
+                    ? 'With Fitbit, nights and everyday activity summaries are fetched from Fitbit’s service when you open the app or tap sync. Grant is handled in Fitbit’s browser screen — not Apple Health / Health Connect.'
+                    : Platform.OS === 'android'
                     ? 'Sleep is read through Google Health Connect. Grant access in SleepFactor first, then sync. You can adjust what we may read in Health Connect (app permissions).'
                     : 'Sleep is read from Apple Health. Grant access when prompted, then sync. You can change access anytime in Settings → Privacy & Security → Health → SleepFactor.'}
                 </Text>
 
-                {!hasPermissions && isInitialized && (
+                <Text style={styles.sleepDataModalSectionTitle}>Official sleep source</Text>
+                <Text style={styles.sleepDataModalFinePrint}>
+                  Insights and the home screen use only nights from the source you choose. Manual check-ins stay visible. Data from other sources stays on your account if you switch later.
+                </Text>
+
+                {mismatchedWearablePreference && (
+                  <View style={styles.officialSourceMismatchBanner}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={22}
+                      color={colors.warning}
+                      style={styles.officialSourceMismatchIcon}
+                    />
+                    <Text style={styles.officialSourceMismatchText}>
+                      Your account is set to {labelForSleepSource(preferredSleepSource)}. This{' '}
+                      {Platform.OS === 'ios' ? 'iPhone' : 'Android phone'} cannot sync that source. Choose{' '}
+                      {labelForSleepSource(nativeHealthSourceForThisDevice())} or Manual only below, or open
+                      SleepFactor on a device that matches your current setting.
+                    </Text>
+                  </View>
+                )}
+
+                {officialSourceSaving && (
+                  <View style={styles.officialSavingRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.sleepDataModalFinePrint}>Saving…</Text>
+                  </View>
+                )}
+
+                {officialSourcePickerOptions.map((opt) => {
+                  const selected = preferredSleepSource === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[
+                        styles.officialOptionCard,
+                        selected && styles.officialOptionCardSelected,
+                      ]}
+                      onPress={() => handleSelectOfficialSleepSource(opt.id)}
+                      disabled={officialSourceSaving}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`${opt.title}. ${opt.sub}`}
+                    >
+                      <Ionicons
+                        name={opt.icon}
+                        size={24}
+                        color={selected ? colors.primary : colors.textSecondary}
+                        style={styles.officialOptionIcon}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.officialOptionTitle,
+                            selected && styles.officialOptionTitleSelected,
+                          ]}
+                        >
+                          {opt.title}
+                        </Text>
+                        <Text style={styles.officialOptionSub}>{opt.sub}</Text>
+                      </View>
+                      {selected && (
+                        <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {hasConfiguredFitbitOAuth && (
+                  <>
+                    {!fitbitLinked ? (
+                      <Button
+                        title="Connect Fitbit account"
+                        onPress={handleConnectFitbit}
+                        loading={fitbitBusy}
+                        style={styles.sleepDataModalButton}
+                      />
+                    ) : (
+                      <Button
+                        title="Disconnect Fitbit"
+                        onPress={handleDisconnectFitbit}
+                        variant="secondary"
+                        style={styles.sleepDataModalButton}
+                      />
+                    )}
+                  </>
+                )}
+
+                {preferredSleepSource !== SLEEP_SOURCE.FITBIT && !hasPermissions && isInitialized && (
                   <Button
                     title="Grant sleep access (in app)"
                     onPress={async () => {
@@ -700,12 +1009,14 @@ const ProfileScreen = () => {
                   />
                 )}
 
-                <Button
-                  title="Open system settings (permissions)"
-                  onPress={openSystemPermissions}
-                  variant="secondary"
-                  style={styles.sleepDataModalButton}
-                />
+                {preferredSleepSource !== SLEEP_SOURCE.FITBIT ? (
+                  <Button
+                    title="Open system settings (permissions)"
+                    onPress={openSystemPermissions}
+                    variant="secondary"
+                    style={styles.sleepDataModalButton}
+                  />
+                ) : null}
 
                 <Button
                   title="Sync all sleep data (last 100 days)"
@@ -722,15 +1033,17 @@ const ProfileScreen = () => {
                   style={styles.sleepDataModalButton}
                 />
 
-                <Button
-                  title="Disconnect / revoke access"
-                  onPress={() => {
-                    setSleepDataModalVisible(false);
-                    handleDisconnect();
-                  }}
-                  variant="secondary"
-                  style={styles.sleepDataModalButton}
-                />
+                {preferredSleepSource !== SLEEP_SOURCE.FITBIT ? (
+                  <Button
+                    title="Disconnect Apple / Google sleep access"
+                    onPress={() => {
+                      setSleepDataModalVisible(false);
+                      handleDisconnect();
+                    }}
+                    variant="secondary"
+                    style={styles.sleepDataModalButton}
+                  />
+                ) : null}
 
                 <TouchableOpacity
                   style={styles.sleepDataModalDone}
@@ -1235,12 +1548,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dataSourceHint: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-    lineHeight: 18,
-  },
   sleepDataModalSafe: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1301,6 +1608,79 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 20,
     marginBottom: spacing.lg,
+  },
+  sleepDataModalSectionTitle: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  sleepDataModalFinePrint: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  officialSavingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  officialSourceMismatchBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.warning + '18',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.warning + '55',
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  officialSourceMismatchIcon: {
+    marginTop: 2,
+  },
+  officialSourceMismatchText: {
+    flex: 1,
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    lineHeight: 20,
+  },
+  officialOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderRadius: 14,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  officialOptionCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.cardBackground,
+  },
+  officialOptionDisabled: {
+    opacity: 0.65,
+  },
+  officialOptionIcon: {
+    marginRight: spacing.xs,
+  },
+  officialOptionTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+  },
+  officialOptionTitleSelected: {
+    color: colors.primary,
+  },
+  officialOptionSub: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
   },
   sleepDataModalButton: {
     marginBottom: spacing.sm,

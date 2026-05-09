@@ -156,16 +156,23 @@ const DateHeader = ({
     const start = stripDates[0].date;
     const end = stripDates[stripDates.length - 1].date;
     let cancelled = false;
+    const opts = { cacheNonce: sleepStripRefreshKey };
+
     sleepDataService
-      .getSleepDataForRange(start, end)
-      .then((data) => {
+      .fetchVisibleSleepDatesForStrip(start, end, opts)
+      .then((dates) => {
         if (cancelled) return;
-        const valid = (data || []).filter((r) => !r.exclude_from_insights);
-        setStripSleepDates(valid.map((r) => r.date));
+        setStripSleepDates(Array.isArray(dates) ? dates : []);
       })
       .catch(() => {
         if (cancelled) return;
-        /* keep trimmed stripSleepDates — don’t wipe UI on transient DB errors */
+        sleepDataService
+          .getSleepDataForRange(start, end, opts)
+          .then((data) => {
+            if (cancelled) return;
+            setStripSleepDates((data || []).map((r) => r.date));
+          })
+          .catch(() => {});
       });
     return () => {
       cancelled = true;

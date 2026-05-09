@@ -35,7 +35,7 @@ export const useHealthSync = ({
       const initialized = await sleepSyncService.initialize();
       setIsInitialized(initialized);
       if (initialized) {
-        const granted = await sleepSyncService.hasPermissions();
+        const granted = await sleepSyncService.hasEffectiveSleepPermissions();
         setHasPermissions(granted);
         if (!granted) {
           setNeedsPermissions(true);
@@ -147,12 +147,32 @@ export const useHealthSync = ({
 
     try {
       // Sync sleep data first
-      const sleepResult = await sleepSyncService.syncSleepData({ daysBack, force });
+      const sleepResult = await sleepSyncService.syncSleepData({ daysBack, force, skipHealthMetrics });
 
       let healthMetricsResult = null;
       let combinedResult = { ...sleepResult };
 
-      if (sleepResult.success && userId && !skipHealthMetrics) {
+      const syncedViaFitbitServer = Boolean(sleepResult?.fitbitPayload);
+
+      if (
+        sleepResult.success &&
+        syncedViaFitbitServer &&
+        !skipHealthMetrics
+      ) {
+        const fm =
+          typeof sleepResult.fitnessMetricsSynced === 'number'
+            ? sleepResult.fitnessMetricsSynced
+            : Number(sleepResult.fitbitPayload?.syncedMetricWrites ?? 0);
+        combinedResult.healthMetricsSynced = fm;
+      }
+
+      if (
+        sleepResult.success &&
+        userId &&
+        !skipHealthMetrics &&
+        !sleepResult.skippedDueToPreferredSource &&
+        !syncedViaFitbitServer
+      ) {
         // If sleep sync succeeded and we have userId, also sync health metrics
         try {
           const endDate = new Date();
@@ -177,6 +197,9 @@ export const useHealthSync = ({
       if (combinedResult.success) {
         setLastSyncResult(combinedResult);
         setHasPermissions(true);
+      } else if (combinedResult.needsFitbitLink) {
+        setNeedsPermissions(false);
+        setError(combinedResult.error || 'Connect your Fitbit account in Profile.');
       } else if (combinedResult.needsPermissions) {
         setNeedsPermissions(true);
       } else {

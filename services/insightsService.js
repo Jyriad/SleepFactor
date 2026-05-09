@@ -1,4 +1,8 @@
 import { supabase } from './supabase';
+import {
+  getPreferredSleepSource,
+  allowedSleepDataSources,
+} from './preferredSleepSourceService';
 import dataQualityService from './dataQualityService';
 import healthMetricsService from './healthMetricsService';
 import bedtimeHabitsService from './bedtimeHabitsService';
@@ -460,6 +464,8 @@ class InsightsService {
   async getSleepData(userId, startDate, endDate, includeExcluded = false) {
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
+    const pref = await getPreferredSleepSource(userId);
+    const allowedSources = allowedSleepDataSources(pref);
 
     const PAGE_SIZE = 1000;
     const allRows = [];
@@ -469,12 +475,16 @@ class InsightsService {
     while (hasMore) {
       const from = offset;
       const to = offset + PAGE_SIZE - 1;
-      const { data, error } = await supabase
+      let q = supabase
         .from('sleep_data')
         .select('*')
         .eq('user_id', userId)
         .gte('date', startDateStr)
-        .lte('date', endDateStr)
+        .lte('date', endDateStr);
+      if (allowedSources) {
+        q = q.in('source', allowedSources);
+      }
+      const { data, error } = await q
         .order('date', { ascending: true })
         .range(from, to);
 
@@ -616,14 +626,18 @@ class InsightsService {
    */
   async calculateCoreSleepDuration(userId, percentile = 20) {
     try {
-      // Fetch all historical sleep data for the user (no date range limit)
-      const { data, error } = await supabase
+      const pref = await getPreferredSleepSource(userId);
+      const allowedSources = allowedSleepDataSources(pref);
+      let q = supabase
         .from('sleep_data')
         .select('total_sleep_minutes')
         .eq('user_id', userId)
         .not('total_sleep_minutes', 'is', null)
-        .gt('total_sleep_minutes', 0) // Exclude invalid zero or negative values
-        .order('total_sleep_minutes');
+        .gt('total_sleep_minutes', 0); // Exclude invalid zero or negative values
+      if (allowedSources) {
+        q = q.in('source', allowedSources);
+      }
+      const { data, error } = await q.order('total_sleep_minutes');
 
       if (error) throw error;
 

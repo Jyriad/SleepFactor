@@ -18,6 +18,10 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
+import {
+  getPreferredSleepSource,
+  allowedSleepDataSources,
+} from '../services/preferredSleepSourceService';
 import homeCacheService from '../services/homeCacheService';
 import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
@@ -130,10 +134,16 @@ const AccountScreen = () => {
 
       if (logsError) throw logsError;
 
-      const { count: sleepCount, error: sleepError } = await supabase
+      const pref = await getPreferredSleepSource(user.id);
+      const allowedSources = allowedSleepDataSources(pref);
+      let sleepCountQuery = supabase
         .from('sleep_data')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id);
+      if (allowedSources) {
+        sleepCountQuery = sleepCountQuery.in('source', allowedSources);
+      }
+      const { count: sleepCount, error: sleepError } = await sleepCountQuery;
 
       if (sleepError) throw sleepError;
 

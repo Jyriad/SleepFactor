@@ -1,4 +1,8 @@
 import { supabase } from './supabase';
+import {
+  getPreferredSleepSource,
+  allowedSleepDataSources,
+} from './preferredSleepSourceService';
 
 /** Avoid static import cycle (insightsService imports dataQualityService). */
 function scheduleInsightsPersistenceInvalidate() {
@@ -99,6 +103,17 @@ class DataQualityService {
   }
 
   /**
+   * @param {*} query
+   * @param {string} userId
+   */
+  async _sleepSourceFilterQuery(query, userId) {
+    const pref = await getPreferredSleepSource(userId);
+    const allowed = allowedSleepDataSources(pref);
+    if (!allowed) return query;
+    return query.in('source', allowed);
+  }
+
+  /**
    * Calculate percentile from sorted array
    * @param {Array<number>} sortedArray - Sorted array of numbers
    * @param {number} percentile - Percentile to calculate (0-100)
@@ -147,6 +162,8 @@ class DataQualityService {
       if (endDate) {
         query = query.lte('date', endDate);
       }
+
+      query = await this._sleepSourceFilterQuery(query, userId);
 
       const { data, error } = await query;
       if (error) throw error;
@@ -286,7 +303,9 @@ class DataQualityService {
       if (startDate) query = query.gte('date', startDate);
       if (endDate) query = query.lte('date', endDate);
 
-      const { data: sleepData, error: fetchError } = await query.eq('user_id', userId);
+      query = await this._sleepSourceFilterQuery(query, userId);
+
+      const { data: sleepData, error: fetchError } = await query;
       if (fetchError) throw fetchError;
 
       // Find dates that correspond to outlier values
@@ -617,6 +636,8 @@ class DataQualityService {
         if (startDate) sleepQuery = sleepQuery.gte('date', startDate);
         if (endDate) sleepQuery = sleepQuery.lte('date', endDate);
 
+        sleepQuery = await this._sleepSourceFilterQuery(sleepQuery, userId);
+
         const { data, error } = await sleepQuery;
         if (!error) {
           sleepData = data || [];
@@ -631,8 +652,10 @@ class DataQualityService {
         if (startDate) sleepQuery = sleepQuery.gte('date', startDate);
         if (endDate) sleepQuery = sleepQuery.lte('date', endDate);
 
-        const { data, basicError } = await sleepQuery;
-        if (!basicError && data) {
+        sleepQuery = await this._sleepSourceFilterQuery(sleepQuery, userId);
+
+        const { data, error: basicFallbackError } = await sleepQuery;
+        if (!basicFallbackError && data) {
           sleepData = data.map(() => ({ exclude_from_insights: false, auto_excluded: false }));
         }
       }

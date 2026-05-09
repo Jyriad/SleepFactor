@@ -24,10 +24,16 @@ import {
   trackOnboardingHealthConnectPressed,
   trackOnboardingHealthPermissionResult,
 } from '../../services/onboardingAnalytics';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  setPreferredSleepSource,
+  SLEEP_SOURCE,
+} from '../../services/preferredSleepSourceService';
 
 const PROMPT_IMAGE = require('../../assets/onboarding/apple-health-access-prompt.png');
 
 export default function OnboardingLetsGetSetupScreen({ navigation }) {
+  const { user } = useAuth();
   const { currentStep, totalSteps, progress } = getOnboardingProgress('OnboardingLetsGetSetup');
   const [busy, setBusy] = useState(false);
   const isIos = Platform.OS === 'ios';
@@ -39,6 +45,14 @@ export default function OnboardingLetsGetSetupScreen({ navigation }) {
       const result = await sleepSyncService.requestPermissionsDetailed();
       if (result.ok) {
         trackOnboardingHealthPermissionResult(true, { connect_screen: 'OnboardingLetsGetSetup' });
+        if (user?.id) {
+          try {
+            await setPreferredSleepSource(
+              user.id,
+              isIos ? SLEEP_SOURCE.HEALTHKIT : SLEEP_SOURCE.HEALTH_CONNECT
+            );
+          } catch (_e) {}
+        }
         navigation.replace('OnboardingHealthLab', {
           sourceLabel: isIos ? 'Apple Health' : 'Google Health Connect',
         });
@@ -54,8 +68,13 @@ export default function OnboardingLetsGetSetupScreen({ navigation }) {
       Alert.alert(copy.title, copy.message, [
         {
           text: 'Continue without',
-          onPress: () => {
+          onPress: async () => {
             trackOnboardingHealthConnectAbandoned('permission_denied_continue_without');
+            if (user?.id) {
+              try {
+                await setPreferredSleepSource(user.id, SLEEP_SOURCE.MANUAL);
+              } catch (_e) {}
+            }
             navigation.replace('OnboardingNewBeginning');
           },
         },

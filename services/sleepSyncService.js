@@ -7,6 +7,14 @@ import syncAttemptTracker from './syncAttemptTracker';
 import { supabase } from './supabase';
 import { formatDateForDB } from '../utils/dateHelpers';
 import insightsService from './insightsService';
+import {
+  getPreferredSleepSource,
+  getWearableSleepSyncEligibility,
+  nativeHealthSourceForThisDevice,
+  SLEEP_SOURCE,
+} from './preferredSleepSourceService';
+import { runFitbitCloudSleepSync } from './fitbitSleepSyncBridge';
+import { isFitbitLinkedForUser } from './fitbitConnectionService';
 
 const LAST_SYNC_STORAGE_KEY = 'sleepSyncLastSuccessAt';
 
@@ -28,7 +36,19 @@ class SleepSyncService {
   async initialize() {
     try {
       const healthServiceInitialized = await healthService.initialize();
-      this.isInitialized = healthServiceInitialized;
+      let fitbitReady = false;
+      try {
+        const { data: { user: u } } = await supabase.auth.getUser();
+        if (u?.id) {
+          const pref = await getPreferredSleepSource(u.id);
+          if (pref === SLEEP_SOURCE.FITBIT) {
+            fitbitReady = await isFitbitLinkedForUser(u.id);
+          }
+        }
+      } catch (_e) {
+        fitbitReady = false;
+      }
+      this.isInitialized = healthServiceInitialized || fitbitReady;
       try {
         const stored = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
         if (stored) {
@@ -37,7 +57,7 @@ class SleepSyncService {
       } catch (e) {
         // Non-blocking; in-memory stays null
       }
-      return healthServiceInitialized;
+      return this.isInitialized;
     } catch (error) {
       this.isInitialized = false;
       return false;
@@ -132,13 +152,8 @@ class SleepSyncService {
    */
   async getExistingSleepDates(startDate, endDate) {
     try {
-      const data = await sleepDataService.getSleepDataForRange(startDate, endDate);
-
-      if (!Array.isArray(data)) {
-        return new Set();
-      }
-
-      return new Set(data.map(record => record.date));
+      const source = healthService.getSourceIdentifier();
+      return await sleepDataService.getDatesWithSourceInRange(startDate, endDate, source);
     } catch (error) {
       return new Set();
     }
@@ -152,7 +167,7 @@ class SleepSyncService {
    * @param {boolean} options.silent - If true, don't show UI indicators (e.g. launch sync)
    * @returns {Promise<Object>} Sync result with success status and data
    */
-  async syncSleepData({ daysBack = 7, force = false, silent = false } = {}) {
+  async syncSleepData({ daysBack = 7, force = false, silent = false, skipHealthMetrics = false } = {}) {
     if (this.isSyncing && !force) {
       return {
         success: true,
@@ -165,7 +180,7 @@ class SleepSyncService {
     return this.syncQueue = this.syncQueue.then(async () => {
       this.isSyncing = true;
       try {
-        return await this._performSync({ daysBack, force, silent });
+        return await this._performSync({ daysBack, force, silent, skipHealthMetrics });
       } finally {
         this.isSyncing = false;
       }
@@ -292,8 +307,39 @@ class SleepSyncService {
   /**
    * @private
    */
-  async _performSync({ daysBack = 7, force = false, silent = false } = {}) {
+  async _performSync({ daysBack = 7, force = false, silent = false, skipHealthMetrics = false } = {}) {
     try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser?.id) {
+        const pref = await getPreferredSleepSource(authUser.id);
+        if (pref === SLEEP_SOURCE.FITBIT) {
+          const linked = await isFitbitLinkedForUser(authUser.id);
+          if (!linked) {
+            return {
+              success: false,
+              error: 'Connect your Fitbit account in Profile to sync nights.',
+              data: null,
+              needsPermissions: false,
+              needsFitbitLink: true,
+            };
+          }
+          const fb = await runFitbitCloudSleepSync({ daysBack, force, skipHealthMetrics });
+          if (fb.success) {
+            try {
+              this.lastSyncTimestamp = new Date(fb.lastSyncTimestamp || Date.now());
+              await AsyncStorage.setItem(LAST_SYNC_STORAGE_KEY, this.lastSyncTimestamp.toISOString());
+            } catch (_e) {
+              /* non-fatal */
+            }
+          }
+          return fb;
+        }
+      }
+
       if (!healthService.isInitialized) {
         const initialized = await healthService.initialize();
         if (!initialized) {
@@ -308,10 +354,6 @@ class SleepSyncService {
         }
       }
 
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
       const hasPermissions = await healthService.hasPermissions();
       if (!hasPermissions) {
         return {
@@ -320,6 +362,21 @@ class SleepSyncService {
           data: null,
           needsPermissions: true
         };
+      }
+
+      if (authUser?.id) {
+        const elig = await getWearableSleepSyncEligibility(authUser.id);
+        if (!elig.ok) {
+          return {
+            success: true,
+            skippedDueToPreferredSource: true,
+            message: elig.reason,
+            data: [],
+            syncedRecords: 0,
+            resultType: 'SKIPPED_PREFERRED_SOURCE',
+            needsPermissions: false
+          };
+        }
       }
 
       const endDate = new Date();
@@ -460,6 +517,31 @@ class SleepSyncService {
     try {
       return await healthService.hasPermissions();
     } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * True when wearable sleep sync should be allowed on this phone (HK/HC tokens or Fitbit link).
+   * @returns {Promise<boolean>}
+   */
+  async hasEffectiveSleepPermissions() {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) return false;
+
+      const pref = await getPreferredSleepSource(user.id);
+
+      if (pref === SLEEP_SOURCE.MANUAL) return false;
+      if (pref === SLEEP_SOURCE.FITBIT) return await isFitbitLinkedForUser(user.id);
+
+      const native = nativeHealthSourceForThisDevice();
+      if (pref && pref !== native) return false;
+
+      return await healthService.hasPermissions();
+    } catch (_e) {
       return false;
     }
   }
