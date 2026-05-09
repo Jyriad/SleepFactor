@@ -404,8 +404,12 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           }
 
           const consumptionHabits = (data.habits || []).filter(h => h.type === 'drug' || h.type === 'quick_consumption');
-          consumptionHabits.forEach((h) => {
-            consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {});
+          /* After interactions — don’t stack N option requests on the same frame as log UI + drug level. */
+          InteractionManager.runAfterInteractions(() => {
+            consumptionHabits.forEach((h) => {
+              if (consumptionOptionsService.getCachedOptions(h.id)) return;
+              consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {});
+            });
           });
         } catch (err) {
           if (!cancelled) {
@@ -1034,6 +1038,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         keyExtractor={keyExtractor}
         ListEmptyComponent={HabitLoggingEmptyComponent}
         renderItem={renderItem}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={10}
         onScrollToIndexFailed={({ index }) => {
           setTimeout(() => {
             flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });

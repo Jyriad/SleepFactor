@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  InteractionManager,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '../constants';
 import { formatDateForDB } from '../utils/dateHelpers';
@@ -41,29 +48,35 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
       return;
     }
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        if (isViewingToday) {
-          const result = await drugLevelService.getLevelNow(userId, habit);
-          if (!cancelled) {
-            setLevelNow(result);
-            setBedtimeAt(null);
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      (async () => {
+        setLoading(true);
+        try {
+          if (isViewingToday) {
+            const result = await drugLevelService.getLevelNow(userId, habit);
+            if (!cancelled) {
+              setLevelNow(result);
+              setBedtimeAt(null);
+            }
+          } else {
+            const result = await drugLevelService.getLevelAtBedtime(userId, habit, dateStr);
+            if (!cancelled) {
+              setLevelNow(result);
+              setBedtimeAt(result.bedtimeAt || null);
+            }
           }
-        } else {
-          const result = await drugLevelService.getLevelAtBedtime(userId, habit, dateStr);
-          if (!cancelled) {
-            setLevelNow(result);
-            setBedtimeAt(result.bedtimeAt || null);
-          }
+        } catch (e) {
+          if (!cancelled) setLevelNow({ level: 0, unit: habit.unit || 'units' });
+        } finally {
+          if (!cancelled) setLoading(false);
         }
-      } catch (e) {
-        if (!cancelled) setLevelNow({ level: 0, unit: habit.unit || 'units' });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+      })();
+    });
+    return () => {
+      cancelled = true;
+      interactionTask.cancel?.();
+    };
   }, [userId, habit?.id, habit?.unit, isViewingToday, dateStr, levelRefreshKey]);
 
   useEffect(() => {
