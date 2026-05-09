@@ -28,6 +28,7 @@ import {
   trackOnboardingFlowStarted,
   trackOnboardingRouteTransition,
 } from '../services/onboardingAnalytics';
+import { runHealthMetricsMergedTotalsBackfillIfNeeded } from '../services/healthMetricsMergedTotalsBackfill';
 
 const AccountScreen = lazy(() => import('../screens/AccountScreen'));
 const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
@@ -114,6 +115,15 @@ const AppNavigator = ({ navigationRef }) => {
       cancelled = true;
     };
   }, [loading, user?.id]);
+
+  // One-time wearable metrics backfill (corrects legacy double-counted iOS samples + local date buckets).
+  useEffect(() => {
+    if (!user?.id || !onboardingComplete) return undefined;
+    const t = setTimeout(() => {
+      runHealthMetricsMergedTotalsBackfillIfNeeded(user.id).catch(() => {});
+    }, 3500);
+    return () => clearTimeout(t);
+  }, [user?.id, onboardingComplete]);
 
   const initialRoute = isAuthenticated && user ? 'MainTabs' : 'Auth';
 

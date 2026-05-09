@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   TextInput,
   Modal,
   Linking,
+  InteractionManager,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -33,7 +35,7 @@ const IS_DEV_BUILD =
 const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 
   ? `${BASE_VERSION} Dev` 
   : BASE_VERSION;
-import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
@@ -48,11 +50,19 @@ import useHealthSync from '../hooks/useHealthSync';
 import sleepSyncService from '../services/sleepSyncService';
 import sleepDataService from '../services/sleepDataService';
 import habitReminderNotifications from '../services/habitReminderNotifications';
+import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import homeCacheService from '../services/homeCacheService';
 import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
+import {
+  getPreferredSleepSource,
+  setPreferredSleepSource as savePreferredSleepSourceToAccount,
+  SLEEP_SOURCE,
+  labelForSleepSource,
+  nativeHealthSourceForThisDevice,
+} from '../services/preferredSleepSourceService';
 /** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
 import GlassChromeBar from '../components/GlassChromeBar';
@@ -61,10 +71,13 @@ import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
 const DEFAULT_ALCOHOL_HALF_LIFE = 5;
+const DEFAULT_MORNING_CHECKIN_TIME = '08:00';
+const DEFAULT_HABIT_REMINDER_TIME = '20:00';
+const PROFILE_PERMISSION_REFRESH_COOLDOWN_MS = 60 * 1000;
 
 /** Format "HH:mm" to display string using 12 or 24 hour preference. */
-function formatReminderTimeForDisplay(timeStr, use24Hour) {
-  if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || '20:00';
+function formatReminderTimeForDisplay(timeStr, use24Hour, fallback = DEFAULT_HABIT_REMINDER_TIME) {
+  if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || fallback;
   const [h, m] = timeStr.split(':').map(Number);
   if (use24Hour) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -72,6 +85,18 @@ function formatReminderTimeForDisplay(timeStr, use24Hour) {
   const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   const ampm = h < 12 ? 'AM' : 'PM';
   return `${hour12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function toShortTime(timeRaw, fallback = null) {
+  if (!timeRaw) return fallback;
+  const short = String(timeRaw).slice(0, 5);
+  return /^\d{1,2}:\d{2}$/.test(short) ? short : fallback;
+}
+
+function toPgTime(timeStr) {
+  const short = toShortTime(timeStr, DEFAULT_MORNING_CHECKIN_TIME);
+  const [h, m] = short.split(':').map(Number);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
 const ProfileScreen = () => {
@@ -91,13 +116,14 @@ const ProfileScreen = () => {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      (async () => {
+      const task = InteractionManager.runAfterInteractions(async () => {
         const { data, error } = await supabase.auth.getUser();
         if (cancelled || error || !data?.user) return;
         setResolvedProfileUser(data.user);
-      })();
+      });
       return () => {
         cancelled = true;
+        task.cancel?.();
       };
     }, [])
   );
@@ -110,13 +136,21 @@ const ProfileScreen = () => {
   const [alcoholHabitId, setAlcoholHabitId] = useState(null);
   const [halfLifeSaving, setHalfLifeSaving] = useState(false);
   const [habitReminderEnabled, setHabitReminderEnabled] = useState(false);
-  const [habitReminderTime, setHabitReminderTime] = useState('20:00');
+  const [habitReminderTime, setHabitReminderTime] = useState(DEFAULT_HABIT_REMINDER_TIME);
   const [showHabitReminderTimePicker, setShowHabitReminderTimePicker] = useState(false);
+  const [morningCheckinEnabled, setMorningCheckinEnabled] = useState(false);
+  const [morningCheckinTime, setMorningCheckinTime] = useState(DEFAULT_MORNING_CHECKIN_TIME);
+  const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
   const [reminderPickerHour, setReminderPickerHour] = useState(20);
   const [reminderPickerMinute, setReminderPickerMinute] = useState(0);
+  const [morningReminderPickerHour, setMorningReminderPickerHour] = useState(8);
+  const [morningReminderPickerMinute, setMorningReminderPickerMinute] = useState(0);
   const [sleepDataModalVisible, setSleepDataModalVisible] = useState(false);
+  const [preferredSleepSource, setPreferredSleepSourceState] = useState(null);
+  const [officialSourceSaving, setOfficialSourceSaving] = useState(false);
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false);
   const [marketingToggleSaving, setMarketingToggleSaving] = useState(false);
+  const [morningCheckinSaving, setMorningCheckinSaving] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -127,16 +161,122 @@ const ProfileScreen = () => {
     label: i.toString().padStart(2, '0'),
   })), []);
 
+  /** Apple Health on iOS only; Google Health Connect on Android only; manual on both. */
+  const officialSourcePickerOptions = useMemo(() => {
+    const native = nativeHealthSourceForThisDevice();
+    const wearable =
+      native === SLEEP_SOURCE.HEALTHKIT
+        ? [
+            {
+              id: SLEEP_SOURCE.HEALTHKIT,
+              icon: 'logo-apple',
+              title: 'Apple Health',
+              sub: 'Use nights synced from an iPhone or Apple Watch',
+            },
+          ]
+        : [
+            {
+              id: SLEEP_SOURCE.HEALTH_CONNECT,
+              icon: 'logo-google',
+              title: 'Google Health Connect',
+              sub: 'Use nights synced from Android with Health Connect',
+            },
+          ];
+    return [
+      ...wearable,
+      {
+        id: SLEEP_SOURCE.MANUAL,
+        icon: 'document-text-outline',
+        title: 'Manual only',
+        sub: 'No automatic wearable sync for charts',
+      },
+    ];
+  }, []);
+
+  const mismatchedWearablePreference = useMemo(() => {
+    if (preferredSleepSource == null) return false;
+    if (
+      preferredSleepSource !== SLEEP_SOURCE.HEALTHKIT &&
+      preferredSleepSource !== SLEEP_SOURCE.HEALTH_CONNECT
+    ) {
+      return false;
+    }
+    return preferredSleepSource !== nativeHealthSourceForThisDevice();
+  }, [preferredSleepSource]);
+
   // Load habit reminder preferences
   useEffect(() => {
-    habitReminderNotifications.getHabitReminderEnabled().then(setHabitReminderEnabled);
-    habitReminderNotifications.getHabitReminderTime().then(setHabitReminderTime);
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      Promise.all([
+        habitReminderNotifications.getHabitReminderEnabled(),
+        habitReminderNotifications.getHabitReminderTime(),
+      ]).then(([enabled, time]) => {
+        if (cancelled) return;
+        setHabitReminderEnabled(enabled);
+        setHabitReminderTime(time);
+      });
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
   }, []);
+
+  const loadMorningCheckinPreference = useCallback(async () => {
+    if (!user?.id) return;
+
+    const { data: userRow, error } = await supabase
+      .from('users')
+      .select('track_tiredness, track_dream_vividness, track_ease_sleep, morning_checkin_time')
+      .eq('id', user.id)
+      .single();
+    if (error || !userRow) return;
+
+    let hasEnabledMeasure =
+      userRow.track_tiredness === true ||
+      userRow.track_dream_vividness === true ||
+      userRow.track_ease_sleep === true;
+
+    try {
+      const { count, error: measureErr } = await supabase
+        .from('user_subjective_measures')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('enabled', true);
+      if (!measureErr) {
+        hasEnabledMeasure = (count || 0) > 0 || hasEnabledMeasure;
+      }
+    } catch (_e) {
+      // Legacy accounts may not have the measures table available yet.
+    }
+
+    const hasReminderTime =
+      userRow.morning_checkin_time != null && String(userRow.morning_checkin_time).trim() !== '';
+    setMorningCheckinTime(toShortTime(userRow.morning_checkin_time, DEFAULT_MORNING_CHECKIN_TIME));
+    setMorningCheckinEnabled(hasEnabledMeasure && hasReminderTime);
+  }, [user?.id]);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadMorningCheckinPreference();
+    });
+    return () => task.cancel?.();
+  }, [loadMorningCheckinPreference]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        loadMorningCheckinPreference();
+      });
+      return () => task.cancel?.();
+    }, [loadMorningCheckinPreference])
+  );
 
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    (async () => {
+    const task = InteractionManager.runAfterInteractions(async () => {
       const { data, error } = await supabase
         .from('users')
         .select('marketing_email_opt_in')
@@ -144,23 +284,25 @@ const ProfileScreen = () => {
         .single();
       if (cancelled || error) return;
       setMarketingEmailOptIn(data?.marketing_email_opt_in === true);
-    })();
+    });
     return () => {
       cancelled = true;
+      task.cancel?.();
     };
   }, [user?.id]);
 
   // Fetch Caffeine & Alcohol habits for half-life settings
   useEffect(() => {
     if (!user?.id) return;
-    (async () => {
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(async () => {
       const { data, error } = await supabase
         .from('habits')
         .select('id, name, half_life_hours')
         .eq('user_id', user.id)
         .eq('type', 'quick_consumption')
         .in('name', ['Caffeine', 'Alcohol']);
-      if (error) return;
+      if (cancelled || error) return;
       (data || []).forEach((h) => {
         const val = h.half_life_hours != null ? String(h.half_life_hours) : '';
         if (h.name === 'Caffeine') {
@@ -171,7 +313,11 @@ const ProfileScreen = () => {
           setAlcoholHalfLife(val || String(DEFAULT_ALCOHOL_HALF_LIFE));
         }
       });
-    })();
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
   }, [user?.id]);
 
   const saveHalfLife = async (habitId, value, setDisplay) => {
@@ -205,6 +351,7 @@ const ProfileScreen = () => {
   );
 
   // Clear user-specific cached data from AsyncStorage
+  // Clear user-specific cached data from AsyncStorage
   const clearUserCaches = async (userId) => {
     try {
       const keys = await AsyncStorage.getAllKeys();
@@ -227,6 +374,37 @@ const ProfileScreen = () => {
     } catch (error) {
     }
   };
+
+  const refreshOfficialSleepSource = useCallback(async () => {
+    if (!user?.id) return;
+    const p = await getPreferredSleepSource(user.id);
+    setPreferredSleepSourceState(p);
+  }, [user?.id]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshOfficialSleepSource();
+    }, [refreshOfficialSleepSource])
+  );
+
+  const handleSelectOfficialSleepSource = async (src) => {
+    if (!user?.id || officialSourceSaving) return;
+    if (preferredSleepSource === src) return;
+    setOfficialSourceSaving(true);
+    try {
+      await savePreferredSleepSourceToAccount(user.id, src);
+      setPreferredSleepSourceState(src);
+      await clearUserCaches(user.id);
+      try {
+        insightsService.notifyInsightsUnderlyingDataChanged({ warmupDelayMs: 120 });
+      } catch (_e) {}
+    } catch (e) {
+      Alert.alert('Could not save', e?.message || 'Please try again.');
+    } finally {
+      setOfficialSourceSaving(false);
+    }
+  };
+
   const {
     hasPermissions,
     isInitialized,
@@ -234,12 +412,36 @@ const ProfileScreen = () => {
     performSync,
     requestPermissions,
     refreshPermissionState,
-  } = useHealthSync();
+  } = useHealthSync({
+    autoSyncOnMount: false,
+    autoSyncOnForeground: false,
+    autoRefreshPermissionsOnMount: false,
+    autoRefreshPermissionsOnForeground: false,
+  });
+
+  const lastProfilePermissionRefreshRef = useRef(0);
+
+  const refreshProfilePermissionState = useCallback((force = false) => {
+    const now = Date.now();
+    if (
+      !force &&
+      now - lastProfilePermissionRefreshRef.current < PROFILE_PERMISSION_REFRESH_COOLDOWN_MS
+    ) {
+      return null;
+    }
+    lastProfilePermissionRefreshRef.current = now;
+    return InteractionManager.runAfterInteractions(() => {
+      refreshPermissionState().catch(() => {});
+    });
+  }, [refreshPermissionState]);
 
   useFocusEffect(
     React.useCallback(() => {
-      refreshPermissionState();
-    }, [refreshPermissionState])
+      const task = refreshProfilePermissionState(false);
+      return () => {
+        task?.cancel?.();
+      };
+    }, [refreshProfilePermissionState])
   );
 
   const handleLogout = () => {
@@ -263,10 +465,11 @@ const ProfileScreen = () => {
     );
   };
 
-  const getDataSourceDisplay = (connected) => {
-    if (!isInitialized) return 'Initializing...';
-    if (!connected) return 'Not connected — tap for options';
-    return Platform.OS === 'android' ? 'Google Health Connect' : 'Apple Health';
+  const getOfficialSleepSummary = () => {
+    if (preferredSleepSource != null) {
+      return labelForSleepSource(preferredSleepSource);
+    }
+    return 'Tap to choose';
   };
 
   const openSystemPermissions = async () => {
@@ -278,8 +481,9 @@ const ProfileScreen = () => {
   };
 
   const handleSleepDataSourcePress = () => {
-    refreshPermissionState();
     setSleepDataModalVisible(true);
+    refreshProfilePermissionState(true);
+    refreshOfficialSleepSource();
   };
 
   const handleDisconnect = () => {
@@ -300,7 +504,7 @@ const ProfileScreen = () => {
                   'System settings',
                   Platform.OS === 'android'
                     ? 'To fully remove access: open Health Connect → App permissions → SleepFactor.'
-                    : 'To fully remove access: Settings → Privacy & Security → Health → SleepFactor.'
+                    : 'To fully remove access: Settings → Privacy & Security → Health → SleepFactor.',
                 );
               } else {
                 Alert.alert('Could not disconnect', result.error || 'Please try again.');
@@ -323,18 +527,25 @@ const ProfileScreen = () => {
       });
 
       if (result.success) {
+        if (result.skippedDueToPreferredSource) {
+          Alert.alert(
+            'Sync not run on this phone',
+            result.message ||
+              'This device does not match your official sleep source. Open the app on the device that syncs that source, or change official sleep source above.',
+          );
+          return;
+        }
         const syncedRecords = result.syncedRecords || 0;
-        
-        // After successful sleep data sync, backfill bedtime habits for same range
+
         try {
           await bedtimeHabitsService.backfillBedtimeHabits(user.id, 100);
         } catch (bedtimeError) {
-          // Don't fail the entire sync if bedtime habits backfill fails
+          /* non fatal */
         }
-        
+
         Alert.alert(
           'Sync Complete',
-          `Successfully synced all available sleep data (last 100 days) and health metrics.\n\nSynced ${syncedRecords} records.\n\nBedtime habits have been updated.`
+          `Successfully synced sleep for the last 100 days (and related data where available).\n\nSleep nights written this run: ${syncedRecords}.`,
         );
       } else {
         Alert.alert('Sync Failed', result.error || 'Failed to sync data');
@@ -366,6 +577,85 @@ const ProfileScreen = () => {
       Alert.alert('Could not update email preference', 'Please try again.');
     } finally {
       setMarketingToggleSaving(false);
+    }
+  };
+
+  const ensureMorningCheckinMeasure = async () => {
+    if (!user?.id) return;
+    const nowIso = new Date().toISOString();
+
+    await supabase
+      .from('users')
+      .update({
+        track_tiredness: true,
+        subjective_remove_tiredness_measure: false,
+      })
+      .eq('id', user.id);
+
+    const { data: existing } = await supabase
+      .from('user_subjective_measures')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('slug', 'tiredness')
+      .maybeSingle();
+
+    if (existing?.id) {
+      await supabase
+        .from('user_subjective_measures')
+        .update({ enabled: true, updated_at: nowIso })
+        .eq('id', existing.id)
+        .eq('user_id', user.id);
+    } else {
+      await supabase.from('user_subjective_measures').insert({
+        user_id: user.id,
+        slug: 'tiredness',
+        label: 'Refreshed feeling',
+        hint: 'How refreshed did you feel when you first woke up?',
+        left_label: 'Not refreshed',
+        right_label: 'Very refreshed',
+        sort_order: 0,
+        enabled: true,
+        is_builtin: true,
+      });
+    }
+  };
+
+  const handleToggleMorningCheckin = async () => {
+    if (!user?.id || morningCheckinSaving) return;
+    const next = !morningCheckinEnabled;
+    const previousEnabled = morningCheckinEnabled;
+    const previousTime = morningCheckinTime;
+    const nextTime = morningCheckinTime || DEFAULT_MORNING_CHECKIN_TIME;
+
+    setMorningCheckinEnabled(next);
+    if (next) setMorningCheckinTime(nextTime);
+    setMorningCheckinSaving(true);
+
+    try {
+      if (next) {
+        await ensureMorningCheckinMeasure();
+        const { error } = await supabase
+          .from('users')
+          .update({ morning_checkin_time: toPgTime(nextTime) })
+          .eq('id', user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('users')
+          .update({ morning_checkin_time: null })
+          .eq('id', user.id);
+        if (error) throw error;
+        await morningCheckinNotifications.cancelMorningCheckin();
+      }
+
+      await morningCheckinNotifications.rescheduleIfEnabled();
+      await loadMorningCheckinPreference();
+    } catch (_error) {
+      setMorningCheckinEnabled(previousEnabled);
+      setMorningCheckinTime(previousTime);
+      Alert.alert('Could not update reminder', 'Please try again.');
+    } finally {
+      setMorningCheckinSaving(false);
     }
   };
 
@@ -422,7 +712,7 @@ const ProfileScreen = () => {
               onPress={handleSleepDataSourcePress}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="Sleep data source, tap to manage sync and permissions"
+              accessibilityLabel={`Sleep data source, ${getOfficialSleepSummary()}. Double tap to open.`}
             >
               <View style={styles.dataSourceRow}>
                 <View style={styles.dataSourceLogoWrap}>
@@ -434,8 +724,7 @@ const ProfileScreen = () => {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Sleep data source</Text>
-                  <Text style={styles.value}>{getDataSourceDisplay(hasPermissions)}</Text>
-                  <Text style={styles.dataSourceHint}>Tap to sync, permissions, or disconnect</Text>
+                  <Text style={styles.value}>{getOfficialSleepSummary()}</Text>
                 </View>
                 <Ionicons
                   name="chevron-forward"
@@ -473,22 +762,119 @@ const ProfileScreen = () => {
                   <View
                     style={[
                       styles.sleepDataStatusDot,
-                      hasPermissions ? styles.sleepDataStatusDotOn : styles.sleepDataStatusDotOff,
+                      preferredSleepSource === SLEEP_SOURCE.FITBIT
+                        ? styles.sleepDataStatusDotOff
+                        : hasPermissions
+                          ? styles.sleepDataStatusDotOn
+                          : styles.sleepDataStatusDotOff,
                     ]}
                   />
                   <Text style={styles.sleepDataStatusText}>
-                    {hasPermissions
-                      ? `Connected · ${Platform.OS === 'android' ? 'Google Health Connect' : 'Apple Health'}`
-                      : 'Not connected'}
+                    {preferredSleepSource === SLEEP_SOURCE.FITBIT
+                      ? 'Fitbit isn’t connected in this app version'
+                      : hasPermissions
+                        ? `Apple / Google · ${
+                          Platform.OS === 'android'
+                            ? 'Google Health Connect'
+                            : 'Apple Health'
+                          } connected`
+                        : 'Apple / Google sleep access not granted'}
                   </Text>
                 </View>
                 <Text style={styles.sleepDataModalBody}>
-                  {Platform.OS === 'android'
-                    ? 'Sleep is read through Google Health Connect. Grant access in SleepFactor first, then sync. You can adjust what we may read in Health Connect (app permissions).'
-                    : 'Sleep is read from Apple Health. Grant access when prompted, then sync. You can change access anytime in Settings → Privacy & Security → Health → SleepFactor.'}
+                  {preferredSleepSource === SLEEP_SOURCE.FITBIT
+                    ? 'Pick Apple Health, Google Health Connect, or Manual only below. Your charts and insights will follow the source you choose on this phone.'
+                    : Platform.OS === 'android'
+                      ? 'Sleep is read through Google Health Connect. Grant access in SleepFactor first, then sync. You can adjust what we may read in Health Connect (app permissions).'
+                      : 'Sleep is read from Apple Health. Grant access when prompted, then sync. You can change access anytime in Settings → Privacy & Security → Health → SleepFactor.'}
                 </Text>
 
-                {!hasPermissions && isInitialized && (
+                <Text style={styles.sleepDataModalSectionTitle}>Official sleep source</Text>
+                <Text style={styles.sleepDataModalFinePrint}>
+                  Insights and the home screen use only nights from the source you choose. Manual check-ins stay visible. Data from other sources stays on your account if you switch later.
+                </Text>
+
+                {preferredSleepSource === SLEEP_SOURCE.FITBIT && (
+                  <View style={styles.officialSourceMismatchBanner}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={22}
+                      color={colors.warning}
+                      style={styles.officialSourceMismatchIcon}
+                    />
+                    <Text style={styles.officialSourceMismatchText}>
+                      Your account still has Fitbit chosen as the official source, but this app version doesn’t
+                      include Fitbit yet. Choose{' '}
+                      {labelForSleepSource(nativeHealthSourceForThisDevice())} or Manual only below so nights can
+                      sync again.
+                    </Text>
+                  </View>
+                )}
+
+                {mismatchedWearablePreference && (
+                  <View style={styles.officialSourceMismatchBanner}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={22}
+                      color={colors.warning}
+                      style={styles.officialSourceMismatchIcon}
+                    />
+                    <Text style={styles.officialSourceMismatchText}>
+                      Your account is set to {labelForSleepSource(preferredSleepSource)}. This{' '}
+                      {Platform.OS === 'ios' ? 'iPhone' : 'Android phone'} cannot sync that source. Choose{' '}
+                      {labelForSleepSource(nativeHealthSourceForThisDevice())} or Manual only below, or open
+                      SleepFactor on a device that matches your current setting.
+                    </Text>
+                  </View>
+                )}
+
+                {officialSourceSaving && (
+                  <View style={styles.officialSavingRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.sleepDataModalFinePrint}>Saving…</Text>
+                  </View>
+                )}
+
+                {officialSourcePickerOptions.map((opt) => {
+                  const selected = preferredSleepSource === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[
+                        styles.officialOptionCard,
+                        selected && styles.officialOptionCardSelected,
+                      ]}
+                      onPress={() => handleSelectOfficialSleepSource(opt.id)}
+                      disabled={officialSourceSaving}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`${opt.title}. ${opt.sub}`}
+                    >
+                      <Ionicons
+                        name={opt.icon}
+                        size={24}
+                        color={selected ? colors.primary : colors.textSecondary}
+                        style={styles.officialOptionIcon}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.officialOptionTitle,
+                            selected && styles.officialOptionTitleSelected,
+                          ]}
+                        >
+                          {opt.title}
+                        </Text>
+                        <Text style={styles.officialOptionSub}>{opt.sub}</Text>
+                      </View>
+                      {selected && (
+                        <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {!hasPermissions && isInitialized && preferredSleepSource !== SLEEP_SOURCE.FITBIT && (
                   <Button
                     title="Grant sleep access (in app)"
                     onPress={async () => {
@@ -527,7 +913,7 @@ const ProfileScreen = () => {
                 />
 
                 <Button
-                  title="Disconnect / revoke access"
+                  title="Disconnect Apple / Google sleep access"
                   onPress={() => {
                     setSleepDataModalVisible(false);
                     handleDisconnect();
@@ -682,10 +1068,52 @@ const ProfileScreen = () => {
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Remind me to log my habits</Text>
-                  <Text style={styles.description}>
-                    Get a daily notification to log your habits for the day
+                  <Text style={styles.label}>Morning check-in</Text>
+                  <Text style={styles.description}>Log how rested you feel</Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    morningCheckinEnabled && styles.toggleSwitchOn,
+                    morningCheckinSaving && styles.toggleSwitchDisabled,
+                  ]}
+                  disabled={morningCheckinSaving}
+                  onPress={handleToggleMorningCheckin}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      morningCheckinEnabled && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+              {morningCheckinEnabled && (
+                <TouchableOpacity
+                  style={styles.habitReminderTimeRow}
+                  onPress={() => {
+                    const [h, m] = (morningCheckinTime || DEFAULT_MORNING_CHECKIN_TIME).split(':').map(Number);
+                    setMorningReminderPickerHour(isNaN(h) ? 8 : h);
+                    setMorningReminderPickerMinute(isNaN(m) ? 0 : m);
+                    setShowMorningCheckinTimePicker(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.label}>Morning time</Text>
+                  <Text style={styles.value}>
+                    {formatReminderTimeForDisplay(
+                      morningCheckinTime,
+                      preferences.timeFormat === '24',
+                      DEFAULT_MORNING_CHECKIN_TIME
+                    )}
                   </Text>
+                </TouchableOpacity>
+              )}
+              <View style={styles.notificationDivider} />
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Evening habits</Text>
+                  <Text style={styles.description}>Log your habits for the day</Text>
                 </View>
                 <TouchableOpacity
                   style={[
@@ -710,16 +1138,20 @@ const ProfileScreen = () => {
                 <TouchableOpacity
                   style={styles.habitReminderTimeRow}
                   onPress={() => {
-                    const [h, m] = (habitReminderTime || '20:00').split(':').map(Number);
+                    const [h, m] = (habitReminderTime || DEFAULT_HABIT_REMINDER_TIME).split(':').map(Number);
                     setReminderPickerHour(isNaN(h) ? 20 : h);
                     setReminderPickerMinute(isNaN(m) ? 0 : m);
                     setShowHabitReminderTimePicker(true);
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.label}>Reminder time</Text>
+                  <Text style={styles.label}>Evening time</Text>
                   <Text style={styles.value}>
-                    {formatReminderTimeForDisplay(habitReminderTime, preferences.timeFormat === '24')}
+                    {formatReminderTimeForDisplay(
+                      habitReminderTime,
+                      preferences.timeFormat === '24',
+                      DEFAULT_HABIT_REMINDER_TIME
+                    )}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -750,20 +1182,81 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.sectionSubTitle}>Morning check-in</Text>
-            <NavigationCard
-              icon="sunny-outline"
-              title="Set up how you feel"
-              subtitle="Choose what to rate each morning, add custom measures, and set a reminder"
-              onPress={() =>
-                navigation.dispatch(
-                  CommonActions.navigate({
-                    name: 'Home',
-                    params: { screen: 'SubjectiveMeasures' },
-                  })
-                )
-              }
-            />
+            <Modal
+              visible={showMorningCheckinTimePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowMorningCheckinTimePicker(false)}
+            >
+              <TouchableWithoutFeedback onPress={() => setShowMorningCheckinTimePicker(false)}>
+                <View style={styles.reminderTimeModalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={styles.reminderTimeModalContent}>
+                      <Text style={styles.reminderTimeModalTitle}>Morning check-in time</Text>
+                      <View style={styles.reminderTimePickerRow}>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Hour</Text>
+                          <Picker
+                            pickerData={habitReminderHourData}
+                            selectedValue={morningReminderPickerHour.toString()}
+                            onValueChange={(val) => setMorningReminderPickerHour(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Minute</Text>
+                          <Picker
+                            pickerData={habitReminderMinuteData}
+                            selectedValue={morningReminderPickerMinute.toString()}
+                            onValueChange={(val) => setMorningReminderPickerMinute(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.reminderTimeModalFooter}>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                          onPress={() => setShowMorningCheckinTimePicker(false)}
+                        >
+                          <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                          onPress={async () => {
+                            const timeStr = `${morningReminderPickerHour}:${String(morningReminderPickerMinute).padStart(2, '0')}`;
+                            const previousTime = morningCheckinTime;
+                            setMorningCheckinTime(timeStr);
+                            setShowMorningCheckinTimePicker(false);
+                            if (!user?.id) return;
+                            try {
+                              const { error } = await supabase
+                                .from('users')
+                                .update({ morning_checkin_time: toPgTime(timeStr) })
+                                .eq('id', user.id);
+                              if (error) throw error;
+                              await morningCheckinNotifications.rescheduleIfEnabled();
+                            } catch (_error) {
+                              setMorningCheckinTime(previousTime);
+                              Alert.alert('Could not update reminder time', 'Please try again.');
+                            }
+                          }}
+                        >
+                          <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
             <Modal
               visible={showHabitReminderTimePicker}
               transparent
@@ -932,12 +1425,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dataSourceHint: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-    lineHeight: 18,
-  },
   sleepDataModalSafe: {
     flex: 1,
     backgroundColor: colors.background,
@@ -999,6 +1486,79 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: spacing.lg,
   },
+  sleepDataModalSectionTitle: {
+    fontSize: typography.sizes.medium,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  sleepDataModalFinePrint: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  officialSavingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  officialSourceMismatchBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.warning + '18',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.warning + '55',
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  officialSourceMismatchIcon: {
+    marginTop: 2,
+  },
+  officialSourceMismatchText: {
+    flex: 1,
+    fontSize: typography.sizes.small,
+    color: colors.textPrimary,
+    lineHeight: 20,
+  },
+  officialOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderRadius: 14,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  officialOptionCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.cardBackground,
+  },
+  officialOptionDisabled: {
+    opacity: 0.65,
+  },
+  officialOptionIcon: {
+    marginRight: spacing.xs,
+  },
+  officialOptionTitle: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+  },
+  officialOptionTitleSelected: {
+    color: colors.primary,
+  },
+  officialOptionSub: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
+  },
   sleepDataModalButton: {
     marginBottom: spacing.sm,
   },
@@ -1048,6 +1608,11 @@ const styles = StyleSheet.create({
   },
   notificationsCard: {
     marginTop: spacing.md,
+  },
+  notificationDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.regular,
   },
   cardWithTopMargin: {
     marginTop: spacing.md,

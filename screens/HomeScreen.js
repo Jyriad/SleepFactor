@@ -22,6 +22,7 @@ import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
+import defaultNoBackfillService from '../services/defaultNoBackfillService';
 import { setHabitLoggingState as setHabitLoggingCache, setInMemoryState as setHabitLoggingMemory } from '../services/habitLoggingCacheService';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import consumptionOptionsService from '../services/consumptionOptionsService';
@@ -1004,10 +1005,6 @@ const HomeScreen = () => {
           setLoading(false);
         }
         // Never block UI: when no cache we keep showing skeleton and fetch in background
-        const alreadyFetchedForDate = fetchedDateKeysRef.current.has(dateStr);
-        if (!alreadyFetchedForDate) {
-          fetchedDateKeysRef.current.add(dateStr);
-        }
         const now = Date.now();
         if (
           focusFetchDebounceRef.current.dateStr === dateStr &&
@@ -1035,6 +1032,24 @@ const HomeScreen = () => {
     }, 450);
     return () => clearTimeout(deferredTimer);
   }, [user]);
+
+  // Ensure database reflects default-No habit settings even when users do not open Habit Logging for each day.
+  useEffect(() => {
+    if (!user?.id) return;
+    defaultNoBackfillService
+      .runIfNeeded(user.id)
+      .then((result) => {
+        if (!result?.success || (result?.insertedCount ?? 0) <= 0) return;
+        // Backfill may have changed counts for recent past dates. Clear per-date payload cache
+        // so date navigation on Home re-applies fresh dashboard payloads immediately.
+        try {
+          lastDashboardPayloadByDateRef.current = new Map();
+          renderedDashboardDateRef.current = null;
+        } catch (_) {}
+        fetchDashboard({ background: true });
+      })
+      .catch(() => {});
+  }, [user?.id, fetchDashboard]);
 
   // Load persisted "last attempt for today" when viewing today (for no-data card status)
   useEffect(() => {

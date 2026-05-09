@@ -10,6 +10,38 @@ import { formatDateForDB } from '../utils/dateHelpers';
 import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
 
 /**
+ * @param {string|Date} input
+ * @returns {Date}
+ */
+function dateToLocalDayStart(input) {
+  if (input instanceof Date) {
+    return new Date(input.getFullYear(), input.getMonth(), input.getDate(), 0, 0, 0, 0);
+  }
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const [y, m, d] = input.split('-').map((x) => parseInt(x, 10));
+    return new Date(y, m - 1, d, 0, 0, 0, 0);
+  }
+  const t = new Date(input);
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0);
+}
+
+/**
+ * @param {string|Date} input
+ * @returns {Date}
+ */
+function dateToLocalDayEnd(input) {
+  if (input instanceof Date) {
+    return new Date(input.getFullYear(), input.getMonth(), input.getDate(), 23, 59, 59, 999);
+  }
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const [y, m, d] = input.split('-').map((x) => parseInt(x, 10));
+    return new Date(y, m - 1, d, 23, 59, 59, 999);
+  }
+  const t = new Date(input);
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 23, 59, 59, 999);
+}
+
+/**
  * Split HC stage timeline when a third-party source stitches multiple sleeps with a long gap.
  * @param {Array} sortedStages chronologically sorted
  */
@@ -466,11 +498,11 @@ class HealthConnectService {
         throw new Error('Health Connect not initialized or permissions not granted');
       }
 
-      // Use local date boundaries (startDate/endDate are Date objects from useHealthSync)
-      const startD = startDate instanceof Date ? startDate : new Date(startDate);
-      const endD = endDate instanceof Date ? endDate : new Date(endDate);
-      const startTime = new Date(startD.getFullYear(), startD.getMonth(), startD.getDate(), 0, 0, 0, 0).toISOString();
-      const endTimeString = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate(), 23, 59, 59, 999).toISOString();
+      // Local calendar day bounds (YYYY-MM-DD must not be parsed as UTC-only — see healthKitService)
+      const startD = dateToLocalDayStart(startDate);
+      const endD = dateToLocalDayEnd(endDate);
+      const startTime = startD.toISOString();
+      const endTimeString = endD.toISOString();
 
       const results = {};
 
@@ -525,7 +557,7 @@ class HealthConnectService {
       const dailyData = {};
 
       records.forEach(record => {
-        const recordDate = new Date(record.startTime || record.time).toISOString().split('T')[0];
+        const recordDate = formatDateForDB(record.startTime || record.time);
 
         if (!dailyData[recordDate]) {
           dailyData[recordDate] = [];

@@ -38,6 +38,8 @@ export async function clearConsumptionOptionsDiskCache() {
 class ConsumptionOptionsService {
   constructor() {
     this._cache = new Map(); // habitId -> { data, savedAt }
+    /** Coalesce concurrent loads for same habit (Log tab mounts QuickConsumption + ConsumptionLoggedList). */
+    this._optionsInflight = new Map();
   }
 
   _getCached(habitId) {
@@ -103,7 +105,47 @@ class ConsumptionOptionsService {
   async _invalidate(habitId) {
     if (!habitId) return;
     this._cache.delete(habitId);
+    this._optionsInflight.delete(habitId);
     await this._deleteDiskCache(habitId);
+  }
+
+  /**
+   * Network + disk cache write after memory and disk synchronous miss.
+   */
+  async _loadOptionsFresh(habitId) {
+    const presetScope = await this._presetScopeForHabitId(habitId);
+    const queries = [];
+
+    if (presetScope) {
+      queries.push(
+        supabase
+          .from('consumption_options')
+          .select('*')
+          .is('user_id', null)
+          .eq('preset_scope', presetScope)
+          .eq('is_active', true)
+      );
+    }
+
+    queries.push(
+      supabase
+        .from('consumption_options')
+        .select('*')
+        .eq('habit_id', habitId)
+        .not('user_id', 'is', null)
+        .eq('is_active', true)
+    );
+
+    const results = await Promise.all(queries);
+    for (const r of results) {
+      if (r.error) throw r.error;
+    }
+
+    const merged = results.flatMap((r) => r.data || []);
+    const sorted = this._mergeAndSortOptions(merged);
+
+    await this._setCache(habitId, sorted);
+    return { success: true, data: sorted };
   }
 
   async _presetScopeForHabitId(habitId) {
@@ -159,39 +201,24 @@ class ConsumptionOptionsService {
         return { success: true, data: fromDisk.data };
       }
 
-      const presetScope = await this._presetScopeForHabitId(habitId);
-      const queries = [];
-
-      if (presetScope) {
-        queries.push(
-          supabase
-            .from('consumption_options')
-            .select('*')
-            .is('user_id', null)
-            .eq('preset_scope', presetScope)
-            .eq('is_active', true)
-        );
+      let inflight = this._optionsInflight.get(habitId);
+      if (!inflight) {
+        inflight = (async () => {
+          try {
+            return await this._loadOptionsFresh(habitId);
+          } catch (error) {
+            return { success: false, error: error.message };
+          }
+        })();
+        this._optionsInflight.set(habitId, inflight);
+        inflight.finally(() => {
+          const current = this._optionsInflight.get(habitId);
+          if (current === inflight) {
+            this._optionsInflight.delete(habitId);
+          }
+        });
       }
-
-      queries.push(
-        supabase
-          .from('consumption_options')
-          .select('*')
-          .eq('habit_id', habitId)
-          .not('user_id', 'is', null)
-          .eq('is_active', true)
-      );
-
-      const results = await Promise.all(queries);
-      for (const r of results) {
-        if (r.error) throw r.error;
-      }
-
-      const merged = results.flatMap((r) => r.data || []);
-      const sorted = this._mergeAndSortOptions(merged);
-
-      await this._setCache(habitId, sorted);
-      return { success: true, data: sorted };
+      return await inflight;
     } catch (error) {
       return { success: false, error: error.message };
     }

@@ -18,6 +18,7 @@ import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import sleepDataService from '../services/sleepDataService';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 import { trackOnboardingCustomHabitCreated } from '../services/onboardingAnalytics';
 
@@ -74,14 +75,12 @@ const AddHabitScreen = () => {
       if (habitType === 'binary' && backfillPastDatesAsNo) {
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
-        const { data: sleepRows, error: sleepError } = await supabase
-          .from('sleep_data')
-          .select('date')
-          .eq('user_id', user.id)
-          .lt('date', todayStr);
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        const sleepRows = await sleepDataService.getSleepDataForRange('1970-01-01', yesterdayStr);
 
-        if (sleepError) {
-        } else if (sleepRows && sleepRows.length > 0) {
+        if (sleepRows && sleepRows.length > 0) {
           const pastDates = [...new Set(sleepRows.map((r) => r.date))];
           const BATCH = 100;
           for (let i = 0; i < pastDates.length; i += BATCH) {

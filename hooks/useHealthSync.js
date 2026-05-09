@@ -5,17 +5,23 @@ import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
 import launchSyncCoordinator from '../services/launchSyncCoordinator';
 import { formatDateForDB } from '../utils/dateHelpers';
+import { supabase } from '../services/supabase';
+import { getPreferredSleepSource, SLEEP_SOURCE } from '../services/preferredSleepSourceService';
 
 /**
  * Hook for managing health data synchronization
  * @param {Object} options - Hook options
  * @param {boolean} options.autoSyncOnMount - Whether to auto-sync when component mounts
  * @param {boolean} options.autoSyncOnForeground - Whether to auto-sync when app comes to foreground
+ * @param {boolean} options.autoRefreshPermissionsOnMount - Whether to check health permissions when component mounts
+ * @param {boolean} options.autoRefreshPermissionsOnForeground - Whether to check health permissions when app comes to foreground
  * @returns {Object} Hook state and methods
  */
 export const useHealthSync = ({
   autoSyncOnMount = true,
-  autoSyncOnForeground = true
+  autoSyncOnForeground = true,
+  autoRefreshPermissionsOnMount = true,
+  autoRefreshPermissionsOnForeground = true
 } = {}) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,10 +37,19 @@ export const useHealthSync = ({
       const initialized = await sleepSyncService.initialize();
       setIsInitialized(initialized);
       if (initialized) {
-        const granted = await sleepSyncService.hasPermissions();
+        const granted = await sleepSyncService.hasEffectiveSleepPermissions();
         setHasPermissions(granted);
-        if (!granted) {
-          setNeedsPermissions(true);
+        if (granted) {
+          setNeedsPermissions(false);
+        } else {
+          try {
+            const { data } = await supabase.auth.getUser();
+            const uid = data?.user?.id;
+            const pref = uid ? await getPreferredSleepSource(uid) : null;
+            setNeedsPermissions(pref !== SLEEP_SOURCE.FITBIT);
+          } catch (_e) {
+            setNeedsPermissions(true);
+          }
         }
       } else {
         setHasPermissions(false);
@@ -46,18 +61,20 @@ export const useHealthSync = ({
 
   // Initialize sync service
   useEffect(() => {
+    if (!autoRefreshPermissionsOnMount) return;
     refreshPermissionState().catch(() => {});
-  }, [refreshPermissionState]);
+  }, [autoRefreshPermissionsOnMount, refreshPermissionState]);
 
   // Re-check permissions whenever app returns to foreground (fixes stale "Not connected" after granting in Health Connect)
   useEffect(() => {
+    if (!autoRefreshPermissionsOnForeground) return;
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         refreshPermissionState();
       }
     });
     return () => sub?.remove();
-  }, [refreshPermissionState]);
+  }, [autoRefreshPermissionsOnForeground, refreshPermissionState]);
 
   // Auto-sync on mount: always use launch sync (start if not started) so one sync runs on open and result is applied
   useEffect(() => {
@@ -141,12 +158,17 @@ export const useHealthSync = ({
 
     try {
       // Sync sleep data first
-      const sleepResult = await sleepSyncService.syncSleepData({ daysBack, force });
+      const sleepResult = await sleepSyncService.syncSleepData({ daysBack, force, skipHealthMetrics });
 
       let healthMetricsResult = null;
       let combinedResult = { ...sleepResult };
 
-      if (sleepResult.success && userId && !skipHealthMetrics) {
+      if (
+        sleepResult.success &&
+        userId &&
+        !skipHealthMetrics &&
+        !sleepResult.skippedDueToPreferredSource
+      ) {
         // If sleep sync succeeded and we have userId, also sync health metrics
         try {
           const endDate = new Date();

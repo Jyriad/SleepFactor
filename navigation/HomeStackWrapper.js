@@ -9,7 +9,6 @@ import LogConsumptionScreen from '../screens/LogConsumptionScreen';
 import SleepQualityLogScreen from '../screens/SleepQualityLogScreen';
 import SubjectiveMeasuresScreen from '../screens/SubjectiveMeasuresScreen';
 import { colors } from '../constants/colors';
-import { formatDateForDB } from '../utils/dateHelpers';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const Stack = createNativeStackNavigator();
@@ -78,7 +77,7 @@ function PreMountedHabitLoggingProvider({ children }) {
     slideAnim.setValue(overlayState.visible ? 0 : SCREEN_WIDTH);
   }, [overlayState.visible, slideAnim]);
 
-  const defaultParams = { date: formatDateForDB(new Date()) };
+  const defaultParams = {};
   const params = overlayState.params ?? defaultParams;
   const realNav = overlayState.navigation ?? { goBack: () => {}, navigate: () => {} };
   const navigation = realNav
