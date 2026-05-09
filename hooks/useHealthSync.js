@@ -5,6 +5,8 @@ import healthMetricsService from '../services/healthMetricsService';
 import sleepDataService from '../services/sleepDataService';
 import launchSyncCoordinator from '../services/launchSyncCoordinator';
 import { formatDateForDB } from '../utils/dateHelpers';
+import { supabase } from '../services/supabase';
+import { getPreferredSleepSource, SLEEP_SOURCE } from '../services/preferredSleepSourceService';
 
 /**
  * Hook for managing health data synchronization
@@ -37,8 +39,17 @@ export const useHealthSync = ({
       if (initialized) {
         const granted = await sleepSyncService.hasEffectiveSleepPermissions();
         setHasPermissions(granted);
-        if (!granted) {
-          setNeedsPermissions(true);
+        if (granted) {
+          setNeedsPermissions(false);
+        } else {
+          try {
+            const { data } = await supabase.auth.getUser();
+            const uid = data?.user?.id;
+            const pref = uid ? await getPreferredSleepSource(uid) : null;
+            setNeedsPermissions(pref !== SLEEP_SOURCE.FITBIT);
+          } catch (_e) {
+            setNeedsPermissions(true);
+          }
         }
       } else {
         setHasPermissions(false);
@@ -152,26 +163,11 @@ export const useHealthSync = ({
       let healthMetricsResult = null;
       let combinedResult = { ...sleepResult };
 
-      const syncedViaFitbitServer = Boolean(sleepResult?.fitbitPayload);
-
-      if (
-        sleepResult.success &&
-        syncedViaFitbitServer &&
-        !skipHealthMetrics
-      ) {
-        const fm =
-          typeof sleepResult.fitnessMetricsSynced === 'number'
-            ? sleepResult.fitnessMetricsSynced
-            : Number(sleepResult.fitbitPayload?.syncedMetricWrites ?? 0);
-        combinedResult.healthMetricsSynced = fm;
-      }
-
       if (
         sleepResult.success &&
         userId &&
         !skipHealthMetrics &&
-        !sleepResult.skippedDueToPreferredSource &&
-        !syncedViaFitbitServer
+        !sleepResult.skippedDueToPreferredSource
       ) {
         // If sleep sync succeeded and we have userId, also sync health metrics
         try {
@@ -197,9 +193,6 @@ export const useHealthSync = ({
       if (combinedResult.success) {
         setLastSyncResult(combinedResult);
         setHasPermissions(true);
-      } else if (combinedResult.needsFitbitLink) {
-        setNeedsPermissions(false);
-        setError(combinedResult.error || 'Connect your Fitbit account in Profile.');
       } else if (combinedResult.needsPermissions) {
         setNeedsPermissions(true);
       } else {

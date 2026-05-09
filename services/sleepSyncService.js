@@ -13,8 +13,6 @@ import {
   nativeHealthSourceForThisDevice,
   SLEEP_SOURCE,
 } from './preferredSleepSourceService';
-import { runFitbitCloudSleepSync } from './fitbitSleepSyncBridge';
-import { isFitbitLinkedForUser } from './fitbitConnectionService';
 
 const LAST_SYNC_STORAGE_KEY = 'sleepSyncLastSuccessAt';
 
@@ -36,19 +34,7 @@ class SleepSyncService {
   async initialize() {
     try {
       const healthServiceInitialized = await healthService.initialize();
-      let fitbitReady = false;
-      try {
-        const { data: { user: u } } = await supabase.auth.getUser();
-        if (u?.id) {
-          const pref = await getPreferredSleepSource(u.id);
-          if (pref === SLEEP_SOURCE.FITBIT) {
-            fitbitReady = await isFitbitLinkedForUser(u.id);
-          }
-        }
-      } catch (_e) {
-        fitbitReady = false;
-      }
-      this.isInitialized = healthServiceInitialized || fitbitReady;
+      this.isInitialized = healthServiceInitialized;
       try {
         const stored = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
         if (stored) {
@@ -314,31 +300,6 @@ class SleepSyncService {
       }
 
       const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser?.id) {
-        const pref = await getPreferredSleepSource(authUser.id);
-        if (pref === SLEEP_SOURCE.FITBIT) {
-          const linked = await isFitbitLinkedForUser(authUser.id);
-          if (!linked) {
-            return {
-              success: false,
-              error: 'Connect your Fitbit account in Profile to sync nights.',
-              data: null,
-              needsPermissions: false,
-              needsFitbitLink: true,
-            };
-          }
-          const fb = await runFitbitCloudSleepSync({ daysBack, force, skipHealthMetrics });
-          if (fb.success) {
-            try {
-              this.lastSyncTimestamp = new Date(fb.lastSyncTimestamp || Date.now());
-              await AsyncStorage.setItem(LAST_SYNC_STORAGE_KEY, this.lastSyncTimestamp.toISOString());
-            } catch (_e) {
-              /* non-fatal */
-            }
-          }
-          return fb;
-        }
-      }
 
       if (!healthService.isInitialized) {
         const initialized = await healthService.initialize();
@@ -522,7 +483,7 @@ class SleepSyncService {
   }
 
   /**
-   * True when wearable sleep sync should be allowed on this phone (HK/HC tokens or Fitbit link).
+   * True when this phone may run wearable sleep sync (matches official source and OS health access).
    * @returns {Promise<boolean>}
    */
   async hasEffectiveSleepPermissions() {
@@ -535,7 +496,7 @@ class SleepSyncService {
       const pref = await getPreferredSleepSource(user.id);
 
       if (pref === SLEEP_SOURCE.MANUAL) return false;
-      if (pref === SLEEP_SOURCE.FITBIT) return await isFitbitLinkedForUser(user.id);
+      if (pref === SLEEP_SOURCE.FITBIT) return false;
 
       const native = nativeHealthSourceForThisDevice();
       if (pref && pref !== native) return false;

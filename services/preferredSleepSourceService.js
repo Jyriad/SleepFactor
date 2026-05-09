@@ -129,19 +129,11 @@ export async function getWearableSleepSyncEligibility(userId) {
     };
   }
   if (preferred === SLEEP_SOURCE.FITBIT) {
-    const { data } = await supabase
-      .from('users')
-      .select('fitbit_linked_at')
-      .eq('id', userId)
-      .maybeSingle();
-    if (data?.fitbit_linked_at) {
-      return { ok: true, preferred };
-    }
     return {
       ok: false,
       preferred,
       reason:
-        'Connect your Fitbit account under Profile → Sleep data, then try syncing again.',
+        'Fitbit isn’t connected in this version of SleepFactor yet. Under Profile → Sleep data source, choose Apple Health, Google Health Connect, or manual entry.',
     };
   }
   const native = nativeHealthSourceForThisDevice();

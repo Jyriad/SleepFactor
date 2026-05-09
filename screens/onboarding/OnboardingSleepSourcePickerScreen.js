@@ -27,7 +27,6 @@ import {
   setPreferredSleepSource,
   SLEEP_SOURCE,
 } from '../../services/preferredSleepSourceService';
-import { connectFitbitAccount } from '../../services/fitbitConnectionService';
 
 export default function OnboardingSleepSourcePickerScreen({ navigation }) {
   const { user } = useAuth();
@@ -36,43 +35,6 @@ export default function OnboardingSleepSourcePickerScreen({ navigation }) {
   const isIos = Platform.OS === 'ios';
   const healthLabel = isIos ? 'Apple Health' : 'Google Health Connect';
   const healthIcon = isIos ? 'logo-apple' : 'logo-google';
-
-  const connectFitbit = async () => {
-    trackOnboardingHealthConnectPressed('OnboardingSleepSourcePicker_Fitbit');
-    setBusy(true);
-    try {
-      const oauth = await connectFitbitAccount();
-      if (!oauth.ok) {
-        if (oauth.reason === 'cancelled') {
-          trackOnboardingHealthConnectAbandoned('fitbit_cancel');
-        } else {
-          trackOnboardingHealthConnectAbandoned('fitbit_failed');
-        }
-        Alert.alert(
-          'Could not connect Fitbit',
-          oauth.reason === 'missing_client_id'
-            ? 'This build is not set up for Fitbit yet. Continue with Apple / Google or manual, and try Fitbit later from Profile.'
-            : (oauth.message || 'Try again, or pick another option below.'),
-        );
-        return;
-      }
-      trackOnboardingHealthPermissionResult(true, {
-        connect_screen: 'OnboardingSleepSourcePicker_Fitbit',
-      });
-      if (user?.id) {
-        try {
-          await setPreferredSleepSource(user.id, SLEEP_SOURCE.FITBIT);
-        } catch (_e) {
-          /* non-blocking */
-        }
-      }
-      navigation.replace('OnboardingHealthLab', { sourceLabel: 'Fitbit' });
-    } catch (_e) {
-      Alert.alert('Fitbit', 'Something went wrong. Try again or choose another connection.');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const connect = async () => {
     trackOnboardingHealthConnectPressed('OnboardingSleepSourcePicker');
@@ -135,8 +97,8 @@ export default function OnboardingSleepSourcePickerScreen({ navigation }) {
       <Text style={styles.title}>Connect your sleep data</Text>
       <Text style={styles.sub}>
         {isIos
-          ? 'SleepFactor can pull sleep from Apple Health on your iPhone, from your Fitbit account, or you can skip and enter nights yourself.'
-          : 'SleepFactor can use Google Health Connect on Android, pull from Fitbit online, or you can skip and enter nights yourself.'}
+          ? 'SleepFactor can pull sleep from Apple Health on your iPhone, or you can skip and enter nights yourself.'
+          : 'SleepFactor can use Google Health Connect on Android, or you can skip and enter nights yourself.'}
       </Text>
 
       {busy ? (
@@ -159,22 +121,6 @@ export default function OnboardingSleepSourcePickerScreen({ navigation }) {
                 : 'Recommended for Android users. Health Connect is Google’s hub for sleep and health data from your apps and devices.'}
             </Text>
           </TouchableOpacity>
-
-          {(process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID || '').trim().length > 0 && (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={connectFitbit}
-              accessibilityRole="button"
-              accessibilityLabel="Connect Fitbit account"
-            >
-              <Ionicons name="watch-outline" size={32} color={colors.primary} />
-              <Text style={styles.cardTitle}>Fitbit</Text>
-              <Text style={styles.cardSub}>
-                Sign in once with Fitbit in the browser. Works on both iPhone and Android with Fitbit trackers
-                or the Fitbit app.
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       )}
 
