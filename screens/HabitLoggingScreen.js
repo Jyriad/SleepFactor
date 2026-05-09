@@ -178,15 +178,34 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const tabBarQuickActionHandledRef = useRef(null);
   const [loggedSnackbarVisible, setLoggedSnackbarVisible] = useState(false);
   const loggedSnackbarTimeoutRef = useRef(null);
+  const pendingHabitSaveTimersRef = useRef(new Map());
+  const pendingHabitSaveValuesRef = useRef(new Map());
+  const deferredInsightsNotifyTimerRef = useRef(null);
+  const habitLogsRef = useRef(bootState?.habitLogs ?? {});
+  const habitsRef = useRef(bootState?.habits ?? []);
 
   useEffect(
     () => () => {
       if (loggedSnackbarTimeoutRef.current) {
         clearTimeout(loggedSnackbarTimeoutRef.current);
       }
+      if (deferredInsightsNotifyTimerRef.current) {
+        clearTimeout(deferredInsightsNotifyTimerRef.current);
+      }
+      pendingHabitSaveTimersRef.current.forEach((timerId) => clearTimeout(timerId));
+      pendingHabitSaveTimersRef.current.clear();
+      pendingHabitSaveValuesRef.current.clear();
     },
     []
   );
+
+  useEffect(() => {
+    habitLogsRef.current = habitLogs;
+  }, [habitLogs]);
+
+  useEffect(() => {
+    habitsRef.current = habits;
+  }, [habits]);
 
   // After add/edit/delete habit, refetch list so new habits (e.g. time) appear — same trigger as Habit Management.
   useFocusEffect(
@@ -260,6 +279,43 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     priority: h.priority ?? 0,
   });
 
+  const persistDefaultNoHabitLogs = useCallback(async (dateStr, habitIds) => {
+    if (!user?.id || !dateStr || !Array.isArray(habitIds) || habitIds.length === 0) return;
+    const uniqueHabitIds = [...new Set(habitIds.filter(Boolean))];
+    if (uniqueHabitIds.length === 0) return;
+    const rows = uniqueHabitIds.map((habitId) => ({
+      user_id: user.id,
+      habit_id: habitId,
+      date: dateStr,
+      value: 'no',
+    }));
+    try {
+      const { error } = await supabase
+        .from('habit_logs')
+        .upsert(rows, { onConflict: 'user_id,habit_id,date' });
+      if (error) throw error;
+      insightsService.notifyInsightsUnderlyingDataChanged();
+      const currentInMemory = getInMemoryState(user.id, dateStr);
+      if (currentInMemory && !currentInMemory.error) {
+        const nextLogs = { ...(currentInMemory.logs || {}) };
+        uniqueHabitIds.forEach((habitId) => {
+          if (nextLogs[habitId] === undefined) nextLogs[habitId] = 'no';
+        });
+        const nextPayload = { ...currentInMemory, logs: nextLogs };
+        setInMemoryState(user.id, dateStr, nextPayload);
+        writeHabitLoggingCache(user.id, dateStr, nextPayload).catch(() => {});
+      }
+    } catch (_error) {
+      for (const habitId of uniqueHabitIds) {
+        await offlineWriteQueueService.enqueue(
+          offlineWriteQueueService.ACTION_TYPES.HABIT_LOG_UPSERT,
+          { userId: user.id, habitId, date: dateStr, value: 'no' },
+          { dedupeKey: `habit:${user.id}:${habitId}:${dateStr}` }
+        );
+      }
+    }
+  }, [user?.id]);
+
   const applyHabitLoggingPayload = useCallback((payload, dateStr) => {
     if (!payload || payload.error) return;
     // Applying loaded data, not a user edit — do not persist this to server until user actually changes something
@@ -268,17 +324,24 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     const normalized = habitsList.map(normalizeHabit);
     setHabits(normalized);
     const logsMap = typeof payload.logs === 'object' && payload.logs !== null ? { ...payload.logs } : {};
+    const defaultNoToPersist = [];
     normalized
       .filter(h => h.type === 'binary' && (h.log_as_no_by_default === true || h.log_as_no_by_default === 'true'))
       .forEach(h => {
-        if (logsMap[h.id] === undefined) logsMap[h.id] = 'no';
+        if (logsMap[h.id] === undefined) {
+          logsMap[h.id] = 'no';
+          defaultNoToPersist.push(h.id);
+        }
       });
     habitLogsForDateRef.current = dateStr;
     setHabitLogs(logsMap);
     setHabitLogCountsByValue(typeof payload.habit_log_counts_by_value === 'object' && payload.habit_log_counts_by_value !== null ? payload.habit_log_counts_by_value : {});
     setConsumptionEvents(typeof payload.consumption_events === 'object' && payload.consumption_events !== null ? payload.consumption_events : {});
     setConsumptionEventsLoading(false);
-  }, []);
+    if (defaultNoToPersist.length > 0) {
+      persistDefaultNoHabitLogs(dateStr, defaultNoToPersist);
+    }
+  }, [persistDefaultNoHabitLogs]);
 
   // Load data: only show loading when we don't have in-memory; apply in-memory immediately, then async cache + RPC.
   useEffect(() => {
@@ -374,7 +437,17 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     return () => clearTimeout(timeoutId);
   }, [habitLogs, selectedDate]);
 
-  const saveSingleHabitLog = async (habitId, value) => {
+  const queueDeferredInsightsRefresh = useCallback(() => {
+    if (deferredInsightsNotifyTimerRef.current) {
+      clearTimeout(deferredInsightsNotifyTimerRef.current);
+    }
+    deferredInsightsNotifyTimerRef.current = setTimeout(() => {
+      insightsService.notifyInsightsUnderlyingDataChanged({ warmupDelayMs: 3000 });
+      deferredInsightsNotifyTimerRef.current = null;
+    }, 2500);
+  }, []);
+
+  const saveSingleHabitLog = useCallback(async (habitId, value) => {
     if (!user) return;
     const dateString = getDateString(selectedDateRef.current);
     try {
@@ -396,7 +469,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           );
 
         if (logsError) throw logsError;
-        insightsService.notifyInsightsUnderlyingDataChanged();
+        queueDeferredInsightsRefresh();
       } else {
         const { error: deleteError } = await supabase
           .from('habit_logs')
@@ -405,7 +478,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           .eq('habit_id', habitId)
           .eq('date', dateString);
         if (deleteError) throw deleteError;
-        insightsService.notifyInsightsUnderlyingDataChanged();
+        queueDeferredInsightsRefresh();
       }
     } catch (error) {
       const isDelete = value === '' || value === null || value === undefined;
@@ -423,7 +496,34 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         );
       }
     }
-  };
+  }, [user, queueDeferredInsightsRefresh]);
+
+  const scheduleSingleHabitLogSave = useCallback((habitId, value) => {
+    if (!habitId) return;
+    const saveKey = `${habitId}:${getDateString(selectedDateRef.current)}`;
+    const existingTimer = pendingHabitSaveTimersRef.current.get(saveKey);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+    pendingHabitSaveValuesRef.current.set(saveKey, { habitId, value });
+    const timerId = setTimeout(() => {
+      const pending = pendingHabitSaveValuesRef.current.get(saveKey);
+      pendingHabitSaveTimersRef.current.delete(saveKey);
+      pendingHabitSaveValuesRef.current.delete(saveKey);
+      if (!pending) return;
+      saveSingleHabitLog(pending.habitId, pending.value);
+    }, 450);
+    pendingHabitSaveTimersRef.current.set(saveKey, timerId);
+  }, [saveSingleHabitLog]);
+
+  useEffect(() => {
+    return () => {
+      pendingHabitSaveValuesRef.current.forEach((pending) => {
+        if (!pending) return;
+        saveSingleHabitLog(pending.habitId, pending.value);
+      });
+    };
+  }, [saveSingleHabitLog]);
 
   const saveHabitLogsToStorage = async () => {
     if (!user) return;
@@ -434,13 +534,20 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     }
   };
 
-  const saveCountsToStorage = async (counts) => {
+  const saveCountsToStorage = useCallback(async (counts) => {
     if (!user || !counts) return;
     try {
       await AsyncStorage.setItem(countsCacheKey(user.id), JSON.stringify(counts));
     } catch (e) {
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    const timerId = setTimeout(() => {
+      saveCountsToStorage(habitLogCountsByValue);
+    }, 500);
+    return () => clearTimeout(timerId);
+  }, [habitLogCountsByValue, saveCountsToStorage]);
 
   const applyQuickConsumptionDefaults = useCallback(async () => {
     if (!user?.id) return;
@@ -694,10 +801,8 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   }, [loggingTutorial, habits, habitLogs, consumptionEvents, tutorial]);
 
   const handleHabitChange = useCallback((habitId, value) => {
-    const habit = habits.find(h => h.id === habitId);
+    const habit = habitsRef.current.find(h => h.id === habitId);
     if (!habit) return;
-
-    const dateStrForLog = getDateString(selectedDateRef.current);
 
     if (habit.type === 'drug' || habit.type === 'quick_consumption') {
       userHasEditedDateRef.current = true;
@@ -707,13 +812,14 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       }));
     } else {
       userHasEditedDateRef.current = true;
-      const oldValue = habitLogs[habitId];
+      const oldValue = habitLogsRef.current[habitId];
       habitLogsForDateRef.current = getDateString(selectedDateRef.current);
-      const nextLogs = { ...habitLogs, [habitId]: value };
+      const nextLogs = { ...habitLogsRef.current, [habitId]: value };
       setHabitLogs(prev => ({
         ...prev,
         [habitId]: value,
       }));
+      habitLogsRef.current = nextLogs;
 
       // Keep in-memory cache in sync so navigating away and back shows the correct value (e.g. after clear)
       const dateStr = getDateString(selectedDateRef.current);
@@ -739,16 +845,15 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
             if (wasNo) next[habitId].no = Math.max(0, (next[habitId].no || 0) - 1);
             if (isNewYes) next[habitId].yes = (next[habitId].yes || 0) + 1;
             if (isNewNo) next[habitId].no = (next[habitId].no || 0) + 1;
-            saveCountsToStorage(next);
             return next;
           });
         }
       }
 
-      // Persist this single habit log immediately so Insights can see it
-      saveSingleHabitLog(habitId, value);
+      // Persist this single habit log shortly after the user pauses tapping.
+      scheduleSingleHabitLogSave(habitId, value);
     }
-  }, [habits, habitLogs]);
+  }, [user?.id, scheduleSingleHabitLogSave]);
 
 
   // Calculate bedtime drug level for a given habit and date
@@ -880,6 +985,13 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   );
 
   const minimalHeaderTop = insets.top;
+  const handleBackPress = useCallback(() => {
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('HomeMain');
+  }, [navigation]);
 
   return (
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
@@ -888,7 +1000,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           <View style={styles.minimalHeaderOverlay}>
             <GlassChromeBar bottomRadius={12}>
               <View style={[styles.minimalHeaderInner, { paddingTop: minimalHeaderTop }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.minimalBackButton}>
+                <TouchableOpacity onPress={handleBackPress} style={styles.minimalBackButton}>
                   <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.minimalHeaderTitle}>Log habits</Text>
@@ -903,7 +1015,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       <>
       <ScrollableDateHeaderBar
         showBackButton={!!routeProp}
-        onBackPress={routeProp ? () => navigation.goBack() : undefined}
+        onBackPress={routeProp ? handleBackPress : undefined}
         onLayoutHeight={setHabitLogGlassHeaderHeight}
       />
       <FlatList

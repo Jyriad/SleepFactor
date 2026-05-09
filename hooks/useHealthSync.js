@@ -11,11 +11,15 @@ import { formatDateForDB } from '../utils/dateHelpers';
  * @param {Object} options - Hook options
  * @param {boolean} options.autoSyncOnMount - Whether to auto-sync when component mounts
  * @param {boolean} options.autoSyncOnForeground - Whether to auto-sync when app comes to foreground
+ * @param {boolean} options.autoRefreshPermissionsOnMount - Whether to check health permissions when component mounts
+ * @param {boolean} options.autoRefreshPermissionsOnForeground - Whether to check health permissions when app comes to foreground
  * @returns {Object} Hook state and methods
  */
 export const useHealthSync = ({
   autoSyncOnMount = true,
-  autoSyncOnForeground = true
+  autoSyncOnForeground = true,
+  autoRefreshPermissionsOnMount = true,
+  autoRefreshPermissionsOnForeground = true
 } = {}) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,18 +50,20 @@ export const useHealthSync = ({
 
   // Initialize sync service
   useEffect(() => {
+    if (!autoRefreshPermissionsOnMount) return;
     refreshPermissionState().catch(() => {});
-  }, [refreshPermissionState]);
+  }, [autoRefreshPermissionsOnMount, refreshPermissionState]);
 
   // Re-check permissions whenever app returns to foreground (fixes stale "Not connected" after granting in Health Connect)
   useEffect(() => {
+    if (!autoRefreshPermissionsOnForeground) return;
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         refreshPermissionState();
       }
     });
     return () => sub?.remove();
-  }, [refreshPermissionState]);
+  }, [autoRefreshPermissionsOnForeground, refreshPermissionState]);
 
   // Auto-sync on mount: always use launch sync (start if not started) so one sync runs on open and result is applied
   useEffect(() => {

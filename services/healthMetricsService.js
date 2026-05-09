@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import healthService from './healthService';
+import { formatDateForDB } from '../utils/dateHelpers';
 
 /**
  * Service for managing automatic health metrics habits
@@ -185,9 +186,8 @@ class HealthMetricsService {
       }
 
       // Get date range
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
-
+      const startDateStr = formatDateForDB(startDate);
+      const endDateStr = formatDateForDB(endDate);
 
       // Fetch health data for each metric
       const syncResults = [];
@@ -325,9 +325,8 @@ class HealthMetricsService {
         }
       }
 
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
-
+      const startDateStr = formatDateForDB(startDate);
+      const endDateStr = formatDateForDB(endDate);
 
       // Fetch metrics using the health service
       const metricsData = await healthService.syncHealthMetrics({
@@ -557,7 +556,7 @@ class HealthMetricsService {
     try {
       const ninetyDaysAgo = new Date();
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-      const cutoffDate = ninetyDaysAgo.toISOString().split('T')[0];
+      const cutoffDate = formatDateForDB(ninetyDaysAgo);
 
       // Get health metric habit IDs
       const { data: healthHabits, error: habitsError } = await supabase

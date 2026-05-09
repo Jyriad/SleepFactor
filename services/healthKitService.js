@@ -2,6 +2,7 @@ import {
   isHealthDataAvailable,
   requestAuthorization,
   queryQuantitySamples,
+  queryStatisticsCollectionForQuantity,
   queryCategorySamples,
   CategoryValueSleepAnalysis,
 } from '@kingstinct/react-native-healthkit';
@@ -151,6 +152,90 @@ const QUANTITY_METRIC_TO_ID = {
   exercise_minutes: 'HKQuantityTypeIdentifierAppleExerciseTime',
   distance_walking: 'HKQuantityTypeIdentifierDistanceWalkingRunning',
 };
+
+/** HealthKit statistics options per metric — uses Apple’s merged rollups (same family as the Health app). */
+const METRIC_TO_STATISTICS_OPTIONS = {
+  steps: ['cumulativeSum'],
+  active_energy: ['cumulativeSum'],
+  distance_walking: ['cumulativeSum'],
+  exercise_minutes: ['cumulativeSum'],
+  heart_rate_max: ['discreteMax'],
+  heart_rate_resting: ['discreteAverage'],
+};
+
+/**
+ * @param {string|Date} dateStr
+ * @returns {Date}
+ */
+function localStartOfDayFromInput(dateStr) {
+  if (dateStr instanceof Date) {
+    return new Date(dateStr.getFullYear(), dateStr.getMonth(), dateStr.getDate(), 0, 0, 0, 0);
+  }
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map((x) => parseInt(x, 10));
+    return new Date(y, m - 1, d, 0, 0, 0, 0);
+  }
+  const t = new Date(dateStr);
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0);
+}
+
+/**
+ * @param {string|Date} dateStr
+ * @returns {Date}
+ */
+function localEndOfDayFromInput(dateStr) {
+  if (dateStr instanceof Date) {
+    return new Date(dateStr.getFullYear(), dateStr.getMonth(), dateStr.getDate(), 23, 59, 59, 999);
+  }
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map((x) => parseInt(x, 10));
+    return new Date(y, m - 1, d, 23, 59, 59, 999);
+  }
+  const t = new Date(dateStr);
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 23, 59, 59, 999);
+}
+
+/**
+ * @param {string} metric
+ * @param {{ sumQuantity?: { quantity: number, unit?: string }, maximumQuantity?: { quantity: number }, averageQuantity?: { quantity: number } }} row
+ * @returns {number|null}
+ */
+function valueFromStatisticsRow(metric, row) {
+  switch (metric) {
+    case 'steps':
+    case 'active_energy': {
+      const s = row.sumQuantity;
+      if (!s || !(s.quantity > 0)) return null;
+      return s.quantity;
+    }
+    case 'distance_walking': {
+      const s = row.sumQuantity;
+      if (!s || !(s.quantity > 0)) return null;
+      const u = (s.unit || '').toLowerCase();
+      if (u === 'km' || u.includes('km')) return s.quantity;
+      return s.quantity / 1000;
+    }
+    case 'exercise_minutes': {
+      const s = row.sumQuantity;
+      if (!s || !(s.quantity > 0)) return null;
+      const u = (s.unit || '').toLowerCase();
+      if (u === 'min' || u.includes('min')) return s.quantity;
+      return s.quantity / 60;
+    }
+    case 'heart_rate_max': {
+      const m = row.maximumQuantity;
+      if (!m || !(m.quantity > 0)) return null;
+      return m.quantity;
+    }
+    case 'heart_rate_resting': {
+      const a = row.averageQuantity;
+      if (!a || !(a.quantity > 0)) return null;
+      return a.quantity;
+    }
+    default:
+      return null;
+  }
+}
 
 /**
  * iOS HealthKit service implementation
@@ -481,10 +566,8 @@ class HealthKitService {
         throw new Error('HealthKit not initialized or permissions not granted');
       }
 
-      const startTime = new Date(startDate);
-      startTime.setHours(0, 0, 0, 0);
-      const endTime = new Date(endDate);
-      endTime.setHours(23, 59, 59, 999);
+      const startTime = localStartOfDayFromInput(startDate);
+      const endTime = localEndOfDayFromInput(endDate);
 
       const results = {};
 
@@ -516,73 +599,44 @@ class HealthKitService {
       return [];
     }
 
+    const statisticsOptions = METRIC_TO_STATISTICS_OPTIONS[metric];
+    if (!statisticsOptions) {
+      return [];
+    }
+
     try {
-      const samples = await queryQuantitySamples(quantityType, {
-        limit: 0,
-        filter: {
-          date: {
-            startDate: startTime,
-            endDate: endTime,
+      const statsArray = await queryStatisticsCollectionForQuantity(
+        quantityType,
+        statisticsOptions,
+        startTime,
+        { day: 1 },
+        {
+          filter: {
+            date: {
+              startDate: startTime,
+              endDate: endTime,
+            },
           },
-        },
-      });
-
-      const dailyData = {};
-
-      samples.forEach((sample) => {
-        const sampleDate = new Date(sample.startDate).toISOString().split('T')[0];
-
-        if (!dailyData[sampleDate]) {
-          dailyData[sampleDate] = [];
         }
+      );
 
-        const value = sample.quantity;
-
-        let processedValue = value;
-
-        switch (metric) {
-          case 'distance_walking':
-            processedValue = value / 1000;
-            break;
-          case 'exercise_minutes':
-            processedValue = value / 60;
-            break;
-          default:
-            processedValue = value;
-        }
-
-        if (processedValue > 0) {
-          dailyData[sampleDate].push(processedValue);
-        }
-      });
+      const rangeStart = formatDateForDB(startTime);
+      const rangeEnd = formatDateForDB(endTime);
 
       const aggregatedData = [];
-      for (const [date, values] of Object.entries(dailyData)) {
-        let finalValue = 0;
-
-        switch (metric) {
-          case 'steps':
-          case 'active_energy':
-          case 'distance_walking':
-          case 'exercise_minutes':
-            finalValue = values.reduce((sum, val) => sum + val, 0);
-            break;
-          case 'heart_rate_max':
-            finalValue = Math.max(...values);
-            break;
-          case 'heart_rate_resting':
-            finalValue = values.reduce((sum, val) => sum + val, 0) / values.length;
-            break;
-        }
-
-        if (finalValue > 0) {
-          aggregatedData.push({
-            date,
-            value: Math.round(finalValue * 100) / 100,
-          });
-        }
+      for (const row of statsArray) {
+        if (!row.startDate) continue;
+        const date = formatDateForDB(row.startDate);
+        if (date < rangeStart || date > rangeEnd) continue;
+        const raw = valueFromStatisticsRow(metric, row);
+        if (raw == null || !(raw > 0)) continue;
+        aggregatedData.push({
+          date,
+          value: Math.round(raw * 100) / 100,
+        });
       }
 
+      aggregatedData.sort((a, b) => a.date.localeCompare(b.date));
       return aggregatedData;
     } catch (error) {
       return [];
@@ -608,7 +662,7 @@ class HealthKitService {
       });
       const byDay = {};
       samples.forEach((sample) => {
-        const recordDate = new Date(sample.startDate).toISOString().split('T')[0];
+        const recordDate = formatDateForDB(sample.startDate);
         const bpm = sample.quantity || 0;
         if (bpm <= 0) return;
         const timeOfMax = new Date(sample.startDate).toISOString();

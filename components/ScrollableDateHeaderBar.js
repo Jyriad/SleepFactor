@@ -41,7 +41,14 @@ const ScrollableDateHeaderBar = ({
   }, [topPadding, dateHeaderChromeHeight, onLayoutHeight]);
 
   const isHabitLogging = showBackButtonProp || route.name === 'HabitLogging';
-  const handleBack = onBackPress ?? (() => navigation.goBack());
+  const defaultBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('HomeMain');
+  };
+  const handleBack = onBackPress ?? defaultBack;
 
   if (!ctx) return null;
 
@@ -65,6 +72,7 @@ const ScrollableDateHeaderBar = ({
           datesWithUnsavedChanges={ctx.datesWithUnsavedChanges}
           leftElement={backButton}
           rightElement={rightElement}
+          todayButtonSide={isHabitLogging ? 'right' : 'left'}
           onExpandChange={handleExpandChange}
           onChromeHeightChange={setDateHeaderChromeHeight}
           sleepStripRefreshKey={sleepStripRefreshKey}

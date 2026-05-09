@@ -72,6 +72,7 @@ const DateHeader = ({
   leftElement = null,
   rightElement = null,
   showTodayButton = true,
+  todayButtonSide = 'left',
   /** Bumped when device sleep sync saves new rows so the strip re-queries local sleep (bed icons). */
   sleepStripRefreshKey = 0,
   onExpandChange,
@@ -130,6 +131,8 @@ const DateHeader = ({
   })();
   const displayTitle = formatDateTitle(selectedDate);
   const showToday = showTodayButton && displayTitle !== 'Today';
+  const showTodayOnRight = showToday && todayButtonSide === 'right';
+  const showTodayOnLeft = showToday && !showTodayOnRight;
 
   /**
    * When collapsed, align the carousel month with the strip’s day—but never leave the calendar
@@ -172,6 +175,17 @@ const DateHeader = ({
   const handleTodayPress = () => {
     onDateChange(new Date(todayStr + 'T12:00:00'));
   };
+
+  const todayButtonElement = (
+    <TouchableOpacity
+      onPress={handleTodayPress}
+      style={[styles.todayButton, leftElement != null && !showTodayOnRight && styles.todayButtonBesideBack]}
+      activeOpacity={0.7}
+    >
+      <Ionicons name="arrow-undo-outline" size={16} color={colors.primary} style={styles.todayButtonIcon} />
+      <Text style={styles.todayButtonText}>Today</Text>
+    </TouchableOpacity>
+  );
 
   const notifyOpened = useCallback(() => {
     setIsExpanded(true);
@@ -295,26 +309,30 @@ const DateHeader = ({
             }}
           >
           <View style={styles.leftSlot}>
-            {(leftElement != null || showToday) && (
+            {(leftElement != null || showTodayOnLeft) && (
               <View style={styles.leftSlotInner}>
                 {leftElement}
-                {showToday ? (
-                  <TouchableOpacity
-                    onPress={handleTodayPress}
-                    style={[styles.todayButton, leftElement != null && styles.todayButtonBesideBack]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="arrow-undo-outline" size={18} color={colors.primary} style={styles.todayButtonIcon} />
-                    <Text style={styles.todayButtonText}>Today</Text>
-                  </TouchableOpacity>
-                ) : null}
+                {showTodayOnLeft ? todayButtonElement : null}
               </View>
             )}
           </View>
           <View style={styles.dateChip}>
-            <Text style={glass ? styles.dateChipTextGlass : styles.dateChipText}>{displayTitle}</Text>
+            <Text
+              style={glass ? styles.dateChipTextGlass : styles.dateChipText}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {displayTitle}
+            </Text>
           </View>
-          <View style={styles.rightSlot}>{rightElement}</View>
+          <View style={styles.rightSlot}>
+            {(rightElement != null || showTodayOnRight) && (
+              <View style={styles.rightSlotInner}>
+                {rightElement}
+                {showTodayOnRight ? todayButtonElement : null}
+              </View>
+            )}
+          </View>
         </View>
 
         <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
@@ -323,7 +341,6 @@ const DateHeader = ({
             <View style={styles.stripRow}>
               {stripDates.map((dateItem) => {
                 const isSelected = dateItem.date === selectedDateStr;
-                const isToday = dateItem.date === todayStr;
                 const isLogged = loggedDates.includes(dateItem.date);
                 const hasSleep = stripSleepDates.includes(dateItem.date);
                 const stripDayStatus =
@@ -358,7 +375,7 @@ const DateHeader = ({
                         isSelected &&
                           stripDayStatus === 'complete' &&
                           (glass ? styles.datePillSelectedGlassComplete : styles.datePillSelectedComplete),
-                        isToday && styles.datePillToday,
+                        isSelected && styles.datePillToday,
                       ]}
                     >
                       <Text
@@ -460,23 +477,28 @@ const styles = StyleSheet.create({
     minWidth: 72,
     alignItems: 'flex-end',
   },
+  rightSlotInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   todayButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.accent,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 20,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 16,
     flexShrink: 0,
   },
   todayButtonBesideBack: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   todayButtonIcon: {
     marginRight: spacing.xs,
   },
   todayButtonText: {
-    fontSize: typography.sizes.small,
+    fontSize: typography.sizes.xs,
     fontWeight: typography.weights.semibold,
     color: colors.primary,
   },

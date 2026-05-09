@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   TextInput,
   Modal,
   Linking,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
@@ -33,7 +34,7 @@ const IS_DEV_BUILD =
 const APP_VERSION = IS_DEV_BUILD && !BASE_VERSION.includes(' Dev') 
   ? `${BASE_VERSION} Dev` 
   : BASE_VERSION;
-import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
@@ -48,6 +49,7 @@ import useHealthSync from '../hooks/useHealthSync';
 import sleepSyncService from '../services/sleepSyncService';
 import sleepDataService from '../services/sleepDataService';
 import habitReminderNotifications from '../services/habitReminderNotifications';
+import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import homeCacheService from '../services/homeCacheService';
 import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
@@ -61,10 +63,13 @@ import { Picker } from 'react-native-wheel-pick';
 
 const DEFAULT_CAFFEINE_HALF_LIFE = 5;
 const DEFAULT_ALCOHOL_HALF_LIFE = 5;
+const DEFAULT_MORNING_CHECKIN_TIME = '08:00';
+const DEFAULT_HABIT_REMINDER_TIME = '20:00';
+const PROFILE_PERMISSION_REFRESH_COOLDOWN_MS = 60 * 1000;
 
 /** Format "HH:mm" to display string using 12 or 24 hour preference. */
-function formatReminderTimeForDisplay(timeStr, use24Hour) {
-  if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || '20:00';
+function formatReminderTimeForDisplay(timeStr, use24Hour, fallback = DEFAULT_HABIT_REMINDER_TIME) {
+  if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || fallback;
   const [h, m] = timeStr.split(':').map(Number);
   if (use24Hour) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -72,6 +77,18 @@ function formatReminderTimeForDisplay(timeStr, use24Hour) {
   const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   const ampm = h < 12 ? 'AM' : 'PM';
   return `${hour12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function toShortTime(timeRaw, fallback = null) {
+  if (!timeRaw) return fallback;
+  const short = String(timeRaw).slice(0, 5);
+  return /^\d{1,2}:\d{2}$/.test(short) ? short : fallback;
+}
+
+function toPgTime(timeStr) {
+  const short = toShortTime(timeStr, DEFAULT_MORNING_CHECKIN_TIME);
+  const [h, m] = short.split(':').map(Number);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
 const ProfileScreen = () => {
@@ -91,13 +108,14 @@ const ProfileScreen = () => {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      (async () => {
+      const task = InteractionManager.runAfterInteractions(async () => {
         const { data, error } = await supabase.auth.getUser();
         if (cancelled || error || !data?.user) return;
         setResolvedProfileUser(data.user);
-      })();
+      });
       return () => {
         cancelled = true;
+        task.cancel?.();
       };
     }, [])
   );
@@ -110,13 +128,19 @@ const ProfileScreen = () => {
   const [alcoholHabitId, setAlcoholHabitId] = useState(null);
   const [halfLifeSaving, setHalfLifeSaving] = useState(false);
   const [habitReminderEnabled, setHabitReminderEnabled] = useState(false);
-  const [habitReminderTime, setHabitReminderTime] = useState('20:00');
+  const [habitReminderTime, setHabitReminderTime] = useState(DEFAULT_HABIT_REMINDER_TIME);
   const [showHabitReminderTimePicker, setShowHabitReminderTimePicker] = useState(false);
+  const [morningCheckinEnabled, setMorningCheckinEnabled] = useState(false);
+  const [morningCheckinTime, setMorningCheckinTime] = useState(DEFAULT_MORNING_CHECKIN_TIME);
+  const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
   const [reminderPickerHour, setReminderPickerHour] = useState(20);
   const [reminderPickerMinute, setReminderPickerMinute] = useState(0);
+  const [morningReminderPickerHour, setMorningReminderPickerHour] = useState(8);
+  const [morningReminderPickerMinute, setMorningReminderPickerMinute] = useState(0);
   const [sleepDataModalVisible, setSleepDataModalVisible] = useState(false);
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false);
   const [marketingToggleSaving, setMarketingToggleSaving] = useState(false);
+  const [morningCheckinSaving, setMorningCheckinSaving] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -129,14 +153,77 @@ const ProfileScreen = () => {
 
   // Load habit reminder preferences
   useEffect(() => {
-    habitReminderNotifications.getHabitReminderEnabled().then(setHabitReminderEnabled);
-    habitReminderNotifications.getHabitReminderTime().then(setHabitReminderTime);
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      Promise.all([
+        habitReminderNotifications.getHabitReminderEnabled(),
+        habitReminderNotifications.getHabitReminderTime(),
+      ]).then(([enabled, time]) => {
+        if (cancelled) return;
+        setHabitReminderEnabled(enabled);
+        setHabitReminderTime(time);
+      });
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
   }, []);
+
+  const loadMorningCheckinPreference = useCallback(async () => {
+    if (!user?.id) return;
+
+    const { data: userRow, error } = await supabase
+      .from('users')
+      .select('track_tiredness, track_dream_vividness, track_ease_sleep, morning_checkin_time')
+      .eq('id', user.id)
+      .single();
+    if (error || !userRow) return;
+
+    let hasEnabledMeasure =
+      userRow.track_tiredness === true ||
+      userRow.track_dream_vividness === true ||
+      userRow.track_ease_sleep === true;
+
+    try {
+      const { count, error: measureErr } = await supabase
+        .from('user_subjective_measures')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('enabled', true);
+      if (!measureErr) {
+        hasEnabledMeasure = (count || 0) > 0 || hasEnabledMeasure;
+      }
+    } catch (_e) {
+      // Legacy accounts may not have the measures table available yet.
+    }
+
+    const hasReminderTime =
+      userRow.morning_checkin_time != null && String(userRow.morning_checkin_time).trim() !== '';
+    setMorningCheckinTime(toShortTime(userRow.morning_checkin_time, DEFAULT_MORNING_CHECKIN_TIME));
+    setMorningCheckinEnabled(hasEnabledMeasure && hasReminderTime);
+  }, [user?.id]);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadMorningCheckinPreference();
+    });
+    return () => task.cancel?.();
+  }, [loadMorningCheckinPreference]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        loadMorningCheckinPreference();
+      });
+      return () => task.cancel?.();
+    }, [loadMorningCheckinPreference])
+  );
 
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    (async () => {
+    const task = InteractionManager.runAfterInteractions(async () => {
       const { data, error } = await supabase
         .from('users')
         .select('marketing_email_opt_in')
@@ -144,23 +231,25 @@ const ProfileScreen = () => {
         .single();
       if (cancelled || error) return;
       setMarketingEmailOptIn(data?.marketing_email_opt_in === true);
-    })();
+    });
     return () => {
       cancelled = true;
+      task.cancel?.();
     };
   }, [user?.id]);
 
   // Fetch Caffeine & Alcohol habits for half-life settings
   useEffect(() => {
     if (!user?.id) return;
-    (async () => {
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(async () => {
       const { data, error } = await supabase
         .from('habits')
         .select('id, name, half_life_hours')
         .eq('user_id', user.id)
         .eq('type', 'quick_consumption')
         .in('name', ['Caffeine', 'Alcohol']);
-      if (error) return;
+      if (cancelled || error) return;
       (data || []).forEach((h) => {
         const val = h.half_life_hours != null ? String(h.half_life_hours) : '';
         if (h.name === 'Caffeine') {
@@ -171,7 +260,11 @@ const ProfileScreen = () => {
           setAlcoholHalfLife(val || String(DEFAULT_ALCOHOL_HALF_LIFE));
         }
       });
-    })();
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
   }, [user?.id]);
 
   const saveHalfLife = async (habitId, value, setDisplay) => {
@@ -234,12 +327,36 @@ const ProfileScreen = () => {
     performSync,
     requestPermissions,
     refreshPermissionState,
-  } = useHealthSync();
+  } = useHealthSync({
+    autoSyncOnMount: false,
+    autoSyncOnForeground: false,
+    autoRefreshPermissionsOnMount: false,
+    autoRefreshPermissionsOnForeground: false,
+  });
+
+  const lastProfilePermissionRefreshRef = useRef(0);
+
+  const refreshProfilePermissionState = useCallback((force = false) => {
+    const now = Date.now();
+    if (
+      !force &&
+      now - lastProfilePermissionRefreshRef.current < PROFILE_PERMISSION_REFRESH_COOLDOWN_MS
+    ) {
+      return null;
+    }
+    lastProfilePermissionRefreshRef.current = now;
+    return InteractionManager.runAfterInteractions(() => {
+      refreshPermissionState().catch(() => {});
+    });
+  }, [refreshPermissionState]);
 
   useFocusEffect(
     React.useCallback(() => {
-      refreshPermissionState();
-    }, [refreshPermissionState])
+      const task = refreshProfilePermissionState(false);
+      return () => {
+        task?.cancel?.();
+      };
+    }, [refreshProfilePermissionState])
   );
 
   const handleLogout = () => {
@@ -278,8 +395,8 @@ const ProfileScreen = () => {
   };
 
   const handleSleepDataSourcePress = () => {
-    refreshPermissionState();
     setSleepDataModalVisible(true);
+    refreshProfilePermissionState(true);
   };
 
   const handleDisconnect = () => {
@@ -366,6 +483,85 @@ const ProfileScreen = () => {
       Alert.alert('Could not update email preference', 'Please try again.');
     } finally {
       setMarketingToggleSaving(false);
+    }
+  };
+
+  const ensureMorningCheckinMeasure = async () => {
+    if (!user?.id) return;
+    const nowIso = new Date().toISOString();
+
+    await supabase
+      .from('users')
+      .update({
+        track_tiredness: true,
+        subjective_remove_tiredness_measure: false,
+      })
+      .eq('id', user.id);
+
+    const { data: existing } = await supabase
+      .from('user_subjective_measures')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('slug', 'tiredness')
+      .maybeSingle();
+
+    if (existing?.id) {
+      await supabase
+        .from('user_subjective_measures')
+        .update({ enabled: true, updated_at: nowIso })
+        .eq('id', existing.id)
+        .eq('user_id', user.id);
+    } else {
+      await supabase.from('user_subjective_measures').insert({
+        user_id: user.id,
+        slug: 'tiredness',
+        label: 'Refreshed feeling',
+        hint: 'How refreshed did you feel when you first woke up?',
+        left_label: 'Not refreshed',
+        right_label: 'Very refreshed',
+        sort_order: 0,
+        enabled: true,
+        is_builtin: true,
+      });
+    }
+  };
+
+  const handleToggleMorningCheckin = async () => {
+    if (!user?.id || morningCheckinSaving) return;
+    const next = !morningCheckinEnabled;
+    const previousEnabled = morningCheckinEnabled;
+    const previousTime = morningCheckinTime;
+    const nextTime = morningCheckinTime || DEFAULT_MORNING_CHECKIN_TIME;
+
+    setMorningCheckinEnabled(next);
+    if (next) setMorningCheckinTime(nextTime);
+    setMorningCheckinSaving(true);
+
+    try {
+      if (next) {
+        await ensureMorningCheckinMeasure();
+        const { error } = await supabase
+          .from('users')
+          .update({ morning_checkin_time: toPgTime(nextTime) })
+          .eq('id', user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('users')
+          .update({ morning_checkin_time: null })
+          .eq('id', user.id);
+        if (error) throw error;
+        await morningCheckinNotifications.cancelMorningCheckin();
+      }
+
+      await morningCheckinNotifications.rescheduleIfEnabled();
+      await loadMorningCheckinPreference();
+    } catch (_error) {
+      setMorningCheckinEnabled(previousEnabled);
+      setMorningCheckinTime(previousTime);
+      Alert.alert('Could not update reminder', 'Please try again.');
+    } finally {
+      setMorningCheckinSaving(false);
     }
   };
 
@@ -682,10 +878,52 @@ const ProfileScreen = () => {
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleLabelContainer}>
-                  <Text style={styles.label}>Remind me to log my habits</Text>
-                  <Text style={styles.description}>
-                    Get a daily notification to log your habits for the day
+                  <Text style={styles.label}>Morning check-in</Text>
+                  <Text style={styles.description}>Log how rested you feel</Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    morningCheckinEnabled && styles.toggleSwitchOn,
+                    morningCheckinSaving && styles.toggleSwitchDisabled,
+                  ]}
+                  disabled={morningCheckinSaving}
+                  onPress={handleToggleMorningCheckin}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      morningCheckinEnabled && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+              {morningCheckinEnabled && (
+                <TouchableOpacity
+                  style={styles.habitReminderTimeRow}
+                  onPress={() => {
+                    const [h, m] = (morningCheckinTime || DEFAULT_MORNING_CHECKIN_TIME).split(':').map(Number);
+                    setMorningReminderPickerHour(isNaN(h) ? 8 : h);
+                    setMorningReminderPickerMinute(isNaN(m) ? 0 : m);
+                    setShowMorningCheckinTimePicker(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.label}>Morning time</Text>
+                  <Text style={styles.value}>
+                    {formatReminderTimeForDisplay(
+                      morningCheckinTime,
+                      preferences.timeFormat === '24',
+                      DEFAULT_MORNING_CHECKIN_TIME
+                    )}
                   </Text>
+                </TouchableOpacity>
+              )}
+              <View style={styles.notificationDivider} />
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>Evening habits</Text>
+                  <Text style={styles.description}>Log your habits for the day</Text>
                 </View>
                 <TouchableOpacity
                   style={[
@@ -710,16 +948,20 @@ const ProfileScreen = () => {
                 <TouchableOpacity
                   style={styles.habitReminderTimeRow}
                   onPress={() => {
-                    const [h, m] = (habitReminderTime || '20:00').split(':').map(Number);
+                    const [h, m] = (habitReminderTime || DEFAULT_HABIT_REMINDER_TIME).split(':').map(Number);
                     setReminderPickerHour(isNaN(h) ? 20 : h);
                     setReminderPickerMinute(isNaN(m) ? 0 : m);
                     setShowHabitReminderTimePicker(true);
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.label}>Reminder time</Text>
+                  <Text style={styles.label}>Evening time</Text>
                   <Text style={styles.value}>
-                    {formatReminderTimeForDisplay(habitReminderTime, preferences.timeFormat === '24')}
+                    {formatReminderTimeForDisplay(
+                      habitReminderTime,
+                      preferences.timeFormat === '24',
+                      DEFAULT_HABIT_REMINDER_TIME
+                    )}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -750,20 +992,81 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.sectionSubTitle}>Morning check-in</Text>
-            <NavigationCard
-              icon="sunny-outline"
-              title="Set up how you feel"
-              subtitle="Choose what to rate each morning, add custom measures, and set a reminder"
-              onPress={() =>
-                navigation.dispatch(
-                  CommonActions.navigate({
-                    name: 'Home',
-                    params: { screen: 'SubjectiveMeasures' },
-                  })
-                )
-              }
-            />
+            <Modal
+              visible={showMorningCheckinTimePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowMorningCheckinTimePicker(false)}
+            >
+              <TouchableWithoutFeedback onPress={() => setShowMorningCheckinTimePicker(false)}>
+                <View style={styles.reminderTimeModalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={styles.reminderTimeModalContent}>
+                      <Text style={styles.reminderTimeModalTitle}>Morning check-in time</Text>
+                      <View style={styles.reminderTimePickerRow}>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Hour</Text>
+                          <Picker
+                            pickerData={habitReminderHourData}
+                            selectedValue={morningReminderPickerHour.toString()}
+                            onValueChange={(val) => setMorningReminderPickerHour(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                        <View style={styles.reminderPickerGroup}>
+                          <Text style={styles.reminderTimeLabel}>Minute</Text>
+                          <Picker
+                            pickerData={habitReminderMinuteData}
+                            selectedValue={morningReminderPickerMinute.toString()}
+                            onValueChange={(val) => setMorningReminderPickerMinute(parseInt(val, 10))}
+                            textColor={colors.textSecondary}
+                            selectTextColor={colors.primary}
+                            textSize={20}
+                            itemHeight={50}
+                            style={styles.reminderWheelPicker}
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.reminderTimeModalFooter}>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                          onPress={() => setShowMorningCheckinTimePicker(false)}
+                        >
+                          <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                          onPress={async () => {
+                            const timeStr = `${morningReminderPickerHour}:${String(morningReminderPickerMinute).padStart(2, '0')}`;
+                            const previousTime = morningCheckinTime;
+                            setMorningCheckinTime(timeStr);
+                            setShowMorningCheckinTimePicker(false);
+                            if (!user?.id) return;
+                            try {
+                              const { error } = await supabase
+                                .from('users')
+                                .update({ morning_checkin_time: toPgTime(timeStr) })
+                                .eq('id', user.id);
+                              if (error) throw error;
+                              await morningCheckinNotifications.rescheduleIfEnabled();
+                            } catch (_error) {
+                              setMorningCheckinTime(previousTime);
+                              Alert.alert('Could not update reminder time', 'Please try again.');
+                            }
+                          }}
+                        >
+                          <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
             <Modal
               visible={showHabitReminderTimePicker}
               transparent
@@ -1048,6 +1351,11 @@ const styles = StyleSheet.create({
   },
   notificationsCard: {
     marginTop: spacing.md,
+  },
+  notificationDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.regular,
   },
   cardWithTopMargin: {
     marginTop: spacing.md,
