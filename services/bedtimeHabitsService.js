@@ -1,5 +1,6 @@
 import sleepDataService from './sleepDataService';
 import { supabase } from './supabase';
+import { HabitLogSource } from './habitLogSourceConstants';
 
 /**
  * Service for calculating and managing bedtime-related habits
@@ -299,6 +300,7 @@ class BedtimeHabitsService {
               date: date,
               value: consistency.toString(),
               numeric_value: consistency,
+              source: HabitLogSource.DERIVED,
             });
           }
         }
@@ -369,6 +371,7 @@ class BedtimeHabitsService {
               date: date,
               value: consistency.toString(),
               numeric_value: consistency,
+              source: HabitLogSource.DERIVED,
             });
           }
         }

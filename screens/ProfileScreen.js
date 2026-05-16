@@ -56,6 +56,7 @@ import insightsService from '../services/insightsService';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
 import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
+import subjectiveMeasuresService from '../services/subjectiveMeasuresService';
 import {
   getPreferredSleepSource,
   setPreferredSleepSource as savePreferredSleepSourceToAccount,
@@ -582,42 +583,7 @@ const ProfileScreen = () => {
 
   const ensureMorningCheckinMeasure = async () => {
     if (!user?.id) return;
-    const nowIso = new Date().toISOString();
-
-    await supabase
-      .from('users')
-      .update({
-        track_tiredness: true,
-        subjective_remove_tiredness_measure: false,
-      })
-      .eq('id', user.id);
-
-    const { data: existing } = await supabase
-      .from('user_subjective_measures')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('slug', 'tiredness')
-      .maybeSingle();
-
-    if (existing?.id) {
-      await supabase
-        .from('user_subjective_measures')
-        .update({ enabled: true, updated_at: nowIso })
-        .eq('id', existing.id)
-        .eq('user_id', user.id);
-    } else {
-      await supabase.from('user_subjective_measures').insert({
-        user_id: user.id,
-        slug: 'tiredness',
-        label: 'Refreshed feeling',
-        hint: 'How refreshed did you feel when you first woke up?',
-        left_label: 'Not refreshed',
-        right_label: 'Very refreshed',
-        sort_order: 0,
-        enabled: true,
-        is_builtin: true,
-      });
-    }
+    await subjectiveMeasuresService.ensureBuiltinMeasurePresentAndEnabled(user.id, 'tiredness');
   };
 
   const handleToggleMorningCheckin = async () => {

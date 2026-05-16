@@ -133,15 +133,16 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
       const startDate = formatDateForDB(firstDay);
       const endDate = formatDateForDB(lastDay);
 
-      const sleepData = await sleepDataService.getSleepDataForRange(startDate, endDate);
-      
-      // Filter out excluded sleep data (exclude_from_insights = true)
-      // Only include sleep data that is not excluded
-      const validSleepData = sleepData?.filter(record => 
-        !record.exclude_from_insights
-      ) || [];
-      
-      const sleepDateSet = new Set(validSleepData.map(record => record.date));
+      let datesList = [];
+      try {
+        datesList = await sleepDataService.fetchVisibleSleepDatesForStrip(startDate, endDate);
+      } catch (_e) {
+        const sleepData = await sleepDataService.getSleepDataForRange(startDate, endDate);
+        datesList = (sleepData || []).map((r) => formatDateForDB(r.date));
+      }
+      const sleepDateSet = new Set(
+        (Array.isArray(datesList) ? datesList : []).map((d) => formatDateForDB(d))
+      );
       setSleepDataDates(Array.from(sleepDateSet));
     } catch (error) {
       setSleepDataDates([]);

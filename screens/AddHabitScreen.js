@@ -21,6 +21,7 @@ import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 import { trackOnboardingCustomHabitCreated } from '../services/onboardingAnalytics';
+import { HabitLogSource } from '../services/habitLogSourceConstants';
 
 const AddHabitScreen = () => {
   const navigation = useNavigation();
@@ -90,6 +91,7 @@ const AddHabitScreen = () => {
               habit_id: newHabitId,
               date,
               value: 'no',
+              source: HabitLogSource.DEFAULT_NO,
             }));
             const { error: logsError } = await supabase
               .from('habit_logs')

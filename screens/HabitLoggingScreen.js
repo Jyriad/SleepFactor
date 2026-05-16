@@ -28,6 +28,7 @@ import { useTutorialOptional } from '../contexts/TutorialContext';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import { supabase } from '../services/supabase';
 import offlineWriteQueueService from '../services/offlineWriteQueueService';
+import { HabitLogSource } from '../services/habitLogSourceConstants';
 import insightsService from '../services/insightsService';
 import sleepDataService from '../services/sleepDataService';
 import consumptionOptionsService from '../services/consumptionOptionsService';
@@ -288,6 +289,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       habit_id: habitId,
       date: dateStr,
       value: 'no',
+      source: HabitLogSource.DEFAULT_NO,
     }));
     try {
       const { error } = await supabase
@@ -309,7 +311,13 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       for (const habitId of uniqueHabitIds) {
         await offlineWriteQueueService.enqueue(
           offlineWriteQueueService.ACTION_TYPES.HABIT_LOG_UPSERT,
-          { userId: user.id, habitId, date: dateStr, value: 'no' },
+          {
+            userId: user.id,
+            habitId,
+            date: dateStr,
+            value: 'no',
+            source: HabitLogSource.DEFAULT_NO,
+          },
           { dedupeKey: `habit:${user.id}:${habitId}:${dateStr}` }
         );
       }
@@ -465,6 +473,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
                 habit_id: habitId,
                 date: dateString,
                 value: String(value),
+                source: HabitLogSource.MANUAL,
               },
             ],
             {
@@ -495,7 +504,13 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       } else {
         await offlineWriteQueueService.enqueue(
           offlineWriteQueueService.ACTION_TYPES.HABIT_LOG_UPSERT,
-          { userId: user.id, habitId, date: dateString, value },
+          {
+            userId: user.id,
+            habitId,
+            date: dateString,
+            value,
+            source: HabitLogSource.MANUAL,
+          },
           { dedupeKey: `habit:${user.id}:${habitId}:${dateString}` }
         );
       }

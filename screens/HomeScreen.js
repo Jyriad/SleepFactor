@@ -2051,16 +2051,6 @@ const HomeScreen = () => {
 
         {/* Navigation Cards */}
         <View style={styles.section}>
-          <NavigationCard
-            icon="list"
-            title="Manage Your Habits"
-            subtitle="Control what habits you want to track"
-            stats={[
-              { icon: 'checkbox-outline', label: `${totalHabitCount} habit${totalHabitCount !== 1 ? 's' : ''} tracked` },
-              { icon: 'flame-outline', label: `${loggingStreak} day${loggingStreak !== 1 ? 's' : ''} streak` },
-            ]}
-            onPress={() => navigation.navigate('MainTabs', { screen: 'Habits' })}
-          />
           <SleepInsightsHomeCard
             homeMetricRows={insightsHomeMetricRows}
             onPressHeader={() =>
@@ -2086,6 +2076,16 @@ const HomeScreen = () => {
                 },
               })
             }
+          />
+          <NavigationCard
+            icon="list"
+            title="Manage Your Habits"
+            subtitle="Control what habits you want to track"
+            stats={[
+              { icon: 'checkbox-outline', label: `${totalHabitCount} habit${totalHabitCount !== 1 ? 's' : ''} tracked` },
+              { icon: 'flame-outline', label: `${loggingStreak} day${loggingStreak !== 1 ? 's' : ''} streak` },
+            ]}
+            onPress={() => navigation.navigate('MainTabs', { screen: 'Habits' })}
           />
         </View>
       </ScrollView>

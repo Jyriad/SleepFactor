@@ -311,22 +311,28 @@ class SleepDataService {
   /**
    * Get sleep data for a specific date
    * @param {string} date - Date in YYYY-MM-DD format
+   * @param {string|null} [trustedUserId] - When supplied (e.g. from AuthContext), avoids relying on auth.getUser() readiness.
    * @returns {Promise<Object|null>} Sleep data record or null if not found
    */
-  async getSleepDataForDate(date) {
+  async getSleepDataForDate(date, trustedUserId = null) {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        throw new Error('User not authenticated');
+      let userId = trustedUserId;
+      if (!userId) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+        userId = user.id;
       }
 
       let q = supabase
         .from(this.tableName)
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('date', date);
-      q = await this._applyPreferredSourceFilter(q, user.id);
+      q = await this._applyPreferredSourceFilter(q, userId);
       const { data, error } = await q
         .order('updated_at', { ascending: false }) // Get most recent first
         .limit(1); // Take only the most recent record

@@ -32,6 +32,15 @@ function getDateString(param) {
   return formatDateForDB(d);
 }
 
+/** Resolve score after legacy placeholders are swapped for real measure rows. */
+function pickScoreForMeasure(measure, previousMeasures, scoresByMeasureId) {
+  let v = scoresByMeasureId[measure.id];
+  if (v != null) return v;
+  const peer = previousMeasures.find((p) => p.slug === measure.slug && p.id !== measure.id);
+  if (peer) return scoresByMeasureId[peer.id];
+  return undefined;
+}
+
 function buildPendingPayload(scoresByMeasureId, measures) {
   const out = {
     tiredness_score: null,
@@ -56,6 +65,37 @@ function buildPendingPayload(scoresByMeasureId, measures) {
   return out;
 }
 
+/** Memoized row so changing one slider does not rebuild every native Slider (fixes tap lag between rows). */
+const SleepQualityMeasureSliderRow = React.memo(function SleepQualityMeasureSliderRow({
+  measureId,
+  label,
+  hint,
+  leftLabel,
+  rightLabel,
+  value,
+  onCommitted,
+}) {
+  const handleChange = useCallback(
+    (score) => {
+      onCommitted(measureId, score);
+    },
+    [measureId, onCommitted]
+  );
+  return (
+    <View style={styles.measureCard}>
+      <ScoreSlider
+        label={label}
+        hint={hint}
+        value={value}
+        onValueChange={handleChange}
+        leftLabel={leftLabel}
+        rightLabel={rightLabel}
+        containerStyle={styles.measureCardSlider}
+      />
+    </View>
+  );
+});
+
 const SleepQualityLogScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -72,10 +112,9 @@ const SleepQualityLogScreen = () => {
   const [hasSavedScores, setHasSavedScores] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
 
-  const enabledMeasures = useMemo(
-    () => (measures || []).filter((m) => m.enabled === true),
-    [measures]
-  );
+  const enabledMeasures = useMemo(() => {
+    return (measures || []).filter((m) => m.enabled !== false);
+  }, [measures]);
 
   const setScoreForMeasure = useCallback((measureId, value) => {
     setScoresByMeasureId((prev) => ({ ...prev, [measureId]: value }));
@@ -104,32 +143,36 @@ const SleepQualityLogScreen = () => {
         }
       } catch (_e) {}
 
-      const fetchWithRetry = async () => {
-        await subjectiveMeasuresService.ensureBuiltinMeasures(user.id);
-        const list = await subjectiveMeasuresService.listSubjectiveMeasures(user.id);
-        const sleepRow = await sleepDataService.getSleepDataForDate(dateStr);
-        const customMap = await subjectiveMeasuresService.getCustomScoresForDate(user.id, dateStr);
-        return { list, sleepRow, customMap };
-      };
-
+      /** Never block sliders on sleep/custom fetches — they can throw (auth timing, RPC, offline). */
       let list = [];
-      let sleepRow = null;
-      let customMap = {};
-      const MAX_RETRIES = 2;
+      const MEASURES_RETRIES = 2;
       const RETRY_DELAY_MS = 350;
-
-      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      for (let attempt = 1; attempt <= MEASURES_RETRIES; attempt++) {
         try {
-          const result = await fetchWithRetry();
-          list = result.list;
-          sleepRow = result.sleepRow;
-          customMap = result.customMap;
+          const fetched =
+            await subjectiveMeasuresService.listSubjectiveMeasuresWithLegacyFallback(user.id);
+          list = Array.isArray(fetched) ? fetched : [];
           break;
-        } catch (_e) {
-          if (attempt < MAX_RETRIES) {
+        } catch (e) {
+          console.warn('[SleepQualityLogScreen] subjective measures load failed:', e?.message);
+          if (attempt < MEASURES_RETRIES) {
             await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
           }
         }
+      }
+
+      let sleepRow = null;
+      try {
+        sleepRow = await sleepDataService.getSleepDataForDate(dateStr, user.id);
+      } catch (e) {
+        console.warn('[SleepQualityLogScreen] sleep row load failed:', e?.message);
+      }
+
+      let customMap = {};
+      try {
+        customMap = await subjectiveMeasuresService.getCustomScoresForDate(user.id, dateStr);
+      } catch (e) {
+        console.warn('[SleepQualityLogScreen] custom subjective scores load failed:', e?.message);
       }
 
       if (cancelled) return;
@@ -184,10 +227,17 @@ const SleepQualityLogScreen = () => {
 
   const handleSave = async () => {
     if (!user?.id || !dateStr) return;
+    const hadLegacy = enabledMeasures.some((m) => m._legacy);
+    let measuresForSave = enabledMeasures;
+    if (hadLegacy) {
+      const resolved = await subjectiveMeasuresService.resolveLegacyMeasuresToDbRows(user.id, enabledMeasures);
+      measuresForSave = resolved.filter((m) => m.enabled !== false);
+    }
+
     const payload = {};
     const customByMeasureId = {};
-    for (const m of enabledMeasures) {
-      const v = scoresByMeasureId[m.id];
+    for (const m of measuresForSave) {
+      const v = pickScoreForMeasure(m, enabledMeasures, scoresByMeasureId);
       if (m.slug === 'tiredness') payload.tiredness_score = v ?? null;
       else if (m.slug === 'dream_vividness') payload.dream_vividness_score = v ?? null;
       else if (v != null) customByMeasureId[m.id] = v;
@@ -200,10 +250,34 @@ const SleepQualityLogScreen = () => {
       Object.keys(customByMeasureId).length > 0;
     if (!hasAny) return;
 
+    const pendingScores = { ...scoresByMeasureId };
+    for (const m of measuresForSave) {
+      const picked = pickScoreForMeasure(m, enabledMeasures, scoresByMeasureId);
+      if (picked != null) pendingScores[m.id] = picked;
+    }
+    for (const om of enabledMeasures) {
+      if (om._legacy) delete pendingScores[om.id];
+    }
+
     setSaving(true);
     let queuedForSync = false;
     try {
       await sleepDataService.updateSubjectiveScores(user.id, dateStr, payload);
+      if (hadLegacy) {
+        const refreshed = await subjectiveMeasuresService.listSubjectiveMeasuresWithLegacyFallback(user.id);
+        setMeasures(refreshed);
+        setScoresByMeasureId((prev) => {
+          const next = { ...prev };
+          for (const oldM of enabledMeasures) {
+            if (!oldM._legacy) continue;
+            const nu = refreshed.find((r) => r.slug === oldM.slug && !r._legacy);
+            if (!nu || oldM.id === nu.id) continue;
+            if (next[nu.id] == null && next[oldM.id] != null) next[nu.id] = next[oldM.id];
+            delete next[oldM.id];
+          }
+          return next;
+        });
+      }
     } catch (e) {
       await offlineWriteQueueService.enqueue(
         offlineWriteQueueService.ACTION_TYPES.SUBJECTIVE_UPSERT,
@@ -217,7 +291,7 @@ const SleepQualityLogScreen = () => {
       if (dateStr === getToday()) {
         homeCacheService.setSubjectiveJustSavedForToday();
         homeCacheService.setPendingSubjectiveScoresForToday(
-          buildPendingPayload(scoresByMeasureId, enabledMeasures)
+          buildPendingPayload(pendingScores, measuresForSave)
         );
       }
       setHasSavedScores(true);
@@ -246,8 +320,16 @@ const SleepQualityLogScreen = () => {
             if (!user?.id || !dateStr) return;
             setSaving(true);
             let queuedForSync = false;
+            let measuresForClear = enabledMeasures;
+            if (enabledMeasures.some((m) => m._legacy)) {
+              measuresForClear = await subjectiveMeasuresService.resolveLegacyMeasuresToDbRows(
+                user.id,
+                enabledMeasures
+              );
+              measuresForClear = measuresForClear.filter((m) => m.enabled !== false);
+            }
             const customByMeasureId = {};
-            for (const m of enabledMeasures) {
+            for (const m of measuresForClear) {
               // ease_sleep uses subjective_score_entries like custom measures but is_displayed as built-in
               if (!m.is_builtin || m.slug === 'ease_sleep') {
                 customByMeasureId[m.id] = null;
@@ -379,17 +461,16 @@ const SleepQualityLogScreen = () => {
           keyboardShouldPersistTaps="handled"
         >
           {enabledMeasures.map((m) => (
-            <View key={m.id} style={styles.measureCard}>
-              <ScoreSlider
-                label={m.label}
-                hint={m.hint || ''}
-                value={scoresByMeasureId[m.id] ?? null}
-                onValueChange={(score) => setScoreForMeasure(m.id, score)}
-                leftLabel={m.left_label || 'Low'}
-                rightLabel={m.right_label || 'High'}
-                containerStyle={styles.measureCardSlider}
-              />
-            </View>
+            <SleepQualityMeasureSliderRow
+              key={m.id}
+              measureId={m.id}
+              label={m.label}
+              hint={m.hint || ''}
+              leftLabel={m.left_label || 'Low'}
+              rightLabel={m.right_label || 'High'}
+              value={scoresByMeasureId[m.id] ?? null}
+              onCommitted={setScoreForMeasure}
+            />
           ))}
           <View style={styles.actions}>
             <TouchableOpacity onPress={handleSkip} style={styles.skipButton} disabled={saving}>

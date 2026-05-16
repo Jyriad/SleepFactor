@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import sleepDataService from './sleepDataService';
 import insightsService from './insightsService';
+import { HabitLogSource } from './habitLogSourceConstants';
 
 const QUEUE_STORAGE_KEY = 'offline_write_queue_v1';
 const FLUSH_INTERVAL_MS = 15000;
@@ -156,9 +157,18 @@ class OfflineWriteQueueService {
   async _executeItem(item) {
     switch (item.type) {
       case ACTION_TYPES.HABIT_LOG_UPSERT: {
-        const { userId, habitId, date, value } = item.payload || {};
+        const { userId, habitId, date, value, source } = item.payload || {};
+        const resolvedSource = source || HabitLogSource.MANUAL;
         const { error } = await supabase.from('habit_logs').upsert(
-          [{ user_id: userId, habit_id: habitId, date, value: String(value) }],
+          [
+            {
+              user_id: userId,
+              habit_id: habitId,
+              date,
+              value: String(value),
+              source: resolvedSource,
+            },
+          ],
           { onConflict: 'user_id,habit_id,date' }
         );
         if (error) throw error;

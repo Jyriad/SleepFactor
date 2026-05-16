@@ -9,6 +9,7 @@ import {
   Alert,
   TextInput,
   Modal,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
@@ -23,7 +24,6 @@ import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import GlassChromeBar from '../components/GlassChromeBar';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import subjectiveMeasuresService from '../services/subjectiveMeasuresService';
-import insightsService from '../services/insightsService';
 import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import { supabase } from '../services/supabase';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
@@ -96,8 +96,7 @@ const SubjectiveMeasuresScreen = () => {
 
     let list = [];
     try {
-      await subjectiveMeasuresService.ensureBuiltinMeasures(user.id);
-      const fetched = await subjectiveMeasuresService.listSubjectiveMeasures(user.id);
+      const fetched = await subjectiveMeasuresService.listSubjectiveMeasuresWithLegacyFallback(user.id);
       list = Array.isArray(fetched) ? fetched : [];
     } catch (_e) {
       list = [];
@@ -105,61 +104,12 @@ const SubjectiveMeasuresScreen = () => {
 
     const { data: userRow, error: userRowErr } = await supabase
       .from('users')
-      .select(
-        'track_tiredness, track_dream_vividness, track_ease_sleep, morning_checkin_time, subjective_remove_tiredness_measure, subjective_remove_dream_measure, subjective_remove_ease_sleep_measure'
-      )
+      .select('morning_checkin_time')
       .eq('id', user.id)
       .single();
 
     if (!userRowErr && userRow) {
       applyMorningTimeFromUserRow(userRow);
-    }
-
-    if (list.length === 0 && userRow && !userRowErr) {
-      const rows = [];
-      if (!userRow.subjective_remove_tiredness_measure && userRow.track_tiredness === true) {
-        rows.push({
-          id: 'legacy-tiredness',
-          slug: 'tiredness',
-          label: 'Refreshed feeling',
-          hint: null,
-          left_label: 'Not refreshed',
-          right_label: 'Very refreshed',
-          sort_order: 0,
-          enabled: userRow.track_tiredness === true,
-          is_builtin: true,
-          _legacy: true,
-        });
-      }
-      if (!userRow.subjective_remove_dream_measure && userRow.track_dream_vividness === true) {
-        rows.push({
-          id: 'legacy-dream',
-          slug: 'dream_vividness',
-          label: 'Dream strength',
-          hint: null,
-          left_label: 'No memory',
-          right_label: 'Very strong',
-          sort_order: 1,
-          enabled: userRow.track_dream_vividness === true,
-          is_builtin: true,
-          _legacy: true,
-        });
-      }
-      if (!userRow.subjective_remove_ease_sleep_measure && userRow.track_ease_sleep === true) {
-        rows.push({
-          id: 'legacy-ease_sleep',
-          slug: 'ease_sleep',
-          label: 'Easily fell asleep',
-          hint: null,
-          left_label: 'Very difficult',
-          right_label: 'Very easily',
-          sort_order: 2,
-          enabled: userRow.track_ease_sleep === true,
-          is_builtin: true,
-          _legacy: true,
-        });
-      }
-      list = rows;
     }
 
     setSubjectiveMeasures(list);
@@ -322,34 +272,20 @@ const SubjectiveMeasuresScreen = () => {
                     );
                     try {
                       if (m._legacy) {
-                        const updates = {};
-                        if (m.slug === 'tiredness') updates.track_tiredness = next;
-                        if (m.slug === 'dream_vividness') updates.track_dream_vividness = next;
-                        if (m.slug === 'ease_sleep') updates.track_ease_sleep = next;
-                        if (next) {
-                          const { data: u } = await supabase
-                            .from('users')
-                            .select('morning_checkin_time')
-                            .eq('id', user.id)
-                            .maybeSingle();
-                          if (
-                            u &&
-                            (u.morning_checkin_time == null || String(u.morning_checkin_time).trim() === '')
-                          ) {
-                            updates.morning_checkin_time = '08:00:00';
-                          }
-                        }
-                        const { error: upErr } = await supabase.from('users').update(updates).eq('id', user.id);
-                        if (upErr) {
+                        const res = await subjectiveMeasuresService.materializeLegacyBuiltinAndSetEnabled(
+                          user.id,
+                          m.slug,
+                          next
+                        );
+                        if (!res.success) {
                           if (toggleRequestSeqRef.current[m.id] === reqSeq) {
                             setSubjectiveMeasures((prev) =>
                               prev.map((row) => (row.id === m.id ? { ...row, enabled: previousEnabled } : row))
                             );
                           }
-                          Alert.alert('Error', 'Could not update. Try again.');
+                          Alert.alert('Error', res.error || 'Could not update. Try again.');
                           return;
                         }
-                        insightsService.notifyInsightsUnderlyingDataChanged();
                       } else {
                         const res = await subjectiveMeasuresService.setMeasureEnabled(user.id, m.id, next);
                         if (!res.success) {
@@ -362,7 +298,9 @@ const SubjectiveMeasuresScreen = () => {
                           return;
                         }
                       }
-                      await morningCheckinNotifications.rescheduleIfEnabled();
+                      InteractionManager.runAfterInteractions(() => {
+                        morningCheckinNotifications.rescheduleIfEnabled().catch(() => {});
+                      });
                     } finally {}
                   }}
                 >

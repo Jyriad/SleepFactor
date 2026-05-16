@@ -171,20 +171,32 @@ function CalendarMonthGrid({ monthAnchor, selectedDateStr, onDateSelect, glass, 
       setCalendarLoggedDates(logged);
     });
 
+    /** Same “visible sleep” rules as the week strip / dashboard (RPC), not exclude_from_insights-only rows. */
     sleepDataService
-      .getSleepDataForRange(startDate, endDate)
-      .then((sleepData) => {
+      .fetchVisibleSleepDatesForStrip(startDate, endDate)
+      .then((stripDates) => {
         if (cancelled) return;
-        const valid = (sleepData || []).filter((r) => !r.exclude_from_insights);
-        const sleepDates = valid.map((r) => r.date);
+        const normalized = (Array.isArray(stripDates) ? stripDates : []).map((d) => formatDateForDB(d));
         const ck = badgeCacheKey(user.id, monthAnchor);
         const prevEntry = calendarMonthBadgeCache.get(ck) ?? { logged: [], sleep: [] };
-        calendarMonthBadgeCache.set(ck, { logged: prevEntry.logged ?? [], sleep: sleepDates });
-        setCalendarSleepDataDates(sleepDates);
+        calendarMonthBadgeCache.set(ck, { logged: prevEntry.logged ?? [], sleep: normalized });
+        setCalendarSleepDataDates(normalized);
       })
       .catch(() => {
         if (cancelled) return;
-        /* keep cached / prior sleep dates instead of clearing */
+        sleepDataService
+          .getSleepDataForRange(startDate, endDate)
+          .then((sleepData) => {
+            if (cancelled) return;
+            const normalized = (sleepData || []).map((r) => formatDateForDB(r.date));
+            const ck = badgeCacheKey(user.id, monthAnchor);
+            const prevEntry = calendarMonthBadgeCache.get(ck) ?? { logged: [], sleep: [] };
+            calendarMonthBadgeCache.set(ck, { logged: prevEntry.logged ?? [], sleep: normalized });
+            setCalendarSleepDataDates(normalized);
+          })
+          .catch(() => {
+            if (cancelled) return;
+          });
       });
 
     return () => {

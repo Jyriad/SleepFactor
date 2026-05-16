@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import healthService from './healthService';
 import sleepDataService from './sleepDataService';
+import { HabitLogSource } from './habitLogSourceConstants';
 
 const HABIT_NAME = 'Exercise Time Before Bed';
 
@@ -100,6 +101,7 @@ class ExerciseTimeBeforeBedService {
               date: date,
               value: String(mins),
               numeric_value: mins,
+              source: HabitLogSource.DERIVED,
             },
             { onConflict: 'user_id,habit_id,date' }
           );

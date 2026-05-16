@@ -20,6 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import habitReminderNotifications from '../../services/habitReminderNotifications';
 import morningCheckinNotifications from '../../services/morningCheckinNotifications';
+import subjectiveMeasuresService from '../../services/subjectiveMeasuresService';
 import { supabase } from '../../services/supabase';
 import { trackOnboardingNotificationsResult } from '../../services/onboardingAnalytics';
 
@@ -150,35 +151,17 @@ const OnboardingNotificationScreen = ({ navigation }) => {
         await habitReminderNotifications.setHabitReminderEnabled(true);
 
         if (user?.id) {
-          const { data: row, error: fetchErr } = await supabase
+          const hasMorningTracking = await subjectiveMeasuresService.hasAnySubjectiveMeasureEnabled(user.id);
+          if (!hasMorningTracking) {
+            await subjectiveMeasuresService.ensureBuiltinMeasurePresentAndEnabled(user.id, 'tiredness');
+          }
+          await supabase
             .from('users')
-            .select('track_tiredness, track_dream_vividness')
-            .eq('id', user.id)
-            .single();
-
-          if (!fetchErr) {
-            const updates = {
+            .update({
               morning_checkin_time: toPgTime(morningTime),
               notification_time: toPgTime(eveningTime),
-            };
-            const hasMorningTracking =
-              row?.track_tiredness === true || row?.track_dream_vividness === true;
-            if (!hasMorningTracking) {
-              updates.track_tiredness = true;
-            }
-            await supabase.from('users').update(updates).eq('id', user.id);
-            try {
-              if (!hasMorningTracking) {
-                await supabase
-                  .from('user_subjective_measures')
-                  .update({ enabled: true, updated_at: new Date().toISOString() })
-                  .eq('user_id', user.id)
-                  .eq('slug', 'tiredness');
-              }
-            } catch (_syncErr) {
-              /* table may not exist before migration */
-            }
-          }
+            })
+            .eq('id', user.id);
         }
 
         await morningCheckinNotifications.scheduleMorningCheckin();

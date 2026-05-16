@@ -48,6 +48,14 @@ const ScoreSlider = ({ label, hint, value, onValueChange, leftLabel, rightLabel,
 
   const handleValueChange = (v) => {
     const rounded = Math.round(v);
+    // On tap, many platforms emit onValueChange before onSlidingStart; treat first change as gesture start
+    // so a parent re-render from another slider does not reset this thumb mid-interaction.
+    // Ignore same-value chatter on mount so we don't block prop sync permanently.
+    if (!isSlidingRef.current && (rounded !== propValue || hasSelection)) {
+      completedValueRef.current = null;
+      setHasInteracted(true);
+      isSlidingRef.current = true;
+    }
     // Only update when integer value actually changes (1..10),
     // which keeps drag smooth while still updating the center number.
     setLocalValue((prev) => (prev === rounded ? prev : rounded));

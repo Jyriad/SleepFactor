@@ -14,7 +14,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import subjectiveMeasuresService from '../../services/subjectiveMeasuresService';
-import { supabase } from '../../services/supabase';
 import { colors } from '../../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
@@ -25,28 +24,15 @@ async function persistSubjectiveOnboardingChoices(
   userId,
   { tiredness, dream, easeSleep, customMeasures }
 ) {
-  // Persist the user's onboarding choices as the source of truth.
-  // Built-in measures should only exist when the user opts in.
-  await supabase
-    .from('users')
-    .update({
-      track_tiredness: tiredness === true,
-      track_dream_vividness: dream === true,
-      track_ease_sleep: easeSleep === true,
-    })
-    .eq('id', userId);
-
-  // Create rows only for opted-in built-ins, then ensure enabled is consistent.
-  await subjectiveMeasuresService.ensureBuiltinMeasures(userId);
-  const list = await subjectiveMeasuresService.listSubjectiveMeasures(userId);
-  const t = list.find((m) => m.slug === 'tiredness');
-  const d = list.find((m) => m.slug === 'dream_vividness');
-  const e = list.find((m) => m.slug === 'ease_sleep');
-  const toggles = [];
-  if (t) toggles.push(subjectiveMeasuresService.setMeasureEnabled(userId, t.id, tiredness === true));
-  if (d) toggles.push(subjectiveMeasuresService.setMeasureEnabled(userId, d.id, dream === true));
-  if (e) toggles.push(subjectiveMeasuresService.setMeasureEnabled(userId, e.id, easeSleep === true));
-  await Promise.all(toggles);
+  // Single source of truth: `user_subjective_measures`. Legacy users.* columns sync inside the service.
+  const builtinsRes = await subjectiveMeasuresService.persistOnboardingSubjectiveBuiltinChoices(userId, {
+    tiredness,
+    dream,
+    easeSleep,
+  });
+  if (!builtinsRes.success) {
+    console.warn('[OnboardingSubjectiveMeasures] builtin persist failed', builtinsRes.error);
+  }
   await Promise.all(
     (customMeasures || []).map((m) =>
       subjectiveMeasuresService.addCustomMeasure(userId, {

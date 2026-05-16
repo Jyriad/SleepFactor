@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import healthService from './healthService';
 import { formatDateForDB } from '../utils/dateHelpers';
+import { HabitLogSource } from './habitLogSourceConstants';
 
 /**
  * Service for managing automatic health metrics habits
@@ -379,7 +380,8 @@ class HealthMetricsService {
             .update({
               numeric_value: dataPoint.value,
               value: dataPoint.value.toString(),
-              updated_at: new Date().toISOString()
+              updated_at: new Date().toISOString(),
+              source: HabitLogSource.HEALTH_METRIC_SYNC,
             })
             .eq('id', existingLogs[0].id);
 
@@ -395,7 +397,8 @@ class HealthMetricsService {
               habit_id: habitId,
               date: dataPoint.date,
               numeric_value: dataPoint.value,
-              value: dataPoint.value.toString()
+              value: dataPoint.value.toString(),
+              source: HabitLogSource.HEALTH_METRIC_SYNC,
             });
 
           if (insertError) {
