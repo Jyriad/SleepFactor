@@ -443,6 +443,7 @@ const HomeScreen = () => {
   const [homeGlassHeaderHeight, setHomeGlassHeaderHeight] = useState(140);
   const [topInsights, setTopInsights] = useState(null);
   const [insightsHomeMetricRows, setInsightsHomeMetricRows] = useState(null);
+  const [insightsStripRefreshing, setInsightsStripRefreshing] = useState(false);
   const topInsightsRef = useRef(null);
   const insightsHomeMetricRowsRef = useRef(null);
   useEffect(() => {
@@ -745,11 +746,13 @@ const HomeScreen = () => {
           onStaleRefresh: ({ topInsights: top, homeMetricRows }) => {
             setTopInsights(top);
             setInsightsHomeMetricRows(homeMetricRows);
+            setInsightsStripRefreshing(false);
           },
         })
-        .then(({ topInsights: top, homeMetricRows }) => {
+        .then(({ topInsights: top, homeMetricRows, isStale }) => {
           setTopInsights(top);
           setInsightsHomeMetricRows(homeMetricRows);
+          setInsightsStripRefreshing(!!isStale);
         })
         .catch(() => {
           setTopInsights([]);
@@ -2053,6 +2056,7 @@ const HomeScreen = () => {
         <View style={styles.section}>
           <SleepInsightsHomeCard
             homeMetricRows={insightsHomeMetricRows}
+            isRefreshing={insightsStripRefreshing}
             onPressHeader={() =>
               navigation.navigate('MainTabs', {
                 screen: 'Insights',
@@ -2066,12 +2070,11 @@ const HomeScreen = () => {
               navigation.navigate('MainTabs', {
                 screen: 'Insights',
                 params: {
-                  screen: 'Insights',
+                  screen: 'HabitTimeline',
                   params: {
-                    focusedHabitId: row.habitId,
-                    focusedMetricKey: row.metricKey,
-                    preferredAnalysisMode: row.preferredAnalysisMode,
-                    expandMetricInsight: true,
+                    habitId: row.habitId,
+                    metricKey: row.metricKey,
+                    analysisMode: row.preferredAnalysisMode || 'absolute',
                   },
                 },
               })

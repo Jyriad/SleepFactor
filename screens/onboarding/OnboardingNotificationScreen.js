@@ -15,6 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../../constants';
 import OnboardingStepLayout from './OnboardingStepLayout';
+import PressableFeedback from '../../components/PressableFeedback';
+import { buttonStyles } from '../../constants/buttonStyles';
 import { ONBOARDING_STEP_TOTAL } from '../../constants/onboardingFlow';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
@@ -277,18 +279,20 @@ const OnboardingNotificationScreen = ({ navigation }) => {
                   </View>
                 </View>
                 <View style={styles.reminderTimeModalFooter}>
-                  <TouchableOpacity
+                  <PressableFeedback
                     style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                    pressedStyle={buttonStyles.outlinePressed}
                     onPress={() => setPickerKind(null)}
                   >
                     <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </PressableFeedback>
+                  <PressableFeedback
                     style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                    pressedStyle={buttonStyles.primaryPressed}
                     onPress={applyPicker}
                   >
                     <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
-                  </TouchableOpacity>
+                  </PressableFeedback>
                 </View>
               </View>
             </TouchableWithoutFeedback>

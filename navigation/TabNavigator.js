@@ -6,6 +6,8 @@ import HomeStackWrapper from './HomeStackWrapper';
 import InsightsStack from './InsightsStack';
 import HabitsStack from './HabitsStack';
 import ProfileStack from './ProfileStack';
+import { TAB_SHIFT_SCREEN_OPTIONS } from './transitionOptions';
+import { HabitLoggingOverlayProvider } from './HabitLoggingOverlayHost';
 
 const Tab = createBottomTabNavigator();
 
@@ -29,15 +31,18 @@ function HomeTabScreen({ route }) {
 
 /**
  * Main tabs: one stack per tab. Lazy: only Home mounts at first paint; other tabs mount on first open
- * (faster cold start). unmountOnBlur: false keeps each tab mounted after first visit so switching back is instant.
+ * (faster cold start). unmountOnBlur: false keeps each tab mounted after first visit.
+ * Tab switches use the same duration as stack slide (shift preset).
  */
 const TabNavigator = () => {
   return (
+    <HabitLoggingOverlayProvider>
     <Tab.Navigator
       initialRouteName="Home"
       tabBar={(props) => <MainTabBar {...props} />}
       screenOptions={{
         headerShown: false,
+        ...TAB_SHIFT_SCREEN_OPTIONS,
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
         tabBarStyle: {
@@ -73,6 +78,7 @@ const TabNavigator = () => {
         />
       ))}
     </Tab.Navigator>
+    </HabitLoggingOverlayProvider>
   );
 };
 

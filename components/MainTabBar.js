@@ -4,17 +4,18 @@ import { BottomTabBarHeightCallbackContext } from '@react-navigation/bottom-tabs
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   Modal,
   Pressable,
   Platform,
 } from 'react-native';
+import PressableFeedback from './PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import TabBarBlurBackground from './TabBarBlurBackground';
 import { colors } from '../constants/colors';
 import { typography, spacing, appFont } from '../constants';
 import { formatDateForDB } from '../utils/dateHelpers';
+import { useHabitLoggingOverlay } from '../navigation/HabitLoggingOverlayHost';
 
 const TAB_ICONS = {
   Home: { focused: 'home', outline: 'home-outline' },
@@ -39,21 +40,38 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const setTabBarHeight = useContext(BottomTabBarHeightCallbackContext);
   const ignoreFabPressUntilRef = useRef(0);
+  const { showOverlay } = useHabitLoggingOverlay();
 
   const todayStr = formatDateForDB(new Date());
+  const routes = state.routes;
+  const homeRoute = routes.find((r) => r.name === 'Home');
+  const homeTabIndex = routes.findIndex((r) => r.name === 'Home');
 
   const goToHabitLogging = useCallback(
     (extra = {}) => {
+      const params = { date: todayStr, ...extra };
+      const fromOtherTab = state.index !== homeTabIndex;
+
+      if (fromOtherTab) {
+        showOverlay({ params, animate: false });
+        navigation.navigate('Home', {
+          state: {
+            routes: [
+              { name: 'HomeMain' },
+              { name: 'HabitLogging', params: { ...params, _overlayInstant: true } },
+            ],
+            index: 1,
+          },
+        });
+        return;
+      }
+
       navigation.navigate('Home', {
         screen: 'HabitLogging',
-        params: {
-          date: todayStr,
-          ...extra,
-        },
-        merge: true,
+        params,
       });
     },
-    [navigation, todayStr]
+    [navigation, todayStr, state.index, homeTabIndex, showOverlay]
   );
 
   const onFabPress = useCallback(() => {
@@ -105,9 +123,6 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
     }, MENU_NAV_DELAY_MS);
   }, [closeMenu, goToHabitLogging]);
 
-  const routes = state.routes;
-  const homeRoute = routes.find((r) => r.name === 'Home');
-  const homeTabIndex = routes.findIndex((r) => r.name === 'Home');
   const focusedInHomeStack = homeRoute
     ? getFocusedRouteNameFromRoute(homeRoute)
     : undefined;
@@ -151,7 +166,7 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
     const iconName = isFocused ? icons.focused : icons.outline;
 
     return (
-      <TouchableOpacity
+      <PressableFeedback
         key={route.key}
         accessibilityRole="button"
         accessibilityState={isFocused ? { selected: true } : {}}
@@ -159,14 +174,14 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
         testID={options.tabBarTestID}
         onPress={onPress}
         onLongPress={onLongPress}
+        haptic="selection"
         style={styles.tabItem}
-        activeOpacity={0.7}
       >
         <Ionicons name={iconName} size={24} color={color} />
         <Text style={[styles.tabLabel, { color }]} numberOfLines={1}>
           {label}
         </Text>
-      </TouchableOpacity>
+      </PressableFeedback>
     );
   };
 
@@ -174,7 +189,7 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
   const logIconName = isLogFocused ? 'add' : 'add-outline';
 
   const renderLogTab = () => (
-    <TouchableOpacity
+    <PressableFeedback
       key="log-tab"
       accessibilityRole="button"
       accessibilityState={isLogFocused ? { selected: true } : {}}
@@ -183,14 +198,14 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
       onPress={onFabPress}
       onLongPress={onFabLongPress}
       delayLongPress={380}
+      haptic="selection"
       style={styles.tabItem}
-      activeOpacity={0.7}
     >
       <Ionicons name={logIconName} size={24} color={logColor} />
       <Text style={[styles.tabLabel, { color: logColor }]} numberOfLines={1}>
         Log
       </Text>
-    </TouchableOpacity>
+    </PressableFeedback>
   );
 
   const bottomInset = Math.max(insets.bottom, 0);
@@ -237,18 +252,21 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
           <View style={styles.menuAnchor}>
             <Pressable onPress={(e) => e.stopPropagation()} style={styles.menuCard}>
               <Text style={styles.menuTitle}>Quick log</Text>
-              <TouchableOpacity style={[styles.menuRow, styles.menuRowFirst]} onPress={onMenuCaffeine} activeOpacity={0.7}>
+              <PressableFeedback
+                style={[styles.menuRow, styles.menuRowFirst]}
+                onPress={onMenuCaffeine}
+              >
                 <Ionicons name="cafe-outline" size={22} color={colors.primary} style={styles.menuIcon} />
                 <Text style={styles.menuRowText}>Caffeine</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuRow} onPress={onMenuAlcohol} activeOpacity={0.7}>
+              </PressableFeedback>
+              <PressableFeedback style={styles.menuRow} onPress={onMenuAlcohol}>
                 <Ionicons name="wine-outline" size={22} color={colors.primary} style={styles.menuIcon} />
                 <Text style={styles.menuRowText}>Alcohol</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuRow} onPress={onMenuSleepQuality} activeOpacity={0.7}>
+              </PressableFeedback>
+              <PressableFeedback style={styles.menuRow} onPress={onMenuSleepQuality}>
                 <Ionicons name="moon-outline" size={22} color={colors.primary} style={styles.menuIcon} />
                 <Text style={styles.menuRowText}>How do you feel?</Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             </Pressable>
           </View>
         </Pressable>

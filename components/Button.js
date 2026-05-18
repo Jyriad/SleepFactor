@@ -1,11 +1,14 @@
-import React from 'react';
-import { TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import React, { useCallback } from 'react';
+import { Pressable, Text, ActivityIndicator, Platform } from 'react-native';
 import { colors } from '../constants/colors';
-import { buttonStyles } from '../constants/buttonStyles';
+import { buttonStyles, getButtonPressedStyle } from '../constants/buttonStyles';
+import { PRESS_SCALE } from './PressableFeedback';
+import { triggerHaptic } from '../utils/haptics';
 
 /**
  * @param {'primary'|'secondary'|'destructive'|'outline'} [variant='primary']
- * @param {'default'|'compact'} [size='default'] — compact tightens padding; outline+compact uses smaller label (home sleep CTA).
+ * @param {'default'|'compact'} [size='default'] — compact tightens padding only; label uses body size with bold weight.
+ * @param {'light'|'selection'|'success'|'none'} [haptic='light']
  */
 const Button = ({
   title,
@@ -16,19 +19,29 @@ const Button = ({
   loading = false,
   style,
   icon,
+  haptic = 'light',
 }) => {
   const isPrimary = variant === 'primary';
   const isSecondary = variant === 'secondary';
   const isDestructive = variant === 'destructive';
   const isOutline = variant === 'outline';
   const isCompact = size === 'compact';
+  const isDisabled = disabled || loading;
 
   const spinnerColor =
     isPrimary || isDestructive ? '#FFFFFF' : colors.primary;
 
+  const handlePressIn = useCallback(() => {
+    if (!isDisabled && haptic !== 'none') {
+      triggerHaptic(haptic);
+    }
+  }, [isDisabled, haptic]);
+
+  const pressedStyle = getButtonPressedStyle(variant);
+
   return (
-    <TouchableOpacity
-      style={[
+    <Pressable
+      style={({ pressed }) => [
         buttonStyles.container,
         isCompact && buttonStyles.containerCompact,
         isPrimary && buttonStyles.primary,
@@ -36,13 +49,22 @@ const Button = ({
         isDestructive && buttonStyles.destructive,
         isOutline && buttonStyles.outline,
         isOutline && (isCompact ? buttonStyles.outlineRadiusCompact : buttonStyles.outlineRadiusDefault),
-        disabled && buttonStyles.disabled,
+        isDisabled && buttonStyles.disabled,
         icon && buttonStyles.containerWithIcon,
+        pressed && !isDisabled && { transform: [{ scale: PRESS_SCALE }] },
+        pressed && !isDisabled && pressedStyle,
         style,
       ]}
       onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.7}
+      onPressIn={handlePressIn}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      android_ripple={
+        Platform.OS === 'android'
+          ? { color: `${colors.primary}33`, borderless: false }
+          : undefined
+      }
     >
       {loading ? (
         <ActivityIndicator color={spinnerColor} />
@@ -52,7 +74,6 @@ const Button = ({
           <Text
             style={[
               buttonStyles.label,
-              isOutline && isCompact && buttonStyles.labelCompactOutline,
               isPrimary && buttonStyles.labelPrimary,
               isSecondary && buttonStyles.labelSecondary,
               isDestructive && buttonStyles.labelDestructive,
@@ -64,7 +85,7 @@ const Button = ({
           </Text>
         </>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 

@@ -28,6 +28,8 @@ import morningCheckinNotifications from '../services/morningCheckinNotifications
 import { supabase } from '../services/supabase';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
 import ScoreSlider from '../components/ScoreSlider';
+import PressableFeedback from '../components/PressableFeedback';
+import { buttonStyles } from '../constants/buttonStyles';
 
 function formatReminderTimeForDisplay(timeStr, use24Hour) {
   if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) return timeStr || '20:00';
@@ -423,17 +425,19 @@ const SubjectiveMeasuresScreen = () => {
                   />
                 </View>
                 <View style={styles.reminderTimeModalFooter}>
-                  <TouchableOpacity
+                  <PressableFeedback
                     style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                    pressedStyle={buttonStyles.outlinePressed}
                     onPress={() => {
                       setAddMeasureModalVisible(false);
                       setEditingMeasure(null);
                     }}
                   >
                     <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </PressableFeedback>
+                  <PressableFeedback
                     style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                    pressedStyle={buttonStyles.primaryPressed}
                     onPress={async () => {
                       if (!user?.id) return;
                       const label = newMeasureLabel.trim();
@@ -473,7 +477,7 @@ const SubjectiveMeasuresScreen = () => {
                     <Text style={styles.reminderTimeDoneButtonText}>
                       {editingMeasure ? 'Save' : 'Add'}
                     </Text>
-                  </TouchableOpacity>
+                  </PressableFeedback>
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -520,14 +524,16 @@ const SubjectiveMeasuresScreen = () => {
                   </View>
                 </View>
                 <View style={styles.reminderTimeModalFooter}>
-                  <TouchableOpacity
+                  <PressableFeedback
                     style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                    pressedStyle={buttonStyles.outlinePressed}
                     onPress={() => setShowMorningCheckinTimePicker(false)}
                   >
                     <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </PressableFeedback>
+                  <PressableFeedback
                     style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                    pressedStyle={buttonStyles.primaryPressed}
                     onPress={async () => {
                       const timeStr = `${morningCheckinPickerHour}:${String(morningCheckinPickerMinute).padStart(2, '0')}`;
                       setMorningCheckinTime(timeStr);
@@ -543,7 +549,7 @@ const SubjectiveMeasuresScreen = () => {
                     }}
                   >
                     <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
-                  </TouchableOpacity>
+                  </PressableFeedback>
                 </View>
               </View>
             </TouchableWithoutFeedback>

@@ -27,6 +27,7 @@ import OnboardingInsightFoundScreen from '../screens/onboarding/OnboardingInsigh
 import OnboardingNotificationScreen from '../screens/onboarding/OnboardingNotificationScreen';
 import OnboardingClosingScreen from '../screens/onboarding/OnboardingClosingScreen';
 import AddHabitScreen from '../screens/AddHabitScreen';
+import { STACK_SLIDE_SCREEN_OPTIONS } from './transitionOptions';
 
 const Stack = createNativeStackNavigator();
 
@@ -58,8 +59,7 @@ export default function OnboardingNavigator({ onComplete }) {
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        animation: 'slide_from_right',
-        animationDuration: 220,
+        ...STACK_SLIDE_SCREEN_OPTIONS,
       }}
       initialRouteName="Welcome"
     >

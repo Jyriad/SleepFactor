@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from './PressableFeedback';
 import { colors, typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
+import { buttonStyles } from '../constants/buttonStyles';
 import { useAuth } from '../contexts/AuthContext';
 import dataQualityService from '../services/dataQualityService';
 import sleepDataService from '../services/sleepDataService';
@@ -20,6 +22,15 @@ import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from
 import SleepTimeline from './SleepTimeline';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+function formatBinaryHabitValue(value) {
+  if (value === true || value === 1) return 'Yes';
+  if (value === false || value === 0) return 'No';
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'yes' || normalized === '1' || normalized === 'true') return 'Yes';
+  if (normalized === 'no' || normalized === '0' || normalized === 'false') return 'No';
+  return 'N/A';
+}
 
 // Habit Item Component - handles different habit types and expandable details
 const HabitItem = ({ habitItem, isExpanded, onToggle }) => {
@@ -496,7 +507,7 @@ const DataPointDetailModal = ({
       case 'numeric':
         return unit ? `${value} ${unit}` : value.toString();
       case 'binary':
-        return value && (value.toLowerCase() === 'yes' || value === '1' || value === true) ? 'Yes' : 'No';
+        return formatBinaryHabitValue(value);
       default:
         return value.toString();
     }
@@ -640,20 +651,22 @@ const DataPointDetailModal = ({
 
           {/* Actions */}
           <View style={styles.actions}>
-            <TouchableOpacity
+            <PressableFeedback
               style={[styles.actionButton, styles.secondaryButton]}
+              pressedStyle={buttonStyles.outlinePressed}
               onPress={onClose}
             >
               <Text style={styles.secondaryButtonText}>Close</Text>
-            </TouchableOpacity>
+            </PressableFeedback>
 
-            <TouchableOpacity
+            <PressableFeedback
               style={[
                 styles.actionButton,
                 styles.primaryButton,
                 exclusionStatus?.excluded ? styles.includeButton : styles.excludeButton,
                 loading && styles.disabledButton
               ]}
+              pressedStyle={buttonStyles.primaryPressed}
               onPress={handleExclusionToggle}
               disabled={loading}
             >
@@ -664,7 +677,7 @@ const DataPointDetailModal = ({
                   {exclusionStatus?.excluded ? 'Include in Analysis' : 'Exclude from Analysis'}
                 </Text>
               )}
-            </TouchableOpacity>
+            </PressableFeedback>
           </View>
         </View>
       </View>

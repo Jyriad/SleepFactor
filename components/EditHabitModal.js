@@ -3,13 +3,14 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Modal,
   Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from './PressableFeedback';
 import { colors } from '../constants/colors';
+import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
 const EditHabitModal = ({ visible, onClose, onSave, habit }) => {
@@ -65,18 +66,20 @@ const EditHabitModal = ({ visible, onClose, onSave, habit }) => {
             </View>
 
             <View style={styles.actions}>
-              <TouchableOpacity
+              <PressableFeedback
                 style={[styles.actionButton, styles.cancelButton]}
+                pressedStyle={buttonStyles.outlinePressed}
                 onPress={handleClose}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </PressableFeedback>
+              <PressableFeedback
                 style={[styles.actionButton, styles.saveButton]}
+                pressedStyle={buttonStyles.primaryPressed}
                 onPress={handleSave}
               >
                 <Text style={styles.saveButtonText}>Update</Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
           </View>
         </Pressable>

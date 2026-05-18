@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -19,7 +19,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -141,7 +141,11 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   const route = routeProp ?? routeFromHook;
   const navigation = navigationProp ?? navigationFromHook;
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeightFromContext = useContext(BottomTabBarHeightContext);
+  const bottomScrollPadding =
+    tabBarHeightFromContext !== undefined
+      ? tabBarHeightFromContext + spacing.sm + Math.min(insets.bottom, 12)
+      : spacing.regular + Math.max(insets.bottom, 12);
   const { user } = useAuth();
   const tutorial = useTutorialOptional();
   const tutorialToastSentRef = useRef(false);
@@ -1068,7 +1072,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         <View
           style={[
             styles.loggedSnackbarContainer,
-            { paddingBottom: tabBarHeight + spacing.sm + Math.min(insets.bottom, 12) },
+            { paddingBottom: bottomScrollPadding },
           ]}
           pointerEvents="none"
         >

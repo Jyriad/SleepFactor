@@ -29,6 +29,7 @@ import { colors } from '../constants/colors';
 import { applyAndroidStatusBarForLightScreen } from '../utils/androidStatusBar';
 import { typography, spacing, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from '../constants';
 import Button from '../components/Button';
+import PressableFeedback from '../components/PressableFeedback';
 import BannerLogoLight from '../assets/BannerLogoLight.svg';
 
 // Matches BannerLogoLight.svg viewBox (primary horizontal wordmark)
@@ -161,8 +162,9 @@ const AuthScreen = ({ defaultToSignUp = false }) => {
             </Text>
 
             <View style={styles.toggleContainer}>
-              <TouchableOpacity
+              <PressableFeedback
                 style={[styles.toggle, !isSignUp && styles.activeToggle]}
+                haptic="selection"
                 onPress={() => {
                   setIsSignUp(false);
                   setError('');
@@ -171,9 +173,10 @@ const AuthScreen = ({ defaultToSignUp = false }) => {
                 <Text style={[styles.toggleText, !isSignUp && styles.activeToggleText]}>
                   Sign In
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </PressableFeedback>
+              <PressableFeedback
                 style={[styles.toggle, isSignUp && styles.activeToggle]}
+                haptic="selection"
                 onPress={() => {
                   setIsSignUp(true);
                   setError('');
@@ -182,7 +185,7 @@ const AuthScreen = ({ defaultToSignUp = false }) => {
                 <Text style={[styles.toggleText, isSignUp && styles.activeToggleText]}>
                   Sign Up
                 </Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
 
             <View style={styles.form}>

@@ -62,13 +62,44 @@ export async function clearInsightsDiskBlobForUser(userId) {
   }
 }
 
-export function isInsightsDiskEnvelopeValid(envelope, userId, currentGeneration) {
+/**
+ * True when the envelope has enough structure to render Insights UI (ignores generation).
+ */
+export function isInsightsDiskEnvelopeDisplayable(envelope, userId) {
   return (
     !!envelope &&
     envelope.schemaVersion === INSIGHTS_DISK_SCHEMA_VERSION &&
     envelope.userId === userId &&
-    typeof envelope.savedInvalidationGeneration === 'number' &&
-    envelope.savedInvalidationGeneration === currentGeneration &&
-    Array.isArray(envelope.tagged)
+    Array.isArray(envelope.tagged) &&
+    Array.isArray(envelope.tabGroups) &&
+    Array.isArray(envelope.subjectiveGroups)
   );
+}
+
+/**
+ * True when the envelope matches the current invalidation generation (strict / fresh).
+ */
+export function isInsightsDiskEnvelopeFresh(envelope, userId, currentGeneration) {
+  return (
+    isInsightsDiskEnvelopeDisplayable(envelope, userId) &&
+    typeof envelope.savedInvalidationGeneration === 'number' &&
+    envelope.savedInvalidationGeneration === currentGeneration
+  );
+}
+
+/** @deprecated Use isInsightsDiskEnvelopeFresh — kept for call sites expecting the old name. */
+export function isInsightsDiskEnvelopeValid(envelope, userId, currentGeneration) {
+  return isInsightsDiskEnvelopeFresh(envelope, userId, currentGeneration);
+}
+
+/**
+ * @returns {{ displayable: boolean, fresh: boolean }}
+ */
+export function getEnvelopeFreshness(envelope, userId, currentGeneration) {
+  const displayable = isInsightsDiskEnvelopeDisplayable(envelope, userId);
+  const fresh =
+    displayable &&
+    typeof envelope.savedInvalidationGeneration === 'number' &&
+    envelope.savedInvalidationGeneration === currentGeneration;
+  return { displayable, fresh };
 }

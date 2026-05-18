@@ -6,17 +6,17 @@ import {
   Alert,
   ScrollView,
   TouchableOpacity,
+  InteractionManager,
+  Dimensions,
   LayoutAnimation,
   UIManager,
   Platform,
-  InteractionManager,
-  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import Animated, { useAnimatedRef } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, LinearTransition, useAnimatedRef } from 'react-native-reanimated';
 import Sortable from 'react-native-sortables';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -30,6 +30,8 @@ import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
+import PressableFeedback from '../components/PressableFeedback';
+import { buttonStyles } from '../constants/buttonStyles';
 import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
 import AppToggle from '../components/AppToggle';
@@ -825,7 +827,7 @@ const HabitManagementScreen = () => {
     const isExpanded = expandedHabitId === habitId;
 
     return (
-      <View style={styles.cardWrapper}>
+      <Animated.View layout={LinearTransition.duration(260)} style={styles.cardWrapper}>
         <View style={styles.habitCard}>
           <View style={styles.cardContent}>
             <View style={styles.dragHandleColumn} accessibilityLabel="Reorder habit">
@@ -862,8 +864,12 @@ const HabitManagementScreen = () => {
                 </Text>
               </TouchableOpacity>
 
-              {isExpanded && (
-              <View style={styles.expandedSectionContainer}>
+              {isExpanded ? (
+                <Animated.View
+                  entering={FadeIn.duration(200)}
+                  exiting={FadeOut.duration(160)}
+                  style={styles.expandedSectionContainer}
+                >
                 <View style={styles.expandedSection}>
                   {(habit.type === 'binary' || habit.type === 'quick_consumption') && (
                     <View style={styles.expandedSwitchRow}>
@@ -879,37 +885,62 @@ const HabitManagementScreen = () => {
                     </View>
                   )}
 
+                  {habit.is_active !== false && habit.id && (
+                    <TouchableOpacity
+                      style={styles.viewOverTimeButton}
+                      onPress={() =>
+                        navigation.navigate('Insights', {
+                          screen: 'HabitTimeline',
+                          params: {
+                            habitId: habit.id,
+                            metricKey: 'total_sleep_minutes',
+                            analysisMode: 'absolute',
+                          },
+                        })
+                      }
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="analytics-outline" size={18} color={colors.primary} />
+                      <Text style={styles.viewOverTimeButtonText} numberOfLines={1}>
+                        {habit.name}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+                    </TouchableOpacity>
+                  )}
+
                   {(isCustom || habit.type === 'quick_consumption') && (
                     <View style={styles.expandedActionBar}>
                       {(isCustom || habit.type === 'quick_consumption') && (
-                        <TouchableOpacity
+                        <PressableFeedback
                           style={styles.expandedActionBarButton}
+                          pressedStyle={buttonStyles.outlinePressed}
                           onPress={() => openEditHabit(habit)}
                         >
                           <Ionicons name="pencil" size={18} color={colors.primary} />
                           <Text style={styles.expandedActionBarButtonText}>Edit</Text>
-                        </TouchableOpacity>
+                        </PressableFeedback>
                       )}
                       {isCustom && (
-                        <TouchableOpacity
+                        <PressableFeedback
                           style={styles.expandedActionBarButton}
+                          pressedStyle={buttonStyles.outlinePressed}
                           onPress={() => openDeleteHabit(habit)}
                         >
                           <Ionicons name="trash-outline" size={18} color={colors.error} />
                           <Text style={[styles.expandedActionBarButtonText, styles.expandedActionBarButtonDanger]}>
                             Delete
                           </Text>
-                        </TouchableOpacity>
+                        </PressableFeedback>
                       )}
                     </View>
                   )}
                 </View>
-              </View>
-            )}
+                </Animated.View>
+              ) : null}
             </View>
           </View>
         </View>
-      </View>
+      </Animated.View>
     );
   }, [
     expandedHabitId,
@@ -1224,10 +1255,14 @@ const HabitManagementScreen = () => {
                 { bottom: 0, paddingBottom: Math.max(spacing.sm, tabBarHeight - spacing.lg) },
               ]}
             >
-              <TouchableOpacity style={styles.addCustomHabitButton} onPress={openAddHabit}>
+              <PressableFeedback
+                style={styles.addCustomHabitButton}
+                pressedStyle={buttonStyles.primaryPressed}
+                onPress={openAddHabit}
+              >
                 <Ionicons name="add-circle" size={24} color="#FFFFFF" />
                 <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
           </View>
             )}
@@ -1422,6 +1457,27 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textPrimary,
     marginRight: spacing.sm,
+  },
+  viewOverTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.small,
+    marginBottom: spacing.small,
+    paddingVertical: spacing.small,
+    paddingHorizontal: spacing.regular,
+    borderRadius: BUTTON_BORDER_RADIUS,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  viewOverTimeButtonText: {
+    flex: 1,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.primary,
+    textAlign: 'center',
   },
   expandedActionBar: {
     flexDirection: 'row',

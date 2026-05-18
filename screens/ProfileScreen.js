@@ -43,6 +43,8 @@ import { signOut } from '../services/auth';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import Button from '../components/Button';
+import PressableFeedback from '../components/PressableFeedback';
+import { buttonStyles } from '../constants/buttonStyles';
 import NavigationCard from '../components/NavigationCard';
 import AuthProviderBadges from '../components/AuthProviderBadges';
 import { getAccountIdentifier } from '../utils/authDisplay';
@@ -888,12 +890,12 @@ const ProfileScreen = () => {
                   style={styles.sleepDataModalButton}
                 />
 
-                <TouchableOpacity
+                <PressableFeedback
                   style={styles.sleepDataModalDone}
                   onPress={() => setSleepDataModalVisible(false)}
                 >
                   <Text style={styles.sleepDataModalDoneText}>Done</Text>
-                </TouchableOpacity>
+                </PressableFeedback>
               </ScrollView>
             </SafeAreaView>
           </Modal>
@@ -1188,14 +1190,16 @@ const ProfileScreen = () => {
                         </View>
                       </View>
                       <View style={styles.reminderTimeModalFooter}>
-                        <TouchableOpacity
+                        <PressableFeedback
                           style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                          pressedStyle={buttonStyles.outlinePressed}
                           onPress={() => setShowMorningCheckinTimePicker(false)}
                         >
                           <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
+                        </PressableFeedback>
+                        <PressableFeedback
                           style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                          pressedStyle={buttonStyles.primaryPressed}
                           onPress={async () => {
                             const timeStr = `${morningReminderPickerHour}:${String(morningReminderPickerMinute).padStart(2, '0')}`;
                             const previousTime = morningCheckinTime;
@@ -1216,7 +1220,7 @@ const ProfileScreen = () => {
                           }}
                         >
                           <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
-                        </TouchableOpacity>
+                        </PressableFeedback>
                       </View>
                     </View>
                   </TouchableWithoutFeedback>
@@ -1263,14 +1267,16 @@ const ProfileScreen = () => {
                         </View>
                       </View>
                       <View style={styles.reminderTimeModalFooter}>
-                        <TouchableOpacity
+                        <PressableFeedback
                           style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                          pressedStyle={buttonStyles.outlinePressed}
                           onPress={() => setShowHabitReminderTimePicker(false)}
                         >
                           <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
+                        </PressableFeedback>
+                        <PressableFeedback
                           style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                          pressedStyle={buttonStyles.primaryPressed}
                           onPress={() => {
                             const timeStr = `${reminderPickerHour}:${String(reminderPickerMinute).padStart(2, '0')}`;
                             setHabitReminderTime(timeStr);
@@ -1279,7 +1285,7 @@ const ProfileScreen = () => {
                           }}
                         >
                           <Text style={styles.reminderTimeDoneButtonText}>Done</Text>
-                        </TouchableOpacity>
+                        </PressableFeedback>
                       </View>
                     </View>
                   </TouchableWithoutFeedback>

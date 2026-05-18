@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   TextInput,
   ScrollView,
   Modal,
@@ -11,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import PressableFeedback from '../../components/PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import subjectiveMeasuresService from '../../services/subjectiveMeasuresService';
@@ -78,7 +78,7 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
   };
 
   const renderAddIcon = (selected, onPress) => (
-    <TouchableOpacity
+    <PressableFeedback
       onPress={onPress}
       style={[styles.addIconBtn, selected && styles.addIconBtnSelected]}
       accessibilityRole="button"
@@ -89,7 +89,7 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
         size={28}
         color={selected ? colors.success : colors.primary}
       />
-    </TouchableOpacity>
+    </PressableFeedback>
   );
 
   return (
@@ -150,7 +150,7 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
             )}
           </View>
         ))}
-        <TouchableOpacity
+        <PressableFeedback
           style={styles.addCustomMeasureButton}
           onPress={() => {
             setCustomName('');
@@ -159,11 +159,10 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
             setCustomRightLabel('High');
             setShowCustomModal(true);
           }}
-          activeOpacity={0.7}
         >
           <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
           <Text style={styles.addCustomMeasureText}>Add a custom measure</Text>
-        </TouchableOpacity>
+        </PressableFeedback>
 
       </ScrollView>
 
@@ -240,13 +239,13 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
                   />
                 </View>
                 <View style={styles.modalFooter}>
-                  <TouchableOpacity
+                  <PressableFeedback
                     style={[styles.modalButton, styles.cancelButton]}
                     onPress={() => setShowCustomModal(false)}
                   >
                     <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </PressableFeedback>
+                  <PressableFeedback
                     style={[styles.modalButton, styles.doneButton]}
                     onPress={() => {
                       const label = customName.trim();
@@ -265,7 +264,7 @@ export default function OnboardingSubjectiveMeasuresScreen({ navigation }) {
                     }}
                   >
                     <Text style={styles.doneButtonText}>Add</Text>
-                  </TouchableOpacity>
+                  </PressableFeedback>
                 </View>
               </View>
             </TouchableWithoutFeedback>
