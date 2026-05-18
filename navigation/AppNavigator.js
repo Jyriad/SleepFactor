@@ -18,6 +18,7 @@ import {
 } from '../services/onboardingEligibilityService';
 import AuthScreen from '../screens/AuthScreen';
 import TabNavigator from './TabNavigator';
+import { STACK_SLIDE_SCREEN_OPTIONS } from './transitionOptions';
 import OnboardingNavigator from './OnboardingNavigator';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import { TutorialProvider } from '../contexts/TutorialContext';
@@ -270,8 +271,7 @@ const AppNavigator = ({ navigationRef }) => {
                 <Stack.Navigator
                   screenOptions={{
                     headerShown: false,
-                    animation: 'slide_from_right',
-                    animationDuration: 220,
+                    ...STACK_SLIDE_SCREEN_OPTIONS,
                   }}
                   initialRouteName={initialRoute}
                 >

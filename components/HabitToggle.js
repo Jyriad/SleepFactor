@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { TouchableOpacity } from 'react-native-gesture-handler';
+import PressableFeedback from './PressableFeedback';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
@@ -11,13 +11,14 @@ const HabitToggle = ({ value, onChange, yesCount = 0, noCount = 0 }) => {
   
   return (
     <View style={styles.container}>
-      <TouchableOpacity
+      <PressableFeedback
         style={[
           styles.button,
           isNo && styles.activeButton,
         ]}
+        pressedStyle={!isNo ? styles.buttonPressed : undefined}
         onPress={() => onChange(isNo ? null : false)}
-        activeOpacity={0.7}
+        haptic="selection"
       >
         <Text style={[
           styles.buttonText,
@@ -31,14 +32,15 @@ const HabitToggle = ({ value, onChange, yesCount = 0, noCount = 0 }) => {
             isNo && styles.countTextActive,
           ]}>{noCount}</Text>
         </View>
-      </TouchableOpacity>
-      <TouchableOpacity
+      </PressableFeedback>
+      <PressableFeedback
         style={[
           styles.button,
           isYes && styles.activeButton,
         ]}
+        pressedStyle={!isYes ? styles.buttonPressed : undefined}
         onPress={() => onChange(isYes ? null : true)}
-        activeOpacity={0.7}
+        haptic="selection"
       >
         <Text style={[
           styles.buttonText,
@@ -52,7 +54,7 @@ const HabitToggle = ({ value, onChange, yesCount = 0, noCount = 0 }) => {
             isYes && styles.countTextActive,
           ]}>{yesCount}</Text>
         </View>
-      </TouchableOpacity>
+      </PressableFeedback>
     </View>
   );
 };
@@ -89,6 +91,10 @@ const styles = StyleSheet.create({
   },
   activeButton: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  buttonPressed: {
+    backgroundColor: colors.accent,
     borderColor: colors.primary,
   },
   buttonText: {

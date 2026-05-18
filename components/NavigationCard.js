@@ -1,16 +1,15 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { TouchableOpacity } from 'react-native-gesture-handler';
+import PressableFeedback from './PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 
 const NavigationCard = ({ icon, title, subtitle, stats, onPress, bottomContent }) => {
   return (
-    <TouchableOpacity
+    <PressableFeedback
       style={styles.card}
       onPress={onPress}
-      activeOpacity={0.7}
     >
       <Ionicons name={icon} size={24} color={colors.primary} />
       <View style={styles.textContainer}>
@@ -29,7 +28,7 @@ const NavigationCard = ({ icon, title, subtitle, stats, onPress, bottomContent }
         )}
       </View>
       <Ionicons name="chevron-forward" size={24} color={colors.textLight} />
-    </TouchableOpacity>
+    </PressableFeedback>
   );
 };
 

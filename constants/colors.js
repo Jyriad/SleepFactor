@@ -7,6 +7,8 @@ export const colors = {
   primaryDark: '#11294B',
   // Mid blue — Bay Of Many: secondary emphasis, alternate chart tone
   secondary: '#243D80',
+  // Medium orange — habit line on timeline charts (distinct from sleep metric blues)
+  habitTimeline: '#E8883A',
   // Lighter blue — Livid: highlights, primaryLight usage
   primaryLight: '#6698CF',
 

@@ -2,13 +2,14 @@ import React from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   Modal,
   Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from './PressableFeedback';
 import { colors } from '../constants/colors';
+import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
 const DeleteHabitModal = ({ visible, onClose, onConfirm, habit }) => {
@@ -33,9 +34,9 @@ const DeleteHabitModal = ({ visible, onClose, onConfirm, habit }) => {
           <View style={styles.modal}>
             <View style={styles.header}>
               <Text style={styles.title}>Delete Habit</Text>
-              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <PressableFeedback onPress={handleClose} style={styles.closeButton}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
 
             <View style={styles.content}>
@@ -51,18 +52,20 @@ const DeleteHabitModal = ({ visible, onClose, onConfirm, habit }) => {
             </View>
 
             <View style={styles.actions}>
-              <TouchableOpacity
+              <PressableFeedback
                 style={[styles.actionButton, styles.cancelButton]}
+                pressedStyle={buttonStyles.outlinePressed}
                 onPress={handleClose}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </PressableFeedback>
+              <PressableFeedback
                 style={[styles.actionButton, styles.deleteButton]}
+                pressedStyle={buttonStyles.destructivePressed}
                 onPress={handleConfirm}
               >
                 <Text style={styles.deleteButtonText}>Delete</Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
           </View>
         </Pressable>

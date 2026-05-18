@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Modal,
   ScrollView,
@@ -11,7 +10,9 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from './PressableFeedback';
 import { colors } from '../constants/colors';
+import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { ML_PER_FL_OZ, calculateAlcoholMl, deriveAbvFromAlcoholMl } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
@@ -269,9 +270,9 @@ const EditConsumptionOptionModal = ({
         <View style={styles.modal}>
               <View style={styles.header}>
                 <Text style={styles.title}>Edit Option</Text>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <PressableFeedback onPress={onClose} style={styles.closeButton}>
                   <Ionicons name="close" size={24} color={colors.textSecondary} />
-                </TouchableOpacity>
+                </PressableFeedback>
               </View>
 
               <ScrollView
@@ -326,15 +327,16 @@ const EditConsumptionOptionModal = ({
                       <Text style={styles.label}>Volume unit</Text>
                       <View style={styles.unitGrid}>
                         {['ml', 'ounces'].map((unit) => (
-                          <TouchableOpacity
+                          <PressableFeedback
                             key={unit}
                             style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}
+                            haptic="selection"
                             onPress={() => setServingUnit(unit)}
                           >
                             <Text style={[styles.unitText, servingUnit === unit && styles.selectedUnitText]}>
                               {unit}
                             </Text>
-                          </TouchableOpacity>
+                          </PressableFeedback>
                         ))}
                       </View>
                     </View>
@@ -389,15 +391,16 @@ const EditConsumptionOptionModal = ({
                       <Text style={styles.label}>Serving unit</Text>
                       <View style={styles.unitGrid}>
                         {SERVING_UNITS.map((unit) => (
-                          <TouchableOpacity
+                          <PressableFeedback
                             key={unit}
                             style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}
+                            haptic="selection"
                             onPress={() => setServingUnit(unit)}
                           >
                             <Text style={[styles.unitText, servingUnit === unit && styles.selectedUnitText]}>
                               {unit}
                             </Text>
-                          </TouchableOpacity>
+                          </PressableFeedback>
                         ))}
                       </View>
                     </View>
@@ -464,31 +467,34 @@ const EditConsumptionOptionModal = ({
               {/* Action Buttons */}
               <View style={styles.actions}>
                 {option.is_custom && (
-                  <TouchableOpacity
+                  <PressableFeedback
                     style={[styles.actionButton, styles.deleteButton]}
+                    pressedStyle={buttonStyles.destructivePressed}
                     onPress={handleDelete}
                     disabled={saving}
                   >
                     <Text style={styles.deleteButtonText}>Delete</Text>
-                  </TouchableOpacity>
+                  </PressableFeedback>
                 )}
                 <View style={styles.rightActions}>
-                  <TouchableOpacity
+                  <PressableFeedback
                     style={[styles.actionButton, styles.cancelButton]}
+                    pressedStyle={buttonStyles.outlinePressed}
                     onPress={onClose}
                     disabled={saving}
                   >
                     <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </PressableFeedback>
+                  <PressableFeedback
                     style={[styles.actionButton, styles.saveButton]}
+                    pressedStyle={buttonStyles.primaryPressed}
                     onPress={handleSave}
                     disabled={saving}
                   >
                     <Text style={styles.saveButtonText}>
                       {saving ? 'Saving...' : 'Save'}
                     </Text>
-                  </TouchableOpacity>
+                  </PressableFeedback>
                 </View>
               </View>
         </View>

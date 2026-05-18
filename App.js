@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Platform, Text, TextInput } from 'react-native';
-import { useFonts } from 'expo-font';
+import { AppState, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -15,7 +14,6 @@ import morningCheckinNotifications from './services/morningCheckinNotifications'
 import offlineWriteQueueService from './services/offlineWriteQueueService';
 import { colors } from './constants/colors';
 import { applyAndroidTransparentStatusBar } from './utils/androidStatusBar';
-import { FONT_FAMILY } from './constants/fonts';
 import * as Sentry from '@sentry/react-native';
 import { initMixpanel, trackAppOpened } from './services/mixpanel';
 
@@ -52,16 +50,6 @@ if (Platform.OS === 'android') {
 export default Sentry.wrap(function App() {
   const navigationRef = useRef();
   const [pendingDeepLink, setPendingDeepLink] = useState(null);
-  const [fontsLoaded] = useFonts({
-    [FONT_FAMILY]: require('./assets/fonts/OverusedGrotesk-VF.ttf'),
-  });
-
-  // VF default wght is 300 (Light) — set Regular (400) so text without an explicit weight isn’t Light.
-  if (fontsLoaded) {
-    const base = { fontFamily: FONT_FAMILY, fontWeight: '400' };
-    Text.defaultProps = { ...(Text.defaultProps || {}), style: base };
-    TextInput.defaultProps = { ...(TextInput.defaultProps || {}), style: base };
-  }
 
   useEffect(() => {
     // Password reset deep links only. Google OAuth return is handled in services/auth
@@ -149,10 +137,6 @@ export default Sentry.wrap(function App() {
     });
     return () => sub?.remove();
   }, []);
-
-  if (!fontsLoaded) {
-    return null;
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.primaryDark }}>

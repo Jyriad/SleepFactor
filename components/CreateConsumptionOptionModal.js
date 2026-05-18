@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Modal,
   ScrollView,
@@ -11,7 +10,9 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from './PressableFeedback';
 import { colors } from '../constants/colors';
+import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import {
   ML_PER_FL_OZ,
@@ -214,9 +215,9 @@ const CreateConsumptionOptionModal = ({
         <View style={styles.modal}>
               <View style={styles.header}>
                 <Text style={styles.title}>Create Custom Option</Text>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <PressableFeedback onPress={onClose} style={styles.closeButton}>
                   <Ionicons name="close" size={24} color={colors.textSecondary} />
-                </TouchableOpacity>
+                </PressableFeedback>
               </View>
 
               <ScrollView
@@ -277,15 +278,16 @@ const CreateConsumptionOptionModal = ({
                       <Text style={styles.label}>Volume unit</Text>
                       <View style={styles.unitGrid}>
                         {['ml', 'ounces'].map((unit) => (
-                          <TouchableOpacity
+                          <PressableFeedback
                             key={unit}
                             style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}
+                            haptic="selection"
                             onPress={() => setServingUnit(unit)}
                           >
                             <Text style={[styles.unitText, servingUnit === unit && styles.selectedUnitText]}>
                               {unit}
                             </Text>
-                          </TouchableOpacity>
+                          </PressableFeedback>
                         ))}
                       </View>
                     </View>
@@ -359,15 +361,16 @@ const CreateConsumptionOptionModal = ({
                       <Text style={styles.label}>Serving unit</Text>
                       <View style={styles.unitGrid}>
                         {SERVING_UNITS.map((unit) => (
-                          <TouchableOpacity
+                          <PressableFeedback
                             key={unit}
                             style={[styles.unitOption, servingUnit === unit && styles.selectedUnit]}
+                            haptic="selection"
                             onPress={() => setServingUnit(unit)}
                           >
                             <Text style={[styles.unitText, servingUnit === unit && styles.selectedUnitText]}>
                               {unit}
                             </Text>
-                          </TouchableOpacity>
+                          </PressableFeedback>
                         ))}
                       </View>
                     </View>
@@ -408,22 +411,24 @@ const CreateConsumptionOptionModal = ({
 
               {/* Action Buttons */}
               <View style={styles.actions}>
-                <TouchableOpacity
+                <PressableFeedback
                   style={[styles.actionButton, styles.cancelButton]}
+                  pressedStyle={buttonStyles.outlinePressed}
                   onPress={onClose}
                   disabled={saving}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </PressableFeedback>
+                <PressableFeedback
                   style={[styles.actionButton, styles.saveButton]}
+                  pressedStyle={buttonStyles.primaryPressed}
                   onPress={handleSave}
                   disabled={saving}
                 >
                   <Text style={styles.saveButtonText}>
                     {saving ? 'Creating...' : 'Create'}
                   </Text>
-                </TouchableOpacity>
+                </PressableFeedback>
               </View>
         </View>
       </View>

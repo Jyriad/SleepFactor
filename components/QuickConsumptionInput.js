@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   Modal,
   TouchableWithoutFeedback,
   Alert,
 } from 'react-native';
+import PressableFeedback from './PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
@@ -347,7 +347,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
               const isNoneOption = option.drug_amount === 0;
               const isNoneSelected = isNoneOption && hasNoneEvent;
               return (
-              <TouchableOpacity
+              <PressableFeedback
                 key={option.id}
                 style={[
                   styles.quickButton,
@@ -366,15 +366,15 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                   >
                     {option.name}
                   </Text>
-                </TouchableOpacity>
+                </PressableFeedback>
               );
             })}
-            <TouchableOpacity
+            <PressableFeedback
               style={styles.moreButton}
               onPress={() => setShowPlusMenu(true)}
             >
               <Text style={styles.moreButtonText}>+</Text>
-            </TouchableOpacity>
+            </PressableFeedback>
           </>
         ) : (
           <Text style={styles.loadingText}>No options available</Text>
@@ -404,7 +404,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
               <View style={styles.plusMenu}>
-                <TouchableOpacity
+                <PressableFeedback
                   style={styles.menuOption}
                   onPress={() => {
                     setShowPlusMenu(false);
@@ -413,9 +413,9 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 >
                   <Ionicons name="add-circle" size={20} color={colors.primary} />
                   <Text style={styles.menuOptionText}>Create new option</Text>
-                </TouchableOpacity>
+                </PressableFeedback>
 
-                <TouchableOpacity
+                <PressableFeedback
                   style={styles.menuOption}
                   onPress={() => {
                     setShowPlusMenu(false);
@@ -424,7 +424,7 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
                 >
                   <Ionicons name="time" size={20} color={colors.primary} />
                   <Text style={styles.menuOptionText}>Quick add one-time</Text>
-                </TouchableOpacity>
+                </PressableFeedback>
               </View>
             </TouchableWithoutFeedback>
           </View>

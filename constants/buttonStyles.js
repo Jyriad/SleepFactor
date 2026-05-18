@@ -4,7 +4,7 @@
  */
 import { StyleSheet } from 'react-native';
 import { colors } from './colors';
-import { appFont, typography } from './typography';
+import { typography } from './typography';
 import { spacing } from './spacing';
 
 /** One radius for `Button`, custom Touchables that behave like CTAs, and matching inputs/segment wrappers. */
@@ -12,11 +12,6 @@ export const BUTTON_BORDER_RADIUS = 12;
 
 /** Inner pill radius for segmented controls with ~2px gutter (matches prior 10/8 pairing). */
 export const BUTTON_SEGMENT_INNER_RADIUS = BUTTON_BORDER_RADIUS - 4;
-
-/** Keep button labels on the same baseline type style as app copy. */
-const labelBase = {
-  ...appFont,
-};
 
 export const buttonStyles = StyleSheet.create({
   container: {
@@ -39,20 +34,33 @@ export const buttonStyles = StyleSheet.create({
   primary: {
     backgroundColor: colors.primary,
   },
+  primaryPressed: {
+    backgroundColor: colors.secondary,
+  },
   secondary: {
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: colors.primary,
+  },
+  secondaryPressed: {
+    backgroundColor: `${colors.primary}18`,
   },
   destructive: {
     backgroundColor: colors.error,
     borderWidth: 1,
     borderColor: colors.error,
   },
+  destructivePressed: {
+    backgroundColor: '#DC2626',
+    borderColor: '#DC2626',
+  },
   outline: {
     backgroundColor: colors.background,
     borderWidth: 2,
     borderColor: colors.primary,
+  },
+  outlinePressed: {
+    backgroundColor: colors.accent,
   },
   outlineRadiusDefault: {
     borderRadius: BUTTON_BORDER_RADIUS,
@@ -64,11 +72,8 @@ export const buttonStyles = StyleSheet.create({
     opacity: 0.5,
   },
   label: {
-    ...labelBase,
-    fontSize: typography.sizes.body,
-  },
-  labelCompactOutline: {
-    fontSize: typography.sizes.small,
+    ...typography.body,
+    fontWeight: typography.weights.bold,
   },
   labelPrimary: {
     color: '#FFFFFF',
@@ -86,3 +91,19 @@ export const buttonStyles = StyleSheet.create({
     opacity: 0.6,
   },
 });
+
+/** Pressed background for each Button variant. */
+export function getButtonPressedStyle(variant) {
+  switch (variant) {
+    case 'primary':
+      return buttonStyles.primaryPressed;
+    case 'secondary':
+      return buttonStyles.secondaryPressed;
+    case 'destructive':
+      return buttonStyles.destructivePressed;
+    case 'outline':
+      return buttonStyles.outlinePressed;
+    default:
+      return buttonStyles.primaryPressed;
+  }
+}

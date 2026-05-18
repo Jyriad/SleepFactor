@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute } from '@react-navigation/native';
-import * as Haptics from 'expo-haptics';
+import PressableFeedback from '../../components/PressableFeedback';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
@@ -43,13 +43,11 @@ export default function OnboardingStepLayout({
 
   const handleNext = () => {
     trackEvent('Onboarding Step Continued', analyticsProperties);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onNext?.();
   };
 
   const handleBack = () => {
     trackEvent('Onboarding Step Back', analyticsProperties);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onBack?.();
   };
 
@@ -67,9 +65,9 @@ export default function OnboardingStepLayout({
         <View style={styles.headerRight}>
           <OnboardingSignOutLink />
           {showSkip && onSkip ? (
-            <TouchableOpacity onPress={handleSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <PressableFeedback onPress={handleSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
               <Text style={styles.skipText}>Skip</Text>
-            </TouchableOpacity>
+            </PressableFeedback>
           ) : null}
         </View>
       </View>
@@ -82,9 +80,9 @@ export default function OnboardingStepLayout({
       <View style={[styles.content, { paddingBottom: contentPaddingBottom }]}>{children}</View>
       <View style={styles.footer}>
         {onBack ? (
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+          <PressableFeedback style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
+          </PressableFeedback>
         ) : null}
         <Button
           title={nextLabel}

@@ -11,11 +11,17 @@ import {
   bumpInsightsInvalidationGeneration,
   clearInsightsDiskBlobForUser,
   getInsightsInvalidationGeneration,
-  isInsightsDiskEnvelopeValid,
+  getEnvelopeFreshness,
+  isInsightsDiskEnvelopeDisplayable,
   loadInsightsDiskBlob,
   saveInsightsDiskBlob,
 } from './insightsPersistentCache';
 import { addCalendarDay } from '../utils/dateHelpers';
+import {
+  buildPairedDayPoints,
+  getHabitValueFromLog,
+  getTimeHabitMinutesBeforeBed as getTimeHabitMinutesBeforeBedUtil,
+} from '../utils/habitSleepPairing';
 import {
   calculateMedian,
   calculateQuartiles,
@@ -59,6 +65,12 @@ class InsightsService {
     this._isWarmComputing = false;
     this._warmComputeQueued = false;
     this._insightsBundleInFlightByUser = new Map();
+    /** True after data invalidation until a full screen bundle recompute completes. */
+    this._insightsDisplayStale = false;
+    /** Last tab bundle for instant Insights render after invalidation (same session). */
+    this._lastTabBundle = null;
+    /** @type {Map<string, Array<(bundle: object) => void>>} */
+    this._recomputeListenersByUser = new Map();
   }
 
   async ensureBedtimeConsistencyBackfilled(userId, lookbackDays = 120) {
@@ -81,8 +93,8 @@ class InsightsService {
    */
   _bumpInsightsDataRevision() {
     this._homeSummaryCache = null;
-    this._taggedInsightsCache = null;
     this._detailedInsightsCache.clear();
+    this._insightsDisplayStale = true;
     bumpInsightsInvalidationGeneration().catch(() => {});
   }
 
@@ -677,22 +689,7 @@ class InsightsService {
    * Excludes events at or after sleep start. Returns null if time invalid or sleep_start missing.
    */
   getTimeHabitMinutesBeforeBed(log, sleep) {
-    const timeString = String(log.value || '').trim();
-    if (!timeString || !timeString.includes(':')) return null;
-    const parts = timeString.split(':');
-    const hours = Number(parts[0]);
-    const minutes = Number(parts[1]);
-    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-      return null;
-    }
-    const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-    const eventMs = new Date(`${log.date}T${pad(hours)}:${pad(minutes)}:00`).getTime();
-    if (isNaN(eventMs)) return null;
-    if (!sleep?.sleep_start_time) return null;
-    const sleepStartMs = new Date(sleep.sleep_start_time).getTime();
-    if (isNaN(sleepStartMs)) return null;
-    if (eventMs >= sleepStartMs) return null;
-    return (sleepStartMs - eventMs) / 60000;
+    return getTimeHabitMinutesBeforeBedUtil(log, sleep);
   }
 
   calculateHabitInsight(habit, habitData, sleepData, sleepMetric, useEfficiency) {
@@ -704,100 +701,17 @@ class InsightsService {
       return null; // Insufficient data
     }
 
-    // Create sleep data lookup by date
     const sleepByDate = {};
-    sleepData.forEach(sleep => {
+    sleepData.forEach((sleep) => {
       sleepByDate[sleep.date] = sleep;
     });
 
-    // Combine habit data with sleep data
-    // IMPORTANT: Date matching depends on data type
-    // - Habit logs: sleep data date should be the next day (sleep from day X is stored as day X+1)
-    // - Drug levels: date corresponds directly to sleep data date
-    // Example: Steps on Jan 1 should match with sleep from Jan 1-2 (stored as Jan 2)
-    const dataPoints = [];
-    const unmatchedLogs = [];
-    const matchedDates = [];
-
-    habitData.forEach(log => {
-      // Date logic depends on habit type
-      let sleepDataDate;
-      if (habit.type === 'quick_consumption') {
-        // For drug levels, the date corresponds directly to sleep data date
-        sleepDataDate = log.date;
-      } else if (habit.name === 'Bedtime Consistency') {
-        // For bedtime habits, the date corresponds directly to sleep data date (same night)
-        sleepDataDate = log.date;
-      } else if (habit.type === 'time') {
-        // Time habits (e.g. last meal): log on day D = evening of D; sleep that night is stored as wake date D+1
-        sleepDataDate = addCalendarDay(log.date);
-      } else {
-        // For other habit logs, sleep data date should be the next day (sleep from day X is stored as day X+1)
-        sleepDataDate = addCalendarDay(log.date);
-      }
-
-      const sleep = sleepByDate[sleepDataDate];
-      if (sleep && sleep[sleepMetric] !== null && sleep[sleepMetric] !== undefined) {
-        let habitValue;
-        if (isTimeHabit) {
-          habitValue = this.getTimeHabitMinutesBeforeBed(log, sleep);
-          if (habitValue === null || habitValue <= 0) {
-            unmatchedLogs.push({
-              habitDate: log.date,
-              expectedSleepDate: sleepDataDate,
-              hasSleepData: !!sleep,
-              reason: 'Time at/after sleep start or invalid time / missing sleep start'
-            });
-            return;
-          }
-        } else {
-          habitValue = this.getHabitValue(log, habit);
-        }
-
-        // Apply efficiency transformation if enabled
-        let sleepValue = sleep[sleepMetric];
-        if (useEfficiency) {
-          sleepValue = this.transformSleepDataForEfficiency(sleep, sleepMetric);
-        }
-
-        // Only add if both values are valid numbers (not NaN, null, or undefined)
-        if (habitValue !== null && habitValue !== undefined && !isNaN(habitValue) &&
-            sleepValue !== null && sleepValue !== undefined && !isNaN(sleepValue)) {
-          const excluded =
-            !!log.exclude_from_insights || !!sleep.exclude_from_insights;
-          const autoExcluded =
-            !!log.auto_excluded || !!sleep.auto_excluded;
-          dataPoints.push({
-            habitValue: habitValue,
-            sleepValue: sleepValue,
-            date: log.date,
-            sleepDate: sleep.date, // Store the actual sleep date for reference
-            habitLog: log,
-            sleepData: sleep,
-            exclude_from_insights: excluded,
-            auto_excluded: autoExcluded,
-            exclusion_reason: log.exclusion_reason || sleep.exclusion_reason
-          });
-          matchedDates.push(`${log.date} → ${sleep.date}`);
-        } else {
-          unmatchedLogs.push({
-            habitDate: log.date,
-            expectedSleepDate: sleepDataDate,
-            hasSleepData: !!sleep,
-            sleepMetricValue: sleep?.[sleepMetric],
-            habitValue: habitValue,
-            reason: 'Invalid numeric values'
-          });
-        }
-      } else {
-        unmatchedLogs.push({
-          habitDate: log.date,
-          expectedSleepDate: sleepDataDate,
-          hasSleepData: !!sleep,
-          sleepMetricValue: sleep?.[sleepMetric]
-        });
-      }
+    const dataPoints = buildPairedDayPoints(habit, habitData, sleepByDate, sleepMetric, {
+      useEfficiency,
+      transformSleep: (sleep, metric) => this.transformSleepDataForEfficiency(sleep, metric),
+      includeExcluded: true,
     });
+
     if (isTimeHabit && dataPoints.length < this.MIN_DATA_POINTS) {
       return null;
     }
@@ -872,45 +786,7 @@ class InsightsService {
    * @returns {number} Numeric value
    */
   getHabitValue(log, habit) {
-    if (habit.type === 'binary') {
-      // Convert binary to numeric: 1 for yes/true, 0 for no/false
-      return log.value && (log.value.toLowerCase() === 'yes' || log.value === '1' || log.value === true) ? 1 : 0;
-    } else if (habit.type === 'numeric') {
-      // Use numeric_value if available, otherwise parse value with sanitization
-      let value;
-      if (log.numeric_value !== null && log.numeric_value !== undefined) {
-        value = log.numeric_value;
-      } else {
-        // Sanitize the string value before parsing
-        const stringValue = String(log.value || '').trim();
-        // Skip invalid strings that start with letters or contain invalid characters
-        if (!stringValue || stringValue.startsWith('N') || stringValue.startsWith('n') ||
-            stringValue === 'null' || stringValue === 'undefined' ||
-            stringValue.includes(' ') || isNaN(Number(stringValue))) {
-          return 0; // Skip this log entry
-        }
-        value = parseFloat(stringValue);
-      }
-
-      // Ensure value is a valid number
-      if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
-        return 0;
-      }
-      return value;
-    } else if (habit.type === 'quick_consumption') {
-      // For quick_consumption habits, use the drug level value
-      // This comes from the drug_levels table (level_value field)
-      let value = log.level_value;
-      // Ensure value is a valid number
-      if (value === null || value === undefined || isNaN(value)) {
-        return 0;
-      }
-      return value;
-    } else if (habit.type === 'time') {
-      // Time habits use minutes-before-bed vs sleep_start in calculateHabitInsight only
-      return null;
-    }
-    return 0;
+    return getHabitValueFromLog(log, habit);
   }
 
   /**
@@ -1307,6 +1183,13 @@ class InsightsService {
       clearTimeout(this._warmComputeTimer);
       this._warmComputeTimer = null;
     }
+    this._insightsDisplayStale = false;
+    if (this._lastTabBundle?.userId === userId) {
+      this._lastTabBundle = null;
+    }
+    this._taggedInsightsCache = null;
+    this._recomputeListenersByUser.delete(userId);
+    this._insightsBundleInFlightByUser.delete(userId);
     await clearInsightsDiskBlobForUser(userId);
   }
 
@@ -1349,7 +1232,7 @@ class InsightsService {
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id;
       if (!userId) return;
-      await this.getInsightsScreenBundle(userId);
+      await this._getOrRunRecompute(userId);
     } catch (_e) {
       // Non-fatal; next screen open recomputes
     } finally {
@@ -1359,6 +1242,204 @@ class InsightsService {
         void this._runInsightsWarmCompute();
       }
     }
+  }
+
+  /**
+   * Resolve tagged insights for display (memory, session tab cache, or stale disk).
+   * @returns {Promise<{ tagged: Array|null, isStale: boolean }>}
+   */
+  async _resolveTaggedForDisplay(userId) {
+    if (!userId) return { tagged: null, isStale: false };
+
+    if (
+      this._taggedInsightsCache?.userId === userId &&
+      Array.isArray(this._taggedInsightsCache.tagged)
+    ) {
+      return {
+        tagged: this._taggedInsightsCache.tagged,
+        isStale: this._insightsDisplayStale,
+      };
+    }
+
+    const diskEnv = await loadInsightsDiskBlob(userId);
+    if (diskEnv && Array.isArray(diskEnv.tagged) && diskEnv.userId === userId) {
+      const gen = await getInsightsInvalidationGeneration();
+      const { fresh } = getEnvelopeFreshness(diskEnv, userId, gen);
+      this._taggedInsightsCache = {
+        userId,
+        tagged: diskEnv.tagged,
+        timestamp: Date.now(),
+      };
+      return {
+        tagged: diskEnv.tagged,
+        isStale: this._insightsDisplayStale || !fresh,
+      };
+    }
+
+    return { tagged: null, isStale: false };
+  }
+
+  /**
+   * Fast read of last displayable Insights bundle (may be stale).
+   */
+  async _readInsightsDisplaySnapshot(userId) {
+    const empty = {
+      habitGroups: { groups: [] },
+      subjectiveData: { groups: [] },
+      tagged: [],
+      hasDisplayableData: false,
+      isStale: false,
+    };
+    if (!userId) return empty;
+
+    const gen = await getInsightsInvalidationGeneration();
+
+    if (
+      this._lastTabBundle?.userId === userId &&
+      Array.isArray(this._lastTabBundle.tabGroups) &&
+      Array.isArray(this._lastTabBundle.subjectiveGroups)
+    ) {
+      const isStale =
+        this._insightsDisplayStale ||
+        this._lastTabBundle.savedInvalidationGeneration !== gen;
+      return {
+        habitGroups: { groups: this._lastTabBundle.tabGroups },
+        subjectiveData: { groups: this._lastTabBundle.subjectiveGroups },
+        tagged:
+          this._taggedInsightsCache?.userId === userId
+            ? this._taggedInsightsCache.tagged
+            : [],
+        hasDisplayableData: true,
+        isStale,
+      };
+    }
+
+    const diskEnv = await loadInsightsDiskBlob(userId);
+    if (isInsightsDiskEnvelopeDisplayable(diskEnv, userId)) {
+      const { fresh } = getEnvelopeFreshness(diskEnv, userId, gen);
+      const isStale = this._insightsDisplayStale || !fresh;
+      this._lastTabBundle = {
+        userId,
+        tabGroups: diskEnv.tabGroups,
+        subjectiveGroups: diskEnv.subjectiveGroups,
+        savedInvalidationGeneration: diskEnv.savedInvalidationGeneration,
+      };
+      if (Array.isArray(diskEnv.tagged)) {
+        this._taggedInsightsCache = {
+          userId,
+          tagged: diskEnv.tagged,
+          timestamp: Date.now(),
+        };
+      }
+      return {
+        habitGroups: { groups: diskEnv.tabGroups },
+        subjectiveData: { groups: diskEnv.subjectiveGroups },
+        tagged: diskEnv.tagged,
+        hasDisplayableData: true,
+        isStale,
+      };
+    }
+
+    return empty;
+  }
+
+  _notifyRecomputeListeners(userId, bundle) {
+    const listeners = this._recomputeListenersByUser.get(userId);
+    if (!listeners?.length) return;
+    this._recomputeListenersByUser.delete(userId);
+    for (const fn of listeners) {
+      try {
+        fn(bundle);
+      } catch (_e) {
+        /* non-fatal */
+      }
+    }
+  }
+
+  /**
+   * Deduped full recompute; used for cold path, warm compute, and stale refresh.
+   */
+  _scheduleInsightsRecompute(userId, onComplete) {
+    if (onComplete) {
+      const list = this._recomputeListenersByUser.get(userId) || [];
+      list.push(onComplete);
+      this._recomputeListenersByUser.set(userId, list);
+    }
+    if (this._insightsBundleInFlightByUser.has(userId)) {
+      return;
+    }
+    const promise = this._recomputeInsightsScreenBundle(userId)
+      .then((bundle) => {
+        this._notifyRecomputeListeners(userId, bundle);
+        return bundle;
+      })
+      .finally(() => {
+        if (this._insightsBundleInFlightByUser.get(userId) === promise) {
+          this._insightsBundleInFlightByUser.delete(userId);
+        }
+      });
+    this._insightsBundleInFlightByUser.set(userId, promise);
+  }
+
+  async _getOrRunRecompute(userId) {
+    if (this._insightsBundleInFlightByUser.has(userId)) {
+      const bundle = await this._insightsBundleInFlightByUser.get(userId);
+      return {
+        habitGroups: bundle.habitGroups,
+        subjectiveData: bundle.subjectiveData,
+        isStale: false,
+      };
+    }
+    const promise = this._recomputeInsightsScreenBundle(userId);
+    this._insightsBundleInFlightByUser.set(userId, promise);
+    try {
+      const bundle = await promise;
+      return {
+        habitGroups: bundle.habitGroups,
+        subjectiveData: bundle.subjectiveData,
+        isStale: false,
+      };
+    } finally {
+      if (this._insightsBundleInFlightByUser.get(userId) === promise) {
+        this._insightsBundleInFlightByUser.delete(userId);
+      }
+    }
+  }
+
+  async _recomputeInsightsScreenBundle(userId) {
+    const { habits, habitLogs, drugLevels, sleepData, tagged } =
+      await this._fetchInsightsSourcesAndTagged(userId);
+
+    const filteredGroups = this._assembleInsightsTabGroupRows(
+      habits,
+      habitLogs,
+      drugLevels,
+      sleepData,
+      tagged
+    );
+
+    const subjectiveData = await this.getSubjectiveSleepMetricLinks(userId);
+
+    await this._mergePersistInsightsEnvelope(userId, {
+      tagged,
+      tabGroups: filteredGroups,
+      subjectiveGroups: subjectiveData.groups,
+    });
+
+    const gen = await getInsightsInvalidationGeneration();
+    this._insightsDisplayStale = false;
+    this._taggedInsightsCache = { userId, tagged, timestamp: Date.now() };
+    this._lastTabBundle = {
+      userId,
+      tabGroups: filteredGroups,
+      subjectiveGroups: subjectiveData.groups,
+      savedInvalidationGeneration: gen,
+    };
+
+    return {
+      habitGroups: { groups: filteredGroups },
+      subjectiveData,
+    };
   }
 
   async _mergePersistInsightsEnvelope(userId, partial) {
@@ -1741,39 +1822,40 @@ class InsightsService {
    * @returns {Promise<{ topInsights: Array, homeMetricRows: Array<{ metricKey, metricLabel, headline, habitId, habitName, preferredAnalysisMode }> }>}
    */
   async getHomeInsightsWithSummary(userId, limit = 10, opts = {}) {
-    const now = Date.now();
-    const cached = this._taggedInsightsCache &&
-      this._taggedInsightsCache.userId === userId &&
-      (now - this._taggedInsightsCache.timestamp) < this._TAGGED_INSIGHTS_CACHE_TTL_MS
-      ? this._taggedInsightsCache.tagged
-      : null;
+    const { tagged, isStale } = await this._resolveTaggedForDisplay(userId);
 
-    if (cached) {
+    if (tagged && tagged.length > 0) {
       const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
-      const result = this._buildHomeSummaryFromTagged(cached, limit, metricsOrder);
+      const result = this._buildHomeSummaryFromTagged(tagged, limit, metricsOrder);
       const onStaleRefresh = opts && opts.onStaleRefresh;
-      if (onStaleRefresh) {
-        this._getAllTaggedInsightsForHome(userId).then((tagged) => {
-          return this.getAvailableSleepMetricsForUser(userId).then((freshMetricsOrder) => {
-            onStaleRefresh(this._buildHomeSummaryFromTagged(tagged, limit, freshMetricsOrder));
-          });
-        }).catch(() => {});
+      if (isStale) {
+        this._scheduleInsightsRecompute(
+          userId,
+          onStaleRefresh
+            ? () => {
+                const freshTagged = this._taggedInsightsCache?.tagged;
+                if (!freshTagged) return;
+                this.getAvailableSleepMetricsForUser(userId)
+                  .then((freshMetricsOrder) => {
+                    onStaleRefresh(
+                      this._buildHomeSummaryFromTagged(freshTagged, limit, freshMetricsOrder)
+                    );
+                  })
+                  .catch(() => {});
+              }
+            : undefined
+        );
       }
-      return result;
+      return { ...result, isStale: !!isStale };
     }
 
-    const gen = await getInsightsInvalidationGeneration();
-    const diskEnv = await loadInsightsDiskBlob(userId);
-    if (diskEnv && isInsightsDiskEnvelopeValid(diskEnv, userId, gen)) {
-      const taggedDisk = diskEnv.tagged;
-      this._taggedInsightsCache = { userId, tagged: taggedDisk, timestamp: Date.now() };
-      const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
-      return this._buildHomeSummaryFromTagged(taggedDisk, limit, metricsOrder);
-    }
-
-    const tagged = await this._getAllTaggedInsightsForHome(userId);
+    await this._getOrRunRecompute(userId);
     const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
-    return this._buildHomeSummaryFromTagged(tagged, limit, metricsOrder);
+    const freshTagged = this._taggedInsightsCache?.tagged || [];
+    return {
+      ...this._buildHomeSummaryFromTagged(freshTagged, limit, metricsOrder),
+      isStale: false,
+    };
   }
 
   /**
@@ -1784,34 +1866,30 @@ class InsightsService {
    * @returns {Promise<Object>} { groups: Array<{ habitId, habitName, habit, insights: Array<tagged insight> }> }
    */
   async getInsightsGroupedByHabit(userId, opts = {}) {
-    const now = Date.now();
-    const cached = this._taggedInsightsCache &&
-      this._taggedInsightsCache.userId === userId &&
-      (now - this._taggedInsightsCache.timestamp) < this._TAGGED_INSIGHTS_CACHE_TTL_MS
-      ? this._taggedInsightsCache.tagged
-      : null;
+    const { tagged, isStale } = await this._resolveTaggedForDisplay(userId);
 
-    if (cached) {
-      const result = this._buildGroupedFromTagged(cached);
+    if (tagged && tagged.length > 0) {
+      const result = this._buildGroupedFromTagged(tagged);
       const onStaleRefresh = opts && opts.onStaleRefresh;
-      if (onStaleRefresh) {
-        this._getAllTaggedInsightsForHome(userId).then((tagged) => {
-          onStaleRefresh(this._buildGroupedFromTagged(tagged));
-        }).catch(() => {});
+      if (isStale) {
+        this._scheduleInsightsRecompute(
+          userId,
+          onStaleRefresh
+            ? () => {
+                const freshTagged = this._taggedInsightsCache?.tagged;
+                if (freshTagged) {
+                  onStaleRefresh(this._buildGroupedFromTagged(freshTagged));
+                }
+              }
+            : undefined
+        );
       }
       return result;
     }
 
-    const gen = await getInsightsInvalidationGeneration();
-    const diskEnv = await loadInsightsDiskBlob(userId);
-    if (diskEnv && isInsightsDiskEnvelopeValid(diskEnv, userId, gen)) {
-      const taggedDisk = diskEnv.tagged;
-      this._taggedInsightsCache = { userId, tagged: taggedDisk, timestamp: Date.now() };
-      return this._buildGroupedFromTagged(taggedDisk);
-    }
-
-    const tagged = await this._getAllTaggedInsightsForHome(userId);
-    return this._buildGroupedFromTagged(tagged);
+    await this._getOrRunRecompute(userId);
+    const freshTagged = this._taggedInsightsCache?.tagged || [];
+    return this._buildGroupedFromTagged(freshTagged);
   }
 
   /**
@@ -2024,69 +2102,66 @@ class InsightsService {
   /**
    * Single load for the Insights tab: habit sections plus subjective correlations. Hydrates disk when valid.
    */
-  async getInsightsScreenBundle(userId) {
-    const inFlight = this._insightsBundleInFlightByUser.get(userId);
-    if (inFlight) {
-      return inFlight;
+  /**
+   * Full tagged insight for one habit × metric × analysis mode (includes non-significant).
+   */
+  async getTaggedInsightForHabitMetric(userId, habitId, metricKey, analysisMode = 'absolute') {
+    const { tagged, isStale } = await this._resolveTaggedForDisplay(userId);
+    let arr = tagged;
+    if (!arr || arr.length === 0) {
+      const fetched = await this._fetchInsightsSourcesAndTagged(userId);
+      arr = fetched.tagged;
+    } else if (isStale) {
+      this._scheduleInsightsRecompute(userId);
     }
-    const bundlePromise = this._getInsightsScreenBundleInternal(userId);
-    this._insightsBundleInFlightByUser.set(userId, bundlePromise);
-    try {
-      return await bundlePromise;
-    } finally {
-      const current = this._insightsBundleInFlightByUser.get(userId);
-      if (current === bundlePromise) {
-        this._insightsBundleInFlightByUser.delete(userId);
-      }
-    }
+    const analysisType = analysisMode === 'percentage' ? 'percentage' : 'absolute';
+    return (
+      (arr || []).find(
+        (t) =>
+          t.habit?.id === habitId &&
+          t.metricKey === metricKey &&
+          t.analysisType === analysisType
+      ) || null
+    );
   }
 
-  async _getInsightsScreenBundleInternal(userId) {
-    const gen = await getInsightsInvalidationGeneration();
-    const diskEnv = await loadInsightsDiskBlob(userId);
+  /**
+   * Insights tab bundle with stale-while-revalidate.
+   * @param {string} userId
+   * @param {{ onStaleRefresh?: (bundle: { habitGroups, subjectiveData }) => void, forceRefresh?: boolean }} [opts]
+   * @returns {Promise<{ habitGroups, subjectiveData, isStale: boolean }>}
+   */
+  async getInsightsScreenBundle(userId, opts = {}) {
+    const { onStaleRefresh, forceRefresh = false } = opts;
 
-    if (
-      diskEnv &&
-      isInsightsDiskEnvelopeValid(diskEnv, userId, gen) &&
-      Array.isArray(diskEnv.tabGroups) &&
-      Array.isArray(diskEnv.subjectiveGroups)
-    ) {
-      this._taggedInsightsCache = {
-        userId,
-        tagged: diskEnv.tagged,
-        timestamp: Date.now(),
-      };
-      return {
-        habitGroups: { groups: diskEnv.tabGroups },
-        subjectiveData: { groups: diskEnv.subjectiveGroups },
-      };
+    if (forceRefresh) {
+      return this._getOrRunRecompute(userId);
     }
 
-    const { habits, habitLogs, drugLevels, sleepData, tagged } =
-      await this._fetchInsightsSourcesAndTagged(userId);
+    const snapshot = await this._readInsightsDisplaySnapshot(userId);
+    if (snapshot.hasDisplayableData) {
+      const bundle = {
+        habitGroups: snapshot.habitGroups,
+        subjectiveData: snapshot.subjectiveData,
+        isStale: snapshot.isStale,
+      };
+      if (snapshot.isStale) {
+        this._scheduleInsightsRecompute(
+          userId,
+          onStaleRefresh
+            ? (fresh) => {
+                onStaleRefresh({
+                  habitGroups: fresh.habitGroups,
+                  subjectiveData: fresh.subjectiveData,
+                });
+              }
+            : undefined
+        );
+      }
+      return bundle;
+    }
 
-    const filteredGroups = this._assembleInsightsTabGroupRows(
-      habits,
-      habitLogs,
-      drugLevels,
-      sleepData,
-      tagged
-    );
-
-    this._taggedInsightsCache = { userId, tagged, timestamp: Date.now() };
-
-    const subjectiveData = await this.getSubjectiveSleepMetricLinks(userId);
-
-    await this._mergePersistInsightsEnvelope(userId, {
-      tagged,
-      tabGroups: filteredGroups,
-      subjectiveGroups: subjectiveData.groups,
-    });
-
-    return {
-      habitGroups: { groups: filteredGroups },
-      subjectiveData,
-    };
+    return this._getOrRunRecompute(userId);
   }
 
   /**

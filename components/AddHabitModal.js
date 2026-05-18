@@ -3,14 +3,15 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   ScrollView,
   StyleSheet,
   Modal,
   Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from './PressableFeedback';
 import { colors } from '../constants/colors';
+import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 
 const AddHabitModal = ({ visible, onClose, onSave }) => {
@@ -64,9 +65,9 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
           <View style={styles.modal}>
             <View style={styles.header}>
               <Text style={styles.title}>Add Custom Habit</Text>
-              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <PressableFeedback onPress={handleClose} style={styles.closeButton}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
 
             <ScrollView
@@ -97,12 +98,14 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                     { key: 'numeric', label: 'Numeric' },
                     { key: 'time', label: 'Time' },
                   ].map(({ key, label }) => (
-                    <TouchableOpacity
+                    <PressableFeedback
                       key={key}
                       style={[
                         styles.typeButton,
                         habitType === key && styles.typeButtonActive,
                       ]}
+                      pressedStyle={habitType !== key ? styles.typeButtonPressed : undefined}
+                      haptic="selection"
                       onPress={() => {
                         setHabitType(key);
                         if (key === 'time') setHabitUnit('');
@@ -116,7 +119,7 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
                       >
                         {label}
                       </Text>
-                    </TouchableOpacity>
+                    </PressableFeedback>
                   ))}
                 </View>
               </View>
@@ -139,18 +142,20 @@ const AddHabitModal = ({ visible, onClose, onSave }) => {
             </ScrollView>
 
             <View style={styles.actions}>
-              <TouchableOpacity
+              <PressableFeedback
                 style={[styles.actionButton, styles.cancelButton]}
+                pressedStyle={buttonStyles.outlinePressed}
                 onPress={handleClose}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </PressableFeedback>
+              <PressableFeedback
                 style={[styles.actionButton, styles.saveButton]}
+                pressedStyle={buttonStyles.primaryPressed}
                 onPress={handleSave}
               >
                 <Text style={styles.saveButtonText}>Add Habit</Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             </View>
           </View>
         </Pressable>
@@ -238,6 +243,10 @@ const styles = StyleSheet.create({
   },
   typeButtonActive: {
     backgroundColor: colors.primary + '10',
+    borderColor: colors.primary,
+  },
+  typeButtonPressed: {
+    backgroundColor: colors.accent,
     borderColor: colors.primary,
   },
   typeButtonText: {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import PressableFeedback from './PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { BoxPlotComparison } from './BoxPlot';
@@ -24,6 +25,7 @@ const BinaryHabitInsight = ({
   isExpanded: controlledIsExpanded,
   onToggleExpand,
   embedded = false,
+  hideHeadline = false,
 }) => {
   // Create a stable key based on insight and filters
   const componentKey = useMemo(() => 
@@ -163,10 +165,9 @@ const BinaryHabitInsight = ({
     // Collapsed view - thin summary
     if (!isExpanded) {
       return (
-        <TouchableOpacity 
+        <PressableFeedback 
           style={[styles.container, styles.collapsedContainer, { width }]}
           onPress={toggleExpand}
-          activeOpacity={0.7}
         >
           <Text style={styles.collapsedHabitName}>{habit.name}</Text>
           <Text style={styles.impactHeadline}>{headline}</Text>
@@ -186,17 +187,16 @@ const BinaryHabitInsight = ({
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
-        </TouchableOpacity>
+        </PressableFeedback>
       );
     }
 
     // Expanded view - show data even without significance
     return (
       <View style={[styles.container, { width }]}>
-        <TouchableOpacity 
+        <PressableFeedback 
           style={styles.expandedHeader}
           onPress={toggleExpand}
-          activeOpacity={0.7}
         >
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
@@ -221,7 +221,7 @@ const BinaryHabitInsight = ({
               </View>
             )}
           </View>
-        </TouchableOpacity>
+        </PressableFeedback>
 
         <View style={styles.metricLabelContainer}>
           <Text style={styles.metricLabel}>
@@ -296,10 +296,9 @@ const BinaryHabitInsight = ({
     // Collapsed view - thin summary
     if (!isExpanded) {
       return (
-        <TouchableOpacity 
+        <PressableFeedback 
           style={[styles.container, styles.collapsedContainer, { width }]}
           onPress={toggleExpand}
-          activeOpacity={0.7}
         >
           <View style={styles.collapsedHeader}>
             <View style={styles.collapsedHabitInfo}>
@@ -317,17 +316,16 @@ const BinaryHabitInsight = ({
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
-        </TouchableOpacity>
+        </PressableFeedback>
       );
     }
 
     // Expanded view - full details
     return (
       <View style={[styles.container, { width }]}>
-        <TouchableOpacity 
+        <PressableFeedback 
           style={styles.expandedHeader}
           onPress={toggleExpand}
-          activeOpacity={0.7}
         >
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
@@ -339,7 +337,7 @@ const BinaryHabitInsight = ({
               <Ionicons name="chevron-up" size={18} color={colors.textSecondary} style={styles.collapseIcon} />
             </View>
           </View>
-        </TouchableOpacity>
+        </PressableFeedback>
 
         <View style={styles.metricLabelContainer}>
           <Text style={styles.metricLabel}>
@@ -381,10 +379,9 @@ const BinaryHabitInsight = ({
   // Collapsed view - Impact-First Design (only for significant insights)
   if (!isExpanded && hasComparisonData && yesStats && noStats && isSignificantInsight) {
     return (
-      <TouchableOpacity 
+      <PressableFeedback 
         style={[styles.container, styles.collapsedContainer, { width }]}
         onPress={toggleExpand}
-        activeOpacity={0.7}
       >
         {/* Habit Name Header */}
         <Text style={styles.collapsedHabitName}>{habit.name}</Text>
@@ -433,16 +430,17 @@ const BinaryHabitInsight = ({
           </View>
           <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
         </View>
-      </TouchableOpacity>
+      </PressableFeedback>
     );
   }
 
   const expandedContent = (
     <>
-      {/* Impact Headline */}
-      <View style={styles.expandedHeadlineContainer}>
-        <Text style={styles.expandedHeadline}>{headline}</Text>
-      </View>
+      {!hideHeadline ? (
+        <View style={styles.expandedHeadlineContainer}>
+          <Text style={styles.expandedHeadline}>{headline}</Text>
+        </View>
+      ) : null}
 
       {/* Horizontal Bar Comparison - two comparable colored bars with values outside for readability */}
       {hasComparisonData && yesStats && noStats && (() => {
@@ -477,20 +475,21 @@ const BinaryHabitInsight = ({
         );
       })()}
 
-      {/* Data Maturity Section */}
-      <View style={styles.dataMaturityContainer}>
-        <View style={styles.dataMaturityHeader}>
-          <Ionicons 
-            name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
-            size={16} 
-            color={evidenceColor} 
-          />
-          <Text style={styles.dataMaturityTitle}>Data Maturity</Text>
+      {!embedded && (
+        <View style={styles.dataMaturityContainer}>
+          <View style={styles.dataMaturityHeader}>
+            <Ionicons
+              name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'}
+              size={16}
+              color={evidenceColor}
+            />
+            <Text style={styles.dataMaturityTitle}>Data Maturity</Text>
+          </View>
+          <Text style={styles.dataMaturityText}>
+            You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with {yesDataPoints} "Yes" and {noDataPoints} "No" responses. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
+          </Text>
         </View>
-        <Text style={styles.dataMaturityText}>
-          You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with {yesDataPoints} "Yes" and {noDataPoints} "No" responses. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
-        </Text>
-      </View>
+      )}
     </>
   );
 
@@ -500,10 +499,9 @@ const BinaryHabitInsight = ({
 
   return (
     <View style={[styles.container, { width }]}>
-      <TouchableOpacity 
+      <PressableFeedback 
         style={styles.expandedHeader}
         onPress={toggleExpand}
-        activeOpacity={0.7}
       >
         <View style={styles.header}>
           <Text style={styles.habitName}>{habit.name}</Text>
@@ -528,7 +526,7 @@ const BinaryHabitInsight = ({
             </View>
           )}
         </View>
-      </TouchableOpacity>
+      </PressableFeedback>
       {expandedContent}
     </View>
   );

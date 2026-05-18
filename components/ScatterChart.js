@@ -383,7 +383,6 @@ const ScatterPlot = ({
                 fontSize={12}
                 fontWeight="bold"
                 fill={colors.textPrimary}
-                fontFamily="OverusedGrotesk"
                 transform={`rotate(-90, ${margin.left / 2}, ${margin.top + chartHeight / 2})`}
               >
                 {yLabel}

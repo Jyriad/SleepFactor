@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   ScrollView,
   StyleSheet,
   Alert,
@@ -14,7 +13,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import PressableFeedback from '../components/PressableFeedback';
 import { colors } from '../constants/colors';
+import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
@@ -128,9 +129,9 @@ const AddHabitScreen = () => {
           <Text style={styles.title}>Add Custom Habit</Text>
           <Text style={styles.subtitle}>Use this for personal edge cases beyond the starter habits.</Text>
         </View>
-        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+        <PressableFeedback onPress={handleClose} style={styles.closeButton}>
           <Ionicons name="close" size={24} color={colors.textSecondary} />
-        </TouchableOpacity>
+        </PressableFeedback>
       </View>
 
       <KeyboardAvoidingView
@@ -168,12 +169,14 @@ const AddHabitScreen = () => {
               { key: 'numeric', label: 'Numeric' },
               { key: 'time', label: 'Time' },
             ].map(({ key, label }) => (
-              <TouchableOpacity
+              <PressableFeedback
                 key={key}
                 style={[
                   styles.typeButton,
                   habitType === key && styles.typeButtonActive,
                 ]}
+                pressedStyle={habitType !== key ? styles.typeButtonPressed : undefined}
+                haptic="selection"
                 onPress={() => {
                   setHabitType(key);
                   if (key === 'time') setHabitUnit('');
@@ -187,7 +190,7 @@ const AddHabitScreen = () => {
                 >
                   {label}
                 </Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             ))}
           </View>
         </View>
@@ -226,22 +229,24 @@ const AddHabitScreen = () => {
         )}
 
         <View style={[styles.actions, { marginTop: spacing.lg }]}>
-          <TouchableOpacity
+          <PressableFeedback
             style={[styles.actionButton, styles.cancelButton]}
+            pressedStyle={buttonStyles.outlinePressed}
             onPress={handleClose}
             disabled={saving}
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </PressableFeedback>
+          <PressableFeedback
             style={[styles.actionButton, styles.saveButton]}
+            pressedStyle={buttonStyles.primaryPressed}
             onPress={handleSave}
             disabled={saving}
           >
             <Text style={styles.saveButtonText}>
               {saving ? 'Adding...' : 'Add Habit'}
             </Text>
-          </TouchableOpacity>
+          </PressableFeedback>
         </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -321,6 +326,10 @@ const styles = StyleSheet.create({
   },
   typeButtonActive: {
     backgroundColor: colors.primary + '10',
+    borderColor: colors.primary,
+  },
+  typeButtonPressed: {
+    backgroundColor: colors.accent,
     borderColor: colors.primary,
   },
   typeButtonText: {

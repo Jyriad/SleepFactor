@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import PressableFeedback from './PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import ScatterPlot from './ScatterChart';
@@ -27,6 +28,7 @@ const NumericalHabitInsight = ({
   isExpanded: controlledIsExpanded,
   onToggleExpand,
   embedded = false,
+  hideHeadline = false,
 }) => {
   // Create a stable key based on insight and filters
   const componentKey = useMemo(() => 
@@ -225,10 +227,9 @@ const NumericalHabitInsight = ({
     if (!isSignificantInsight && allowExpandNoSignificance) {
       return (
         <>
-          <TouchableOpacity
+          <PressableFeedback
             style={[styles.container, styles.collapsedContainer, { width }]}
             onPress={toggleExpand}
-            activeOpacity={0.7}
           >
             <Text style={styles.collapsedHabitName}>{habit.name}</Text>
             <Text style={styles.impactHeadline}>{headline}</Text>
@@ -248,7 +249,7 @@ const NumericalHabitInsight = ({
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
-          </TouchableOpacity>
+          </PressableFeedback>
 
           <DataPointDetailModal
             visible={showDetailModal}
@@ -274,10 +275,9 @@ const NumericalHabitInsight = ({
     
     return (
       <>
-        <TouchableOpacity
+        <PressableFeedback
           style={[styles.container, styles.collapsedContainer, { width }]}
           onPress={toggleExpand}
-          activeOpacity={0.7}
         >
           {/* Habit Name Header */}
           <Text style={styles.collapsedHabitName}>{habit.name}</Text>
@@ -324,7 +324,7 @@ const NumericalHabitInsight = ({
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
           </View>
-        </TouchableOpacity>
+        </PressableFeedback>
 
         {/* Data Point Detail Modal */}
         <DataPointDetailModal
@@ -352,10 +352,11 @@ const NumericalHabitInsight = ({
 
   const expandedContent = (
     <>
-        {/* Impact Headline */}
-        <View style={styles.expandedHeadlineContainer}>
-          <Text style={styles.expandedHeadline}>{headline}</Text>
-        </View>
+        {!hideHeadline ? (
+          <View style={styles.expandedHeadlineContainer}>
+            <Text style={styles.expandedHeadline}>{headline}</Text>
+          </View>
+        ) : null}
 
         {/* Scatter Plot — wrapper keeps axis caption aligned with card padding */}
         <View style={styles.scatterBlock}>
@@ -382,20 +383,21 @@ const NumericalHabitInsight = ({
         />
         </View>
 
-        {/* Data Maturity Section */}
-        <View style={styles.dataMaturityContainer}>
-          <View style={styles.dataMaturityHeader}>
-            <Ionicons 
-              name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'} 
-              size={16} 
-              color={evidenceColor} 
-            />
-            <Text style={styles.dataMaturityTitle}>Data Maturity</Text>
+        {!embedded && (
+          <View style={styles.dataMaturityContainer}>
+            <View style={styles.dataMaturityHeader}>
+              <Ionicons
+                name={isStrongOrModerateEvidence ? 'checkmark-circle' : 'time-outline'}
+                size={16}
+                color={evidenceColor}
+              />
+              <Text style={styles.dataMaturityTitle}>Data Maturity</Text>
+            </View>
+            <Text style={styles.dataMaturityText}>
+              You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with consistent results. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
+            </Text>
           </View>
-          <Text style={styles.dataMaturityText}>
-            You've tracked this habit for {totalDataPoints} day{totalDataPoints !== 1 ? 's' : ''} with consistent results. {totalDataPoints >= 20 ? 'This insight is based on a substantial amount of data.' : 'Continue tracking to strengthen the reliability of this insight.'}
-          </Text>
-        </View>
+        )}
     </>
   );
 
@@ -426,10 +428,9 @@ const NumericalHabitInsight = ({
   return (
     <>
       <View style={[styles.container, { width }]}>
-        <TouchableOpacity
+        <PressableFeedback
           style={styles.expandedHeader}
           onPress={toggleExpand}
-          activeOpacity={0.7}
         >
           <View style={styles.header}>
             <Text style={styles.habitName}>{habit.name}</Text>
@@ -454,7 +455,7 @@ const NumericalHabitInsight = ({
               </View>
             )}
           </View>
-        </TouchableOpacity>
+        </PressableFeedback>
         {expandedContent}
       </View>
 

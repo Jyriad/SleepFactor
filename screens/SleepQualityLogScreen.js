@@ -20,6 +20,8 @@ import offlineWriteQueueService from '../services/offlineWriteQueueService';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
+import PressableFeedback from '../components/PressableFeedback';
+import { buttonStyles } from '../constants/buttonStyles';
 import ScoreSlider from '../components/ScoreSlider';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
 import { formatDateForDB, formatDateTitle, getToday } from '../utils/dateHelpers';
@@ -119,6 +121,14 @@ const SleepQualityLogScreen = () => {
   const setScoreForMeasure = useCallback((measureId, value) => {
     setScoresByMeasureId((prev) => ({ ...prev, [measureId]: value }));
   }, []);
+
+  const returnToHome = useCallback(() => {
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('HomeMain');
+  }, [navigation]);
 
   // Refresh measure configuration when returning from "Set up what you log".
   useFocusEffect(
@@ -299,11 +309,12 @@ const SleepQualityLogScreen = () => {
         Alert.alert('Saved offline', 'Your check-in was saved and will sync automatically once you are back online.');
       }
       setSaving(false);
+      returnToHome();
     }
   };
 
   const handleSkip = () => {
-    navigation.goBack();
+    returnToHome();
   };
 
   const handleRemoveScores = () => {
@@ -362,6 +373,7 @@ const SleepQualityLogScreen = () => {
                 Alert.alert('Saved offline', 'Removal was saved and will sync automatically once you are back online.');
               }
               setSaving(false);
+              returnToHome();
             }
           },
         },
@@ -374,7 +386,7 @@ const SleepQualityLogScreen = () => {
       <View style={styles.container}>
         <View style={styles.headerWrap}>
           <View style={[styles.headerInner, { paddingTop: insets.top }]}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <TouchableOpacity onPress={returnToHome} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color={colors.white} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>How do you feel?</Text>
@@ -392,7 +404,7 @@ const SleepQualityLogScreen = () => {
       <View style={styles.container}>
         <View style={styles.headerWrap}>
           <View style={[styles.headerInner, { paddingTop: insets.top }]}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <TouchableOpacity onPress={returnToHome} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color={colors.white} />
             </TouchableOpacity>
             <View style={styles.headerTitleRow}>
@@ -428,7 +440,7 @@ const SleepQualityLogScreen = () => {
     <View style={styles.container}>
       <View style={styles.headerWrap}>
         <View style={[styles.headerInner, { paddingTop: insets.top }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <TouchableOpacity onPress={returnToHome} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={colors.white} />
           </TouchableOpacity>
           <View style={styles.headerTitleRow}>
@@ -473,9 +485,9 @@ const SleepQualityLogScreen = () => {
             />
           ))}
           <View style={styles.actions}>
-            <TouchableOpacity onPress={handleSkip} style={styles.skipButton} disabled={saving}>
+            <PressableFeedback onPress={handleSkip} style={styles.skipButton} disabled={saving}>
               <Text style={styles.skipButtonText}>Back</Text>
-            </TouchableOpacity>
+            </PressableFeedback>
             <Button
               title={saving ? 'Saving…' : 'Save'}
               onPress={handleSave}
@@ -483,9 +495,9 @@ const SleepQualityLogScreen = () => {
               style={styles.saveButton}
             />
             {hasSavedScores && (
-              <TouchableOpacity onPress={handleRemoveScores} style={styles.removeScoresButton} disabled={saving}>
+              <PressableFeedback onPress={handleRemoveScores} style={styles.removeScoresButton} disabled={saving}>
                 <Text style={styles.removeScoresButtonText}>Remove scores</Text>
-              </TouchableOpacity>
+              </PressableFeedback>
             )}
           </View>
         </ScrollView>
