@@ -5,6 +5,19 @@ alwaysApply: false
 
 # Learnings
 
+## Apple Health total sleep inflated by “in bed” (May 2026)
+
+**What we learned**
+
+- **Symptom:** iOS nights synced from Apple Health showed **Total sleep** near **24h** while deep/light/REM rows and the hypnogram matched a normal **~8h** night; stage **percentages** were tiny (e.g. 5% + 18% + 9%) because the denominator was wrong.
+- **Cause:** `healthKitService.transformSleepCluster` added **HK “in bed”** durations to `total_sleep_minutes` **and** counted **asleep** stage samples. The timeline already **skipped** in-bed; only the stored total was wrong.
+- **Fix:** `total_sleep_minutes` = **deep + light + REM** after aggregation. **Do not** add in-bed to total when stages exist. **Fallback:** sum of in-bed minutes only when classified sleep is **0** (in-bed-only data).
+- **Re-sync:** Existing Supabase rows keep bad totals until the user **syncs** again (or backfill re-imports those dates).
+
+**Testing:** iPhone with Apple Health sleep that includes in-bed + stages; confirm total ≈ sum of stage rows and percentages add to ~100% (awake row is separate). Android Health Connect unchanged.
+
+---
+
 ## Insights & habit_logs (Supabase row limit and exclusion filter)
 
 **What we learned (March 2026)**

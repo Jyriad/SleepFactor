@@ -424,6 +424,9 @@ class HealthKitService {
   /**
    * Transform one sleep session (cluster) from HealthKit samples.
    * Wake / storage date = local calendar date of session end (same notion as "the morning you woke up").
+   * Total sleep = deep + light + REM only (asleep time). "In bed" is ignored when stages exist so
+   * totals cannot double-count in-bed spans alongside stage samples. Falls back to in-bed minutes
+   * only when there is no stage breakdown.
    * @param {Array} samples
    * @param {{ clusterIndex?: number, strategy?: string }} [meta]
    * @returns {Object|null}
@@ -438,14 +441,13 @@ class HealthKitService {
         (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
       );
 
-      let totalSleepMinutes = 0;
       let deepSleepMinutes = 0;
       let lightSleepMinutes = 0;
       let remSleepMinutes = 0;
       let awakeMinutes = 0;
       let awakeningsCount = 0;
-      let inBedStart = null;
-      let inBedEnd = null;
+      /** Used only when there is no deep/light/REM breakdown (in-bed-only nights). */
+      let inBedMinutes = 0;
 
       let sessionStart = null;
       let sessionEnd = null;
@@ -477,33 +479,23 @@ class HealthKitService {
 
         switch (v) {
           case CategoryValueSleepAnalysis.inBed:
-            if (!inBedStart || startTime < inBedStart) {
-              inBedStart = startTime;
-            }
-            if (!inBedEnd || endTime > inBedEnd) {
-              inBedEnd = endTime;
-            }
-            totalSleepMinutes += durationMinutes;
+            inBedMinutes += durationMinutes;
             break;
 
           case CategoryValueSleepAnalysis.asleepUnspecified:
             lightSleepMinutes += durationMinutes;
-            totalSleepMinutes += durationMinutes;
             break;
 
           case CategoryValueSleepAnalysis.asleepCore:
             lightSleepMinutes += durationMinutes;
-            totalSleepMinutes += durationMinutes;
             break;
 
           case CategoryValueSleepAnalysis.asleepDeep:
             deepSleepMinutes += durationMinutes;
-            totalSleepMinutes += durationMinutes;
             break;
 
           case CategoryValueSleepAnalysis.asleepREM:
             remSleepMinutes += durationMinutes;
-            totalSleepMinutes += durationMinutes;
             break;
 
           case CategoryValueSleepAnalysis.awake:
@@ -518,12 +510,17 @@ class HealthKitService {
 
       const sleepScore = null;
 
+      const classifiedSleepMinutes =
+        deepSleepMinutes + lightSleepMinutes + remSleepMinutes;
+      const total_sleep_minutes =
+        classifiedSleepMinutes > 0 ? classifiedSleepMinutes : inBedMinutes;
+
       /** Local wake / row date: morning you got up (Health Connect uses the same idea). */
       const assignedWakeDate = sessionEnd ? formatDateForDB(sessionEnd) : formatDateForDB(sessionStart);
 
       return {
         date: assignedWakeDate,
-        total_sleep_minutes: totalSleepMinutes,
+        total_sleep_minutes,
         deep_sleep_minutes: deepSleepMinutes,
         light_sleep_minutes: lightSleepMinutes,
         rem_sleep_minutes: remSleepMinutes,

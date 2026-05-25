@@ -32,6 +32,29 @@ class OfflineWriteQueueService {
     this._loadingPromise = null;
     this._isFlushing = false;
     this._interval = null;
+    this._flushListeners = new Set();
+  }
+
+  subscribeFlush(listener) {
+    if (typeof listener !== 'function') return () => {};
+    this._flushListeners.add(listener);
+    return () => this._flushListeners.delete(listener);
+  }
+
+  _notifyFlush(detail) {
+    this._flushListeners.forEach((fn) => {
+      try {
+        fn(detail);
+      } catch (_) {}
+    });
+  }
+
+  /** Pending consumption inserts (not yet on server). */
+  async getPendingConsumptionCreates() {
+    await this._ensureLoaded();
+    return this._queue
+      .filter((item) => item.type === ACTION_TYPES.CONSUMPTION_CREATE && item.payload?.row)
+      .map((item) => ({ queueItemId: item.id, row: item.payload.row }));
   }
 
   async _ensureLoaded() {
@@ -109,6 +132,11 @@ class OfflineWriteQueueService {
     };
     this._queue.push(item);
     await this._persist();
+    // #region agent log
+    if (type === ACTION_TYPES.CONSUMPTION_CREATE || type === ACTION_TYPES.CONSUMPTION_UPDATE) {
+      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H1-H2',location:'offlineWriteQueueService.js:enqueue',message:'consumption queued',data:{type,queueLen:this._queue.length,habitId:payload?.row?.habit_id||null,consumedAt:payload?.row?.consumed_at||null},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
     this.flushNow();
     return item.id;
   }
@@ -137,8 +165,22 @@ class OfflineWriteQueueService {
           this._queue.splice(idx, 1);
           madeProgress = true;
           await this._persist();
-        } catch (_) {
+          // #region agent log
+          if (item.type === ACTION_TYPES.CONSUMPTION_CREATE || item.type === ACTION_TYPES.CONSUMPTION_UPDATE) {
+            fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H2-H5',location:'offlineWriteQueueService.js:flushNow',message:'consumption flush ok',data:{type:item.type,remainingQueue:this._queue.length},timestamp:Date.now()})}).catch(()=>{});
+          }
+          // #endregion
+          if (item.type === ACTION_TYPES.CONSUMPTION_CREATE || item.type === ACTION_TYPES.CONSUMPTION_UPDATE) {
+            const habitId = item.payload?.row?.habit_id || item.payload?.habitId || null;
+            this._notifyFlush({ type: item.type, habitId });
+          }
+        } catch (flushErr) {
           const attempts = (item.attemptCount || 0) + 1;
+          // #region agent log
+          if (item.type === ACTION_TYPES.CONSUMPTION_CREATE || item.type === ACTION_TYPES.CONSUMPTION_UPDATE) {
+            fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H2',location:'offlineWriteQueueService.js:flushNow',message:'consumption flush failed',data:{type:item.type,attempts,nextRetryMs:Math.min(MAX_RETRY_MS,BASE_RETRY_MS*2**(attempts-1)),errMsg:flushErr?.message||String(flushErr),errCode:flushErr?.code||null},timestamp:Date.now()})}).catch(()=>{});
+          }
+          // #endregion
           const retryDelay = Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** (attempts - 1));
           this._queue[idx] = {
             ...item,

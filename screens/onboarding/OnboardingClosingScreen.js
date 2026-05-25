@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { useAuth } from '../../contexts/AuthContext';
+import { triggerSuccess } from '../../utils/haptics';
 import { colors } from '../../constants/colors';
 import { typography, spacing } from '../../constants';
 import Button from '../../components/Button';
@@ -25,7 +25,7 @@ export default function OnboardingClosingScreen({ onSlidesFinished }) {
         step_number: currentStep,
         total_steps: totalSteps,
       });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      triggerSuccess();
       await onSlidesFinished();
     } finally {
       setLoading(false);

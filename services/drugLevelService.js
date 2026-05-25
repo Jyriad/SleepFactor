@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import sleepDataService from './sleepDataService';
+import offlineWriteQueueService from './offlineWriteQueueService';
 import { formatDateForDB } from '../utils/dateHelpers';
 import {
   getBedtimeDrugLevel,
@@ -69,44 +70,90 @@ export function invalidateLevelNowCache(userId, habitId) {
   if (userId && habitId) _levelNowCache.delete(levelNowCacheKey(userId, habitId));
 }
 
+function pendingRowToLevelEvent(queueItemId, row) {
+  return {
+    id: `pending_${queueItemId}`,
+    habit_id: row.habit_id,
+    user_id: row.user_id,
+    consumed_at: row.consumed_at,
+    amount: row.amount,
+    drink_type: row.drink_type,
+    volume: row.volume,
+    logged_intake_basis: row.logged_intake_basis,
+    logged_volume_ml: row.logged_volume_ml,
+    logged_serving_count: row.logged_serving_count,
+  };
+}
+
+function mergeConsumptionEventsForLevel(serverEvents, pendingItems, userId, habitId) {
+  const byId = new Map();
+  (serverEvents || []).forEach((e) => {
+    if (e?.habit_id === habitId && e?.user_id === userId) byId.set(e.id, e);
+  });
+  (pendingItems || []).forEach(({ queueItemId, row }) => {
+    if (!row || row.habit_id !== habitId || row.user_id !== userId) return;
+    byId.set(`pending_${queueItemId}`, pendingRowToLevelEvent(queueItemId, row));
+  });
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.consumed_at).getTime() - new Date(b.consumed_at).getTime()
+  );
+}
+
+function levelFromEvents(events, habit, atTime) {
+  const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
+  const unit = habit?.unit || 'units';
+  const minMg = caffeineAbsoluteMinMg(habit);
+  if (!events?.length) return { level: 0, unit };
+  let level = calculateTotalDrugLevel(events, atTime, halfLife, THRESHOLD_PERCENT, minMg);
+  if (minMg != null) level = applyCaffeineMgFloor(level);
+  return { level, unit };
+}
+
 /**
  * Same event window and formula as getLevelTimelineForDate for local calendar "today".
  * Purely event-based: decay from all prior consumption in the lookback window (no drug_levels carryover),
  * so "level right now" matches the line chart exactly.
  */
 export async function getLevelNow(userId, habit) {
-  const cached = getCachedLevelNow(userId, habit?.id);
-  if (cached != null) {
-    return cached;
+  const pendingItems = await offlineWriteQueueService.getPendingConsumptionCreates();
+  const hasPendingForHabit = pendingItems.some((p) => p.row?.habit_id === habit?.id);
+
+  if (!hasPendingForHabit) {
+    const cached = getCachedLevelNow(userId, habit?.id);
+    if (cached != null) {
+      return cached;
+    }
   }
+
   const halfLife = habit?.half_life_hours != null ? Number(habit.half_life_hours) : DEFAULT_HALF_LIFE_HOURS;
-  const unit = habit?.unit || 'units';
-  const minMg = caffeineAbsoluteMinMg(habit);
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
   const historyDays = Math.max(3, Math.ceil((halfLife * 3) / 24));
   const fetchStart = new Date(dayStart);
   fetchStart.setDate(fetchStart.getDate() - historyDays);
 
-  const { data: events, error } = await supabase
-    .from('habit_consumption_events')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .gte('consumed_at', fetchStart.toISOString())
-    .lte('consumed_at', now.toISOString())
-    .order('consumed_at', { ascending: true });
-
-  if (error || !events || events.length === 0) {
-    const result = { level: 0, unit };
-    setCachedLevelNow(userId, habit.id, result);
-    return result;
+  let serverEvents = [];
+  try {
+    const { data: events, error } = await supabase
+      .from('habit_consumption_events')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('habit_id', habit.id)
+      .gte('consumed_at', fetchStart.toISOString())
+      .lte('consumed_at', now.toISOString())
+      .order('consumed_at', { ascending: true });
+    if (!error && events) serverEvents = events;
+  } catch (_) {
+    serverEvents = [];
   }
 
-  let level = calculateTotalDrugLevel(events, now, halfLife, THRESHOLD_PERCENT, minMg);
-  if (minMg != null) level = applyCaffeineMgFloor(level);
-  const result = { level, unit };
-  setCachedLevelNow(userId, habit.id, result);
+  const merged = mergeConsumptionEventsForLevel(serverEvents, pendingItems, userId, habit.id);
+  const result = levelFromEvents(merged, habit, now);
+
+  if (merged.length > 0) {
+    setCachedLevelNow(userId, habit.id, result);
+  }
+
   return result;
 }
 
@@ -138,21 +185,28 @@ export async function getLevelTimelineForDate(userId, habit, dateStr) {
   const fetchStart = new Date(dayStart);
   fetchStart.setDate(fetchStart.getDate() - historyDays);
 
-  const { data: events, error } = await supabase
-    .from('habit_consumption_events')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('habit_id', habit.id)
-    .gte('consumed_at', fetchStart.toISOString())
-    .lte('consumed_at', dayEnd.toISOString())
-    .order('consumed_at', { ascending: true });
-
-  if (error) {
-    return { dataPoints: [], unit };
+  let serverEvents = [];
+  try {
+    const { data: events, error } = await supabase
+      .from('habit_consumption_events')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('habit_id', habit.id)
+      .gte('consumed_at', fetchStart.toISOString())
+      .lte('consumed_at', dayEnd.toISOString())
+      .order('consumed_at', { ascending: true });
+    if (!error && events) serverEvents = events;
+  } catch (_) {
+    serverEvents = [];
   }
 
+  const todayStr = formatDateForDB(new Date());
+  const pendingItems =
+    dateStr === todayStr ? await offlineWriteQueueService.getPendingConsumptionCreates() : [];
+  const merged = mergeConsumptionEventsForLevel(serverEvents, pendingItems, userId, habit.id);
+
   const dataPoints = generateDrugLevelTimeline(
-    events || [],
+    merged,
     dayStart,
     dayEnd,
     halfLife,
@@ -209,6 +263,11 @@ export async function getLevelAtBedtime(userId, habit, dateStr) {
   return { level, unit, bedtimeAt: targetBedtime };
 }
 
+/** Level at current time from in-memory consumption events (includes pending sync). */
+export function computeLevelNowFromEvents(events, habit) {
+  return levelFromEvents(events, habit, new Date());
+}
+
 export default {
   getLevelNow,
   getLevelTimelineForToday,
@@ -216,4 +275,5 @@ export default {
   getLevelAtBedtime,
   invalidateLevelNowCache,
   resolveBedtimeForDate,
+  computeLevelNowFromEvents,
 };

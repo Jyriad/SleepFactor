@@ -498,14 +498,34 @@ const LogConsumptionScreen = () => {
       .single();
 
     if (error) {
-      await offlineWriteQueueService.enqueue(
+      // #region agent log
+      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H1',location:'LogConsumptionScreen.js:addConsumptionEvent',message:'insert failed, enqueue offline',data:{habitId:habit?.id,errMsg:error?.message||null,errCode:error?.code||null,consumedAt:writeRow.consumed_at},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      const queueItemId = await offlineWriteQueueService.enqueue(
         offlineWriteQueueService.ACTION_TYPES.CONSUMPTION_CREATE,
         { row: writeRow }
       );
-      onSaveSuccess?.();
+      onSaveSuccess?.({
+        optimisticEvent: {
+          id: `pending_${queueItemId}`,
+          habit_id: writeRow.habit_id,
+          user_id: writeRow.user_id,
+          consumed_at: writeRow.consumed_at,
+          amount: writeRow.amount,
+          drink_type: writeRow.drink_type,
+          volume: writeRow.volume,
+          logged_intake_basis: writeRow.logged_intake_basis,
+          logged_volume_ml: writeRow.logged_volume_ml,
+          logged_serving_count: writeRow.logged_serving_count,
+          _pendingSync: true,
+        },
+      });
       navigation.goBack();
       return;
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H1',location:'LogConsumptionScreen.js:addConsumptionEvent',message:'insert succeeded online',data:{habitId:habit?.id,hasData:!!data,consumedAt:writeRow.consumed_at},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     try {
       await updateBedtimeDrugLevel(habit.id, selectedDateObj);
     } catch (e) {}
