@@ -59,6 +59,40 @@ import ConsumptionLoggedList from '../components/ConsumptionLoggedList';
 
 const { width: screenWidth } = Dimensions.get('window');
 
+function pendingQueueRowToEvent(queueItemId, row) {
+  return {
+    id: `pending_${queueItemId}`,
+    habit_id: row.habit_id,
+    user_id: row.user_id,
+    consumed_at: row.consumed_at,
+    amount: row.amount,
+    drink_type: row.drink_type,
+    volume: row.volume,
+    logged_intake_basis: row.logged_intake_basis,
+    logged_volume_ml: row.logged_volume_ml,
+    logged_serving_count: row.logged_serving_count,
+    _pendingSync: true,
+  };
+}
+
+function mergePendingConsumptionEvents(serverMap, pendingItems, dateStr) {
+  const out = {};
+  Object.keys(serverMap || {}).forEach((habitId) => {
+    out[habitId] = [...(serverMap[habitId] || [])];
+  });
+  (pendingItems || []).forEach(({ queueItemId, row }) => {
+    if (!row?.habit_id || !row?.consumed_at) return;
+    const eventDate = formatDateForDB(new Date(row.consumed_at));
+    if (eventDate !== dateStr) return;
+    const ev = pendingQueueRowToEvent(queueItemId, row);
+    if (!out[row.habit_id]) out[row.habit_id] = [];
+    if (!out[row.habit_id].some((e) => e.id === ev.id)) {
+      out[row.habit_id].push(ev);
+    }
+  });
+  return out;
+}
+
 // Stable empty array so consumption habits don't get a new [] reference every render (avoids re-renders and custom volume input lag)
 const EMPTY_CONSUMPTION_EVENTS = [];
 
@@ -645,24 +679,27 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       const startOfDay = new Date(dateForFetch.getFullYear(), dateForFetch.getMonth(), dateForFetch.getDate(), 0, 0, 0);
       const endOfDay = new Date(dateForFetch.getFullYear(), dateForFetch.getMonth(), dateForFetch.getDate(), 23, 59, 59);
 
-      const consumptionHabits = habits.filter(h => h.type === 'drug' || h.type === 'quick_consumption');
+      const consumptionHabits = (habits || []).filter(h => h.type === 'drug' || h.type === 'quick_consumption');
       const consumptionEventsMap = {};
+      let eventsError = null;
+      let fetchThrew = false;
+
+      const pendingItems = await offlineWriteQueueService.getPendingConsumptionCreates();
 
       if (consumptionHabits.length > 0) {
         const habitIds = consumptionHabits.map(h => h.id);
 
-        const { data: eventsData, error: eventsError } = await supabase
-          .from('habit_consumption_events')
-          .select('*')
-          .in('habit_id', habitIds)
-          .gte('consumed_at', startOfDay.toISOString())
-          .lt('consumed_at', endOfDay.toISOString())
-          .eq('user_id', user?.id)
-          .order('consumed_at', { ascending: true });
-
-        if (eventsError) {
-        } else {
-          if (eventsData) {
+        try {
+          const { data: eventsData, error } = await supabase
+            .from('habit_consumption_events')
+            .select('*')
+            .in('habit_id', habitIds)
+            .gte('consumed_at', startOfDay.toISOString())
+            .lt('consumed_at', endOfDay.toISOString())
+            .eq('user_id', user?.id)
+            .order('consumed_at', { ascending: true });
+          eventsError = error;
+          if (!error && eventsData) {
             eventsData.forEach(event => {
               if (!consumptionEventsMap[event.habit_id]) {
                 consumptionEventsMap[event.habit_id] = [];
@@ -670,29 +707,68 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
               consumptionEventsMap[event.habit_id].push(event);
             });
           }
+        } catch (networkErr) {
+          fetchThrew = true;
+          eventsError = networkErr;
         }
       }
 
+      const mergedMap = mergePendingConsumptionEvents(consumptionEventsMap, pendingItems, dateForFetchStr);
+      const totalEvents = Object.values(mergedMap).reduce((n, arr) => n + (arr?.length || 0), 0);
+      const caffeineHabit = consumptionHabits.find((h) => (h.name || '').toLowerCase().includes('caffeine'));
+      const caffeineCount = caffeineHabit ? (mergedMap[caffeineHabit.id]?.length || 0) : 0;
+      const pendingCount = (pendingItems || []).length;
+      // #region agent log
+      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H3-H4',location:'HabitLoggingScreen.js:refreshConsumptionEvents',message:'refresh result',data:{dateStr:dateForFetchStr,fetchThrew,hasEventsError:!!eventsError,eventsErrorMsg:eventsError?.message||null,totalEvents,caffeineCount,pendingCount},timestamp:Date.now()})}).catch(()=>{});
+      console.warn('[debug-940b49] refreshConsumptionEvents', { dateStr: dateForFetchStr, fetchThrew, caffeineCount, pendingCount });
+      // #endregion
+
       const currentDate = selectedDateRef.current instanceof Date ? selectedDateRef.current : new Date(selectedDateRef.current);
       const currentDateStr = formatDateForDB(currentDate);
-        if (currentDateStr === dateForFetchStr) {
-        setConsumptionEvents(consumptionEventsMap);
-        try {
-          if (user?.id) {
-            await AsyncStorage.setItem(
-              consumptionEventsCacheKey(user.id, dateForFetchStr),
-              JSON.stringify(consumptionEventsMap)
-            );
+      if (currentDateStr === dateForFetchStr) {
+        setConsumptionEvents(mergedMap);
+        if (!fetchThrew && !eventsError) {
+          try {
+            if (user?.id) {
+              await AsyncStorage.setItem(
+                consumptionEventsCacheKey(user.id, dateForFetchStr),
+                JSON.stringify(mergedMap)
+              );
+            }
+          } catch (e) {
           }
-        } catch (e) {
         }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to refresh consumption data. Please try again.');
+      // #region agent log
+      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H4',location:'HabitLoggingScreen.js:refreshConsumptionEvents',message:'refresh unexpected catch',data:{errMsg:error?.message||String(error)},timestamp:Date.now()})}).catch(()=>{});
+      console.warn('[debug-940b49] refreshConsumptionEvents catch', error?.message || error);
+      // #endregion
+      const msg = String(error?.message || error || '');
+      const isNetwork = /network|fetch|failed|offline|timeout|abort/i.test(msg);
+      if (!isNetwork) {
+        Alert.alert('Error', 'Failed to refresh consumption data. Please try again.');
+      }
     }
   };
 
   refreshConsumptionEventsRef.current = refreshConsumptionEvents;
+
+  useEffect(() => {
+    const unsub = offlineWriteQueueService.subscribeFlush((detail) => {
+      if (
+        detail?.type === offlineWriteQueueService.ACTION_TYPES.CONSUMPTION_CREATE ||
+        detail?.type === offlineWriteQueueService.ACTION_TYPES.CONSUMPTION_UPDATE
+      ) {
+        if (user?.id && detail?.habitId) {
+          drugLevelService.invalidateLevelNowCache(user.id, detail.habitId);
+        }
+        setLevelRefreshKey((k) => k + 1);
+        refreshConsumptionEventsRef.current?.();
+      }
+    });
+    return unsub;
+  }, [user?.id]);
 
   const handleConsumptionAdded = useCallback((habitId) => {
     drugLevelService.invalidateLevelNowCache(user?.id, habitId);
@@ -715,7 +791,19 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     navigation.navigate('LogConsumption', {
       ...params,
       userId: user?.id,
-      onSaveSuccess: () => {
+      onSaveSuccess: (result) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H4-H5',location:'HabitLoggingScreen.js:onSaveSuccess',message:'post-save refresh triggered',data:{habitId,hasOptimistic:!!result?.optimisticEvent},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        if (result?.optimisticEvent) {
+          const ev = result.optimisticEvent;
+          setConsumptionEvents((prev) => {
+            const hid = ev.habit_id;
+            const list = prev[hid] || [];
+            const next = list.filter((e) => e.id !== ev.id);
+            return { ...prev, [hid]: [...next, ev] };
+          });
+        }
         drugLevelService.invalidateLevelNowCache(user?.id, habitId);
         setLevelRefreshKey((k) => k + 1);
         refreshConsumptionEventsRef.current?.();
@@ -1379,6 +1467,7 @@ const HabitLoggingRow = React.memo(function HabitLoggingRow({
                 selectedDate={selectedDate}
                 compact
                 levelRefreshKey={levelRefreshKey}
+                localConsumptionEvents={Array.isArray(habitLogValue) ? habitLogValue : null}
               >
                 <ConsumptionLoggedList
                   habit={habit}

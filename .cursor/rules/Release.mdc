@@ -39,6 +39,8 @@ This repo uses **four** workflows so **Expo EAS build quota** is not spent on ev
 
 **Typical release sequence after merging to `main`:** wait for **Auto Version Bump** to finish (green) → run **Android APK**, **Android Play Bundle (AAB)**, and/or **iOS TestFlight** manual workflows only for what you want to ship this cycle.
 
+**Ship iOS and Android in one cycle:** After a single merge, both platforms should use the **same** post-bump commit on **`main`** (e.g. **`Release v1.328.x [skip ci]`**). Run **iOS TestFlight Release** and **Android Play Bundle (AAB)** (and/or **Android Production Build** for APK) from that commit — do not run one workflow on an older SHA than the other.
+
 ---
 
 ## End-to-end workflow (high level)
@@ -215,6 +217,62 @@ git push origin feature/your-feature-name
 
 **Why:** Reduces accidental production breaks, keeps review and CI in the loop.
 
+### After merge or shipping TestFlight / Play: sync local `main`
+
+GitHub **`main`** moves ahead with the merge commit and the bot’s **Auto Version Bump** (`Release v1.328.x [skip ci]`). Update your Mac checkout before starting the next feature branch:
+
+```bash
+cd /Users/joshr/Documents/SleepFactor
+git checkout main
+git pull origin main
+```
+
+Confirm you are on the bump commit (check **`package.json`** **`version`** matches **`app.config.js`** **`ios.buildNumber`** / **`android.versionCode`**). Optional cleanup after a merged feature branch:
+
+```bash
+git branch -d feature/your-feature-name    # local branch, if fully merged
+git fetch --prune
+```
+
+**Starting the next feature:** branch from the updated **`main`**, not from an old local commit or a stale feature branch.
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b feature/your-next-feature
+```
+
+---
+
+## Recent production releases (reference for humans & LLMs)
+
+Use this table when explaining what testers should already have, or which areas changed in a shipped binary. **JS-only** fixes after a release may still need a **new EAS build** for TestFlight/Play testers unless **EAS Update** is confirmed for that change.
+
+| App version (`package.json`) | iOS build / Android `versionCode` | Merged | Shipped (typical) | Summary |
+|-----------------------------|-----------------------------------|--------|-------------------|---------|
+| **1.328.17** | **1343** | PR **#65** `feature/habit-view` (May 2026) | TestFlight + Play **AAB** (manual Actions on `main` after bump) | **Habit timeline** screen (chart + sleep metric picker), refreshed **Insights** headlines/cards, **habit logging overlay** from Home, shared **press feedback** / light haptics on key actions. **No new Supabase migrations** in this release. |
+
+---
+
+## Feature area: Habit insights & timeline (LLM map)
+
+When changing habit/sleep insight UI or data, start in these places (all **JS** — same behavior expected on **iOS and Android** unless a platform bug is filed):
+
+| Area | Primary files |
+|------|----------------|
+| **Timeline screen** | `screens/HabitTimelineScreen.js`, `services/habitTimelineService.js`, `utils/habitSleepPairing.js` |
+| **Timeline UI** | `components/HabitTimelineChart.js`, `HabitTimelineMetricPicker.js`, `HabitTimelineInsightSummary.js` |
+| **Insights list & navigation** | `screens/InsightsScreen.js`, `navigation/InsightsStack.js` (route **`HabitTimeline`**) |
+| **Entry from Home / habits** | `screens/HomeScreen.js`, `screens/HabitManagementScreen.js` |
+| **Insight copy / headlines** | `utils/insightDisplayHeadline.js`, `components/InsightHeadlineText.js`, `components/HabitInsightRelationshipSection.js`, `services/insightsService.js`, `services/insightsPersistentCache.js` |
+| **Habit logging overlay** | `navigation/HabitLoggingOverlayHost.js`, `navigation/HomeStackWrapper.js` |
+| **Shared interaction** | `components/PressableFeedback.js`, `utils/haptics.js` (`expo-haptics` — already in prod native binary) |
+| **Stack transitions** | `navigation/transitionOptions.js` |
+
+**How testers reach the timeline (production or dev):** **Insights** tab → open a habit insight → timeline; **Habits** management → habit row; **Home** → relevant sleep/habit insight paths that deep-link to **`HabitTimeline`**.
+
+**Dev vs production testers:** Metro + **SleepFactor Dev** is enough while building on a feature branch. **TestFlight** and **Play** testers need the **new binary** (or a confirmed **EAS Update** on the production channel) — reloading Metro does not update their installed app.
+
 ---
 
 ## Development testing checklist
@@ -225,6 +283,7 @@ git push origin feature/your-feature-name
 - [ ] Dev server (**tunnel** or **LAN**) connects; live reload works on **SleepFactor Dev**
 - [ ] Production **APK** path understood: **Android Production Build** → APK from **EAS** (optional **GitHub Release** link for testers)
 - [ ] Play **AAB** path understood: **Android Play Bundle (AAB)** → **.aab** from **EAS** → upload in **Play Console** testing tracks
+- [ ] **Habit timeline / insights** (if touched): Insights → habit → timeline; habit management row; overlay logging from Home; metric picker and chart with real habit + sleep history
 
 ---
 
@@ -241,6 +300,11 @@ git push origin feature/your-feature-name
 - [ ] **iOS TestFlight Release** workflow (or local **`eas build`**) **production** succeeded
 - [ ] **`eas submit`** (in workflow or locally) succeeded; build **processed** in App Store Connect
 - [ ] TestFlight **internal**/**external** groups point at the new build
+
+**After binaries are live:**
+
+- [ ] Local **`main`** pulled (`git checkout main && git pull origin main`)
+- [ ] Testers on **TestFlight** / **Play** have installed the build matching **`package.json`** version (e.g. **1.328.17**) before reporting “missing feature” bugs
 
 ---
 
@@ -285,7 +349,11 @@ git push origin main
 ## Quick command reference
 
 ```bash
-# Feature work
+# Sync after GitHub merge / release
+git checkout main
+git pull origin main
+
+# Feature work (branch from up-to-date main)
 git checkout -b feature/your-feature-name
 
 # Dev testing
@@ -318,8 +386,9 @@ npx eas-cli credentials -p ios
 
 | Stage | Action |
 |-------|--------|
-| Dev | Branch → **SleepFactor Dev** + `expo start --dev-client` (tunnel/LAN) |
+| Dev | Branch from **`main`** → **SleepFactor Dev** + `expo start --dev-client` (tunnel/LAN) |
 | Merge | PR → **`main`** → **Auto Version Bump** (version + iOS build + Android versionCode) |
+| Sync Mac | `git checkout main && git pull origin main` (match GitHub + bump commit) |
 | Android prod APK | **Actions → Android Production Build** (manual) → EAS APK |
 | Android Play AAB | **Actions → Android Play Bundle (AAB)** (manual) → EAS **.aab** → Play Console |
 | iOS beta | **Actions → iOS TestFlight Release** (manual) → EAS build → submit → **TestFlight** groups |

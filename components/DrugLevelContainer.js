@@ -25,7 +25,15 @@ const CHART_HEIGHT = 160;
  * Used on Home (Caffeine / Alcohol) and in Log tab inside the habit block.
  * When selectedDate is passed and is not today, shows level at bedtime (same figure used for insight analysis).
  */
-const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = false, levelRefreshKey = 0, children = null }) => {
+const DrugLevelContainer = ({
+  habit,
+  userId,
+  selectedDate = null,
+  compact = false,
+  levelRefreshKey = 0,
+  localConsumptionEvents = null,
+  children = null,
+}) => {
   const { formatTime } = useUserPreferences();
   const [expanded, setExpanded] = useState(false);
   const [levelNow, setLevelNow] = useState(null);
@@ -41,6 +49,14 @@ const DrugLevelContainer = ({ habit, userId, selectedDate = null, compact = fals
     : (typeof selectedDate === 'string' ? selectedDate.split('T')[0] : null);
   const todayStr = formatDateForDB(new Date());
   const isViewingToday = !dateStr || dateStr === todayStr;
+
+  useEffect(() => {
+    if (!isViewingToday || !habit?.id || !Array.isArray(localConsumptionEvents) || localConsumptionEvents.length === 0) {
+      return;
+    }
+    const local = drugLevelService.computeLevelNowFromEvents(localConsumptionEvents, habit);
+    setLevelNow(local);
+  }, [isViewingToday, habit?.id, habit?.half_life_hours, habit?.unit, localConsumptionEvents, levelRefreshKey]);
 
   useEffect(() => {
     if (!habit?.id || !userId) {

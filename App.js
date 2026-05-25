@@ -132,6 +132,9 @@ export default Sentry.wrap(function App() {
       if (nextState === 'active') {
         habitReminderNotifications.rescheduleIfEnabled();
         morningCheckinNotifications.rescheduleIfEnabled();
+        // #region agent log
+        fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H5',location:'App.js:AppState',message:'app active, flush queue',data:{},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         offlineWriteQueueService.flushNow();
       }
     });
