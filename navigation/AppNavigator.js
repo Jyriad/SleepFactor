@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { NavigationContainer, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, ActivityIndicator, StyleSheet, Platform } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Platform, InteractionManager } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../contexts/AuthContext';
 import SplashContext from '../contexts/SplashContext';
@@ -18,7 +18,7 @@ import {
 } from '../services/onboardingEligibilityService';
 import AuthScreen from '../screens/AuthScreen';
 import TabNavigator from './TabNavigator';
-import { STACK_SLIDE_SCREEN_OPTIONS } from './transitionOptions';
+import { STACK_SLIDE_SCREEN_OPTIONS, SHEET_LARGE_OPTIONS, SHEET_MEDIUM_LARGE_OPTIONS } from './transitionOptions';
 import OnboardingNavigator from './OnboardingNavigator';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import { TutorialProvider } from '../contexts/TutorialContext';
@@ -31,7 +31,7 @@ import {
 } from '../services/onboardingAnalytics';
 import { runHealthMetricsMergedTotalsBackfillIfNeeded } from '../services/healthMetricsMergedTotalsBackfill';
 
-const AccountScreen = lazy(() => import('../screens/AccountScreen'));
+const ProfileScreen = lazy(() => import('../screens/ProfileScreen'));
 const AddHabitScreen = lazy(() => import('../screens/AddHabitScreen'));
 const EditHabitScreen = lazy(() => import('../screens/EditHabitScreen'));
 const DeleteHabitScreen = lazy(() => import('../screens/DeleteHabitScreen'));
@@ -117,13 +117,23 @@ const AppNavigator = ({ navigationRef }) => {
     };
   }, [loading, user?.id]);
 
-  // One-time wearable metrics backfill (corrects legacy double-counted iOS samples + local date buckets).
+  // One-time wearable metrics backfill — deferred until Home is idle so launch sync + dashboard win first.
   useEffect(() => {
     if (!user?.id || !onboardingComplete) return undefined;
-    const t = setTimeout(() => {
-      runHealthMetricsMergedTotalsBackfillIfNeeded(user.id).catch(() => {});
-    }, 3500);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    let idleHandle = null;
+    const delayHandle = setTimeout(() => {
+      idleHandle = InteractionManager.runAfterInteractions(() => {
+        if (!cancelled) {
+          runHealthMetricsMergedTotalsBackfillIfNeeded(user.id).catch(() => {});
+        }
+      });
+    }, 15000);
+    return () => {
+      cancelled = true;
+      clearTimeout(delayHandle);
+      idleHandle?.cancel?.();
+    };
   }, [user?.id, onboardingComplete]);
 
   const initialRoute = isAuthenticated && user ? 'MainTabs' : 'Auth';
@@ -177,7 +187,7 @@ const AppNavigator = ({ navigationRef }) => {
       if (Platform.OS === 'android') {
         const isInMainTabs =
           name === 'MainTabs' &&
-          ['Home', 'Habits', 'Insights', 'Profile'].includes(currentScreenName);
+          ['Home', 'Journal', 'Sleep', 'Insights'].includes(currentScreenName);
         if (isInMainTabs) {
           applyAndroidStatusBarForFrostedHeader();
         }
@@ -283,23 +293,27 @@ const AppNavigator = ({ navigationRef }) => {
                         options={{ statusBarTranslucent: true }}
                       />
                       <Stack.Screen
+                        name="Profile"
+                        component={ProfileScreen}
+                        options={SHEET_LARGE_OPTIONS}
+                      />
+                      <Stack.Screen
                         name="AddHabit"
                         component={AddHabitScreen}
-                        options={{ presentation: 'modal' }}
+                        options={SHEET_LARGE_OPTIONS}
                       />
                       <Stack.Screen
                         name="EditHabit"
                         component={EditHabitScreen}
-                        options={{ presentation: 'modal' }}
+                        options={SHEET_LARGE_OPTIONS}
                       />
                       <Stack.Screen
                         name="DeleteHabit"
                         component={DeleteHabitScreen}
-                        options={{ presentation: 'modal' }}
+                        options={SHEET_LARGE_OPTIONS}
                       />
-                      <Stack.Screen name="Account" component={AccountScreen} />
-                      <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} />
-                      <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} />
+                      <Stack.Screen name="SleepDataReview" component={SleepDataReviewScreen} options={SHEET_LARGE_OPTIONS} />
+                      <Stack.Screen name="HabitDataReview" component={HabitDataReviewScreen} options={SHEET_LARGE_OPTIONS} />
                     </>
                   ) : (
                     <>

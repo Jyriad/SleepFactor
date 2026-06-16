@@ -17,6 +17,8 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import sleepDataService from '../services/sleepDataService';
+import habitLoggedDatesService from '../services/habitLoggedDatesService';
+import { subscribeDateStripLoggedRefresh } from '../services/dateStripBadgeRefresh';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import {
@@ -68,7 +70,6 @@ function calendarMonthAnchorForSelection(selectedDayKey, todayDayKey) {
 const DateHeader = ({
   selectedDate,
   onDateChange,
-  loggedDates = [],
   leftElement = null,
   rightElement = null,
   showTodayButton = true,
@@ -77,14 +78,16 @@ const DateHeader = ({
   sleepStripRefreshKey = 0,
   onExpandChange,
   /**
-   * Top row + drawer height (pixels) for scroll padding under overlay headers.
-   * Uses layout + drawer constants because Reanimated height does not always refresh parent onLayout.
+   * Collapsed chrome height (top row + strip + handle) for scroll padding under overlay headers.
+   * Always reports collapsed height so the calendar drawer expands over content instead of pushing it.
    */
   onChromeHeightChange,
   /** Light frosted header: dark text/icons (pair with GlassChromeBar) */
   glass = false,
 }) => {
   const [stripSleepDates, setStripSleepDates] = useState([]);
+  const [stripLoggedDates, setStripLoggedDates] = useState([]);
+  const [habitStripRefreshKey, setHabitStripRefreshKey] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [topRowHeight, setTopRowHeight] = useState(0);
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -144,11 +147,16 @@ const DateHeader = ({
     setCurrentMonth(calendarMonthAnchorForSelection(selectedCalendarDayKey, todayStr));
   }, [isExpanded, selectedCalendarDayKey, todayStr]);
 
-  /** Keep bed icons for days still in the strip when the week window changes; avoids a blank flash until the new range fetch returns. */
+  useEffect(() => subscribeDateStripLoggedRefresh(() => {
+    setHabitStripRefreshKey((key) => key + 1);
+  }), []);
+
+  /** Keep strip badges for days still visible when the week window changes; avoids a blank flash until the new range fetch returns. */
   useEffect(() => {
     if (!stripRangeKey) return;
     const allowed = new Set(stripDates.map((x) => x.date));
     setStripSleepDates((prev) => prev.filter((d) => allowed.has(d)));
+    setStripLoggedDates((prev) => prev.filter((d) => allowed.has(d)));
   }, [stripRangeKey]);
 
   useEffect(() => {
@@ -156,10 +164,11 @@ const DateHeader = ({
     const start = stripDates[0].date;
     const end = stripDates[stripDates.length - 1].date;
     let cancelled = false;
-    const opts = { cacheNonce: sleepStripRefreshKey };
+    const sleepOpts = { cacheNonce: sleepStripRefreshKey };
+    const habitOpts = { cacheNonce: habitStripRefreshKey };
 
     sleepDataService
-      .fetchVisibleSleepDatesForStrip(start, end, opts)
+      .fetchVisibleSleepDatesForStrip(start, end, sleepOpts)
       .then((dates) => {
         if (cancelled) return;
         setStripSleepDates(Array.isArray(dates) ? dates : []);
@@ -167,17 +176,35 @@ const DateHeader = ({
       .catch(() => {
         if (cancelled) return;
         sleepDataService
-          .getSleepDataForRange(start, end, opts)
+          .getSleepDataForRange(start, end, sleepOpts)
           .then((data) => {
             if (cancelled) return;
             setStripSleepDates((data || []).map((r) => r.date));
           })
           .catch(() => {});
       });
+
+    habitLoggedDatesService
+      .fetchVisibleLoggedDatesForStrip(start, end, habitOpts)
+      .then((dates) => {
+        if (cancelled) return;
+        setStripLoggedDates(Array.isArray(dates) ? dates : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.log('[DateHeader] habit strip logged dates fetch failed:', err?.message || err);
+        setStripLoggedDates([]);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [stripDates[0]?.date, stripDates[stripDates.length - 1]?.date, sleepStripRefreshKey]);
+  }, [
+    stripDates[0]?.date,
+    stripDates[stripDates.length - 1]?.date,
+    sleepStripRefreshKey,
+    habitStripRefreshKey,
+  ]);
 
   const handleTodayPress = () => {
     onDateChange(new Date(todayStr + 'T12:00:00'));
@@ -207,9 +234,8 @@ const DateHeader = ({
   const reportChromeHeight = useCallback(() => {
     if (!onChromeHeightChange) return;
     const row = topRowHeight > 0 ? topRowHeight : TOP_ROW_HEIGHT_FALLBACK;
-    const drawer = isExpanded ? EXPANDED_DRAWER_HEIGHT : COLLAPSED_DRAWER_HEIGHT;
-    onChromeHeightChange(row + drawer);
-  }, [isExpanded, topRowHeight, onChromeHeightChange]);
+    onChromeHeightChange(row + COLLAPSED_DRAWER_HEIGHT);
+  }, [topRowHeight, onChromeHeightChange]);
 
   useEffect(() => {
     reportChromeHeight();
@@ -348,7 +374,7 @@ const DateHeader = ({
             <View style={styles.stripRow}>
               {stripDates.map((dateItem) => {
                 const isSelected = dateItem.date === selectedDateStr;
-                const isLogged = loggedDates.includes(dateItem.date);
+                const isLogged = stripLoggedDates.includes(dateItem.date);
                 const hasSleep = stripSleepDates.includes(dateItem.date);
                 const stripDayStatus =
                   isLogged && hasSleep ? 'complete' : isLogged || hasSleep ? 'partial' : 'empty';

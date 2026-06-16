@@ -1,5 +1,5 @@
 // Authentication context for global auth state management
-import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSession, onAuthStateChange } from '../services/auth';
 import { supabase } from '../services/supabase';
@@ -137,12 +137,15 @@ export const AuthProvider = ({ children }) => {
     }
   }, [loading, user?.id]);
 
-  const value = {
-    user,
-    session,
-    loading,
-    isAuthenticated: !!user,
-  };
+  const value = useMemo(
+    () => ({
+      user,
+      session,
+      loading,
+      isAuthenticated: !!user,
+    }),
+    [user, session, loading]
+  );
 
   return (
     <AuthContext.Provider value={value}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,16 +7,12 @@ import {
   ScrollView,
   TouchableOpacity,
   InteractionManager,
-  Dimensions,
-  LayoutAnimation,
-  UIManager,
-  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import Constants from 'expo-constants';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import Animated, { FadeIn, FadeOut, LinearTransition, useAnimatedRef } from 'react-native-reanimated';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import Animated, { LinearTransition, useAnimatedRef } from 'react-native-reanimated';
 import Sortable from 'react-native-sortables';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -34,9 +30,14 @@ import PressableFeedback from '../components/PressableFeedback';
 import { buttonStyles } from '../constants/buttonStyles';
 import PageLoadingView from '../components/PageLoadingView';
 import GlassChromeBar from '../components/GlassChromeBar';
-import AppToggle from '../components/AppToggle';
 import HabitTrackingControl from '../components/HabitTrackingControl';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
+import AppSheetLayout from '../components/AppSheetLayout';
+import NestedSheetOverlay from '../components/NestedSheetOverlay';
+import HabitActionsBottomSheet from '../components/HabitActionsBottomSheet';
+import { EditHabitPanel } from '../screens/EditHabitScreen';
+import { AddHabitPanel } from '../screens/AddHabitScreen';
+import { DeleteHabitPanel } from '../screens/DeleteHabitScreen';
 
 // Always available habits (manual section only; excludes inferred)
 const ALWAYS_AVAILABLE_HABITS = [
@@ -66,14 +67,29 @@ const INFERRED_HABITS = [
 ];
 
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const HabitManagementScreen = () => {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
-  const headerTopPadding = Math.max(spacing.regular, topInset);
   const navigation = useNavigation();
+  const route = useRoute();
+  const isSheet = route.params?.asSheet === true;
+  // AppSheetLayout adds horizontal padding; fixed full-screen widths overflow inside the sheet.
+  const sheetBodyInset = spacing.regular * 2;
+  const listWidth = isSheet ? windowWidth - sheetBodyInset : windowWidth;
+  const cardWidth = isSheet ? listWidth : windowWidth - spacing.regular * 2;
+  const listBottomPad = isSheet
+    ? Math.max(insets.bottom, spacing.md) + spacing.lg
+    : tabBarHeight + 96;
+  const cardOuterStyle = useMemo(
+    () => [styles.cardWrapper, isSheet && styles.cardWrapperInSheet, { width: cardWidth }],
+    [isSheet, cardWidth]
+  );
+  const footerSectionStyle = useMemo(
+    () => [styles.footerSection, isSheet && styles.footerSectionInSheet],
+    [isSheet]
+  );
 
   useEffect(() => {
     applyAndroidStatusBarForFrostedHeader();
@@ -88,17 +104,12 @@ const HabitManagementScreen = () => {
   const [manualHabits, setManualHabits] = useState([]);
   const [automaticHabits, setAutomaticHabits] = useState([]);
   const [inferredHabits, setInferredHabits] = useState([]);
-  const [untrackedHabits, setUntrackedHabits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [expandedHabitId, setExpandedHabitId] = useState(null);
+  const [selectedHabit, setSelectedHabit] = useState(null);
+  const [actionsMenuVisible, setActionsMenuVisible] = useState(false);
+  const [nestedSheet, setNestedSheet] = useState(null);
   const lastRefreshTriggerRef = useRef(getHabitsRefreshTrigger());
-
-  useEffect(() => {
-    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-      UIManager.setLayoutAnimationEnabledExperimental(true);
-    }
-  }, []);
 
   const closeAllSwipeables = useCallback(() => {}, []);
 
@@ -274,7 +285,8 @@ const HabitManagementScreen = () => {
       });
 
       const validManual = sortedManual.filter(habit => habit && (habit.id || habit.name));
-      const validInferred = inferred.filter(habit => habit && (habit.id || habit.name));
+      const validInferred = inferred
+        .filter(habit => habit && (habit.id || habit.name));
 
       // Only automatic rows for metrics that already have wearable data (HC lookback or existing logs)
       let validAutomatic = [];
@@ -304,7 +316,6 @@ const HabitManagementScreen = () => {
       setManualHabits(validManual);
       setAutomaticHabits(validAutomatic);
       setInferredHabits(validInferred);
-      setUntrackedHabits([]);
       setDataLoaded(true);
     } catch (error) {
       Alert.alert('Error', 'Failed to load habits');
@@ -593,35 +604,6 @@ const HabitManagementScreen = () => {
     }
   };
 
-  const toggleAutomaticHabit = async (habit) => {
-    if (!user) return;
-
-    try {
-      const newActiveState = habit.is_active === false; // Toggle from current state
-
-      const { error } = await supabase
-        .from('habits')
-        .update({ is_active: newActiveState })
-        .eq('id', habit.id);
-
-      if (error) throw error;
-
-      insightsService.invalidateHomeSummaryCache();
-
-      // Update local state
-      setAutomaticHabits(prev =>
-        prev.map(h =>
-          h.id === habit.id
-            ? { ...h, is_active: newActiveState }
-            : h
-        )
-      );
-
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update habit tracking');
-    }
-  };
-
   const toggleInferredHabit = async (habit) => {
     if (!user || !habit.id || String(habit.id).startsWith('placeholder-')) return;
 
@@ -665,16 +647,17 @@ const HabitManagementScreen = () => {
     }
   };
 
-  const toggleLogAsNoByDefault = async (habit) => {
+  const toggleLogAsNoByDefault = async (habit, nextValue) => {
     if (!user || !habit.id || habit.id.startsWith('predef-')) return;
 
-    const newValue = !(habit.log_as_no_by_default === true);
+    const newValue =
+      typeof nextValue === 'boolean' ? nextValue : !(habit.log_as_no_by_default === true);
 
-    // Update UI immediately so the switch doesn’t flicker
-    setManualHabits(prev =>
-      prev.map(h =>
-        h.id === habit.id ? { ...h, log_as_no_by_default: newValue } : h
-      )
+    setManualHabits((prev) =>
+      prev.map((h) => (h.id === habit.id ? { ...h, log_as_no_by_default: newValue } : h))
+    );
+    setSelectedHabit((prev) =>
+      prev?.id === habit.id ? { ...prev, log_as_no_by_default: newValue } : prev
     );
 
     try {
@@ -758,8 +741,32 @@ const HabitManagementScreen = () => {
 
 
 
+  const closeNestedSheet = useCallback(() => {
+    setNestedSheet(null);
+  }, []);
+
+  // If the system tries to dismiss Manage habits while add/edit is open, block it.
+  useEffect(() => {
+    if (!isSheet) return undefined;
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (nestedSheet) {
+        event.preventDefault();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, isSheet, nestedSheet]);
+
+  const handleNestedSuccess = useCallback(() => {
+    loadHabits(true);
+    closeNestedSheet();
+  }, [closeNestedSheet]);
+
   // Handler functions for custom habit modals
   const openAddHabit = () => {
+    if (isSheet) {
+      setNestedSheet({ type: 'add' });
+      return;
+    }
     navigation.navigate('AddHabit', {
       onSuccess: () => {
         loadHabits(true);
@@ -768,8 +775,12 @@ const HabitManagementScreen = () => {
   };
 
   const openEditHabit = (habit) => {
-    // Allow editing for custom habits OR drug habits (Caffeine, Alcohol)
     if (habit.is_custom || habit.type === 'quick_consumption') {
+      closeHabitActions();
+      if (isSheet) {
+        setNestedSheet({ type: 'edit', habit });
+        return;
+      }
       navigation.navigate('EditHabit', {
         habit: habit,
         onSuccess: () => {
@@ -781,6 +792,11 @@ const HabitManagementScreen = () => {
 
   const openDeleteHabit = (habit) => {
     if (habit.is_custom) {
+      closeHabitActions();
+      if (isSheet) {
+        setNestedSheet({ type: 'delete', habit });
+        return;
+      }
       navigation.navigate('DeleteHabit', {
         habit: habit,
         onSuccess: () => {
@@ -790,11 +806,52 @@ const HabitManagementScreen = () => {
     }
   };
 
-  const toggleHabitExpanded = (habitId) => {
-    if (!habitId) return;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpandedHabitId(prev => (prev === habitId ? null : habitId));
-  };
+  const openHabitActions = useCallback((habit) => {
+    if (!habit) return;
+    setSelectedHabit(habit);
+    setActionsMenuVisible(true);
+  }, []);
+
+  const closeHabitActions = useCallback(() => {
+    setActionsMenuVisible(false);
+    setSelectedHabit(null);
+  }, []);
+
+  const openHabitTimeline = useCallback(
+    (habit) => {
+      if (!habit?.id) return;
+      closeHabitActions();
+      InteractionManager.runAfterInteractions(() => {
+        navigation.getParent()?.navigate('Insights', {
+          screen: 'HabitTimeline',
+          params: {
+            habitId: habit.id,
+            metricKey: 'total_sleep_minutes',
+            analysisMode: 'absolute',
+          },
+        });
+      });
+    },
+    [navigation, closeHabitActions]
+  );
+
+  const actionMenuHabit = useMemo(() => {
+    if (!selectedHabit) return null;
+    if (!selectedHabit.id) return selectedHabit;
+    return manualHabits.find((h) => h.id === selectedHabit.id) ?? selectedHabit;
+  }, [selectedHabit, manualHabits]);
+
+  const manageHabitsHeaderRight = isSheet ? (
+    <TouchableOpacity
+      onPress={openAddHabit}
+      style={styles.headerAddButton}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel="Add habit"
+    >
+      <Ionicons name="add" size={28} color={colors.primary} />
+    </TouchableOpacity>
+  ) : null;
 
   const getHabitTypeDescription = (habit) => {
     const typeDescriptions = {
@@ -807,155 +864,77 @@ const HabitManagementScreen = () => {
     return typeDescriptions[habit.type] || habit.type;
   };
 
-  const getHabitTypeDisplayName = (type) => {
-    const typeNames = {
-      binary: 'Yes/No',
-      numeric: 'Numeric',
-      time: 'Time',
-      drug: 'Drug',
-      quick_consumption: 'Quick Consumption'
-    };
-    return typeNames[type] || type;
-  };
-
-  const renderSortableHabitRow = useCallback((habit) => {
+  const renderManualHabitRow = useCallback((habit, sortable = false) => {
     if (!habit) return null;
 
-    const isCustom = habit.is_custom === true || habit.is_custom === 'true';
-
-    const habitId = habit.id || habit.name;
-    const isExpanded = expandedHabitId === habitId;
-
-    return (
-      <Animated.View layout={LinearTransition.duration(260)} style={styles.cardWrapper}>
-        <View style={styles.habitCard}>
-          <View style={styles.cardContent}>
+    const cardBody = (
+      <View style={styles.habitCard}>
+        <View style={styles.cardContent}>
+          {sortable ? (
             <View style={styles.dragHandleColumn} accessibilityLabel="Reorder habit">
-              <Ionicons name="reorder-three-outline" size={18} color={colors.textSecondary} />
+              <Sortable.Handle>
+                <Ionicons name="reorder-three-outline" size={18} color={colors.textSecondary} />
+              </Sortable.Handle>
             </View>
+          ) : null}
 
-            <View style={styles.cardRightColumn}>
-              <TouchableOpacity style={styles.cardMainContent} onPress={() => toggleHabitExpanded(habitId)} activeOpacity={0.85}>
-                <View style={styles.habitHeaderCompact}>
-                  <View style={styles.nameContainerCompact}>
-                    <Text style={styles.habitName}>{habit.name}</Text>
-                  </View>
-                  <View style={styles.statusAndChevronRow}>
-                    <HabitTrackingControl
-                      tracking={habit.is_active !== false}
-                      onPress={() => toggleHabitTracking(habit)}
-                    />
-                    <TouchableOpacity
-                      style={styles.chevronButton}
-                      onPress={() => toggleHabitExpanded(habitId)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                        size={22}
-                        color={colors.textSecondary}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
+          <View style={styles.cardRightColumnStatic}>
+            <View style={styles.cardMainRow}>
+              <View style={styles.cardTextColumn}>
+                <Text style={styles.habitName}>{habit.name}</Text>
                 <Text style={styles.habitTypeLine}>
                   {getHabitTypeDescription(habit)}
                 </Text>
-              </TouchableOpacity>
-
-              {isExpanded ? (
-                <Animated.View
-                  entering={FadeIn.duration(200)}
-                  exiting={FadeOut.duration(160)}
-                  style={styles.expandedSectionContainer}
+              </View>
+              <View style={styles.statusAndChevronRow}>
+                <HabitTrackingControl
+                  tracking={habit.is_active !== false}
+                  onPress={() => toggleHabitTracking(habit)}
+                />
+                <TouchableOpacity
+                  style={styles.chevronButton}
+                  onPress={() => openHabitActions(habit)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${habit.name} settings`}
                 >
-                <View style={styles.expandedSection}>
-                  {(habit.type === 'binary' || habit.type === 'quick_consumption') && (
-                    <View style={styles.expandedSwitchRow}>
-                      <Text style={styles.expandedSwitchLabel}>
-                        {habit.type === 'quick_consumption'
-                          ? 'Log as "none" by default'
-                          : 'Log as "no" by default'}
-                      </Text>
-                      <AppToggle
-                        value={habit.log_as_no_by_default === true}
-                        onValueChange={() => toggleLogAsNoByDefault(habit)}
-                      />
-                    </View>
-                  )}
-
-                  {habit.is_active !== false && habit.id && (
-                    <TouchableOpacity
-                      style={styles.viewOverTimeButton}
-                      onPress={() =>
-                        navigation.navigate('Insights', {
-                          screen: 'HabitTimeline',
-                          params: {
-                            habitId: habit.id,
-                            metricKey: 'total_sleep_minutes',
-                            analysisMode: 'absolute',
-                          },
-                        })
-                      }
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="analytics-outline" size={18} color={colors.primary} />
-                      <Text style={styles.viewOverTimeButtonText} numberOfLines={1}>
-                        {habit.name}
-                      </Text>
-                      <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-                    </TouchableOpacity>
-                  )}
-
-                  {(isCustom || habit.type === 'quick_consumption') && (
-                    <View style={styles.expandedActionBar}>
-                      {(isCustom || habit.type === 'quick_consumption') && (
-                        <PressableFeedback
-                          style={styles.expandedActionBarButton}
-                          pressedStyle={buttonStyles.outlinePressed}
-                          onPress={() => openEditHabit(habit)}
-                        >
-                          <Ionicons name="pencil" size={18} color={colors.primary} />
-                          <Text style={styles.expandedActionBarButtonText}>Edit</Text>
-                        </PressableFeedback>
-                      )}
-                      {isCustom && (
-                        <PressableFeedback
-                          style={styles.expandedActionBarButton}
-                          pressedStyle={buttonStyles.outlinePressed}
-                          onPress={() => openDeleteHabit(habit)}
-                        >
-                          <Ionicons name="trash-outline" size={18} color={colors.error} />
-                          <Text style={[styles.expandedActionBarButtonText, styles.expandedActionBarButtonDanger]}>
-                            Delete
-                          </Text>
-                        </PressableFeedback>
-                      )}
-                    </View>
-                  )}
-                </View>
-                </Animated.View>
-              ) : null}
+                  <Ionicons name="settings-outline" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
-      </Animated.View>
+      </View>
     );
+
+    if (sortable) {
+      return (
+        <Animated.View
+          layout={LinearTransition.duration(260)}
+          style={cardOuterStyle}
+        >
+          {cardBody}
+        </Animated.View>
+      );
+    }
+
+    return <View style={cardOuterStyle}>{cardBody}</View>;
   }, [
-    expandedHabitId,
-    closeAllSwipeables,
-    toggleHabitExpanded,
     toggleHabitTracking,
-    toggleLogAsNoByDefault,
-    openEditHabit,
-    openDeleteHabit,
+    openHabitActions,
+    cardOuterStyle,
   ]);
+
+  const renderSortableHabitRow = useCallback(
+    (habit) => renderManualHabitRow(habit, true),
+    [renderManualHabitRow]
+  );
 
   const footerAutomaticBlock =
     automaticHabits.length > 0 ? (
-      <View style={styles.footerSection}>
-        <View style={styles.sectionHeader}>
+      <View style={footerSectionStyle}>
+        <View style={[styles.sectionHeader, isSheet && styles.sectionHeaderInSheet]}>
           <Text style={styles.sectionTitle}>Automatic Habits</Text>
           <Text style={styles.sectionSubtitle}>
             Habits automatically tracked from your sleep and health data
@@ -972,7 +951,7 @@ const HabitManagementScreen = () => {
           if (!healthMetric) return null;
           const active = habit.is_active !== false;
           return (
-            <View key={habit.id || healthMetric.key || habit.name} style={styles.cardWrapper}>
+            <View key={habit.id || healthMetric.key || habit.name} style={cardOuterStyle}>
               <View style={styles.habitCard}>
                 <View style={styles.cardContent}>
                   <View style={styles.dragHandleColumn}>
@@ -1002,8 +981,8 @@ const HabitManagementScreen = () => {
 
   const footerInferredBlock =
     inferredHabits.length > 0 ? (
-      <View style={styles.footerSection}>
-        <View style={styles.sectionHeader}>
+      <View style={footerSectionStyle}>
+        <View style={[styles.sectionHeader, isSheet && styles.sectionHeaderInSheet]}>
           <Text style={styles.sectionTitle}>Inferred Habits</Text>
           <Text style={styles.sectionSubtitle}>
             Values derived from your automatic habits (e.g. bedtime from sleep, exercise time from heart rate)
@@ -1013,7 +992,7 @@ const HabitManagementScreen = () => {
           const config = INFERRED_HABITS.find((h) => h.name === habit.name);
           const active = habit.is_active !== false;
           return (
-            <View key={habit.id || habit.name} style={styles.cardWrapper}>
+            <View key={habit.id || habit.name} style={cardOuterStyle}>
               <View style={styles.habitCard}>
                 <View style={styles.cardContent}>
                   <View style={styles.dragHandleColumn}>
@@ -1054,14 +1033,182 @@ const HabitManagementScreen = () => {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={styles.rootContainer}>
-        <SafeAreaView style={styles.container} edges={['bottom']}>
-          {/* Manual habits: react-native-sortables (smooth auto-scroll on Android) */}
+      {isSheet ? (
+        <AppSheetLayout
+          title="Manage habits"
+          subtitle="Tap the cog on a habit for options"
+          headerRight={manageHabitsHeaderRight}
+          scroll={false}
+          nativePresentation
+        >
           <View style={styles.contentWrap}>
-            {loading ? (
-              <PageLoadingView />
-            ) : (
-          <View style={styles.manualHabitsSection}>
+              {loading ? (
+                <PageLoadingView />
+              ) : (
+                <View style={styles.manualHabitsSection}>
+                  {manualHabits.length === 0 && (
+                    <ScrollView
+                      style={styles.scrollView}
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={[
+                        styles.draggableListContent,
+                        { paddingBottom: listBottomPad },
+                      ]}
+                    >
+                      <Text style={styles.emptyText}>
+                        No custom habits yet. Tap + to add your first habit.
+                      </Text>
+                      {automaticHabits.length > 0 && (
+                        <View style={styles.footerSection}>
+                          <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Automatic Habits</Text>
+                            <Text style={styles.sectionSubtitle}>
+                              Habits automatically tracked from your sleep and health data
+                            </Text>
+                          </View>
+                          <View style={styles.instructionContainer}>
+                            <Ionicons name="fitness-outline" size={20} color={colors.primary} />
+                            <Text style={styles.instructionText}>
+                              Use pause or play on each card to control what is tracked for insights
+                            </Text>
+                          </View>
+                          {automaticHabits.map((habit) => {
+                            const healthMetric = healthMetricsService.getAvailableMetrics().find((m) => m.name === habit.name);
+                            if (!healthMetric) return null;
+                            const active = habit.is_active !== false;
+                            return (
+                              <View key={habit.id || healthMetric.key || habit.name} style={cardOuterStyle}>
+                                <View style={styles.habitCard}>
+                                  <View style={styles.cardContent}>
+                                    <View style={styles.dragHandleColumn}>
+                                      <Ionicons name="fitness-outline" size={18} color={colors.textSecondary} />
+                                    </View>
+                                    <View style={styles.cardRightColumn}>
+                                      <View style={styles.habitHeaderCompact}>
+                                        <View style={styles.nameContainerCompact}>
+                                          <Text style={styles.habitName}>{healthMetric.name}</Text>
+                                        </View>
+                                        <View style={styles.statusAndChevronRow}>
+                                          <HabitTrackingControl
+                                            tracking={active}
+                                            onPress={() => toggleHealthMetric(healthMetric, !active)}
+                                          />
+                                        </View>
+                                      </View>
+                                      <Text style={styles.habitTypeLine}>{healthMetric.description}</Text>
+                                    </View>
+                                  </View>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                      {inferredHabits.length > 0 && (
+                        <View style={styles.footerSection}>
+                          <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Inferred Habits</Text>
+                            <Text style={styles.sectionSubtitle}>
+                              Values derived from your automatic habits (e.g. bedtime from sleep, exercise time from heart rate)
+                            </Text>
+                          </View>
+                          {inferredHabits.map((habit) => {
+                            const config = INFERRED_HABITS.find((h) => h.name === habit.name);
+                            const active = habit.is_active !== false;
+                            return (
+                              <View key={habit.id || habit.name} style={cardOuterStyle}>
+                                <View style={styles.habitCard}>
+                                  <View style={styles.cardContent}>
+                                    <View style={styles.dragHandleColumn}>
+                                      <Ionicons name="analytics-outline" size={18} color={colors.textSecondary} />
+                                    </View>
+                                    <View style={styles.cardRightColumn}>
+                                      <View style={styles.habitHeaderCompact}>
+                                        <View style={styles.nameContainerCompact}>
+                                          <Text style={styles.habitName}>{habit.name}</Text>
+                                          {config?.infoTitle && (
+                                            <TouchableOpacity
+                                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                              onPress={() => Alert.alert(config.infoTitle, config.infoBody, [{ text: 'Got it' }])}
+                                              style={{ marginLeft: 6 }}
+                                            >
+                                              <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
+                                            </TouchableOpacity>
+                                          )}
+                                        </View>
+                                        <View style={styles.statusAndChevronRow}>
+                                          <HabitTrackingControl
+                                            tracking={active}
+                                            onPress={() => toggleInferredHabit(habit)}
+                                          />
+                                        </View>
+                                      </View>
+                                      <Text style={styles.habitTypeLine}>
+                                        {config?.description || (habit.unit ? `Numeric (${habit.unit})` : '')}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </ScrollView>
+                  )}
+                  {manualHabits.length > 0 && (
+                    <ScrollView
+                      style={styles.scrollView}
+                      contentContainerStyle={[
+                        styles.draggableListContent,
+                        styles.draggableListContentInSheet,
+                        { paddingBottom: listBottomPad, width: listWidth },
+                      ]}
+                      showsVerticalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {manualHabits.map((habit) => (
+                        <View key={String(habit.id || habit.name)}>
+                          {renderManualHabitRow(habit, false)}
+                        </View>
+                      ))}
+                      {footerAutomaticBlock}
+                      {footerInferredBlock}
+                    </ScrollView>
+                  )}
+                  {!isSheet && (
+                  <View
+                    style={[
+                      styles.pinnedAddCustomHabitContainer,
+                      {
+                        bottom: 0,
+                        paddingBottom: Math.max(spacing.sm, tabBarHeight - spacing.lg),
+                      },
+                    ]}
+                  >
+                    <PressableFeedback
+                      style={styles.addCustomHabitButton}
+                      pressedStyle={buttonStyles.primaryPressed}
+                      onPress={openAddHabit}
+                    >
+                      <Ionicons name="add-circle" size={24} color="#FFFFFF" />
+                      <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
+                    </PressableFeedback>
+                  </View>
+                  )}
+                </View>
+              )}
+            </View>
+        </AppSheetLayout>
+      ) : (
+        <View style={styles.rootContainer}>
+          <SafeAreaView style={styles.container} edges={['bottom']}>
+            {/* Manual habits: react-native-sortables (smooth auto-scroll on Android) */}
+            <View style={styles.contentWrap}>
+              {loading ? (
+                <PageLoadingView />
+              ) : (
+                <View style={styles.manualHabitsSection}>
             {manualHabits.length === 0 && (
               <ScrollView
                 style={styles.scrollView}
@@ -1072,10 +1219,10 @@ const HabitManagementScreen = () => {
                 ]}
               >
                 <GlassChromeBar style={styles.headerGlassOuter}>
-                  <View style={{ paddingTop: headerTopPadding }}>
+                  <View>
                     <View style={styles.header}>
                       <Text style={styles.title}>Manage Your Habits</Text>
-                      <Text style={styles.subtitle}>Long press a habit to reorder • Tap to expand options</Text>
+                      <Text style={styles.subtitle}>Long press to reorder • Tap the cog for options</Text>
                     </View>
                   </View>
                 </GlassChromeBar>
@@ -1107,7 +1254,7 @@ const HabitManagementScreen = () => {
                       if (!healthMetric) return null;
                       const active = habit.is_active !== false;
                       return (
-                        <View key={habit.id || healthMetric.key || habit.name} style={styles.cardWrapper}>
+                        <View key={habit.id || healthMetric.key || habit.name} style={cardOuterStyle}>
                           <View style={styles.habitCard}>
                             <View style={styles.cardContent}>
                               <View style={styles.dragHandleColumn}>
@@ -1146,7 +1293,7 @@ const HabitManagementScreen = () => {
                       const config = INFERRED_HABITS.find((h) => h.name === habit.name);
                       const active = habit.is_active !== false;
                       return (
-                        <View key={habit.id || habit.name} style={styles.cardWrapper}>
+                        <View key={habit.id || habit.name} style={cardOuterStyle}>
                           <View style={styles.habitCard}>
                             <View style={styles.cardContent}>
                               <View style={styles.dragHandleColumn}>
@@ -1196,7 +1343,7 @@ const HabitManagementScreen = () => {
                   contentContainerStyle={[
                     styles.draggableListContent,
                     styles.sortableScrollContent,
-                    { paddingBottom: tabBarHeight + 96 },
+                    { paddingBottom: tabBarHeight + 96, width: listWidth },
                   ]}
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
@@ -1205,11 +1352,11 @@ const HabitManagementScreen = () => {
                   onScrollEndDrag={closeAllSwipeables}
                 >
                   <GlassChromeBar style={styles.headerGlassOuter}>
-                    <View style={{ paddingTop: headerTopPadding }}>
+                    <View>
                       <View style={styles.header}>
                         <Text style={styles.title}>Manage Your Habits</Text>
                         <Text style={styles.subtitle}>
-                          Long press a habit to reorder • Tap to expand options
+                          Long press to reorder • Tap the cog for options
                         </Text>
                       </View>
                     </View>
@@ -1223,7 +1370,8 @@ const HabitManagementScreen = () => {
                   <Sortable.Flex
                     flexDirection="column"
                     flexWrap="nowrap"
-                    width={SCREEN_WIDTH}
+                    customHandle
+                    width={listWidth}
                     alignItems="stretch"
                     gap={0}
                     scrollableRef={sortScrollRef}
@@ -1238,7 +1386,7 @@ const HabitManagementScreen = () => {
                     {manualHabits.map((habit) => (
                       <View
                         key={String(habit.id || habit.name)}
-                        style={[styles.sortableItemOuter, { width: SCREEN_WIDTH }]}
+                        style={[styles.sortableItemOuter, { width: listWidth }]}
                       >
                         {renderSortableHabitRow(habit)}
                       </View>
@@ -1249,27 +1397,69 @@ const HabitManagementScreen = () => {
                 </Animated.ScrollView>
               </Sortable.PortalProvider>
             )}
-            <View
-              style={[
-                styles.pinnedAddCustomHabitContainer,
-                { bottom: 0, paddingBottom: Math.max(spacing.sm, tabBarHeight - spacing.lg) },
-              ]}
-            >
-              <PressableFeedback
-                style={styles.addCustomHabitButton}
-                pressedStyle={buttonStyles.primaryPressed}
-                onPress={openAddHabit}
-              >
-                <Ionicons name="add-circle" size={24} color="#FFFFFF" />
-                <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
-              </PressableFeedback>
+                  {!isSheet && (
+                  <View
+                    style={[
+                      styles.pinnedAddCustomHabitContainer,
+                      {
+                        bottom: 0,
+                        paddingBottom: Math.max(spacing.sm, tabBarHeight - spacing.lg),
+                      },
+                    ]}
+                  >
+                    <PressableFeedback
+                      style={styles.addCustomHabitButton}
+                      pressedStyle={buttonStyles.primaryPressed}
+                      onPress={openAddHabit}
+                    >
+                      <Ionicons name="add-circle" size={24} color="#FFFFFF" />
+                      <Text style={styles.addCustomHabitButtonText}>Add Custom Habit</Text>
+                    </PressableFeedback>
+                  </View>
+                  )}
+                </View>
+              )}
             </View>
-          </View>
-            )}
-          </View>
-
-        </SafeAreaView>
-      </View>
+          </SafeAreaView>
+        </View>
+      )}
+      {isSheet ? (
+        <NestedSheetOverlay visible={!!nestedSheet} onClose={closeNestedSheet}>
+          {nestedSheet?.type === 'edit' ? (
+            <EditHabitPanel
+              habit={nestedSheet.habit}
+              onClose={closeNestedSheet}
+              onSuccess={handleNestedSuccess}
+              nestedOverlay
+            />
+          ) : null}
+          {nestedSheet?.type === 'add' ? (
+            <AddHabitPanel
+              onClose={closeNestedSheet}
+              onSuccess={handleNestedSuccess}
+              nestedOverlay
+            />
+          ) : null}
+          {nestedSheet?.type === 'delete' ? (
+            <DeleteHabitPanel
+              habit={nestedSheet.habit}
+              onClose={closeNestedSheet}
+              onSuccess={handleNestedSuccess}
+              nestedOverlay
+            />
+          ) : null}
+        </NestedSheetOverlay>
+      ) : null}
+      <HabitActionsBottomSheet
+        visible={actionsMenuVisible}
+        habit={actionMenuHabit}
+        onEdit={openEditHabit}
+        onDelete={openDeleteHabit}
+        onToggleTracking={toggleHabitTracking}
+        onToggleLogAsNoDefault={toggleLogAsNoByDefault}
+        onViewOverTime={openHabitTimeline}
+        onClose={closeHabitActions}
+      />
     </GestureHandlerRootView>
   );
 };
@@ -1288,6 +1478,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingBottom: 100, // Extra space for the modals and navigation
@@ -1334,8 +1525,23 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   sortableScrollContent: {
-    width: SCREEN_WIDTH,
     alignItems: 'stretch',
+  },
+  draggableListContentInSheet: {
+    alignSelf: 'stretch',
+  },
+  cardWrapperInSheet: {
+    marginHorizontal: 0,
+    alignSelf: 'stretch',
+  },
+  headerAddButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
+  },
+  pinnedAddCustomHabitContainerInSheet: {
+    left: spacing.regular,
+    right: spacing.regular,
   },
   sortableItemOuter: {
     alignSelf: 'stretch',
@@ -1344,9 +1550,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginVertical: 4,
     marginHorizontal: spacing.regular,
-    width: SCREEN_WIDTH - spacing.regular * 2,
     alignSelf: 'center',
-    maxWidth: SCREEN_WIDTH - spacing.regular * 2,
   },
   cardWrapperDragging: {
     shadowColor: colors.primary,
@@ -1386,8 +1590,22 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'column',
   },
+  cardRightColumnStatic: {
+    flex: 1,
+    flexDirection: 'column',
+    minWidth: 0,
+  },
   cardMainContent: {
     alignSelf: 'stretch',
+  },
+  cardMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardTextColumn: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: spacing.xs,
   },
   deleteButton: {
     padding: spacing.xs,
@@ -1433,7 +1651,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   chevronButton: {
-    padding: 2,
+    minHeight: 26,
+    minWidth: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1535,6 +1754,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.regular,
+  },
+  footerSectionInSheet: {
+    paddingHorizontal: 0,
+  },
+  sectionHeaderInSheet: {
+    paddingHorizontal: 0,
   },
   sectionContainer: {
     paddingHorizontal: spacing.regular,

@@ -97,7 +97,8 @@ export default {
       "android.permission.health.READ_WEIGHT",
       "android.permission.health.READ_HEIGHT",
       "android.permission.health.READ_BODY_FAT",
-      "android.permission.health.READ_RESTING_HEART_RATE"
+      "android.permission.health.READ_RESTING_HEART_RATE",
+      "android.permission.health.READ_NUTRITION"
     ],
     splash: {
       image: ANDROID_SPLASH_IMAGE,
@@ -155,7 +156,8 @@ export default {
           "android.permission.health.READ_WEIGHT",
           "android.permission.health.READ_HEIGHT",
           "android.permission.health.READ_BODY_FAT",
-          "android.permission.health.READ_RESTING_HEART_RATE"
+          "android.permission.health.READ_RESTING_HEART_RATE",
+          "android.permission.health.READ_NUTRITION"
         ]
       }
     ],

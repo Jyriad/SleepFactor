@@ -1,6 +1,8 @@
 import sleepSyncService from './sleepSyncService';
 
 let launchSyncPromise = null;
+let launchSyncFinishedAt = null;
+let launchSyncResult = null;
 
 /**
  * Start a today-only sleep sync as soon as the app is ready.
@@ -33,8 +35,14 @@ export function startLaunchSync() {
         success: false,
         error: sleepSyncService.getErrorMessage?.(e) || e?.message || 'Sync failed',
       };
+    } finally {
+      launchSyncFinishedAt = Date.now();
     }
   })();
+
+  launchSyncPromise.then((result) => {
+    launchSyncResult = result;
+  });
 
   return launchSyncPromise;
 }
@@ -55,8 +63,27 @@ export function clearLaunchSyncPromise() {
   launchSyncPromise = null;
 }
 
+/** When launch sync finished (ms since epoch), or null if not yet complete. */
+export function getLaunchSyncFinishedAt() {
+  return launchSyncFinishedAt;
+}
+
+/** Result from the most recent launch sync, if any. */
+export function getLaunchSyncResult() {
+  return launchSyncResult;
+}
+
+/** True if launch sync completed within maxAgeMs (default 2 min). */
+export function didLaunchSyncRunRecently(maxAgeMs = 2 * 60 * 1000) {
+  if (!launchSyncFinishedAt) return false;
+  return Date.now() - launchSyncFinishedAt < maxAgeMs;
+}
+
 export default {
   startLaunchSync,
   getLaunchSyncPromise,
   clearLaunchSyncPromise,
+  getLaunchSyncFinishedAt,
+  getLaunchSyncResult,
+  didLaunchSyncRunRecently,
 };

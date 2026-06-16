@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
+import useInsightsScreenQuery from '../hooks/useInsightsScreenQuery';
 import insightsService from '../services/insightsService';
 import InsightHeadlineText from '../components/InsightHeadlineText';
 import { getInsightRowHeadline } from '../utils/insightDisplayHeadline';
@@ -25,6 +26,7 @@ import {
   getInsightImpactAccessibilityLabel,
 } from '../utils/insightLabels';
 import PageLoadingView from '../components/PageLoadingView';
+import AppHeaderProfileButton from '../components/AppHeaderProfileButton';
 import GlassChromeBar from '../components/GlassChromeBar';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import InsightMinimumDataHelp from '../components/InsightMinimumDataHelp';
@@ -141,44 +143,51 @@ const InsightsScreen = ({ navigation, route }) => {
     insightsService.getAvailableSleepMetricsForUser(user.id).then(setAvailableMetrics);
   }, [user?.id]);
 
+  const hasCachedDataRef = useRef(false);
+  useEffect(() => {
+    hasCachedDataRef.current = !!(tabData.groups && tabData.groups.length > 0);
+  }, [tabData.groups]);
+
+  const {
+    data: insightsData,
+    isFetching: insightsFetching,
+    isLoading: insightsLoading,
+    refetch: refetchInsights,
+  } = useInsightsScreenQuery(user?.id, { enabled: !!user?.id });
+
+  useEffect(() => {
+    if (!insightsData) return;
+    setTabData(insightsData.habitGroups);
+    setSubjectiveData(insightsData.subjectiveData);
+    // Match Home insights strip: only show while a stale cache is being refreshed in the background.
+    setIsRefreshing(!!insightsData.isStale);
+  }, [insightsData]);
+
+  useEffect(() => {
+    if (insightsLoading && !hasCachedDataRef.current) {
+      setLoading(true);
+    } else if (!insightsFetching) {
+      setLoading(false);
+    }
+  }, [insightsLoading, insightsFetching]);
+
   const loadTab = useCallback(() => {
     if (!user?.id) return Promise.resolve();
-    return insightsService
-      .getInsightsScreenBundle(user.id, {
-        onStaleRefresh: ({ habitGroups, subjectiveData: subj }) => {
-          setTabData(habitGroups);
-          setSubjectiveData(subj);
-          setIsRefreshing(false);
-        },
-      })
-      .then(({ habitGroups, subjectiveData: subj, isStale }) => {
-        setTabData(habitGroups);
-        setSubjectiveData(subj);
-        setIsRefreshing(!!isStale);
-      });
-  }, [user?.id]);
+    return refetchInsights({ cancelRefetch: false }).then(() => {});
+  }, [user?.id, refetchInsights]);
 
   useFocusEffect(
     useCallback(() => {
       applyAndroidStatusBarForFrostedHeader();
-      let cancelled = false;
       if (user) {
-        const hasCachedData = tabData.groups && tabData.groups.length > 0;
-        if (!hasCachedData) {
+        if (!hasCachedDataRef.current) {
           setLoading(true);
         }
-        loadTab()
-          .catch(() => {
-            if (!cancelled) setTabData({ groups: [] });
-          })
-          .finally(() => {
-            if (!cancelled) setLoading(false);
-          });
+        loadTab().catch(() => {
+          if (!hasCachedDataRef.current) setTabData({ groups: [] });
+        });
       }
-      return () => {
-        cancelled = true;
-      };
-    }, [user, loadTab, tabData.groups])
+    }, [user, loadTab])
   );
 
   const sections = useMemo(() => {
@@ -704,7 +713,11 @@ const InsightsScreen = ({ navigation, route }) => {
         >
           <View style={{ paddingTop: headerTopPadding }}>
             <View style={styles.header}>
-              <Text style={styles.title}>Sleep Insights</Text>
+              <View style={styles.headerTitleBlock}>
+                <Text style={styles.title}>Insights</Text>
+                <Text style={styles.headerSubtitle}>How your habits affect sleep</Text>
+              </View>
+              <AppHeaderProfileButton />
             </View>
           </View>
         </GlassChromeBar>
@@ -851,9 +864,21 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.regular,
     paddingBottom: spacing.sm,
+  },
+  headerTitleBlock: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  headerSubtitle: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginTop: spacing.xs / 2,
   },
   title: {
     fontSize: typography.sizes.xl,

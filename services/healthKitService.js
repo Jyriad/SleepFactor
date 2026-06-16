@@ -1,5 +1,6 @@
 import {
   isHealthDataAvailable,
+  isObjectTypeAvailable,
   requestAuthorization,
   queryQuantitySamples,
   queryStatisticsCollectionForQuantity,
@@ -8,6 +9,8 @@ import {
 } from '@kingstinct/react-native-healthkit';
 import { formatDateForDB } from '../utils/dateHelpers';
 import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
+import { buildExerciseIntensitySeries } from '../utils/exerciseIntensityIndex';
+import { formatLocalTimeHHMM, localCalendarDateFromTimestamp } from '../utils/healthMetricTimeHelpers';
 
 /**
  * Apple's HK* type strings for react-native-healthkit v12+ (identifiers are strings, not HKQuantityTypeIdentifier.* objects).
@@ -142,6 +145,8 @@ const READ_HEALTH_OBJECT_TYPES = [
   SLEEP_ANALYSIS,
   'HKCategoryTypeIdentifierMindfulSession',
   'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+  'HKQuantityTypeIdentifierTimeInDaylight',
+  'HKQuantityTypeIdentifierDietaryEnergyConsumed',
 ];
 
 const QUANTITY_METRIC_TO_ID = {
@@ -151,6 +156,7 @@ const QUANTITY_METRIC_TO_ID = {
   heart_rate_resting: 'HKQuantityTypeIdentifierRestingHeartRate',
   exercise_minutes: 'HKQuantityTypeIdentifierAppleExerciseTime',
   distance_walking: 'HKQuantityTypeIdentifierDistanceWalkingRunning',
+  sunlight_minutes: 'HKQuantityTypeIdentifierTimeInDaylight',
 };
 
 /** HealthKit statistics options per metric — uses Apple’s merged rollups (same family as the Health app). */
@@ -161,6 +167,7 @@ const METRIC_TO_STATISTICS_OPTIONS = {
   exercise_minutes: ['cumulativeSum'],
   heart_rate_max: ['discreteMax'],
   heart_rate_resting: ['discreteAverage'],
+  sunlight_minutes: ['cumulativeSum'],
 };
 
 /**
@@ -231,6 +238,13 @@ function valueFromStatisticsRow(metric, row) {
       const a = row.averageQuantity;
       if (!a || !(a.quantity > 0)) return null;
       return a.quantity;
+    }
+    case 'sunlight_minutes': {
+      const s = row.sumQuantity;
+      if (!s || !(s.quantity > 0)) return null;
+      const u = (s.unit || '').toLowerCase();
+      if (u === 'min' || u.includes('min')) return s.quantity;
+      return s.quantity / 60;
     }
     default:
       return null;
@@ -557,7 +571,7 @@ class HealthKitService {
    * @param {Array} options.metrics - Array of metric keys to fetch
    * @returns {Promise<Object>} Object with metrics data
    */
-  async syncHealthMetrics({ startDate, endDate, metrics = ['steps', 'active_energy', 'heart_rate_max', 'heart_rate_resting'] }) {
+  async syncHealthMetrics({ startDate, endDate, metrics = ['steps', 'active_energy', 'heart_rate_max', 'heart_rate_resting'], fetchOptions = {} }) {
     try {
       if (!this.isInitialized || !(await this.hasPermissions())) {
         throw new Error('HealthKit not initialized or permissions not granted');
@@ -570,7 +584,7 @@ class HealthKitService {
 
       for (const metric of metrics) {
         try {
-          const data = await this.fetchHealthMetric(metric, startTime, endTime);
+          const data = await this.fetchHealthMetric(metric, startTime, endTime, fetchOptions);
           results[metric] = data;
         } catch (error) {
           results[metric] = [];
@@ -590,10 +604,29 @@ class HealthKitService {
    * @param {Date} endTime - End date
    * @returns {Promise<Array>} Array of {date, value} objects
    */
-  async fetchHealthMetric(metric, startTime, endTime) {
+  async fetchHealthMetric(metric, startTime, endTime, options = {}) {
+    if (metric === 'last_meal_time') {
+      return this._fetchLastMealTime(startTime, endTime);
+    }
+    if (metric === 'exercise_intensity') {
+      return this._fetchExerciseIntensity(startTime, endTime);
+    }
+    if (metric === 'night_body_temperature') {
+      return this.fetchNightBodyTemperature(options.sleepRecords || [], startTime, endTime);
+    }
+
     const quantityType = QUANTITY_METRIC_TO_ID[metric];
     if (!quantityType) {
       return [];
+    }
+
+    if (metric === 'sunlight_minutes') {
+      try {
+        const available = await isObjectTypeAvailable(quantityType);
+        if (!available) return [];
+      } catch (_e) {
+        return [];
+      }
     }
 
     const statisticsOptions = METRIC_TO_STATISTICS_OPTIONS[metric];
@@ -636,6 +669,149 @@ class HealthKitService {
       aggregatedData.sort((a, b) => a.date.localeCompare(b.date));
       return aggregatedData;
     } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Latest nutrition/food log time per calendar day.
+   * @returns {Promise<Array<{ date: string, timeValue: string }>>}
+   */
+  async _fetchLastMealTime(startTime, endTime) {
+    try {
+      const samples = await queryQuantitySamples('HKQuantityTypeIdentifierDietaryEnergyConsumed', {
+        limit: 0,
+        filter: {
+          date: {
+            startDate: startTime,
+            endDate: endTime,
+          },
+        },
+      });
+
+      const latestByDay = {};
+      samples.forEach((sample) => {
+        const ts = sample.endDate || sample.startDate;
+        if (!ts) return;
+        const day = localCalendarDateFromTimestamp(ts);
+        const tMs = new Date(ts).getTime();
+        if (!latestByDay[day] || tMs > latestByDay[day].tMs) {
+          latestByDay[day] = { tMs, timeValue: formatLocalTimeHHMM(ts) };
+        }
+      });
+
+      return Object.entries(latestByDay)
+        .map(([date, { timeValue }]) => ({ date, timeValue }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  /**
+   * Composite 0–100 exercise intensity from daily activity signals.
+   * @returns {Promise<Array<{ date: string, value: number }>>}
+   */
+  async _fetchExerciseIntensity(startTime, endTime) {
+    try {
+      const [exerciseData, energyData, maxHrData, restingHrData] = await Promise.all([
+        this.fetchHealthMetric('exercise_minutes', startTime, endTime),
+        this.fetchHealthMetric('active_energy', startTime, endTime),
+        this.fetchHealthMetric('heart_rate_max', startTime, endTime),
+        this.fetchHealthMetric('heart_rate_resting', startTime, endTime),
+      ]);
+
+      const byDate = {};
+      const mergeNumeric = (rows, key) => {
+        rows.forEach(({ date, value }) => {
+          if (!byDate[date]) byDate[date] = {};
+          byDate[date][key] = value;
+        });
+      };
+      mergeNumeric(exerciseData, 'exerciseMinutes');
+      mergeNumeric(energyData, 'activeEnergyKcal');
+      mergeNumeric(maxHrData, 'maxHr');
+      mergeNumeric(restingHrData, 'restingHr');
+
+      return buildExerciseIntensitySeries(byDate);
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  /**
+   * Average body/wrist temperature during each synced sleep window.
+   * @param {Array} sleepRecords - sleep_data rows with sleep_start_time / sleep_end_time
+   * @returns {Promise<Array<{ date: string, value: number }>>}
+   */
+  async fetchNightBodyTemperature(sleepRecords, startTime, endTime) {
+    try {
+      if (!this.isInitialized || !(await this.hasPermissions())) {
+        return [];
+      }
+      if (!sleepRecords || sleepRecords.length === 0) {
+        return [];
+      }
+
+      const tempTypes = [
+        'HKQuantityTypeIdentifierBodyTemperature',
+        'HKQuantityTypeIdentifierBasalBodyTemperature',
+      ];
+
+      const allSamples = [];
+      for (const tempType of tempTypes) {
+        try {
+          const samples = await queryQuantitySamples(tempType, {
+            limit: 0,
+            filter: {
+              date: {
+                startDate: startTime,
+                endDate: endTime,
+              },
+            },
+          });
+          allSamples.push(...samples);
+        } catch (_e) {
+          /* try next type */
+        }
+      }
+
+      if (allSamples.length === 0) {
+        return [];
+      }
+
+      const results = [];
+      sleepRecords.forEach((sleep) => {
+        const sleepStart = sleep.sleep_start_time ? new Date(sleep.sleep_start_time) : null;
+        const sleepEnd = sleep.sleep_end_time ? new Date(sleep.sleep_end_time) : null;
+        if (!sleepStart || !sleepEnd || Number.isNaN(sleepStart.getTime()) || Number.isNaN(sleepEnd.getTime())) {
+          return;
+        }
+
+        const temps = [];
+        allSamples.forEach((sample) => {
+          const sampleTime = new Date(sample.startDate).getTime();
+          if (sampleTime >= sleepStart.getTime() && sampleTime <= sleepEnd.getTime()) {
+            const qty = sample.quantity;
+            if (qty != null && qty > 0) {
+              temps.push(qty);
+            }
+          }
+        });
+
+        if (temps.length === 0) return;
+
+        const avg = temps.reduce((sum, t) => sum + t, 0) / temps.length;
+        const activityDay = formatDateForDB(sleepStart);
+        results.push({
+          date: activityDay,
+          value: Math.round(avg * 100) / 100,
+        });
+      });
+
+      results.sort((a, b) => a.date.localeCompare(b.date));
+      return results;
+    } catch (_error) {
       return [];
     }
   }

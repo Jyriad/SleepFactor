@@ -1,4 +1,4 @@
-import { Easing } from 'react-native';
+import { Easing, Platform } from 'react-native';
 
 /** Matches Insights → Habit Timeline and other native stack pushes. */
 export const STACK_SLIDE_DURATION_MS = 220;
@@ -24,3 +24,50 @@ export const STACK_SLIDE_TIMING = {
   duration: STACK_SLIDE_DURATION_MS,
   useNativeDriver: true,
 };
+
+const IOS_SHEET_BASE = {
+  presentation: 'formSheet',
+  sheetGrabberVisible: true,
+  sheetCornerRadius: 20,
+  gestureEnabled: true,
+  headerShown: false,
+  // Single full detent — without this, scroll gestures bounce back instead of scrolling.
+  sheetExpandsWhenScrolledToEdge: false,
+  // Form sheet content must fill the detent so nested ScrollViews get a bounded height.
+  contentStyle: { flex: 1 },
+};
+
+/** Full-height sheet (detail views, profile, habit management). */
+export const SHEET_LARGE_OPTIONS = Platform.select({
+  ios: {
+    ...IOS_SHEET_BASE,
+    // Numeric fractions — string 'large' crashes on current react-native-screens native bridge.
+    sheetAllowedDetents: [1.0],
+  },
+  android: {
+    presentation: 'transparentModal',
+    animation: 'slide_from_bottom',
+    headerShown: false,
+  },
+  default: {
+    presentation: 'modal',
+    headerShown: false,
+  },
+});
+
+/** Medium or full sheet (forms, quick tasks). */
+export const SHEET_MEDIUM_LARGE_OPTIONS = Platform.select({
+  ios: {
+    ...IOS_SHEET_BASE,
+    sheetAllowedDetents: [0.5, 1.0],
+  },
+  android: {
+    presentation: 'transparentModal',
+    animation: 'slide_from_bottom',
+    headerShown: false,
+  },
+  default: {
+    presentation: 'modal',
+    headerShown: false,
+  },
+});

@@ -8,6 +8,8 @@ import {
 } from 'react-native-health-connect';
 import { formatDateForDB } from '../utils/dateHelpers';
 import { SLEEP_SESSION_GAP_MS } from '../utils/sleepSessionConstants';
+import { buildExerciseIntensitySeries } from '../utils/exerciseIntensityIndex';
+import { formatLocalTimeHHMM, localCalendarDateFromTimestamp } from '../utils/healthMetricTimeHelpers';
 
 /**
  * @param {string|Date} input
@@ -155,6 +157,7 @@ class HealthConnectService {
       { accessType: 'read', recordType: 'Height' },
       { accessType: 'read', recordType: 'BodyFat' },
       { accessType: 'read', recordType: 'RestingHeartRate' },
+      { accessType: 'read', recordType: 'Nutrition' },
     ];
   }
 
@@ -492,7 +495,7 @@ class HealthConnectService {
    * @param {Array} options.metrics - Array of metric keys to fetch
    * @returns {Promise<Object>} Object with metrics data
    */
-  async syncHealthMetrics({ startDate, endDate, metrics = ['steps', 'active_energy', 'heart_rate_max', 'heart_rate_resting'] }) {
+  async syncHealthMetrics({ startDate, endDate, metrics = ['steps', 'active_energy', 'heart_rate_max', 'heart_rate_resting'], fetchOptions = {} }) {
     try {
       if (!this.isInitialized || !(await this.hasPermissions())) {
         throw new Error('Health Connect not initialized or permissions not granted');
@@ -508,7 +511,7 @@ class HealthConnectService {
 
       for (const metric of metrics) {
         try {
-          const data = await this.fetchHealthMetric(metric, startTime, endTimeString);
+          const data = await this.fetchHealthMetric(metric, startTime, endTimeString, fetchOptions);
           results[metric] = data;
         } catch (error) {
           results[metric] = [];
@@ -528,14 +531,27 @@ class HealthConnectService {
    * @param {string} endTime - ISO end time
    * @returns {Promise<Array>} Array of {date, value} objects
    */
-  async fetchHealthMetric(metric, startTime, endTime) {
+  async fetchHealthMetric(metric, startTime, endTime, options = {}) {
+    if (metric === 'sunlight_minutes') {
+      return [];
+    }
+    if (metric === 'last_meal_time') {
+      return this._fetchLastMealTime(startTime, endTime);
+    }
+    if (metric === 'exercise_intensity') {
+      return this._fetchExerciseIntensity(startTime, endTime);
+    }
+    if (metric === 'night_body_temperature') {
+      return this.fetchNightBodyTemperature(options.sleepRecords || [], startTime, endTime);
+    }
+
     const metricMappings = {
       steps: 'Steps',
       active_energy: 'ActiveCaloriesBurned',
       heart_rate_max: 'HeartRate',
       heart_rate_resting: 'RestingHeartRate',
       exercise_minutes: 'ExerciseSession',
-      distance_walking: 'Distance'
+      distance_walking: 'Distance',
     };
 
     const recordType = metricMappings[metric];
@@ -637,6 +653,139 @@ class HealthConnectService {
 
       return aggregatedData;
     } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Latest nutrition log time per calendar day.
+   * @returns {Promise<Array<{ date: string, timeValue: string }>>}
+   */
+  async _fetchLastMealTime(startTime, endTime) {
+    try {
+      if (!this.isInitialized || !(await this.hasPermissions())) {
+        return [];
+      }
+
+      const { records } = await readRecords('Nutrition', {
+        timeRangeFilter: {
+          operator: 'between',
+          startTime,
+          endTime,
+        },
+      });
+
+      const latestByDay = {};
+      records.forEach((record) => {
+        const ts = record.endTime || record.startTime;
+        if (!ts) return;
+        const day = localCalendarDateFromTimestamp(ts);
+        const tMs = new Date(ts).getTime();
+        if (!latestByDay[day] || tMs > latestByDay[day].tMs) {
+          latestByDay[day] = { tMs, timeValue: formatLocalTimeHHMM(ts) };
+        }
+      });
+
+      return Object.entries(latestByDay)
+        .map(([date, { timeValue }]) => ({ date, timeValue }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  /**
+   * Composite 0–100 exercise intensity from daily activity signals.
+   * @returns {Promise<Array<{ date: string, value: number }>>}
+   */
+  async _fetchExerciseIntensity(startTime, endTime) {
+    try {
+      const [exerciseData, energyData, maxHrData, restingHrData] = await Promise.all([
+        this.fetchHealthMetric('exercise_minutes', startTime, endTime),
+        this.fetchHealthMetric('active_energy', startTime, endTime),
+        this.fetchHealthMetric('heart_rate_max', startTime, endTime),
+        this.fetchHealthMetric('heart_rate_resting', startTime, endTime),
+      ]);
+
+      const byDate = {};
+      const mergeNumeric = (rows, key) => {
+        rows.forEach(({ date, value }) => {
+          if (!byDate[date]) byDate[date] = {};
+          byDate[date][key] = value;
+        });
+      };
+      mergeNumeric(exerciseData, 'exerciseMinutes');
+      mergeNumeric(energyData, 'activeEnergyKcal');
+      mergeNumeric(maxHrData, 'maxHr');
+      mergeNumeric(restingHrData, 'restingHr');
+
+      return buildExerciseIntensitySeries(byDate);
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  /**
+   * Average body temperature during each synced sleep window.
+   * @param {Array} sleepRecords
+   * @returns {Promise<Array<{ date: string, value: number }>>}
+   */
+  async fetchNightBodyTemperature(sleepRecords, startTime, endTime) {
+    try {
+      if (!this.isInitialized || !(await this.hasPermissions())) {
+        return [];
+      }
+      if (!sleepRecords || sleepRecords.length === 0) {
+        return [];
+      }
+
+      const { records } = await readRecords('BodyTemperature', {
+        timeRangeFilter: {
+          operator: 'between',
+          startTime,
+          endTime,
+        },
+      });
+
+      if (!records || records.length === 0) {
+        return [];
+      }
+
+      const results = [];
+      sleepRecords.forEach((sleep) => {
+        const sleepStart = sleep.sleep_start_time ? new Date(sleep.sleep_start_time) : null;
+        const sleepEnd = sleep.sleep_end_time ? new Date(sleep.sleep_end_time) : null;
+        if (!sleepStart || !sleepEnd || Number.isNaN(sleepStart.getTime()) || Number.isNaN(sleepEnd.getTime())) {
+          return;
+        }
+
+        const temps = [];
+        records.forEach((record) => {
+          const sampleTime = new Date(record.time || record.startTime).getTime();
+          if (sampleTime >= sleepStart.getTime() && sampleTime <= sleepEnd.getTime()) {
+            const celsius =
+              record.temperature?.inCelsius ??
+              record.temperature?.inFahrenheit != null
+                ? ((record.temperature.inFahrenheit - 32) * 5) / 9
+                : null;
+            if (celsius != null && celsius > 0) {
+              temps.push(celsius);
+            }
+          }
+        });
+
+        if (temps.length === 0) return;
+
+        const avg = temps.reduce((sum, t) => sum + t, 0) / temps.length;
+        results.push({
+          date: formatDateForDB(sleepStart),
+          value: Math.round(avg * 100) / 100,
+        });
+      });
+
+      results.sort((a, b) => a.date.localeCompare(b.date));
+      return results;
+    } catch (_error) {
       return [];
     }
   }

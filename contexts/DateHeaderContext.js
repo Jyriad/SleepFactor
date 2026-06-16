@@ -4,7 +4,6 @@ const DateHeaderContext = createContext(null);
 
 export function DateHeaderProvider({ children }) {
   const [selectedDate, setSelectedDateState] = useState(() => new Date());
-  const [loggedDates, setLoggedDates] = useState([]);
   const [datesWithUnsavedChanges, setDatesWithUnsavedChanges] = useState([]);
   const [isHeaderExpanded, setHeaderExpanded] = useState(false);
 
@@ -17,8 +16,6 @@ export function DateHeaderProvider({ children }) {
     () => ({
       selectedDate,
       setSelectedDate,
-      loggedDates,
-      setLoggedDates,
       datesWithUnsavedChanges,
       setDatesWithUnsavedChanges,
       isHeaderExpanded,
@@ -27,8 +24,6 @@ export function DateHeaderProvider({ children }) {
     [
       selectedDate,
       setSelectedDate,
-      loggedDates,
-      setLoggedDates,
       datesWithUnsavedChanges,
       setDatesWithUnsavedChanges,
       isHeaderExpanded,

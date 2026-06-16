@@ -46,12 +46,16 @@ import {
   getDateStr,
 } from '../services/habitLoggingCacheService';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
+import { requestDateStripLoggedRefresh } from '../services/dateStripBadgeRefresh';
+import healthMetricsService from '../services/healthMetricsService';
+import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
-import { formatDateForDB, formatDateRange, formatDateTitle } from '../utils/dateHelpers';
+import { formatDateForDB, formatDateRange } from '../utils/dateHelpers';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
+import AppHeaderProfileButton from '../components/AppHeaderProfileButton';
 import GlassChromeBar from '../components/GlassChromeBar';
 import HabitInput from '../components/HabitInput';
 import DrugLevelContainer from '../components/DrugLevelContainer';
@@ -125,9 +129,20 @@ function normalizeHabitForPayload(h) {
   };
 }
 
+const inferredHabitNames = new Set(INFERRED_HABIT_NAMES);
+
+/** Manual journal habits only — excludes automatic health metrics and inferred habits. */
+function habitsForManualLogging(habits) {
+  return (habits || []).filter(
+    (h) => !healthMetricsService.isHealthMetricHabit(h) && !inferredHabitNames.has(h.name)
+  );
+}
+
 function payloadToInitialState(payload) {
   if (!payload || payload.error) return null;
-  const habitsList = Array.isArray(payload.habits) ? payload.habits : [];
+  const habitsList = habitsForManualLogging(
+    Array.isArray(payload.habits) ? payload.habits : []
+  );
   const normalized = habitsList.map(normalizeHabitForPayload);
   const logsMap = typeof payload.logs === 'object' && payload.logs !== null ? { ...payload.logs } : {};
   normalized
@@ -169,11 +184,9 @@ const emptyListStyles = StyleSheet.create({
   },
 });
 
-const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) => {
-  const routeFromHook = useRoute();
-  const navigationFromHook = useNavigation();
-  const route = routeProp ?? routeFromHook;
-  const navigation = navigationProp ?? navigationFromHook;
+const HabitLoggingScreen = () => {
+  const route = useRoute();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const tabBarHeightFromContext = useContext(BottomTabBarHeightContext);
   const bottomScrollPadding =
@@ -285,6 +298,18 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   }, [selectedDate]);
 
   useEffect(() => {
+    if (route?.name !== 'JournalMain') return;
+    const rawDate = route.params?.date;
+    const hasValidDateParam =
+      (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) ||
+      rawDate instanceof Date;
+    if (hasValidDateParam) return;
+    const today = new Date();
+    setSelectedDate(today);
+    navigation.setParams?.({ date: getDateString(today) });
+  }, [navigation, route?.name, route.params?.date, setSelectedDate]);
+
+  useEffect(() => {
     appliedQuickConsumptionDefaultsRef.current = new Set();
   }, [user?.id]);
 
@@ -334,6 +359,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         .from('habit_logs')
         .upsert(rows, { onConflict: 'user_id,habit_id,date' });
       if (error) throw error;
+      requestDateStripLoggedRefresh();
       insightsService.notifyInsightsUnderlyingDataChanged();
       const currentInMemory = getInMemoryState(user.id, dateStr);
       if (currentInMemory && !currentInMemory.error) {
@@ -366,7 +392,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     if (!payload || payload.error) return;
     // Applying loaded data, not a user edit — do not persist this to server until user actually changes something
     userHasEditedDateRef.current = false;
-    const habitsList = Array.isArray(payload.habits) ? payload.habits : [];
+    const habitsList = habitsForManualLogging(
+      Array.isArray(payload.habits) ? payload.habits : []
+    );
     const normalized = habitsList.map(normalizeHabit);
     setHabits(normalized);
     const logsMap = typeof payload.logs === 'object' && payload.logs !== null ? { ...payload.logs } : {};
@@ -520,6 +548,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           );
 
         if (logsError) throw logsError;
+        requestDateStripLoggedRefresh();
         queueDeferredInsightsRefresh();
       } else {
         const { error: deleteError } = await supabase
@@ -529,6 +558,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
           .eq('habit_id', habitId)
           .eq('date', dateString);
         if (deleteError) throw deleteError;
+        requestDateStripLoggedRefresh();
         queueDeferredInsightsRefresh();
       }
     } catch (error) {
@@ -663,6 +693,7 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
     insertedEvents.forEach((event) => {
       appliedQuickConsumptionDefaultsRef.current.add(`${dateStr}:${event.habit_id}`);
     });
+    requestDateStripLoggedRefresh();
     setLevelRefreshKey((k) => k + 1);
   }, [user?.id, habits, consumptionEvents]);
 
@@ -714,14 +745,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       }
 
       const mergedMap = mergePendingConsumptionEvents(consumptionEventsMap, pendingItems, dateForFetchStr);
-      const totalEvents = Object.values(mergedMap).reduce((n, arr) => n + (arr?.length || 0), 0);
-      const caffeineHabit = consumptionHabits.find((h) => (h.name || '').toLowerCase().includes('caffeine'));
-      const caffeineCount = caffeineHabit ? (mergedMap[caffeineHabit.id]?.length || 0) : 0;
-      const pendingCount = (pendingItems || []).length;
-      // #region agent log
-      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H3-H4',location:'HabitLoggingScreen.js:refreshConsumptionEvents',message:'refresh result',data:{dateStr:dateForFetchStr,fetchThrew,hasEventsError:!!eventsError,eventsErrorMsg:eventsError?.message||null,totalEvents,caffeineCount,pendingCount},timestamp:Date.now()})}).catch(()=>{});
-      console.warn('[debug-940b49] refreshConsumptionEvents', { dateStr: dateForFetchStr, fetchThrew, caffeineCount, pendingCount });
-      // #endregion
 
       const currentDate = selectedDateRef.current instanceof Date ? selectedDateRef.current : new Date(selectedDateRef.current);
       const currentDateStr = formatDateForDB(currentDate);
@@ -740,10 +763,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
         }
       }
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H4',location:'HabitLoggingScreen.js:refreshConsumptionEvents',message:'refresh unexpected catch',data:{errMsg:error?.message||String(error)},timestamp:Date.now()})}).catch(()=>{});
-      console.warn('[debug-940b49] refreshConsumptionEvents catch', error?.message || error);
-      // #endregion
       const msg = String(error?.message || error || '');
       const isNetwork = /network|fetch|failed|offline|timeout|abort/i.test(msg);
       if (!isNetwork) {
@@ -792,9 +811,6 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       ...params,
       userId: user?.id,
       onSaveSuccess: (result) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H4-H5',location:'HabitLoggingScreen.js:onSaveSuccess',message:'post-save refresh triggered',data:{habitId,hasOptimistic:!!result?.optimisticEvent},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (result?.optimisticEvent) {
           const ev = result.optimisticEvent;
           setConsumptionEvents((prev) => {
@@ -1096,13 +1112,28 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
   );
 
   const minimalHeaderTop = insets.top;
+  const showBackButton = route?.name !== 'JournalMain' && navigation?.canGoBack?.();
+  const journalHeaderRight = !showBackButton ? (
+    <View style={styles.journalHeaderActions}>
+      <TouchableOpacity
+        onPress={() => navigation.navigate('HabitManagement', { asSheet: true })}
+        style={styles.journalHeaderMoreButton}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="ellipsis-horizontal" size={22} color={colors.textPrimary} />
+      </TouchableOpacity>
+      <AppHeaderProfileButton />
+    </View>
+  ) : null;
   const handleBackPress = useCallback(() => {
     if (navigation?.canGoBack?.()) {
       navigation.goBack();
       return;
     }
-    navigation.navigate('HomeMain');
-  }, [navigation]);
+    if (showBackButton) {
+      navigation.navigate('HomeMain');
+    }
+  }, [navigation, showBackButton]);
 
   return (
     <View style={[styles.bodyWrap, { paddingBottom: insets.bottom }]}>
@@ -1125,8 +1156,9 @@ const HabitLoggingScreen = ({ route: routeProp, navigation: navigationProp }) =>
       ) : (
       <>
       <ScrollableDateHeaderBar
-        showBackButton={!!routeProp}
-        onBackPress={routeProp ? handleBackPress : undefined}
+        rightElement={journalHeaderRight}
+        showBackButton={showBackButton}
+        onBackPress={showBackButton ? handleBackPress : undefined}
         onLayoutHeight={setHabitLogGlassHeaderHeight}
       />
       <FlatList
@@ -1240,6 +1272,14 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.large,
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
+  },
+  journalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  journalHeaderMoreButton: {
+    padding: spacing.xs,
   },
   minimalLoadingContainer: {
     flex: 1,

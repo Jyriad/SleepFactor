@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Alert,
@@ -12,7 +11,7 @@ import {
   Pressable,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import AppSheetLayout from '../components/AppSheetLayout';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
@@ -55,8 +54,11 @@ async function countHabitsWithMinLogs(userId, minLogs = 10) {
   return Object.values(habitCounts).filter((c) => c >= minLogs).length;
 }
 
-const AccountScreen = () => {
+const AccountScreen = ({ onClose }) => {
   const navigation = useNavigation();
+  const dismissAccount = onClose ?? (() => {
+    if (navigation.canGoBack()) navigation.goBack();
+  });
   const { user } = useAuth();
   /** Fresh user from server so identities match Supabase dashboard (session cache can omit them). */
   const [resolvedUser, setResolvedUser] = useState(user);
@@ -274,19 +276,15 @@ const AccountScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Account</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <>
+      <AppSheetLayout
+        title="Account"
+        scroll
+        contentFlexGrow={false}
+        leadingAction="back"
+        hideHandle
+        onDismiss={dismissAccount}
+      >
         <View style={styles.content}>
           {/* Sign-in & contact (matches Supabase-style provider display) */}
           <View style={styles.section}>
@@ -410,7 +408,7 @@ const AccountScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+      </AppSheetLayout>
 
       <Modal
         visible={showDeleteDataModal}
@@ -526,7 +524,7 @@ const AccountScreen = () => {
           </Pressable>
         </View>
       </Modal>
-    </SafeAreaView>
+    </>
   );
 };
 
@@ -554,12 +552,8 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 40, // Match back button width for centering
   },
-  scrollView: {
-    flex: 1,
-  },
   content: {
-    paddingHorizontal: spacing.regular,
-    paddingBottom: 120, // Space so bottom content clears the navigation footer
+    paddingBottom: spacing.xl,
   },
   section: {
     marginTop: spacing.xl,

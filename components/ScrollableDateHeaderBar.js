@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { spacing } from '../constants';
@@ -16,6 +16,7 @@ const HEADER_BOTTOM_RADIUS = 12;
  * Frosted glass chrome (blur) with dark controls; floats above scroll content when overlay is true.
  */
 const ScrollableDateHeaderBar = ({
+  leftElement = null,
   rightElement = null,
   showBackButton: showBackButtonProp = false,
   onBackPress = null,
@@ -28,10 +29,9 @@ const ScrollableDateHeaderBar = ({
   const ctx = useDateHeader();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const route = useRoute();
   const topPadding = insets.top;
 
-  /** Synced from DateHeader (top row + drawer); avoids stale onLayout after Reanimated collapse. */
+  /** Synced from DateHeader (top row + collapsed drawer); fixed for overlay expand — calendar draws over scroll content. */
   const [dateHeaderChromeHeight, setDateHeaderChromeHeight] = useState(140);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ const ScrollableDateHeaderBar = ({
     }
   }, [topPadding, dateHeaderChromeHeight, onLayoutHeight]);
 
-  const isHabitLogging = showBackButtonProp || route.name === 'HabitLogging';
+  const isHabitLogging = showBackButtonProp;
   const defaultBack = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -60,7 +60,7 @@ const ScrollableDateHeaderBar = ({
     <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
       <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
     </TouchableOpacity>
-  ) : null;
+  ) : leftElement;
 
   const inner = (
     <GlassChromeBar bottomRadius={HEADER_BOTTOM_RADIUS}>
@@ -68,7 +68,6 @@ const ScrollableDateHeaderBar = ({
         <DateHeader
           selectedDate={ctx.selectedDate}
           onDateChange={ctx.setSelectedDate}
-          loggedDates={ctx.loggedDates}
           datesWithUnsavedChanges={ctx.datesWithUnsavedChanges}
           leftElement={backButton}
           rightElement={rightElement}

@@ -2,23 +2,28 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import InsightsScreen from '../screens/InsightsScreen';
 import HabitTimelineScreen from '../screens/HabitTimelineScreen';
-import { STACK_SLIDE_SCREEN_OPTIONS } from './transitionOptions';
+import { STACK_SLIDE_SCREEN_OPTIONS, SHEET_LARGE_OPTIONS } from './transitionOptions';
 
 const Stack = createNativeStackNavigator();
 
-const InsightsStack = () => {
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        ...STACK_SLIDE_SCREEN_OPTIONS,
-      }}
-      initialRouteName="Insights"
-    >
-      <Stack.Screen name="Insights" component={InsightsScreen} />
-      <Stack.Screen name="HabitTimeline" component={HabitTimelineScreen} />
-    </Stack.Navigator>
-  );
-};
+const InsightsStack = () => (
+  <Stack.Navigator
+    screenOptions={{
+      headerShown: false,
+      ...STACK_SLIDE_SCREEN_OPTIONS,
+    }}
+    initialRouteName="InsightsMain"
+  >
+    <Stack.Screen name="InsightsMain" component={InsightsScreen} />
+    <Stack.Screen
+      name="HabitTimeline"
+      component={HabitTimelineScreen}
+      options={SHEET_LARGE_OPTIONS}
+    />
+    {/* Legacy route names for deep links */}
+    <Stack.Screen name="Insights" component={InsightsScreen} options={{ animation: 'none' }} />
+    <Stack.Screen name="BiologyMain" component={InsightsScreen} options={{ animation: 'none' }} />
+  </Stack.Navigator>
+);
 
 export default InsightsStack;

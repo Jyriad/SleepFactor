@@ -95,6 +95,56 @@ class SleepDataService {
    * @param {string} sleepData.source - Data source ('health_connect', 'healthkit', or 'manual')
    * @returns {Promise<Object>} The upserted record
    */
+  _buildSleepRecord(userId, sleepData) {
+    const record = {
+      user_id: userId,
+      date: sleepData.date,
+      total_sleep_minutes: sleepData.total_sleep_minutes || 0,
+      deep_sleep_minutes: sleepData.deep_sleep_minutes || 0,
+      light_sleep_minutes: sleepData.light_sleep_minutes || 0,
+      rem_sleep_minutes: sleepData.rem_sleep_minutes || 0,
+      awake_minutes: sleepData.awake_minutes || 0,
+      awakenings_count: sleepData.awakenings_count || 0,
+      sleep_score: sleepData.sleep_score,
+      source: sleepData.source,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (sleepData.sleep_start_time) record.sleep_start_time = sleepData.sleep_start_time;
+    if (sleepData.sleep_end_time) record.sleep_end_time = sleepData.sleep_end_time;
+
+    if (
+      sleepData.sleep_stages !== undefined &&
+      sleepData.sleep_stages !== null &&
+      Array.isArray(sleepData.sleep_stages) &&
+      sleepData.sleep_stages.length > 0
+    ) {
+      const validStages = sleepData.sleep_stages
+        .filter((stage) => stage && stage.stage && stage.startTime && stage.endTime)
+        .map((stage) => ({
+          stage: stage.stage.trim(),
+          startTime: stage.startTime,
+          endTime: stage.endTime,
+          durationMinutes: stage.durationMinutes || 0,
+        }));
+
+      if (validStages.length > 0) {
+        record.sleep_stages = validStages;
+      }
+    }
+
+    if (
+      sleepData.sleep_sessions !== undefined &&
+      sleepData.sleep_sessions !== null &&
+      Array.isArray(sleepData.sleep_sessions) &&
+      sleepData.sleep_sessions.length > 0
+    ) {
+      record.sleep_sessions = sleepData.sleep_sessions;
+    }
+
+    return record;
+  }
+
   async upsertSleepData(sleepData) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -103,77 +153,32 @@ class SleepDataService {
         throw new Error('User not authenticated');
       }
 
-      const record = {
-        user_id: user.id,
-        date: sleepData.date,
-        total_sleep_minutes: sleepData.total_sleep_minutes || 0,
-        deep_sleep_minutes: sleepData.deep_sleep_minutes || 0,
-        light_sleep_minutes: sleepData.light_sleep_minutes || 0,
-        rem_sleep_minutes: sleepData.rem_sleep_minutes || 0,
-        awake_minutes: sleepData.awake_minutes || 0,
-        awakenings_count: sleepData.awakenings_count || 0,
-        sleep_score: sleepData.sleep_score,
-        source: sleepData.source,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (sleepData.sleep_start_time) record.sleep_start_time = sleepData.sleep_start_time;
-      if (sleepData.sleep_end_time) record.sleep_end_time = sleepData.sleep_end_time;
-
-      // Only include sleep_stages if it's provided and not null
-      // This allows the code to work before the migration is run
-      // Also ensure it's a valid array before including it
-      if (sleepData.sleep_stages !== undefined && 
-          sleepData.sleep_stages !== null && 
-          Array.isArray(sleepData.sleep_stages) &&
-          sleepData.sleep_stages.length > 0) {
-        // Validate and clean the sleep_stages data
-        const validStages = sleepData.sleep_stages
-          .filter(stage => stage && stage.stage && stage.startTime && stage.endTime)
-          .map(stage => ({
-            stage: stage.stage.trim(), // Remove any whitespace
-            startTime: stage.startTime,
-            endTime: stage.endTime,
-            durationMinutes: stage.durationMinutes || 0,
-          }));
-        
-        if (validStages.length > 0) {
-          record.sleep_stages = validStages;
-        }
-      }
-
-      if (sleepData.sleep_sessions !== undefined &&
-          sleepData.sleep_sessions !== null &&
-          Array.isArray(sleepData.sleep_sessions) &&
-          sleepData.sleep_sessions.length > 0) {
-        record.sleep_sessions = sleepData.sleep_sessions;
-      }
+      const record = this._buildSleepRecord(user.id, sleepData);
       let { data, error } = await supabase
         .from(this.tableName)
         .upsert(record, {
           onConflict: 'user_id,date',
-          ignoreDuplicates: false
+          ignoreDuplicates: false,
         })
         .select()
         .single();
 
-      // If error is about unknown column, retry without optional columns
       if (error && (
         (error.message?.includes('column') && error.message?.includes('does not exist')) ||
         error.message?.includes('sleep_stages') ||
         error.message?.includes('sleep_sessions') ||
-        error.code === '42703' // PostgreSQL undefined_column error code
+        error.code === '42703'
       )) {
         const { sleep_stages, sleep_sessions, ...recordWithoutOptional } = record;
         const retryResult = await supabase
           .from(this.tableName)
           .upsert(recordWithoutOptional, {
             onConflict: 'user_id,date',
-            ignoreDuplicates: false
+            ignoreDuplicates: false,
           })
           .select()
           .single();
-        
+
         data = retryResult.data;
         error = retryResult.error;
       }
@@ -187,6 +192,61 @@ class SleepDataService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Batch upsert sleep rows (one round-trip per chunk).
+   * @param {Array<Object>} sleepRows - Transformed sleep records from health sync
+   * @param {number} chunkSize - Max rows per Supabase upsert
+   * @returns {Promise<Array<Object>>} Upserted rows
+   */
+  async upsertSleepDataBatch(sleepRows, chunkSize = 25) {
+    if (!sleepRows?.length) return [];
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    const records = sleepRows
+      .filter(Boolean)
+      .map((row) => this._buildSleepRecord(user.id, row));
+
+    const saved = [];
+    for (let i = 0; i < records.length; i += chunkSize) {
+      const chunk = records.slice(i, i + chunkSize);
+      let { data, error } = await supabase
+        .from(this.tableName)
+        .upsert(chunk, { onConflict: 'user_id,date', ignoreDuplicates: false })
+        .select();
+
+      if (error && (
+        (error.message?.includes('column') && error.message?.includes('does not exist')) ||
+        error.message?.includes('sleep_stages') ||
+        error.message?.includes('sleep_sessions') ||
+        error.code === '42703'
+      )) {
+        const slimChunk = chunk.map(({ sleep_stages, sleep_sessions, ...rest }) => rest);
+        const retryResult = await supabase
+          .from(this.tableName)
+          .upsert(slimChunk, { onConflict: 'user_id,date', ignoreDuplicates: false })
+          .select();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
+
+      if (error) {
+        throw error;
+      }
+      if (data?.length) {
+        saved.push(...data);
+      }
+    }
+
+    if (saved.length > 0) {
+      this._clearRangeCache();
+    }
+    return saved;
   }
 
   /**

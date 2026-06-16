@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const UserPreferencesContext = createContext();
@@ -20,91 +20,88 @@ export const UserPreferencesProvider = ({ children }) => {
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
   const [loading, setLoading] = useState(true);
 
-  // Load preferences from AsyncStorage on mount
-  useEffect(() => {
-    loadPreferences();
-  }, []);
-
-  const loadPreferences = async () => {
+  const loadPreferences = useCallback(async () => {
     try {
       const stored = await AsyncStorage.getItem(PREFERENCES_STORAGE_KEY);
       if (stored) {
         const parsedPreferences = JSON.parse(stored);
-        // UK option removed from UI: migrate existing UK users to metric
         if (parsedPreferences.measurementRegion === 'UK') {
           parsedPreferences.measurementRegion = 'metric';
           parsedPreferences.measurementSystem = 'metric';
         }
-        // Merge with defaults to handle new preferences
         setPreferences({ ...DEFAULT_PREFERENCES, ...parsedPreferences });
       }
     } catch (error) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const savePreferences = async (newPreferences) => {
+  useEffect(() => {
+    loadPreferences();
+  }, [loadPreferences]);
+
+  const savePreferences = useCallback(async (newPreferences) => {
     try {
-      const updatedPreferences = { ...preferences, ...newPreferences };
-      await AsyncStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(updatedPreferences));
-      setPreferences(updatedPreferences);
+      setPreferences((prev) => {
+        const updatedPreferences = { ...prev, ...newPreferences };
+        AsyncStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(updatedPreferences)).catch(() => {});
+        return updatedPreferences;
+      });
     } catch (error) {
       throw error;
     }
-  };
+  }, []);
 
-  const updatePreference = async (key, value) => {
+  const updatePreference = useCallback(async (key, value) => {
     await savePreferences({ [key]: value });
-  };
+  }, [savePreferences]);
 
-  const resetPreferences = async () => {
+  const resetPreferences = useCallback(async () => {
     try {
       await AsyncStorage.removeItem(PREFERENCES_STORAGE_KEY);
       setPreferences(DEFAULT_PREFERENCES);
     } catch (error) {
       throw error;
     }
-  };
+  }, []);
 
-  // Utility functions for common preferences
-  const formatTime = (date) => {
+  const formatTime = useCallback((date) => {
     const hours = date.getHours();
     const mins = date.getMinutes();
 
     if (preferences.timeFormat === '24') {
       return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-    } else {
-      // 12-hour format
-      const period = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-      return `${displayHours}:${String(mins).padStart(2, '0')} ${period}`;
     }
-  };
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+    return `${displayHours}:${String(mins).padStart(2, '0')} ${period}`;
+  }, [preferences.timeFormat]);
 
-  const formatTimeShort = (date) => {
+  const formatTimeShort = useCallback((date) => {
     const hours = date.getHours();
     const mins = date.getMinutes();
 
     if (preferences.timeFormat === '24') {
       return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-    } else {
-      // 12-hour format - shorter version for limited space
-      const period = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-      return `${displayHours}:${String(mins).padStart(2, '0')}${period}`;
     }
-  };
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+    return `${displayHours}:${String(mins).padStart(2, '0')}${period}`;
+  }, [preferences.timeFormat]);
 
-  const value = {
-    preferences,
-    loading,
-    updatePreference,
-    savePreferences,
-    resetPreferences,
-    formatTime,
-    formatTimeShort,
-  };
+  const value = useMemo(
+    () => ({
+      preferences,
+      loading,
+      updatePreference,
+      savePreferences,
+      resetPreferences,
+      formatTime,
+      formatTimeShort,
+    }),
+    [preferences, loading, updatePreference, savePreferences, resetPreferences, formatTime, formatTimeShort]
+  );
 
   return (
     <UserPreferencesContext.Provider value={value}>

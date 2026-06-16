@@ -11,9 +11,8 @@ import {
   Modal,
   Pressable,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../constants/colors';
@@ -23,10 +22,11 @@ import consumptionOptionsService from '../services/consumptionOptionsService';
 import insightsService from '../services/insightsService';
 import { supabase } from '../services/supabase';
 import offlineWriteQueueService from '../services/offlineWriteQueueService';
+import { requestDateStripLoggedRefresh } from '../services/dateStripBadgeRefresh';
 import sleepDataService from '../services/sleepDataService';
 import {
-  getLastCustomAmountForOption,
-  setLastCustomAmountForOption,
+  getLastConsumptionPreferenceForOption,
+  setLastConsumptionPreferenceForOption,
 } from '../services/consumptionCustomAmountStorage';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { formatVolume, getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
@@ -40,13 +40,13 @@ import {
   getLoggedVolumeMl,
   getLoggedServingCount,
 } from '../utils/consumptionIntake';
+import AppSheetLayout from '../components/AppSheetLayout';
 import { applyAndroidStatusBarSolidPrimary } from '../utils/androidStatusBar';
 
 const LogConsumptionScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const { preferences } = useUserPreferences();
   const measurementRegion = preferences.measurementRegion || 'metric';
   const measurementSystem = preferences.measurementSystem || 'metric';
@@ -273,9 +273,48 @@ const LogConsumptionScreen = () => {
       return;
     }
 
-    const remembered = await getLastCustomAmountForOption(userId, selectedOption.id);
-    applyCustomInputValue(remembered ?? fallback);
+    const remembered = await getLastConsumptionPreferenceForOption(userId, selectedOption.id);
+    const customValue =
+      remembered?.servingMode === 'custom' ? remembered.value : null;
+    applyCustomInputValue(customValue ?? fallback);
   }, [getDefaultCustomInputValue, selectedOption?.id, userId, applyCustomInputValue]);
+
+  useEffect(() => {
+    if (editingEvent || !selectedOption?.id || !userId) return;
+
+    let cancelled = false;
+    const applyRememberedServing = async () => {
+      const remembered = await getLastConsumptionPreferenceForOption(userId, selectedOption.id);
+      if (cancelled || !remembered) return;
+
+      if (remembered.servingMode === 'custom') {
+        setSelectedServing('custom');
+        setShowCustomVolume(true);
+        const fallback = getDefaultCustomInputValue();
+        applyCustomInputValue(remembered.value ?? fallback);
+        return;
+      }
+
+      if ([0.5, 1, 2].includes(remembered.servingMode)) {
+        setSelectedServing(remembered.servingMode);
+        setShowCustomVolume(false);
+        setCustomVolume('');
+        customVolumeRef.current = '';
+        setCustomDrugAmount(0);
+      }
+    };
+
+    applyRememberedServing();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    editingEvent?.id,
+    selectedOption?.id,
+    userId,
+    getDefaultCustomInputValue,
+    applyCustomInputValue,
+  ]);
 
   const resolveConsumptionType = useCallback((type) => {
     if (!type || !consumptionOptions?.length) return null;
@@ -422,7 +461,10 @@ const LogConsumptionScreen = () => {
     if (selectedServing === 'custom' && selectedOption) {
       const basis = resolveIntakeBasis(selectedOption);
       const raw = customVolumeRef.current ?? customVolume;
-      await setLastCustomAmountForOption(userId, selectedOption.id, raw);
+      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
+        servingMode: 'custom',
+        value: raw,
+      });
       if (basis === INTAKE_BASIS.SERVING_COUNT) {
         const count = parseFloat(String(raw).replace(',', '.')) || 0;
         totalAmount = amountFromServingCount(selectedOption, count);
@@ -440,6 +482,9 @@ const LogConsumptionScreen = () => {
       servingMultiplier = 'custom';
     } else if (selectedOption) {
       servingMultiplier = selectedServing || 1;
+      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
+        servingMode: servingMultiplier,
+      });
       const basis = resolveIntakeBasis(selectedOption);
       if (basis === INTAKE_BASIS.SERVING_COUNT) {
         const refCount = getReferenceServingCount(selectedOption);
@@ -520,6 +565,7 @@ const LogConsumptionScreen = () => {
           _pendingSync: true,
         },
       });
+      requestDateStripLoggedRefresh();
       navigation.goBack();
       return;
     }
@@ -530,6 +576,7 @@ const LogConsumptionScreen = () => {
       await updateBedtimeDrugLevel(habit.id, selectedDateObj);
     } catch (e) {}
     onSaveSuccess?.();
+    requestDateStripLoggedRefresh();
     navigation.goBack();
   }, [
     habit,
@@ -558,7 +605,10 @@ const LogConsumptionScreen = () => {
     if (selectedServing === 'custom' && selectedOption) {
       const basis = resolveIntakeBasis(selectedOption);
       const raw = customVolumeRef.current ?? customVolume;
-      await setLastCustomAmountForOption(userId, selectedOption.id, raw);
+      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
+        servingMode: 'custom',
+        value: raw,
+      });
       if (basis === INTAKE_BASIS.SERVING_COUNT) {
         const count = parseFloat(String(raw).replace(',', '.')) || 0;
         totalAmount = amountFromServingCount(selectedOption, count);
@@ -574,6 +624,9 @@ const LogConsumptionScreen = () => {
       }
     } else if (selectedOption) {
       const servingMultiplier = selectedServing || 1;
+      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
+        servingMode: servingMultiplier,
+      });
       const basis = resolveIntakeBasis(selectedOption);
       if (basis === INTAKE_BASIS.SERVING_COUNT) {
         const refCount = getReferenceServingCount(selectedOption);
@@ -614,6 +667,7 @@ const LogConsumptionScreen = () => {
         { eventId, userId, updates }
       );
       onSaveSuccess?.();
+      requestDateStripLoggedRefresh();
       navigation.goBack();
       return;
     }
@@ -621,6 +675,7 @@ const LogConsumptionScreen = () => {
       await updateBedtimeDrugLevel(habit.id, selectedDateObj);
     } catch (e) {}
     onSaveSuccess?.();
+    requestDateStripLoggedRefresh();
     navigation.goBack();
   }, [
     habit,
@@ -719,15 +774,9 @@ const LogConsumptionScreen = () => {
 
   if (!habit) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={24} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Log consumption</Text>
-        </View>
+      <AppSheetLayout title="Log consumption">
         <Text style={styles.errorText}>Missing habit.</Text>
-      </SafeAreaView>
+      </AppSheetLayout>
     );
   }
 
@@ -740,20 +789,12 @@ const LogConsumptionScreen = () => {
       : (selectedOption?.name ?? '');
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerSideButton} accessibilityRole="button" accessibilityLabel="Cancel">
-          <Text style={styles.headerCancelText}>Cancel</Text>
-        </TouchableOpacity>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>{headerTitleText}</Text>
-          {headerSubtitleText ? (
-            <Text style={styles.headerSubtitle} numberOfLines={1}>{headerSubtitleText}</Text>
-          ) : null}
-        </View>
-        <View style={styles.headerSideSpacer} />
-      </View>
-
+    <AppSheetLayout
+      title={headerTitleText}
+      subtitle={headerSubtitleText || undefined}
+      scroll={false}
+      contentContainerStyle={styles.sheetBody}
+    >
       {loadingOptions ? (
         <View style={styles.contentCard}>
           <Text style={styles.loadingText}>Loading options...</Text>
@@ -761,10 +802,7 @@ const LogConsumptionScreen = () => {
       ) : (
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: spacing.xxl + tabBarHeight + 96 },
-          ]}
+          contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -1008,7 +1046,7 @@ const LogConsumptionScreen = () => {
         </Modal>
       ) : null}
 
-      <View style={[styles.bottomActionBar, { bottom: tabBarHeight, paddingBottom: 2 + Math.min(insets.bottom, spacing.xs) }]}>
+      <View style={[styles.bottomActionBar, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
         <TouchableOpacity
           style={[styles.bottomActionButton, saving && styles.bottomActionButtonDisabled]}
           onPress={confirmSave}
@@ -1019,7 +1057,7 @@ const LogConsumptionScreen = () => {
           <Text style={styles.bottomActionButtonText}>{editingEvent ? 'Update consumption' : 'Add consumption'}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </AppSheetLayout>
   );
 };
 
@@ -1088,6 +1126,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingHorizontal: spacing.regular,
@@ -1327,15 +1366,16 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
   },
+  sheetBody: {
+    paddingBottom: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
   bottomActionBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     paddingHorizontal: spacing.regular,
     paddingTop: spacing.sm,
-    backgroundColor: colors.cardBackground,
-    borderTopWidth: 1,
+    backgroundColor: colors.background,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
   bottomActionButton: {

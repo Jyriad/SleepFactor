@@ -13,6 +13,9 @@ let subjectiveJustSavedForToday = false;
 /** In-memory: scores just saved so Home can show them immediately (optimistic) before RPC returns. */
 let pendingSubjectiveScoresForToday = null;
 
+/** In-memory: last saved subjective scores for today — survives Home consuming pending scores so SleepQualityLog can prefill on reopen. */
+let lastSavedSubjectiveScoresForToday = null;
+
 /** In-memory: last applied dashboard payload by userId+dateStr. Survives navigator remounts so Home can show it on first paint. */
 const lastAppliedDashboardByKey = new Map();
 
@@ -61,6 +64,19 @@ function getAndClearPendingSubjectiveScoresForToday() {
   const v = pendingSubjectiveScoresForToday;
   pendingSubjectiveScoresForToday = null;
   return v;
+}
+
+function setLastSavedSubjectiveScoresForToday(scores) {
+  lastSavedSubjectiveScoresForToday =
+    scores && typeof scores === 'object' ? { ...scores } : null;
+}
+
+function peekLastSavedSubjectiveScoresForToday() {
+  return lastSavedSubjectiveScoresForToday;
+}
+
+function clearLastSavedSubjectiveScoresForToday() {
+  lastSavedSubjectiveScoresForToday = null;
 }
 
 function dateStringToKey(dateString) {
@@ -327,4 +343,7 @@ export default {
   getAndClearSubjectiveJustSavedForToday,
   setPendingSubjectiveScoresForToday,
   getAndClearPendingSubjectiveScoresForToday,
+  setLastSavedSubjectiveScoresForToday,
+  peekLastSavedSubjectiveScoresForToday,
+  clearLastSavedSubjectiveScoresForToday,
 };

@@ -217,18 +217,18 @@ class SleepSyncService {
     const savedRecords = [];
     const errors = [];
 
-    for (const transformedData of recordsToProcess) {
-      try {
-        if (transformedData) {
-          if (!transformedData.source) {
-            transformedData.source = healthService.getSourceIdentifier();
-          }
-          const savedRecord = await sleepDataService.upsertSleepData(transformedData);
-          savedRecords.push(savedRecord);
-        }
-      } catch (error) {
-        errors.push({ record: transformedData, error: error.message });
+    const rowsToUpsert = recordsToProcess.filter(Boolean).map((transformedData) => {
+      if (transformedData && !transformedData.source) {
+        transformedData.source = healthService.getSourceIdentifier();
       }
+      return transformedData;
+    });
+
+    try {
+      const batchSaved = await sleepDataService.upsertSleepDataBatch(rowsToUpsert);
+      savedRecords.push(...batchSaved);
+    } catch (error) {
+      errors.push({ batch: true, error: error.message });
     }
     try {
       const { data: { user } } = await supabase.auth.getUser();

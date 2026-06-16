@@ -1,8 +1,11 @@
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import healthService from './healthService';
+import sleepDataService from './sleepDataService';
 import { formatDateForDB } from '../utils/dateHelpers';
 import { HabitLogSource } from './habitLogSourceConstants';
+
+const LAST_MEAL_HABIT_NAME = 'Last meal time';
 
 /**
  * Service for managing automatic health metrics habits
@@ -48,11 +51,39 @@ class HealthMetricsService {
         description: 'Duration of exercise'
       },
       {
+        key: 'exercise_intensity',
+        name: 'Exercise Intensity Index',
+        unit: 'index',
+        type: 'numeric',
+        description: 'Daily activity intensity score from 0–100 (from exercise, energy, and heart rate)',
+      },
+      {
         key: 'distance_walking',
         name: 'Walking Distance',
         unit: 'km',
         type: 'numeric',
         description: 'Distance walked'
+      },
+      {
+        key: 'sunlight_minutes',
+        name: 'Time in Sunlight',
+        unit: 'minutes',
+        type: 'numeric',
+        description: 'Minutes spent in daylight (Apple Watch daylight tracking via Apple Health)'
+      },
+      {
+        key: 'last_meal_time',
+        name: LAST_MEAL_HABIT_NAME,
+        unit: null,
+        type: 'time',
+        description: 'Latest meal logged in Apple Health or Health Connect (requires a nutrition app like MyFitnessPal)'
+      },
+      {
+        key: 'night_body_temperature',
+        name: 'Night Body Temperature',
+        unit: '°C',
+        type: 'numeric',
+        description: 'Average wrist/body temperature during your synced sleep window'
       }
     ];
   }
@@ -95,6 +126,8 @@ class HealthMetricsService {
    */
   async ensureHealthMetricHabits(userId) {
     try {
+      await this.migrateCustomLastMealToAutomatic(userId);
+
       const habits = [];
 
       for (const metric of this.healthMetrics) {
@@ -196,22 +229,18 @@ class HealthMetricsService {
 
       for (const habit of habits) {
         try {
-          // Check if we have permission for this metric before trying to fetch
-          const recordType = this.getRecordTypeForMetric(habit.key);
-          if (recordType) {
-            const hasPermission = await healthService.hasPermissionForRecordType(recordType);
-            if (!hasPermission) {
-              syncResults.push({
-                metric: habit.key,
-                skipped: true,
-                reason: 'permission_not_granted'
-              });
-              continue;
-            }
+          const hasPermission = await this.hasPermissionForMetric(habit.key);
+          if (!hasPermission) {
+            syncResults.push({
+              metric: habit.key,
+              skipped: true,
+              reason: 'permission_not_granted'
+            });
+            continue;
           }
 
-          const metricData = await this.fetchHealthMetricData(habit.key, startDate, endDate);
-          const syncedCount = await this.storeHealthMetricData(userId, habit.id, metricData);
+          const metricData = await this.fetchHealthMetricData(habit.key, startDate, endDate, userId);
+          const syncedCount = await this.storeHealthMetricData(userId, habit.id, metricData, habit.key);
           totalSynced += syncedCount;
 
           syncResults.push({
@@ -276,24 +305,20 @@ class HealthMetricsService {
         }
       }
 
-      // Check if we have permission for this specific metric
-      const recordType = this.getRecordTypeForMetric(metricKey);
-      if (recordType) {
-        const hasPermission = await healthService.hasPermissionForRecordType(recordType);
-        if (!hasPermission) {
-          return { 
-            success: false, 
-            message: `Permission not granted for ${metricKey}. Please grant access in your device settings.`, 
-            synced: 0 
-          };
-        }
+      const hasPermission = await this.hasPermissionForMetric(metricKey);
+      if (!hasPermission) {
+        return {
+          success: false,
+          message: `Permission not granted for ${metricKey}. Please grant access in your device settings.`,
+          synced: 0
+        };
       }
 
       // Fetch health data for this metric
-      const metricData = await this.fetchHealthMetricData(metricKey, startDate, endDate);
-      
+      const metricData = await this.fetchHealthMetricData(metricKey, startDate, endDate, userId);
+
       // Store the data
-      const syncedCount = await this.storeHealthMetricData(userId, habitId, metricData);
+      const syncedCount = await this.storeHealthMetricData(userId, habitId, metricData, metricKey);
 
       return {
         success: true,
@@ -317,7 +342,7 @@ class HealthMetricsService {
    * @param {Date} endDate - End date
    * @returns {Promise<Array>} Array of {date, value} objects
    */
-  async fetchHealthMetricData(metricKey, startDate, endDate) {
+  async fetchHealthMetricData(metricKey, startDate, endDate, userId = null) {
     try {
       if (!this.isInitialized) {
         const initialized = await this.initialize();
@@ -329,17 +354,31 @@ class HealthMetricsService {
       const startDateStr = formatDateForDB(startDate);
       const endDateStr = formatDateForDB(endDate);
 
-      // Fetch metrics using the health service
+      if (metricKey === 'night_body_temperature' && userId) {
+        const sleepRecords = await this._loadSleepForNightTemp(userId, startDateStr, endDateStr);
+        return healthService.fetchNightBodyTemperature(sleepRecords, startDate, endDate);
+      }
+
       const metricsData = await healthService.syncHealthMetrics({
         startDate: startDateStr,
         endDate: endDateStr,
-        metrics: [metricKey]
+        metrics: [metricKey],
       });
 
-      const metricData = metricsData[metricKey] || [];
-
-      return metricData;
+      return metricsData[metricKey] || [];
     } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * @private
+   */
+  async _loadSleepForNightTemp(userId, startDateStr, endDateStr) {
+    try {
+      const rows = await sleepDataService.getSleepDataForRange(startDateStr, endDateStr, userId);
+      return (rows || []).filter((r) => r.sleep_start_time && r.sleep_end_time);
+    } catch (_e) {
       return [];
     }
   }
@@ -351,64 +390,58 @@ class HealthMetricsService {
    * @param {Array} metricData - Array of {date, value} objects
    * @returns {Promise<number>} Number of records stored
    */
-  async storeHealthMetricData(userId, habitId, metricData) {
+  async storeHealthMetricData(userId, habitId, metricData, metricKey = null) {
     if (!metricData || metricData.length === 0) {
       return 0;
     }
 
+    const metricDef = metricKey
+      ? this.healthMetrics.find((m) => m.key === metricKey)
+      : null;
+    const isTimeMetric = metricDef?.type === 'time';
+    const nowIso = new Date().toISOString();
+
+    const rows = [];
+    for (const dataPoint of metricData) {
+      const timeValue = dataPoint.timeValue;
+      const numericValue = dataPoint.value;
+      const displayValue = isTimeMetric && timeValue ? timeValue : String(numericValue);
+
+      if (isTimeMetric && !timeValue) {
+        continue;
+      }
+      if (!isTimeMetric && (numericValue === null || numericValue === undefined || Number.isNaN(numericValue))) {
+        continue;
+      }
+
+      rows.push({
+        user_id: userId,
+        habit_id: habitId,
+        date: dataPoint.date,
+        value: displayValue,
+        numeric_value: isTimeMetric ? null : numericValue,
+        source: HabitLogSource.HEALTH_METRIC_SYNC,
+        updated_at: nowIso,
+      });
+    }
+
+    if (rows.length === 0) {
+      return 0;
+    }
+
+    const CHUNK = 50;
     let storedCount = 0;
 
-    for (const dataPoint of metricData) {
-      try {
-        // Check if log already exists for this date
-        const { data: existingLogs, error: checkError } = await supabase
-          .from('habit_logs')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('habit_id', habitId)
-          .eq('date', dataPoint.date)
-          .limit(1);
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const { error } = await supabase
+        .from('habit_logs')
+        .upsert(chunk, { onConflict: 'user_id,habit_id,date', ignoreDuplicates: false });
 
-        if (checkError) {
-          continue;
-        }
-
-        if (existingLogs && existingLogs.length > 0) {
-          // Update existing log
-          const { error: updateError } = await supabase
-            .from('habit_logs')
-            .update({
-              numeric_value: dataPoint.value,
-              value: dataPoint.value.toString(),
-              updated_at: new Date().toISOString(),
-              source: HabitLogSource.HEALTH_METRIC_SYNC,
-            })
-            .eq('id', existingLogs[0].id);
-
-          if (updateError) {
-            continue;
-          }
-        } else {
-          // Create new log
-          const { error: insertError } = await supabase
-            .from('habit_logs')
-            .insert({
-              user_id: userId,
-              habit_id: habitId,
-              date: dataPoint.date,
-              numeric_value: dataPoint.value,
-              value: dataPoint.value.toString(),
-              source: HabitLogSource.HEALTH_METRIC_SYNC,
-            });
-
-          if (insertError) {
-            continue;
-          }
-        }
-
-        storedCount++;
-      } catch (error) {
+      if (error) {
+        continue;
       }
+      storedCount += chunk.length;
     }
 
     return storedCount;
@@ -437,18 +470,19 @@ class HealthMetricsService {
         if (!initialized) return [];
       }
 
+      if (userId) {
+        await this.migrateCustomLastMealToAutomatic(userId);
+      }
+
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - lookbackDays);
 
       for (const metric of this.healthMetrics) {
-        const recordType = this.getRecordTypeForMetric(metric.key);
-        if (!recordType) continue;
-
-        const hasPermission = await healthService.hasPermissionForRecordType(recordType);
+        const hasPermission = await this.hasPermissionForMetric(metric.key);
         if (!hasPermission) continue;
 
-        const data = await this.fetchHealthMetricData(metric.key, startDate, endDate);
+        const data = await this.fetchHealthMetricData(metric.key, startDate, endDate, userId);
         if (data && data.length > 0) {
           byKey.set(metric.key, metric);
         }
@@ -520,10 +554,104 @@ class HealthMetricsService {
       heart_rate_max: 'HeartRate',
       heart_rate_resting: 'RestingHeartRate',
       exercise_minutes: 'ExerciseSession',
-      distance_walking: 'Distance'
+      distance_walking: 'Distance',
+      sunlight_minutes: Platform.OS === 'ios' ? 'TimeInDaylight' : null,
+      last_meal_time: 'Nutrition',
+      night_body_temperature: 'BodyTemperature',
     };
 
-    return recordTypeMappings[metricKey] || null;
+    return recordTypeMappings[metricKey] ?? null;
+  }
+
+  /**
+   * Whether the device grants access needed for a metric (includes computed metrics).
+   * @param {string} metricKey
+   * @returns {Promise<boolean>}
+   */
+  async hasPermissionForMetric(metricKey) {
+    if (metricKey === 'sunlight_minutes') {
+      if (Platform.OS !== 'ios') return false;
+      return healthService.hasPermissionForRecordType('TimeInDaylight');
+    }
+
+    if (metricKey === 'exercise_intensity') {
+      const underlying = ['ExerciseSession', 'ActiveCaloriesBurned', 'HeartRate'];
+      for (const recordType of underlying) {
+        if (await healthService.hasPermissionForRecordType(recordType)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    const recordType = this.getRecordTypeForMetric(metricKey);
+    if (!recordType) return false;
+
+    return healthService.hasPermissionForRecordType(recordType);
+  }
+
+  /**
+   * Convert a manual Last meal time habit to automatic when nutrition sync is available.
+   * @param {string} userId
+   */
+  async migrateCustomLastMealToAutomatic(userId) {
+    if (!userId) return;
+
+    try {
+      const hasNutrition = await this.hasPermissionForMetric('last_meal_time');
+      if (!hasNutrition) return;
+
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      const nutritionData = await this.fetchHealthMetricData('last_meal_time', startDate, endDate);
+      if (!nutritionData || nutritionData.length === 0) return;
+
+      const { data: customHabit } = await supabase
+        .from('habits')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('name', LAST_MEAL_HABIT_NAME)
+        .eq('is_custom', true)
+        .maybeSingle();
+
+      if (!customHabit?.id) return;
+
+      await supabase
+        .from('habits')
+        .update({
+          is_custom: false,
+          type: 'time',
+          unit: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', customHabit.id);
+    } catch (_e) {
+      /* non-fatal */
+    }
+  }
+
+  /**
+   * Whether onboarding should skip offering manual starter habits covered by automatic feeds.
+   * @param {string} userId
+   * @returns {Promise<{ skipManualLastMeal: boolean, skipManualExercise: boolean }>}
+   */
+  async getAutoStarterSuppression(userId) {
+    const defaults = { skipManualLastMeal: false, skipManualExercise: false };
+    try {
+      const initialized = await this.initialize();
+      if (!initialized) return defaults;
+
+      const metrics = await this.getMetricsWithWearableData(userId, 120);
+      const keys = new Set(metrics.map((m) => m.key));
+
+      return {
+        skipManualLastMeal: keys.has('last_meal_time'),
+        skipManualExercise: keys.has('exercise_intensity'),
+      };
+    } catch (_e) {
+      return defaults;
+    }
   }
 
   /**
@@ -533,12 +661,16 @@ class HealthMetricsService {
    */
   getHealthMetricDescription(habit) {
     const descriptions = {
-      'Steps': 'Daily step count from your device',
-      'Active Energy': 'Calories burned through physical activity',
+      'Daily Steps': 'Daily step count from your device',
+      'Active Energy Burned': 'Calories burned through physical activity',
       'Resting Heart Rate': 'Your heart rate while at rest',
       'Max Heart Rate': 'Your highest heart rate during activity',
       'Exercise Duration': 'Minutes spent exercising',
-      'Distance Walking': 'Distance traveled by walking/running'
+      'Exercise Intensity Index': 'Daily activity score from exercise, energy, and heart rate',
+      'Walking Distance': 'Distance traveled by walking/running',
+      'Time in Sunlight': 'Minutes in daylight from your Apple Watch',
+      'Last meal time': 'Latest meal time from your linked nutrition app',
+      'Night Body Temperature': 'Average temperature during your sleep window',
     };
 
     // Try to match by name or key
