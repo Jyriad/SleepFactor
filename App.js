@@ -5,6 +5,8 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './services/queryClient';
 import { AuthProvider } from './contexts/AuthContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import AppNavigator from './navigation/AppNavigator';
@@ -146,9 +148,11 @@ export default Sentry.wrap(function App() {
       <BottomSheetModalProvider>
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <UserPreferencesProvider>
-            <AuthProvider>
-              <AppNavigator navigationRef={navigationRef} />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+              <AuthProvider>
+                <AppNavigator navigationRef={navigationRef} />
+              </AuthProvider>
+            </QueryClientProvider>
           </UserPreferencesProvider>
         </SafeAreaProvider>
       </BottomSheetModalProvider>

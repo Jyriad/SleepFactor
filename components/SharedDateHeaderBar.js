@@ -40,7 +40,6 @@ const SharedDateHeaderBar = () => {
           <DateHeader
             selectedDate={ctx.selectedDate}
             onDateChange={ctx.setSelectedDate}
-            loggedDates={ctx.loggedDates}
             datesWithUnsavedChanges={ctx.datesWithUnsavedChanges}
             leftElement={backButton}
           />

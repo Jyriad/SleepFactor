@@ -68,6 +68,8 @@ import {
 } from '../services/preferredSleepSourceService';
 /** Square mark: Cotton Blue on dark bars; use SquareLogoDark / SquareLogoLight on light surfaces (Blue Zodiac). */
 import SquareLogoDark from '../assets/SquareLogoDark.svg';
+import AppSheetLayout from '../components/AppSheetLayout';
+import AccountScreen from './AccountScreen';
 import GlassChromeBar from '../components/GlassChromeBar';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import { Picker } from 'react-native-wheel-pick';
@@ -154,6 +156,7 @@ const ProfileScreen = () => {
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false);
   const [marketingToggleSaving, setMarketingToggleSaving] = useState(false);
   const [morningCheckinSaving, setMorningCheckinSaving] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const habitReminderHourData = useMemo(() => Array.from({ length: 24 }, (_, i) => ({
     value: i.toString(),
@@ -628,28 +631,20 @@ const ProfileScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollViewContent}
-      >
-        <GlassChromeBar style={styles.headerGlassOuter}>
-          <View style={{ paddingTop: headerTopPadding }}>
-            <View style={styles.header}>
-              <View style={styles.headerRow}>
-                <SquareLogoDark
-                  width={40}
-                  height={40}
-                  style={styles.headerLogo}
-                  accessibilityLabel="SleepFactor"
-                />
-                <Text style={styles.title}>Profile</Text>
-              </View>
-            </View>
+    <AppSheetLayout
+      title="Profile"
+      scroll
+      nativePresentation
+      contentFlexGrow={false}
+      overlay={
+        accountOpen ? (
+          <View style={styles.accountOverlay}>
+            <AccountScreen onClose={() => setAccountOpen(false)} />
           </View>
-        </GlassChromeBar>
-        <View style={styles.content}>
+        ) : null
+      }
+    >
+        <View>
           {/* Account Navigation */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Account</Text>
@@ -668,7 +663,7 @@ const ProfileScreen = () => {
                   </Text>
                 </View>
               }
-              onPress={() => navigation.navigate('Account')}
+              onPress={() => setAccountOpen(true)}
             />
           </View>
 
@@ -1314,8 +1309,7 @@ const ProfileScreen = () => {
           />
 
         </View>
-      </ScrollView>
-    </SafeAreaView>
+    </AppSheetLayout>
   );
 };
 
@@ -1349,11 +1343,12 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  accountOverlay: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   scrollViewContent: {
     paddingBottom: 100, // Space so bottom content clears the navigation footer
-  },
-  content: {
-    paddingHorizontal: spacing.regular,
   },
   section: {
     marginTop: spacing.xl,

@@ -3,29 +3,28 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Alert,
   TextInput,
   Modal,
   InteractionManager,
+  Keyboard,
+  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import Constants from 'expo-constants';
+import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from 'react-native-wheel-pick';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
-import { colors } from '../constants/colors';
-import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
-import GlassChromeBar from '../components/GlassChromeBar';
-import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
 import subjectiveMeasuresService from '../services/subjectiveMeasuresService';
 import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import { supabase } from '../services/supabase';
+import { colors } from '../constants/colors';
+import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
+import AppSheetLayout from '../components/AppSheetLayout';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
 import ScoreSlider from '../components/ScoreSlider';
 import PressableFeedback from '../components/PressableFeedback';
@@ -44,10 +43,9 @@ function formatReminderTimeForDisplay(timeStr, use24Hour) {
 
 const SubjectiveMeasuresScreen = () => {
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
-  const headerTopPadding = Math.max(spacing.regular, topInset);
-  const tabBarHeight = useBottomTabBarHeight();
-  const navigation = useNavigation();
+  const { height: windowHeight } = useWindowDimensions();
+  const listBottomPad = Math.max(insets.bottom, spacing.md) + spacing.lg;
+  const addMeasureModalMaxHeight = Math.min(windowHeight * 0.72, 520);
   const { user } = useAuth();
   const { preferences } = useUserPreferences();
 
@@ -60,6 +58,10 @@ const SubjectiveMeasuresScreen = () => {
   const [newMeasureRightLabel, setNewMeasureRightLabel] = useState('High');
   const [measuresBusy, setMeasuresBusy] = useState(false);
   const toggleRequestSeqRef = useRef({});
+  const measureLabelInputRef = useRef(null);
+  const measureHintInputRef = useRef(null);
+  const measureLeftLabelInputRef = useRef(null);
+  const measureRightLabelInputRef = useRef(null);
   const [morningCheckinTime, setMorningCheckinTime] = useState(null);
   const [showMorningCheckinTimePicker, setShowMorningCheckinTimePicker] = useState(false);
   const [morningCheckinPickerHour, setMorningCheckinPickerHour] = useState(8);
@@ -127,16 +129,6 @@ const SubjectiveMeasuresScreen = () => {
     }, [loadSubjectiveMorningPrefs])
   );
 
-  useEffect(() => {
-    applyAndroidStatusBarForFrostedHeader();
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      applyAndroidStatusBarForFrostedHeader();
-    }, [])
-  );
-
   const accountLegacy = subjectiveMeasures.some((x) => x._legacy);
 
   const confirmDeleteVerbiage = (m) => {
@@ -194,32 +186,16 @@ const SubjectiveMeasuresScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <GlassChromeBar style={styles.headerGlassOuter}>
-        <View style={{ paddingTop: headerTopPadding }}>
-          <View style={styles.headerRow}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-            </TouchableOpacity>
-            <View style={styles.headerTitleBlock}>
-              <Text style={styles.title}>How did you sleep?</Text>
-              <Text style={styles.subtitle}>How you feel and custom measures</Text>
-            </View>
-            <SubjectiveInsightsInfoButton accountLegacy={accountLegacy} />
-          </View>
-        </View>
-      </GlassChromeBar>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + spacing.xl }]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.content}>
+    <>
+    <AppSheetLayout
+      title="Set up what you log"
+      subtitle="Choose which morning measures to track"
+      headerRight={<SubjectiveInsightsInfoButton accountLegacy={accountLegacy} />}
+      scroll
+      nativePresentation
+      leadingAction="back"
+      contentContainerStyle={{ paddingBottom: listBottomPad }}
+    >
           <Text style={styles.shortHint}>
             Each rating is for the night of sleep you just finished.
           </Text>
@@ -343,8 +319,7 @@ const SubjectiveMeasuresScreen = () => {
               </TouchableOpacity>
             )}
           </View>
-        </View>
-      </ScrollView>
+    </AppSheetLayout>
       <Modal
         visible={addMeasureModalVisible}
         transparent
@@ -356,131 +331,156 @@ const SubjectiveMeasuresScreen = () => {
       >
         <TouchableWithoutFeedback
           onPress={() => {
+            Keyboard.dismiss();
             setAddMeasureModalVisible(false);
             setEditingMeasure(null);
           }}
         >
-          <View style={styles.reminderTimeModalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.reminderTimeModalContent}>
-                <Text style={styles.reminderTimeModalTitle}>
-                  {editingMeasure ? 'Edit measure' : 'Custom measure'}
-                </Text>
-                <Text style={styles.addMeasureHint}>
-                  {editingMeasure
-                    ? 'Update how this measure appears in your morning check-in.'
-                    : 'Name what you want to rate each morning (e.g. Stress, Mood). You’ll use a 1–10 slider.'}
-                </Text>
-                <TextInput
-                  style={styles.addMeasureInput}
-                  value={newMeasureLabel}
-                  onChangeText={setNewMeasureLabel}
-                  placeholder="Measure name"
-                  placeholderTextColor={colors.textLight}
-                  maxLength={120}
-                />
-                <TextInput
-                  style={styles.addMeasureInput}
-                  value={newMeasureHint}
-                  onChangeText={setNewMeasureHint}
-                  placeholder="Description shown below title (optional)"
-                  placeholderTextColor={colors.textLight}
-                  maxLength={300}
-                  multiline
-                />
-                <View style={styles.scaleLabelsRow}>
-                  <View style={styles.scaleLabelGroup}>
-                    <Text style={styles.scaleLabelTitle}>From</Text>
-                    <TextInput
-                      style={[styles.addMeasureInput, styles.scaleLabelInput]}
-                      value={newMeasureLeftLabel}
-                      onChangeText={setNewMeasureLeftLabel}
-                      placeholder="e.g. Calm"
-                      placeholderTextColor={colors.textLight}
-                      maxLength={80}
-                    />
-                  </View>
-                  <View style={styles.scaleLabelGroup}>
-                    <Text style={styles.scaleLabelTitle}>To</Text>
-                    <TextInput
-                      style={[styles.addMeasureInput, styles.scaleLabelInput]}
-                      value={newMeasureRightLabel}
-                      onChangeText={setNewMeasureRightLabel}
-                      placeholder="e.g. Stressed"
-                      placeholderTextColor={colors.textLight}
-                      maxLength={80}
-                    />
-                  </View>
-                </View>
-                <View style={styles.previewCard}>
-                  <Text style={styles.previewTitle}>Preview</Text>
-                  <ScoreSlider
-                    label={newMeasureLabel.trim() || 'Your custom measure'}
-                    hint={newMeasureHint.trim() || 'Description will appear here'}
-                    value={null}
-                    onValueChange={() => {}}
-                    leftLabel={newMeasureLeftLabel.trim() || 'Low'}
-                    rightLabel={newMeasureRightLabel.trim() || 'High'}
-                    containerStyle={styles.previewSlider}
-                  />
-                </View>
-                <View style={styles.reminderTimeModalFooter}>
-                  <PressableFeedback
-                    style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
-                    pressedStyle={buttonStyles.outlinePressed}
-                    onPress={() => {
-                      setAddMeasureModalVisible(false);
-                      setEditingMeasure(null);
-                    }}
-                  >
-                    <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
-                  </PressableFeedback>
-                  <PressableFeedback
-                    style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
-                    pressedStyle={buttonStyles.primaryPressed}
-                    onPress={async () => {
-                      if (!user?.id) return;
-                      const label = newMeasureLabel.trim();
-                      if (!label) return;
-                      const hint = newMeasureHint.trim();
-                      const leftLabel = newMeasureLeftLabel.trim() || 'Low';
-                      const rightLabel = newMeasureRightLabel.trim() || 'High';
-                      setMeasuresBusy(true);
-                      try {
-                        const res = editingMeasure
-                          ? await subjectiveMeasuresService.updateSubjectiveMeasure(user.id, editingMeasure.id, {
-                              label,
-                              hint: hint || null,
-                              leftLabel,
-                              rightLabel,
-                            })
-                          : await subjectiveMeasuresService.addCustomMeasure(user.id, {
-                              label,
-                              hint: hint || null,
-                              leftLabel,
-                              rightLabel,
-                            });
-                        if (!res.success) {
-                          Alert.alert('Error', res.error || 'Could not save.');
-                          return;
-                        }
-                        setAddMeasureModalVisible(false);
-                        setEditingMeasure(null);
-                        resetMeasureDraft();
-                        await loadSubjectiveMorningPrefs();
-                        await morningCheckinNotifications.rescheduleIfEnabled();
-                      } finally {
-                        setMeasuresBusy(false);
-                      }
-                    }}
-                  >
-                    <Text style={styles.reminderTimeDoneButtonText}>
-                      {editingMeasure ? 'Save' : 'Add'}
+          <View style={[styles.reminderTimeModalOverlay, { paddingTop: insets.top + spacing.lg }]}>
+            <View style={[styles.reminderTimeModalContent, { maxHeight: addMeasureModalMaxHeight }]}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                automaticallyAdjustKeyboardInsets
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+                contentContainerStyle={styles.addMeasureModalScrollContent}
+              >
+                    <Text style={styles.reminderTimeModalTitle}>
+                      {editingMeasure ? 'Edit measure' : 'Custom measure'}
                     </Text>
-                  </PressableFeedback>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
+                    <Text style={styles.addMeasureHint}>
+                      {editingMeasure
+                        ? 'Update how this measure appears in your morning check-in.'
+                        : 'Name what you want to rate each morning (e.g. Stress, Mood). You’ll use a 1–10 slider.'}
+                    </Text>
+                    <TextInput
+                      ref={measureLabelInputRef}
+                      style={styles.addMeasureInput}
+                      value={newMeasureLabel}
+                      onChangeText={setNewMeasureLabel}
+                      placeholder="Measure name"
+                      placeholderTextColor={colors.textLight}
+                      maxLength={120}
+                      returnKeyType="next"
+                      blurOnSubmit={false}
+                      onSubmitEditing={() => measureHintInputRef.current?.focus()}
+                    />
+                    <TextInput
+                      ref={measureHintInputRef}
+                      style={styles.addMeasureInput}
+                      value={newMeasureHint}
+                      onChangeText={setNewMeasureHint}
+                      placeholder="Description shown below title (optional)"
+                      placeholderTextColor={colors.textLight}
+                      maxLength={300}
+                      returnKeyType="next"
+                      blurOnSubmit={false}
+                      onSubmitEditing={() => measureLeftLabelInputRef.current?.focus()}
+                    />
+                    <View style={styles.scaleLabelsRow}>
+                      <View style={styles.scaleLabelGroup}>
+                        <Text style={styles.scaleLabelTitle}>From</Text>
+                        <TextInput
+                          ref={measureLeftLabelInputRef}
+                          style={[styles.addMeasureInput, styles.scaleLabelInput]}
+                          value={newMeasureLeftLabel}
+                          onChangeText={setNewMeasureLeftLabel}
+                          placeholder="e.g. Calm"
+                          placeholderTextColor={colors.textLight}
+                          maxLength={80}
+                          returnKeyType="next"
+                          blurOnSubmit={false}
+                          onSubmitEditing={() => measureRightLabelInputRef.current?.focus()}
+                        />
+                      </View>
+                      <View style={styles.scaleLabelGroup}>
+                        <Text style={styles.scaleLabelTitle}>To</Text>
+                        <TextInput
+                          ref={measureRightLabelInputRef}
+                          style={[styles.addMeasureInput, styles.scaleLabelInput]}
+                          value={newMeasureRightLabel}
+                          onChangeText={setNewMeasureRightLabel}
+                          placeholder="e.g. Stressed"
+                          placeholderTextColor={colors.textLight}
+                          maxLength={80}
+                          returnKeyType="done"
+                          onSubmitEditing={Keyboard.dismiss}
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.previewCard}>
+                      <Text style={styles.previewTitle}>Preview</Text>
+                      <ScoreSlider
+                        label={newMeasureLabel.trim() || 'Your custom measure'}
+                        hint={newMeasureHint.trim() || 'Description will appear here'}
+                        value={null}
+                        onValueChange={() => {}}
+                        leftLabel={newMeasureLeftLabel.trim() || 'Low'}
+                        rightLabel={newMeasureRightLabel.trim() || 'High'}
+                        containerStyle={styles.previewSlider}
+                      />
+                    </View>
+                    <View style={styles.reminderTimeModalFooter}>
+                      <PressableFeedback
+                        style={[styles.reminderTimeModalButton, styles.reminderTimeCancelButton]}
+                        pressedStyle={buttonStyles.outlinePressed}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setAddMeasureModalVisible(false);
+                          setEditingMeasure(null);
+                        }}
+                      >
+                        <Text style={styles.reminderTimeCancelButtonText}>Cancel</Text>
+                      </PressableFeedback>
+                      <PressableFeedback
+                        style={[styles.reminderTimeModalButton, styles.reminderTimeDoneButton]}
+                        pressedStyle={buttonStyles.primaryPressed}
+                        disabled={measuresBusy}
+                        onPress={async () => {
+                          if (!user?.id) return;
+                          const label = newMeasureLabel.trim();
+                          if (!label) return;
+                          const hint = newMeasureHint.trim();
+                          const leftLabel = newMeasureLeftLabel.trim() || 'Low';
+                          const rightLabel = newMeasureRightLabel.trim() || 'High';
+                          Keyboard.dismiss();
+                          setMeasuresBusy(true);
+                          try {
+                            const res = editingMeasure
+                              ? await subjectiveMeasuresService.updateSubjectiveMeasure(user.id, editingMeasure.id, {
+                                  label,
+                                  hint: hint || null,
+                                  leftLabel,
+                                  rightLabel,
+                                })
+                              : await subjectiveMeasuresService.addCustomMeasure(user.id, {
+                                  label,
+                                  hint: hint || null,
+                                  leftLabel,
+                                  rightLabel,
+                                });
+                            if (!res.success) {
+                              Alert.alert('Error', res.error || 'Could not save.');
+                              return;
+                            }
+                            setAddMeasureModalVisible(false);
+                            setEditingMeasure(null);
+                            resetMeasureDraft();
+                            await loadSubjectiveMorningPrefs();
+                            await morningCheckinNotifications.rescheduleIfEnabled();
+                          } finally {
+                            setMeasuresBusy(false);
+                          }
+                        }}
+                      >
+                        <Text style={styles.reminderTimeDoneButtonText}>
+                          {editingMeasure ? 'Save' : 'Add'}
+                        </Text>
+                      </PressableFeedback>
+                    </View>
+              </ScrollView>
+            </View>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -556,7 +556,7 @@ const SubjectiveMeasuresScreen = () => {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </SafeAreaView>
+    </>
   );
 };
 
@@ -593,6 +593,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     flexGrow: 1,
@@ -702,7 +703,7 @@ const styles = StyleSheet.create({
   reminderTimeModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
   },
   reminderTimeModalContent: {
@@ -710,9 +711,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: '90%',
     maxWidth: 350,
-    padding: spacing.regular,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  addMeasureModalScrollContent: {
+    padding: spacing.regular,
   },
   reminderTimeModalTitle: {
     fontSize: typography.sizes.large,

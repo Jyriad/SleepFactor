@@ -208,21 +208,66 @@ class HealthService {
    * @param {Array} options.metrics - Array of metric keys to fetch
    * @returns {Promise<Object>} Object with metrics data
    */
-  async syncHealthMetrics({ startDate, endDate, metrics }) {
+  async syncHealthMetrics({ startDate, endDate, metrics, sleepRecords = null }) {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
 
+      const fetchOptions = sleepRecords ? { sleepRecords } : {};
+
       if (this.platform === 'android' && healthConnectService) {
-        return await healthConnectService.syncHealthMetrics({ startDate, endDate, metrics });
+        return await healthConnectService.syncHealthMetrics({ startDate, endDate, metrics, fetchOptions });
       } else if (this.platform === 'ios' && healthKitService) {
-        return await healthKitService.syncHealthMetrics({ startDate, endDate, metrics });
+        return await healthKitService.syncHealthMetrics({ startDate, endDate, metrics, fetchOptions });
       }
 
       return {};
     } catch (error) {
       throw error;
+    }
+  }
+
+  /**
+   * Average body temperature during synced sleep windows.
+   * @param {Array} sleepRecords
+   * @param {Date|string} startDate
+   * @param {Date|string} endDate
+   * @returns {Promise<Array<{ date: string, value: number }>>}
+   */
+  async fetchNightBodyTemperature(sleepRecords, startDate, endDate) {
+    try {
+      if (!this.isInitialized) await this.initialize();
+
+      const start =
+        startDate instanceof Date
+          ? startDate
+          : typeof startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(startDate)
+            ? new Date(startDate.split('-').map((x, i) => (i === 1 ? parseInt(x, 10) - 1 : parseInt(x, 10))))
+            : new Date(startDate);
+      const end =
+        endDate instanceof Date
+          ? endDate
+          : typeof endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+            ? new Date(endDate.split('-').map((x, i) => (i === 1 ? parseInt(x, 10) - 1 : parseInt(x, 10))))
+            : new Date(endDate);
+
+      const startTime = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0);
+      const endTime = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+
+      if (this.platform === 'android' && healthConnectService) {
+        return await healthConnectService.fetchNightBodyTemperature(
+          sleepRecords,
+          startTime.toISOString(),
+          endTime.toISOString()
+        );
+      }
+      if (this.platform === 'ios' && healthKitService) {
+        return await healthKitService.fetchNightBodyTemperature(sleepRecords, startTime, endTime);
+      }
+      return [];
+    } catch (_error) {
+      return [];
     }
   }
 

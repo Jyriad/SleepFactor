@@ -4,12 +4,10 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,10 +19,10 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import Button from '../components/Button';
 import PressableFeedback from '../components/PressableFeedback';
-import { buttonStyles } from '../constants/buttonStyles';
 import ScoreSlider from '../components/ScoreSlider';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
 import { formatDateForDB, formatDateTitle, getToday } from '../utils/dateHelpers';
+import AppSheetLayout from '../components/AppSheetLayout';
 
 function getDateString(param) {
   if (!param) return null;
@@ -67,6 +65,30 @@ function buildPendingPayload(scoresByMeasureId, measures) {
   return out;
 }
 
+/** Map a subjective snapshot (home cache / last-saved) onto current measure rows by slug + id. */
+function applySubjectiveSnapshotToScores(snapshot, measuresList) {
+  const nextScores = {};
+  if (!snapshot || !measuresList?.length) return nextScores;
+  for (const m of measuresList) {
+    if (m.slug === 'tiredness' && snapshot.tiredness_score != null) {
+      nextScores[m.id] = snapshot.tiredness_score;
+    }
+    if (m.slug === 'dream_vividness' && snapshot.dream_vividness_score != null) {
+      nextScores[m.id] = snapshot.dream_vividness_score;
+    }
+  }
+  if (Array.isArray(snapshot.extra)) {
+    snapshot.extra.forEach((row) => {
+      if (row.measure_id == null || row.score == null) return;
+      const measure =
+        measuresList.find((m) => m.id === row.measure_id) ||
+        (row.label ? measuresList.find((m) => m.label === row.label) : null);
+      if (measure) nextScores[measure.id] = row.score;
+    });
+  }
+  return nextScores;
+}
+
 /** Memoized row so changing one slider does not rebuild every native Slider (fixes tap lag between rows). */
 const SleepQualityMeasureSliderRow = React.memo(function SleepQualityMeasureSliderRow({
   measureId,
@@ -102,9 +124,8 @@ const SleepQualityLogScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
-  /** Keeps the last line of content above the tab bar + home indicator. */
-  const bottomContentPad = tabBarHeight + insets.bottom + spacing.lg;
+  /** Sheet presentation: pad above home indicator only (no tab bar in the sheet). */
+  const bottomContentPad = Math.max(insets.bottom, spacing.md) + spacing.lg;
   const { user } = useAuth();
   const dateStr = getDateString(route.params?.date);
   const [measures, setMeasures] = useState([]);
@@ -130,6 +151,25 @@ const SleepQualityLogScreen = () => {
     navigation.navigate('HomeMain');
   }, [navigation]);
 
+  const openMeasureSetup = useCallback(() => {
+    navigation.navigate('SubjectiveMeasures');
+  }, [navigation]);
+
+  const sheetHeaderRight = (
+    <View style={styles.sheetHeaderActions}>
+      <TouchableOpacity
+        onPress={openMeasureSetup}
+        style={styles.sheetHeaderMoreButton}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Set up what you log"
+      >
+        <Ionicons name="ellipsis-horizontal" size={22} color={colors.textPrimary} />
+      </TouchableOpacity>
+      <SubjectiveInsightsInfoButton accountLegacy={false} color={colors.primary} iconSize={20} />
+    </View>
+  );
+
   // Refresh measure configuration when returning from "Set up what you log".
   useFocusEffect(
     useCallback(() => {
@@ -146,12 +186,18 @@ const SleepQualityLogScreen = () => {
 
     (async () => {
       let cachedSub = null;
+      let cachedSubFromPersistedDashboard = false;
       try {
         const cached = await homeCacheService.getPersistedDashboardPayload(user.id, dateStr);
         if (cached?.last_night_subjective && typeof cached.last_night_subjective === 'object') {
           cachedSub = cached.last_night_subjective;
+          cachedSubFromPersistedDashboard = true;
         }
       } catch (_e) {}
+
+      if (!cachedSub && dateStr === getToday()) {
+        cachedSub = homeCacheService.peekLastSavedSubjectiveScoresForToday();
+      }
 
       /** Never block sliders on sleep/custom fetches — they can throw (auth timing, RPC, offline). */
       let list = [];
@@ -190,23 +236,8 @@ const SleepQualityLogScreen = () => {
       try {
         setMeasures(list || []);
 
-        const nextScores = {};
+        const nextScores = applySubjectiveSnapshotToScores(cachedSub, list || []);
         const lm = list || [];
-        if (cachedSub) {
-          for (const m of lm) {
-            if (m.slug === 'tiredness' && cachedSub.tiredness_score != null) {
-              nextScores[m.id] = cachedSub.tiredness_score;
-            }
-            if (m.slug === 'dream_vividness' && cachedSub.dream_vividness_score != null) {
-              nextScores[m.id] = cachedSub.dream_vividness_score;
-            }
-          }
-          if (Array.isArray(cachedSub.extra)) {
-            cachedSub.extra.forEach((row) => {
-              if (row.measure_id != null && row.score != null) nextScores[row.measure_id] = row.score;
-            });
-          }
-        }
         if (sleepRow) {
           const t = sleepRow.tiredness_score;
           const d = sleepRow.dream_vividness_score;
@@ -219,11 +250,23 @@ const SleepQualityLogScreen = () => {
           if (customMap[mid] != null) nextScores[mid] = customMap[mid];
         });
 
-        setScoresByMeasureId(nextScores);
+        setScoresByMeasureId((prev) => {
+          const merged = { ...nextScores };
+          for (const m of lm) {
+            if (merged[m.id] == null) {
+              const fromPrev = pickScoreForMeasure(m, lm, prev);
+              if (fromPrev != null) merged[m.id] = fromPrev;
+            }
+          }
+          return merged;
+        });
         const hasAny =
           Object.keys(nextScores).length > 0 &&
           Object.values(nextScores).some((v) => v != null);
         if (hasAny) setHasSavedScores(true);
+        if (cachedSubFromPersistedDashboard && hasAny) {
+          homeCacheService.clearLastSavedSubjectiveScoresForToday();
+        }
       } catch (_e) {
       } finally {
         if (!cancelled) setLoading(false);
@@ -300,9 +343,9 @@ const SleepQualityLogScreen = () => {
       await homeCacheService.clearPersistedDashboardPayload(user.id, dateStr);
       if (dateStr === getToday()) {
         homeCacheService.setSubjectiveJustSavedForToday();
-        homeCacheService.setPendingSubjectiveScoresForToday(
-          buildPendingPayload(pendingScores, measuresForSave)
-        );
+        const savedSnapshot = buildPendingPayload(pendingScores, measuresForSave);
+        homeCacheService.setPendingSubjectiveScoresForToday(savedSnapshot);
+        homeCacheService.setLastSavedSubjectiveScoresForToday(savedSnapshot);
       }
       setHasSavedScores(true);
       if (queuedForSync) {
@@ -366,6 +409,7 @@ const SleepQualityLogScreen = () => {
               if (dateStr === getToday()) {
                 homeCacheService.setSubjectiveJustSavedForToday();
                 homeCacheService.setPendingSubjectiveScoresForToday(null);
+                homeCacheService.clearLastSavedSubjectiveScoresForToday();
               }
               setScoresByMeasureId({});
               setHasSavedScores(false);
@@ -383,51 +427,34 @@ const SleepQualityLogScreen = () => {
 
   if (!dateStr) {
     return (
-      <View style={styles.container}>
-        <View style={styles.headerWrap}>
-          <View style={[styles.headerInner, { paddingTop: insets.top }]}>
-            <TouchableOpacity onPress={returnToHome} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color={colors.white} />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>How do you feel?</Text>
-          </View>
-        </View>
+      <AppSheetLayout
+        title="How do you feel?"
+        subtitle="Invalid date"
+        onDismiss={returnToHome}
+        scroll={false}
+        nativePresentation
+      >
         <View style={[styles.centered, { paddingBottom: bottomContentPad }]}>
           <Text style={styles.bodyText}>Invalid date.</Text>
         </View>
-      </View>
+      </AppSheetLayout>
     );
   }
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <View style={styles.headerWrap}>
-          <View style={[styles.headerInner, { paddingTop: insets.top }]}>
-            <TouchableOpacity onPress={returnToHome} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color={colors.white} />
-            </TouchableOpacity>
-            <View style={styles.headerTitleRow}>
-              <View style={styles.headerTitleGroup}>
-                <Text style={styles.headerTitle}>How do you feel?</Text>
-                <Text style={styles.headerSubtitle}>{formatDateTitle(dateStr)}</Text>
-              </View>
-              <SubjectiveInsightsInfoButton accountLegacy={false} color={colors.white} iconSize={20} />
-            </View>
-          </View>
-        </View>
-        <TouchableOpacity
-          style={styles.setupLogRow}
-          onPress={() => navigation.navigate('SubjectiveMeasures')}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.setupLogText}>Set up what you log</Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.primary} style={styles.setupLogChevron} />
-        </TouchableOpacity>
+      <AppSheetLayout
+        title="How do you feel?"
+        subtitle={formatDateTitle(dateStr)}
+        onDismiss={returnToHome}
+        headerRight={sheetHeaderRight}
+        scroll={false}
+        nativePresentation
+      >
         <View style={[styles.centered, { paddingBottom: bottomContentPad }]}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      </View>
+      </AppSheetLayout>
     );
   }
 
@@ -437,29 +464,15 @@ const SleepQualityLogScreen = () => {
   const screenDateLabel = formatDateTitle(dateStr);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerWrap}>
-        <View style={[styles.headerInner, { paddingTop: insets.top }]}>
-          <TouchableOpacity onPress={returnToHome} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.white} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.headerTitleGroup}>
-              <Text style={styles.headerTitle}>How do you feel?</Text>
-              <Text style={styles.headerSubtitle}>{screenDateLabel}</Text>
-            </View>
-            <SubjectiveInsightsInfoButton accountLegacy={false} color={colors.white} iconSize={20} />
-          </View>
-        </View>
-      </View>
-      <TouchableOpacity
-        style={styles.setupLogRow}
-        onPress={() => navigation.navigate('SubjectiveMeasures')}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.setupLogText}>Set up what you log</Text>
-        <Ionicons name="chevron-forward" size={14} color={colors.primary} style={styles.setupLogChevron} />
-      </TouchableOpacity>
+    <AppSheetLayout
+      title="How do you feel?"
+      subtitle={screenDateLabel}
+      onDismiss={returnToHome}
+      headerRight={sheetHeaderRight}
+      scroll={showAny}
+      nativePresentation
+      contentContainerStyle={showAny ? styles.sheetScrollContent : undefined}
+    >
       {!showAny ? (
         <View style={[styles.centered, { paddingBottom: bottomContentPad }]}>
           <Text style={styles.bodyText}>
@@ -467,11 +480,7 @@ const SleepQualityLogScreen = () => {
           </Text>
         </View>
       ) : (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomContentPad }]}
-          keyboardShouldPersistTaps="handled"
-        >
+        <>
           {enabledMeasures.map((m) => (
             <SleepQualityMeasureSliderRow
               key={m.id}
@@ -500,9 +509,9 @@ const SleepQualityLogScreen = () => {
               </PressableFeedback>
             )}
           </View>
-        </ScrollView>
+        </>
       )}
-    </View>
+    </AppSheetLayout>
   );
 };
 
@@ -517,20 +526,13 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 12,
     overflow: 'hidden',
   },
-  setupLogRow: {
+  sheetHeaderActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.regular,
-    backgroundColor: colors.background,
+    gap: spacing.xs,
   },
-  setupLogText: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.semibold,
-    color: colors.primary,
-  },
-  setupLogChevron: {
-    marginLeft: 2,
+  sheetHeaderMoreButton: {
+    padding: 2,
   },
   headerInner: {
     paddingHorizontal: spacing.regular,
@@ -560,12 +562,8 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     marginTop: spacing.xs,
   },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.regular,
-    paddingTop: spacing.sm,
+  sheetScrollContent: {
+    paddingTop: spacing.xs,
   },
   measureCard: {
     backgroundColor: colors.cardBackground,

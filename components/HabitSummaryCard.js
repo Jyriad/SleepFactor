@@ -4,30 +4,57 @@ import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateTitle } from '../utils/dateHelpers';
 import Button from './Button';
+import HabitProgressRing from './HabitProgressRing';
 
-const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading, buttonStyle }) => {
+const HabitSummaryCard = ({ date, habitCount, totalHabitCount, onPress, loading, buttonStyle, compact = false }) => {
   const dateTitle = formatDateTitle(date);
   const hasHabits = habitCount > 0;
 
+  const titleText = loading
+    ? 'Loading habits…'
+    : totalHabitCount > 0
+      ? `${habitCount} out of ${totalHabitCount} habit${totalHabitCount === 1 ? '' : 's'} logged`
+      : hasHabits
+        ? `${habitCount} habit${habitCount === 1 ? '' : 's'} logged`
+        : 'No habits logged';
+
+  if (compact) {
+    return (
+      <View style={[styles.card, styles.cardCompact]}>
+        <View style={styles.compactTop}>
+          <HabitProgressRing
+            logged={habitCount}
+            total={totalHabitCount}
+            loading={loading}
+            size={52}
+          />
+          <Text style={styles.compactDate} numberOfLines={1}>
+            {dateTitle}
+          </Text>
+        </View>
+        <Button
+          title={loading ? '…' : 'Log Habits'}
+          onPress={onPress}
+          size="compact"
+          style={[styles.button, buttonStyle]}
+          disabled={loading}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.card}>
-      <View style={styles.header}>
+      <View style={styles.body}>
         <Text style={styles.title} numberOfLines={2}>
-          {loading
-            ? 'Loading habits...'
-            : totalHabitCount > 0
-              ? `${habitCount} out of ${totalHabitCount} habit${totalHabitCount === 1 ? '' : 's'} logged`
-              : hasHabits
-                ? `${habitCount} habit${habitCount === 1 ? '' : 's'} logged`
-                : 'No habits logged'
-          }
+          {titleText}
+        </Text>
+        <Text style={styles.dateText} numberOfLines={1}>
+          {`for ${dateTitle}`}
         </Text>
       </View>
-      <Text style={styles.dateText}>
-        for {dateTitle}
-      </Text>
       <Button
-        title={loading ? '...' : "Log Habits"}
+        title={loading ? '…' : 'Log Habits'}
         onPress={onPress}
         size="compact"
         style={[styles.button, buttonStyle]}
@@ -46,10 +73,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  header: {
-    minHeight: 28,
-    justifyContent: 'center',
-    marginBottom: 0,
+  cardCompact: {
+    flex: 1,
+    justifyContent: 'space-between',
+    minHeight: 118,
+    paddingVertical: spacing.sm,
+    alignItems: 'stretch',
+  },
+  compactTop: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  compactDate: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  body: {
+    flexShrink: 1,
   },
   title: {
     fontSize: typography.sizes.medium,

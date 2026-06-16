@@ -8,9 +8,6 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Constants from 'expo-constants';
-import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,8 +23,7 @@ import {
 import HabitInsightRelationshipSection from '../components/HabitInsightRelationshipSection';
 import DataPointDetailModal from '../components/DataPointDetailModal';
 import PageLoadingView from '../components/PageLoadingView';
-import GlassChromeBar from '../components/GlassChromeBar';
-import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
+import AppSheetLayout from '../components/AppSheetLayout';
 
 const { width: screenWidth } = Dimensions.get('window');
 const relationshipChartWidth = screenWidth - spacing.regular * 4;
@@ -52,10 +48,7 @@ const getSleepMetricColor = (metricKey) => {
   return colors.sleepStages?.[stage] ?? colors.textPrimary;
 };
 
-const HabitTimelineScreen = ({ navigation, route }) => {
-  const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
-  const headerTopPadding = Math.max(spacing.regular, topInset);
+const HabitTimelineScreen = ({ route }) => {
   const { user } = useAuth();
 
   const habitId = route.params?.habitId;
@@ -74,10 +67,6 @@ const HabitTimelineScreen = ({ navigation, route }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const hasSeriesRef = useRef(false);
-
-  useEffect(() => {
-    applyAndroidStatusBarForFrostedHeader();
-  }, []);
 
   useEffect(() => {
     hasSeriesRef.current = !!series;
@@ -161,33 +150,14 @@ const HabitTimelineScreen = ({ navigation, route }) => {
 
   if (!habitId) {
     return (
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <AppSheetLayout title="Habit detail" nativePresentation>
         <Text style={styles.errorText}>Missing habit.</Text>
-      </SafeAreaView>
+      </AppSheetLayout>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['bottom']}>
-      <GlassChromeBar style={styles.headerGlassOuter}>
-        <View style={{ paddingTop: headerTopPadding }}>
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-            </TouchableOpacity>
-            <View style={styles.headerTitleWrap}>
-              <Text style={styles.title} numberOfLines={2}>
-                {habitName}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </GlassChromeBar>
-
+    <AppSheetLayout title={habitName} scroll={false} nativePresentation>
       {loading && !series ? (
         <PageLoadingView />
       ) : (
@@ -352,7 +322,7 @@ const HabitTimelineScreen = ({ navigation, route }) => {
           loadData();
         }}
       />
-    </SafeAreaView>
+    </AppSheetLayout>
   );
 };
 
@@ -383,6 +353,7 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingHorizontal: spacing.regular,

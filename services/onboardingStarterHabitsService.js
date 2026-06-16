@@ -1,15 +1,17 @@
 import { supabase } from './supabase';
 import { requestHabitsRefresh } from './habitsRefreshTrigger';
 
+export const LAST_MEAL_HABIT_NAME = 'Last meal time';
+
 const STARTER_DEFS = [
   { key: 'exercise', name: 'Exercise', type: 'binary' },
-  { key: 'last_meal', name: 'Last meal time', type: 'time' },
+  { key: 'last_meal', name: LAST_MEAL_HABIT_NAME, type: 'time' },
 ];
 
 /**
  * Creates selected starter habits for onboarding. Skips keys not in selection.
  * @param {string} userId
- * @param {{ exercise?: boolean, lastMeal?: boolean }} selected
+ * @param {{ exercise?: boolean, lastMeal?: boolean, skipManualLastMeal?: boolean, skipManualExercise?: boolean }} selected
  */
 export async function createStarterHabits(userId, selected) {
   if (!userId) return { success: false };
@@ -25,8 +27,11 @@ export async function createStarterHabits(userId, selected) {
   const rows = [];
   for (const def of STARTER_DEFS) {
     let include = true;
-    if (def.key === 'exercise') include = selected.exercise !== false;
-    else if (def.key === 'last_meal') include = selected.lastMeal !== false;
+    if (def.key === 'exercise') {
+      include = selected.exercise !== false && !selected.skipManualExercise;
+    } else if (def.key === 'last_meal') {
+      include = selected.lastMeal !== false && !selected.skipManualLastMeal;
+    }
     if (!include) continue;
 
     rows.push({

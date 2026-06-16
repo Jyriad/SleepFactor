@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import sleepSyncNotifications from './sleepSyncNotifications';
+import { formatDateForDB } from '../utils/dateHelpers';
 
 const PREF_HABIT_REMINDER_ENABLED_KEY = 'habitReminderEnabled';
 const PREF_HABIT_REMINDER_TIME_KEY = 'habitReminderTime';
@@ -168,10 +169,10 @@ let rescheduleListenerSub = null;
 function navigateToTodaysHabitLogging(navigationRef) {
   const root = navigationRef?.current;
   if (!root) return;
-  const today = new Date().toISOString();
+  const today = formatDateForDB(new Date());
   root.navigate('MainTabs', {
-    screen: 'Home',
-    params: { screen: 'HabitLogging', params: { date: today } },
+    screen: 'Journal',
+    params: { screen: 'JournalMain', params: { date: today } },
   });
 }
 

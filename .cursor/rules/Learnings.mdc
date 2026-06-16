@@ -311,3 +311,93 @@ alwaysApply: false
 **UX/content reliability note**
 
 - **For guaranteed line breaks in onboarding copy, split into separate text rows when needed:** Inline newline characters can render inconsistently in some layouts. Separate text elements are more reliable for preserving intended sentence breaks in onboarding copy blocks.
+
+---
+
+## Performance architecture (June 2026)
+
+**What we implemented**
+
+- **Lazy habit logging overlay:** Habit logging screen mounts only when opened; unmounts after slide-out so background watchers do not run on other tabs.
+- **Insights focus fix:** Removed `tabData.groups` from focus effect deps to stop double-fetch on first visit.
+- **Context memoization:** Auth and UserPreferences provider values wrapped in `useMemo` to avoid app-wide re-renders.
+- **Launch vs Home sync:** Home auto-sync awaits launch sync, skips duplicate 30-day pull when launch already ran; auto-sync uses 7-day sleep-only path; metrics backfill deferred 15s + after interactions.
+- **Batch Supabase writes:** Sleep sync uses batch upsert; health metric logs use batch upsert on `(user_id, habit_id, date)`.
+- **TanStack Query:** Shared `QueryClient` in `App.js`; Home dashboard, Insights bundle, and habits list use query keys + stale-while-revalidate.
+- **Home coordinator hook:** `useHomeDashboardCoordinator` centralizes dashboard fetch/dedupe/focus refresh.
+
+**Local SQLite vs expanded AsyncStorage (Phase 3 evaluation)**
+
+| Approach | Effort | UX gain | Recommendation |
+|----------|--------|---------|----------------|
+| **Expanded AsyncStorage** (habits list, today’s logs — see `habitsPersistentCache.js`) | Low | Good for habits tab; partial offline | **Do next** if Phase 1–2 still feels slow on return visits |
+| **Full SQLite / WatermelonDB local replica** | High (6–10+ weeks) | Bevel-class instant reads + offline | **Only after** user testing confirms AsyncStorage expansion is insufficient |
+
+**Testing:** Same on iOS and Android. Use **TestFlight/release build** for timing (dev client exaggerates jank). Cold open → Home visible; rapid tab switching; open habit log from Profile; Insights scroll after first load; airplane mode should show cached Home/Insights where disk cache exists.
+
+---
+
+## UX redesign: form sheets & nested navigation (June 2026)
+
+**What we learned**
+
+### iOS form sheet basics (`react-native-screens` + Native Stack)
+
+- **`sheetAllowedDetents` must be numeric fractions, not strings:** Using `'large'` in `navigation/transitionOptions.js` crashes with **`Unable to convert string to floating point value: "large"`**. Use **`[1.0]`** for full-height sheets and **`[0.5, 1.0]`** for medium-or-full. Presets live in **`SHEET_LARGE_OPTIONS`** / **`SHEET_MEDIUM_LARGE_OPTIONS`**.
+- **Scroll that “bounces back” on Profile (and other full sheets):** With a single detent **`[1.0]`**, iOS treats upward scroll as “expand sheet” by default. Set **`sheetExpandsWhenScrolledToEdge: false`** in **`IOS_SHEET_BASE`** (applies to all form-sheet screens).
+- **ScrollView must be in the screen’s first-subview chain:** On iOS form sheets, the platform only links scroll behaviour when **`ScrollView`** is reachable as **header at index 0 + ScrollView at index 1** as **direct children** of the screen content wrapper — not buried under an extra wrapper `View`. **`AppSheetLayout`** with **`nativePresentation`** + **`scroll`** therefore returns a **Fragment** (`header` + `ScrollView`) instead of a wrapping `iosRoot` `View`. Put **`collapsable={false}`** on the header row for Fabric.
+- **Long sheet bodies:** Avoid **`flexGrow: 1`** on scroll **`contentContainerStyle`** for screens with lots of content (e.g. Profile). Use **`contentFlexGrow={false}`** on **`AppSheetLayout`** so scroll height is content-driven, not viewport-filled.
+- **Duplicate chrome on native sheets:** When the screen is already a native form sheet (`presentation: 'formSheet'`), hide the in-app grab handle and chevron via **`AppSheetLayout`** **`nativePresentation`** — rely on the **system grabber** only. Otherwise users see a stray chevron (e.g. Insights / Habit Timeline).
+- **`AppSheetLayout` body collapses to zero height (`scroll={false}` + inner `ScrollView`):** **Symptom:** Sheet header shows but the body stays **blank white** after loading. **Cause:** On iOS form sheets, flex height is often ignored — a **`ScrollView`** with only **`maxHeight`** (or unconstrained flex) can collapse to **0px**, or expand to **full content height** so scroll “bounces back”. **Fix in `AppSheetLayout.js`:** (1) Compute **`iosSheetBodyMaxHeight`** from window height minus measured header + safe area for **all iOS** sheets (not only **`nativePresentation`**). (2) Built-in scroll (`scroll={true}`): apply **`maxHeight` only** on the layout **`ScrollView`**. (3) **`scroll={false}`** with an inner **`ScrollView`**: apply **both** **`minHeight`** and **`maxHeight`** on **`nonScrollBody`**, wrap children in **`nonScrollBodyInner`** (`flex: 1`, **`minHeight: 0`**), and set inner **`scrollView`** styles to **`flex: 1`, `minHeight: 0`**. (4) Add **`contentStyle: { flex: 1 }`** to **`IOS_SHEET_BASE`** in **`transitionOptions.js`**.
+- **Double horizontal padding on sheet screens:** **`AppSheetLayout`** already applies **`paddingHorizontal`** on **`scrollContent`** / **`nonScrollBody`**. Do **not** repeat **`paddingHorizontal`** on an inner **`content`** wrapper (Profile had ~32px side inset vs Home’s ~16px).
+
+### Profile → Account (detail inside the same form sheet)
+
+- **Do not stack a second form sheet for Account:** Registering **`Account`** on the root stack with **`SHEET_LARGE_OPTIONS`** while **`Profile`** is already a form sheet causes Account to open **behind** Profile (movement visible underneath), **broken swipe-dismiss**, and **native crashes** after repeated drag attempts.
+- **Do not use a nested stack (`ProfileStack`) as the form-sheet root:** Wrapping **`ProfileScreen`** in an inner native stack (even with **`contentStyle: { flex: 1 }`**) breaks the **`nativePresentation`** Fragment layout → **blank white Profile**. The screen registered with **`SHEET_LARGE_OPTIONS`** must be **`ProfileScreen`** directly (or equivalent single root that still exposes **header + ScrollView** as direct form-sheet children).
+- **Do not push Account as a root `card` screen above Profile:** **`presentation: 'card'`** from the root navigator still renders **under** the presented Profile sheet on iOS.
+- **Stable pattern (same idea as Manage habits → Add/Edit):** Keep **one** form sheet. Open Account via **`AppSheetLayout`**’s **`overlay`** prop on **`ProfileScreen`** — an **`absoluteFill`** layer above the Profile body (see **`sheetOverlay`** in **`AppSheetLayout.js`**). Toggle with local state (**`accountOpen`**); render **`<AccountScreen onClose={…} />`** in the overlay, not **`navigation.navigate('Account')`** on the root stack.
+- **Account overlay chrome:** **`leadingAction="back"`**, **`hideHandle`** (system grabber stays on the outer sheet), **`onClose`** prop so back dismisses the overlay instead of **`navigation.goBack()`**. Keep delete **`Modal`**s as siblings **outside** the overlay scroll body (same as before).
+- **Do not wrap `AppSheetLayout` in an outer Fragment for overlays:** An extra **`<>…</>`** around **`AppSheetLayout`** + overlay breaks the **header + ScrollView** direct-child chain. Pass overlay through **`AppSheetLayout`**’s **`overlay`** prop instead.
+
+### Manage habits → Add / Edit / Delete (nested layer over a form sheet)
+
+- **Do not push Add/Edit/Delete on the Journal stack above Manage habits when `asSheet: true`:** Navigating to **`AddHabit`** / **`EditHabit`** as another form-sheet screen makes swipe-dismiss pop **the whole stack** back to **Journal**, not back to **Manage habits**.
+- **Do not use React Native `Modal` with `presentationStyle="pageSheet"` for the nested layer:** It animates as a **separate** modal — dismissing it does **not** reveal Manage habits underneath (it vanishes or feels disconnected).
+- **Use an in-view overlay instead:** **`NestedSheetOverlay`** (`components/NestedSheetOverlay.js`) — **`absoluteFill`** layer **inside** **`HabitManagementScreen`**, with its own **`GestureHandlerRootView`**, top drag handle, and Reanimated **`translateY`** dismiss. Panel content comes from exported **`AddHabitPanel`** / **`EditHabitPanel`** / **`DeleteHabitPanel`** (not the stack screen wrappers).
+- **Block parent dismiss, not parent gestures:** Setting **`navigation.setOptions({ gestureEnabled: false })`** on Manage habits while the nested layer is open **also blocks** the nested overlay’s swipe-down. **Do not disable parent `gestureEnabled`.** Instead use **`navigation.addListener('beforeRemove', …)`** with **`event.preventDefault()`** while **`nestedSheet`** state is set — so only the inner layer closes first.
+- **Nested panel chrome:** Pass **`nestedOverlay`** to panels; **`AppSheetLayout`** **`hideHandle={true}`** so the overlay supplies the drag handle and the panel keeps the chevron **`onDismiss`**.
+- **Habit actions menu stacking:** **`@gorhom/bottom-sheet`** **`BottomSheetModal`** did **not** stack reliably above navigation form sheets, and **`Sortable.Flex`** captured row touches. **`HabitActionsBottomSheet`** uses a plain **RN `Modal`** instead. Reorder drag is **handle-only** via **`Sortable.Handle`** on the ≡ icon.
+- **Habit actions menu swipe-down:** A **visual grab handle alone does not dismiss** — users expect swipe-down like other sheets. **Fix:** Wrap the **`Modal`** in **`GestureHandlerRootView`** and add a **`Gesture.Pan()`** on the drag zone (handle + habit title), same thresholds as **`NestedSheetOverlay`** (close if **`translationY > 80`** or **`velocityY > 600`**). Backdrop tap still works. Do **not** assume swiping the parent Manage habits sheet will close this layer — it is a separate **`Modal`** on top.
+
+### Manage habits layout (sheet mode)
+
+- **Width inside `AppSheetLayout`:** The sheet adds horizontal padding — habit rows must use **`listWidth = windowWidth - spacing.regular * 2`**, not full window width, or cards overflow and look “draggable” like an image.
+- **Scroll inside sheet:** Manage habits uses **`AppSheetLayout scroll={false}`** with an internal **`ScrollView`** / **`Animated.ScrollView`** for the sortable list (same pattern as pre-redesign Habits screen).
+- **Row controls vertical alignment:** If tracking + settings sit in the **same row as the habit name only**, with the **type line below** (e.g. “Quick Consumption (mg)”), icons look **too high** relative to the card. **Fix:** **`cardMainRow`** with **`alignItems: 'center'`** — left **`cardTextColumn`** holds **name + type**; right **`statusAndChevronRow`** holds **`HabitTrackingControl`** + settings button. Give the settings tap target **`minHeight: 26`** (same as **`HabitTrackingControl`**) so it lines up with the tracking pill.
+
+### Home paired action cards
+
+- **`PairedActionCardsRow`** with **`forceRow`** keeps “habits logged” and “how did you sleep” side-by-side on Home (not stacked on narrow widths).
+- **Matched compact heights:** Both cards use **`flex: 1`**, shared **`minHeight`**, smaller type, and short button labels so one column is not much taller than the other.
+- **Habit progress ring:** **`HabitProgressRing`** (`components/HabitProgressRing.js`) — SVG circle ( **`react-native-svg`** ) with **`x/y`** in the centre and stroke fill by **`logged / total`**, Bevel / Apple Health style. Used in compact **`HabitSummaryCard`** on Home.
+- **Sleep quality card copy:** Allow title to **wrap to two lines** (`numberOfLines={2}` or no single-line clamp); avoid squeezing “How did you sleep?” beside the info button with **`numberOfLines={1}`**.
+
+### Profile sheet scrolling & Account (verified June 2026)
+
+- **Profile root sheet:** **`AppSheetLayout`** with **`scroll`**, **`nativePresentation`**, **`contentFlexGrow={false}`** on **`ProfileScreen`**, presented from **`AppNavigator`** with **`SHEET_LARGE_OPTIONS`** only (not nested in another stack).
+- **Scroll snap-back debug signal:** If **`ScrollView` layout height ≈ content height** (~full content pixels), the sheet is not constraining scroll — apply **`iosSheetBodyMaxHeight`** (see above). Rubber-band drag with **`offsetY` resetting to 0** on release matches this.
+- **Account from Profile:** **`ProfileScreen`** → **`setAccountOpen(true)`** → **`AppSheetLayout overlay`** → **`AccountScreen onClose`**. Not a separate root-stack screen.
+
+**Key files**
+
+- **`components/AppSheetLayout.js`** — shared sheet chrome; **`nativePresentation`**, **`hideHandle`**, **`hideLeading`**, **`leadingAction`**, **`contentFlexGrow`**, **`overlay`**, iOS Fragment scroll layout, **`iosSheetBodyMaxHeight`** / **`iosSheetScrollStyle`** / **`iosSheetNonScrollSizeStyle`**.
+- **`components/NestedSheetOverlay.js`** — second layer over Manage habits (same overlay pattern as Profile → Account).
+- **`components/HabitActionsBottomSheet.js`** — RN **`Modal`** action menu; pan-to-dismiss on drag zone.
+- **`navigation/transitionOptions.js`** — **`SHEET_LARGE_OPTIONS`**, **`SHEET_MEDIUM_LARGE_OPTIONS`**, **`sheetExpandsWhenScrolledToEdge`**, **`IOS_SHEET_BASE.contentStyle`**.
+- **`screens/ProfileScreen.js`** — **`accountOpen`** state, **`overlay`** with **`AccountScreen`**.
+- **`screens/AccountScreen.js`** — optional **`onClose`** for overlay mode; **`leadingAction="back"`**.
+- **`screens/HabitManagementScreen.js`** — **`asSheet`**, **`nestedSheet`** state, **`beforeRemove`** guard.
+- **`screens/AddHabitScreen.js`**, **`EditHabitScreen.js`**, **`DeleteHabitScreen.js`** — export **`*Panel`** for overlay; default export for stack navigation.
+
+**Testing:** Same on iOS and Android for layout; **sheet swipe / scroll behaviour differs on iOS** (native form sheet) vs **Android** (transparent modal + **`AppSheetLayout`** backdrop). iOS: **Home → profile icon** → Profile scrolls without snap-back → **Account details** opens **on top** (not behind) → **‹** returns to Profile → swipe **system grabber** closes sheet (no crash). Journal → ⋯ → Manage habits → habit list visible → nested Add/Edit swipe/chevron lands on Manage habits. Home: paired cards same height, ring shows **x/y**. Insights / timeline: no duplicate top-left chevron on iOS.

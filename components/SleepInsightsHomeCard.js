@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import PressableFeedback from './PressableFeedback';
-import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import InsightHeadlineText from './InsightHeadlineText';
@@ -14,6 +13,8 @@ const SleepInsightsHomeCard = ({
   isRefreshing = false,
   onPressHeader,
   onPressMetricRow,
+  title = 'Sleep Insights',
+  subtitle = 'Discover what affects your sleep',
 }) => {
   const isLoading = homeMetricRows === null;
   const hasRows = Array.isArray(homeMetricRows) && homeMetricRows.length > 0;
@@ -22,10 +23,9 @@ const SleepInsightsHomeCard = ({
     <View style={styles.card}>
       <PressableFeedback style={styles.headerRow} onPress={onPressHeader}>
         <View style={styles.headerTextWrap}>
-          <Text style={styles.title}>Sleep Insights</Text>
-          <Text style={styles.subtitle}>Discover what affects your sleep</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
-        <Ionicons name="chevron-forward" size={22} color={colors.textLight} style={styles.headerChevron} />
       </PressableFeedback>
       {isRefreshing && hasRows && (
         <Text style={styles.refreshingHint}>Updating insights…</Text>
@@ -47,12 +47,6 @@ const SleepInsightsHomeCard = ({
                   numberOfLines={5}
                 />
               </View>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.textLight}
-                style={styles.metricRowChevron}
-              />
             </PressableFeedback>
           ))}
         </View>
@@ -89,11 +83,7 @@ const styles = StyleSheet.create({
   },
   headerTextWrap: {
     flex: 1,
-    paddingRight: spacing.sm,
     minWidth: 0,
-  },
-  headerChevron: {
-    marginLeft: spacing.xs,
   },
   title: {
     fontSize: typography.sizes.medium,
@@ -130,12 +120,6 @@ const styles = StyleSheet.create({
   metricRowText: {
     flex: 1,
     minWidth: 0,
-    paddingRight: spacing.md,
-  },
-  metricRowChevron: {
-    marginTop: 2,
-    marginLeft: spacing.xs,
-    marginRight: -2,
   },
   metricLabel: {
     fontSize: typography.sizes.small,

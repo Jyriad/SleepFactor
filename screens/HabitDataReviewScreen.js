@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import AppSheetLayout from '../components/AppSheetLayout';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { colors } from '../constants/colors';
@@ -213,35 +213,17 @@ const HabitDataReviewScreen = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Habit Data Review</Text>
-        </View>
+      <AppSheetLayout title="Habit Data Review" scroll={false}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading habit data...</Text>
         </View>
-      </SafeAreaView>
+      </AppSheetLayout>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Habit Data Review</Text>
-      </View>
+    <AppSheetLayout title="Habit Data Review" scroll={false}>
 
       {/* Habit Info */}
       {habit && (
@@ -341,7 +323,7 @@ const HabitDataReviewScreen = () => {
           )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </AppSheetLayout>
   );
 };
 
@@ -413,6 +395,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    minHeight: 0,
   },
   content: {
     paddingHorizontal: spacing.regular,

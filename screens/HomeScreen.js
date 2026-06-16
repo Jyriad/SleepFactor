@@ -1,14 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Alert,
-  Dimensions,
-  Platform,
-  Animated,
   InteractionManager,
-  ActivityIndicator,
 } from 'react-native';
 import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,401 +13,46 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSplash } from '../contexts/SplashContext';
 import { useTutorialOptional } from '../contexts/TutorialContext';
 import { supabase } from '../services/supabase';
-import healthMetricsService from '../services/healthMetricsService';
 import insightsService from '../services/insightsService';
-import sleepDataService from '../services/sleepDataService';
 import homeCacheService from '../services/homeCacheService';
 import defaultNoBackfillService from '../services/defaultNoBackfillService';
-import { setHabitLoggingState as setHabitLoggingCache, setInMemoryState as setHabitLoggingMemory } from '../services/habitLoggingCacheService';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
-import consumptionOptionsService from '../services/consumptionOptionsService';
-import drugLevelService from '../services/drugLevelService';
 import syncAttemptTracker from '../services/syncAttemptTracker';
+import launchSyncCoordinator from '../services/launchSyncCoordinator';
 import useHealthSync from '../hooks/useHealthSync';
+import useHomeDashboardCoordinator from '../hooks/useHomeDashboardCoordinator';
+import { isValidDashboardPayload } from '../services/homeDashboardFetch';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import Button from '../components/Button';
-import AppToggle from '../components/AppToggle';
 import { SubjectiveInsightsInfoButton } from '../components/SubjectiveInsightsInfoModal';
-// Sleep Data Rendering Components
-const SleepPermissionPrompt = ({ onPermissionsGranted, onDismiss }) => (
-  <HealthConnectPrompt
-    onPermissionsGranted={onPermissionsGranted}
-    onDismiss={onDismiss}
-    compact
-  />
-);
+import AppCard from '../components/AppCard';
+import HomeSleepSummaryStrip from '../components/HomeSleepSummaryStrip';
+import PairedActionCardsRow from '../components/PairedActionCardsRow';
+import AppHeaderProfileButton from '../components/AppHeaderProfileButton';
 
-/** True when the row has measurable sleep from a device/sync (not ratings-only placeholder rows). */
-function hasObjectiveSleepMetrics(sleepData) {
-  if (!sleepData) return false;
-  const total = sleepData.total_sleep_minutes;
-  if (total != null && total > 0) return true;
-  if (Array.isArray(sleepData.sleep_stages) && sleepData.sleep_stages.length > 0) return true;
-  if (Array.isArray(sleepData.sleep_sessions) && sleepData.sleep_sessions.length > 0) return true;
-  const stageSum =
-    (Number(sleepData.deep_sleep_minutes) || 0) +
-    (Number(sleepData.light_sleep_minutes) || 0) +
-    (Number(sleepData.rem_sleep_minutes) || 0) +
-    (Number(sleepData.awake_minutes) || 0);
-  return stageSum > 0;
-}
-
-const SleepNoDataSkeleton = React.memo(({ selectedDate, isToday, formatDateTitle, hasPermissions, healthSyncInitialized, handleSyncNow, autoSyncLoading, healthSyncLoading, setShowPermissionPrompt, getDataSourceDisplay, containerStyle, syncError, lastSyncResult, lastAttemptForToday, formatTimeAgo }) => {
-  const viewingToday = isToday(selectedDate);
-
-  const syncedTodayNoData = viewingToday && hasPermissions && lastSyncResult?.success && lastSyncResult?.resultType === 'SUCCESS_NO_DATA';
-  const persistedNoData = viewingToday && hasPermissions && lastAttemptForToday?.outcome === 'no_data';
-  const lastCheckedTime = syncedTodayNoData ? (formatTimeAgo ? formatTimeAgo(new Date()) : 'just now') : (lastAttemptForToday?.timestamp && formatTimeAgo ? formatTimeAgo(lastAttemptForToday.timestamp) : null);
-  const showLastCheckedNoData = (syncedTodayNoData || (persistedNoData && lastCheckedTime)) && !syncError;
-
-  return (
-    <View style={[styles.sleepCard, containerStyle]}>
-      <View style={styles.sleepCardHeader}>
-        <View style={styles.sleepCardTitleRow}>
-          <Ionicons name="moon-outline" size={24} color={colors.primary} />
-          <Text style={styles.sleepCardTitle}>
-            {viewingToday ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-          </Text>
-          {healthSyncInitialized && viewingToday && (
-            <TouchableOpacity
-              onPress={handleSyncNow}
-              disabled={autoSyncLoading}
-              style={styles.cardSyncButton}
-            >
-              <Ionicons
-                name={autoSyncLoading ? "sync" : "refresh-outline"}
-                size={20}
-                color={healthSyncLoading ? colors.textSecondary : colors.primary}
-              />
-              <Text style={[
-                styles.cardSyncButtonText,
-                { color: autoSyncLoading ? colors.textSecondary : colors.primary }
-              ]}>
-                {autoSyncLoading ? 'Syncing...' : 'Sync'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <Text style={styles.dataSourceInfo}>
-          Synced by: {getDataSourceDisplay(hasPermissions)}
-        </Text>
-      </View>
-
-    <View style={styles.noDataContent}>
-      <Ionicons name="moon-outline" size={48} color={colors.textSecondary} />
-      <Text style={styles.placeholderText}>
-        {hasPermissions ? 'No sleep data available for this date' : 'Connect your health app to view sleep data'}
-      </Text>
-      {syncError && viewingToday ? (
-        <Text style={[styles.placeholderSubtext, { color: colors.error, marginTop: 4 }]}>
-          Sync failed. Tap Sync to try again.
-        </Text>
-      ) : showLastCheckedNoData ? (
-        <Text style={[styles.placeholderSubtext, { marginTop: 4 }]}>
-          Last checked: {lastCheckedTime || 'just now'} • We checked; nothing from your device yet.
-        </Text>
-      ) : (
-      <Text style={styles.placeholderSubtext}>
-        {hasPermissions
-          ? 'Checking for sleep data…'
-          : 'Grant permissions to sync sleep data from your device'
-        }
-      </Text>
-      )}
-        {viewingToday && !hasPermissions && (
-          <TouchableOpacity
-            style={styles.connectButton}
-            onPress={() => setShowPermissionPrompt(true)}
-          >
-            <Text style={styles.connectButtonText}>Connect Health App</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
-});
-
-const SleepDataCard = React.memo(({
-  selectedDate,
-  isToday,
-  formatDateTitle,
-  sleepData,
-  coreSleepDurationMinutes,
-  hasPermissions,
-  healthSyncInitialized,
-  handleSyncNow,
-  autoSyncLoading,
-  healthSyncLoading,
-  getDataSourceDisplay,
-  lastSyncResult,
-  calculateSleepMetrics,
-  formatSleepDuration,
-  renderSleepMetricRow,
-  syncError,
-  isExcluded,
-  exclusionReason,
-  onExclude,
-  onInclude,
-  containerStyle,
-}) => {
-  const viewingToday = isToday(selectedDate);
-  const hasObjective = hasObjectiveSleepMetrics(sleepData);
-  const showDeviceSleep = hasObjective;
-  return (
-    <View style={[styles.sleepCard, containerStyle]}>
-      <View style={styles.sleepCardHeader}>
-        <View style={styles.sleepCardTitleRow}>
-          <Ionicons name="moon-outline" size={24} color={colors.primary} />
-          <Text style={styles.sleepCardTitle}>
-            {viewingToday ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`}
-          </Text>
-          {healthSyncInitialized && viewingToday && (
-            <TouchableOpacity
-              onPress={handleSyncNow}
-              disabled={autoSyncLoading}
-              style={styles.cardSyncButton}
-            >
-              <Ionicons
-                name={autoSyncLoading ? "sync" : "refresh-outline"}
-                size={20}
-                color={healthSyncLoading ? colors.textSecondary : colors.primary}
-              />
-              <Text style={[
-                styles.cardSyncButtonText,
-                { color: autoSyncLoading ? colors.textSecondary : colors.primary }
-              ]}>
-                {autoSyncLoading ? 'Syncing...' : 'Sync'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <Text style={styles.dataSourceInfo}>
-          {!showDeviceSleep
-            ? (sleepData?.source === 'manual'
-                ? 'Your ratings are saved — device sleep will appear after it syncs'
-                : `No device sleep samples for this night yet (${getDataSourceDisplay(sleepData.source)})`)
-            : `Synced by: ${getDataSourceDisplay(sleepData.source)}`}
-          {viewingToday && showDeviceSleep && (
-            <Text style={styles.freshnessIndicator}>
-              {' • Last synced: recently'}
-            </Text>
-          )}
-        </Text>
-        {sleepData && (
-          <View style={styles.exclusionControls}>
-            <Text style={styles.exclusionLabel}>
-              {isExcluded ? 'Data excluded from insights' : 'Data included in insights'}
-            </Text>
-            <AppToggle
-              value={!isExcluded}
-              onValueChange={(included) => (included ? onInclude() : onExclude())}
-            />
-          </View>
-        )}
-      </View>
-
-    {showDeviceSleep ? (
-      <SleepTimeline sleepData={sleepData} coreSleepDurationMinutes={coreSleepDurationMinutes} />
-    ) : (
-      <View style={styles.noDeviceSleepBanner}>
-        <Ionicons name="phone-portrait-outline" size={22} color={colors.textSecondary} />
-        <Text style={styles.noDeviceSleepBannerText}>
-          No sleep data from your phone or watch yet. Pull to sync or check that your health app is recording sleep.
-        </Text>
-      </View>
-    )}
-
-    <View style={styles.sleepMetrics}>
-      {(() => {
-        if (!showDeviceSleep) {
-          return null;
-        }
-        const metrics = calculateSleepMetrics(sleepData);
-        return (
-          <>
-            {renderSleepMetricRow('Total Sleep', formatSleepDuration(sleepData.total_sleep_minutes), null, null, null, null, 'total-sleep', false)}
-
-            {Object.entries(SLEEP_METRIC_CONFIG).map(([key, config], index) => {
-              const metric = metrics[key];
-              const minutesRaw = sleepData[key] ?? 0;
-              const shouldShow = metric && (minutesRaw > 0 || metric.percentage > 0);
-              return shouldShow ? (
-                renderSleepMetricRow(config.label, metric.minutes, metric.percentage, metric.comparison, config.color, null, key, index % 2 === 0)
-              ) : null;
-            })}
-
-            {sleepData.awakenings_count > 0 && metrics.awakenings && (
-              <View key="awakenings" style={styles.metricRow}>
-                <View style={styles.metricLabelContainer}>
-                  <View style={[styles.metricColorIndicator, SPECIAL_METRIC_INDICATORS.awakenings]} />
-                  <Text style={styles.metricLabel}>Awakenings</Text>
-                </View>
-                <View style={styles.metricValueContainer}>
-                  <Text style={styles.metricValue}>
-                    {metrics.awakenings.count}
-                  </Text>
-                  <Text style={[
-                    styles.metricComparison,
-                    metrics.awakenings.comparisonText.includes('more than average') ? styles.metricComparisonNegative :
-                    metrics.awakenings.comparisonText.includes('fewer than average') ? styles.metricComparisonPositive :
-                    styles.metricComparison
-                  ]}>
-                    {metrics.awakenings.comparisonText}
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {sleepData.sleep_score && (
-              renderSleepMetricRow('Sleep Score', `${sleepData.sleep_score}/100`, null, null, null, null, 'sleep-score')
-            )}
-
-          </>
-        );
-      })()}
-    </View>
-
-      {/* Sync status — only when we have device data or a clear failed sync; avoids "Data synced" next to empty metrics */}
-      {viewingToday && lastSyncResult && (showDeviceSleep || !lastSyncResult.success) && (
-        <View style={styles.syncStatus}>
-          <Ionicons
-            name={lastSyncResult.success ? "checkmark-circle" : "close-circle"}
-            size={16}
-            color={lastSyncResult.success ? colors.success : colors.error}
-          />
-          <Text style={[
-            styles.syncStatusText,
-            { color: lastSyncResult.success ? colors.success : colors.error }
-          ]}>
-            {lastSyncResult.success
-              ? 'Data synced'
-              : 'Sync failed'
-            }
-          </Text>
-        </View>
-      )}
-
-      {viewingToday && syncError && (
-        <View style={styles.errorStatus}>
-          <Ionicons name="warning" size={16} color={colors.error} />
-          <Text style={styles.errorStatusText}>{syncError}</Text>
-        </View>
-      )}
-    </View>
-  );
-});
-
-const SleepDataSimpleLoading = () => (
-  <View style={styles.sleepCard}>
-    <View style={styles.sleepCardHeader}>
-      <View style={styles.sleepCardTitleRow}>
-        <Ionicons name="moon-outline" size={24} color={colors.primary} />
-        <Text style={styles.sleepCardTitle}>Loading sleep data...</Text>
-      </View>
-    </View>
-  </View>
-);
-
-/**
- * Compact loading card: explains what is happening instead of a fake full-data skeleton.
- * phase: loading_dashboard | health_sync | post_sync_fetch
- */
-const SleepDataLoadStatusCard = React.memo(({
-  phase,
-  selectedDate,
-  isToday,
-  formatDateTitle,
-  containerStyle,
-  hasPermissions,
-}) => {
-  const healthAppName = Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect';
-  const title = isToday(selectedDate) ? "Last Night's Sleep" : `Sleep on ${formatDateTitle(selectedDate)}`;
-
-  let headline = '';
-  let rows = [];
-  if (phase === 'loading_dashboard') {
-    headline = 'Loading your sleep summary';
-    rows = [
-      { icon: 'cloud-download-outline', text: 'Fetching today from your account' },
-    ];
-  } else if (phase === 'health_sync') {
-    headline = 'Syncing with your health app';
-    rows = [
-      {
-        icon: hasPermissions ? 'checkmark-circle-outline' : 'key-outline',
-        text: hasPermissions ? `${healthAppName} access is on` : 'Checking access to your health data',
-      },
-      { icon: 'analytics-outline', text: 'Reading your recent sleep samples' },
-      { icon: 'save-outline', text: 'Saving to your night in SleepFactor' },
-    ];
-  } else {
-    headline = 'Updating your night';
-    rows = [
-      { icon: 'checkmark-done-outline', text: 'Applying synced data' },
-      { icon: 'home-outline', text: 'Refreshing this screen' },
-    ];
-  }
-
-  return (
-    <View style={[styles.sleepCard, styles.sleepLoadStatusCard, containerStyle]}>
-      <View style={styles.sleepCardHeader}>
-        <View style={styles.sleepCardTitleRow}>
-          <Ionicons name="moon-outline" size={24} color={colors.primary} />
-          <View style={styles.sleepCardTitleWrap}>
-            <Text style={[styles.sleepCardTitle, { marginLeft: 0 }]} numberOfLines={1} ellipsizeMode="tail">
-              {title}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.sleepLoadStatusBody}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.sleepLoadStatusHeadline}>{headline}</Text>
-        <View style={styles.sleepLoadStatusSteps}>
-          {rows.map((row, idx) => (
-            <View key={`${row.icon}-${idx}`} style={styles.sleepLoadStatusStepRow}>
-              <Ionicons name={row.icon} size={18} color={colors.primary} style={styles.sleepLoadStatusStepIcon} />
-              <Text style={styles.sleepLoadStatusLine}>{row.text}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
-});
-
-// Sleep stage display names and their corresponding colors
-const SLEEP_METRIC_CONFIG = {
-  deep_sleep_minutes: { label: 'Deep Sleep', color: colors.sleepStages.deep },
-  light_sleep_minutes: { label: 'Light Sleep', color: colors.sleepStages.light },
-  rem_sleep_minutes: { label: 'REM Sleep', color: colors.sleepStages.rem },
-  awake_minutes: { label: 'Awake Time', color: colors.sleepStages.awake },
-};
-
-// Special indicators for non-stage metrics
-const SPECIAL_METRIC_INDICATORS = {
-  awakenings: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 1 },
-};
+const SLEEP_METRIC_KEYS = [
+  'deep_sleep_minutes',
+  'light_sleep_minutes',
+  'rem_sleep_minutes',
+  'awake_minutes',
+];
 
 // Average sleep stage percentages and awakenings (based on general population data)
 const AVERAGE_SLEEP_PERCENTAGES = {
+  total_sleep_minutes: 450, // ~7.5 hours
   deep_sleep_minutes: 13, // ~13% of total sleep
   light_sleep_minutes: 63, // ~63% of total sleep
   rem_sleep_minutes: 20, // ~20% of total sleep
   awake_minutes: 4, // ~4% of awake time during sleep period
   awakenings_count: 1.5, // Average number of awakenings per night
 };
-import { getToday, getYesterday, isSameDay, formatDateTitle, getDatesArray, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatTimeAgo, formatDateForDB } from '../utils/dateHelpers';
+import { getToday, getYesterday, formatDateTitle, getDateStripArrayLast7Days, getDateStripArrayCentered, isWithinLast7Days, isToday, formatDateForDB, formatTimeAgo } from '../utils/dateHelpers';
+import { formatHomeSubjectiveSummary } from '../utils/subjectiveScoreDisplay';
 import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
-import NavigationCard from '../components/NavigationCard';
 import SleepInsightsHomeCard from '../components/SleepInsightsHomeCard';
-import HealthConnectPrompt from '../components/HealthConnectPrompt';
-import SleepTimeline from '../components/SleepTimeline';
-import dataQualityService from '../services/dataQualityService';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -423,9 +63,6 @@ const HomeScreen = () => {
   const dateHeader = useDateHeader();
   const selectedDate = dateHeader?.selectedDate ?? new Date();
   const setSelectedDate = dateHeader?.setSelectedDate ?? (() => {});
-  const loggedDates = dateHeader?.loggedDates ?? [];
-  const datesWithUnsavedChanges = dateHeader?.datesWithUnsavedChanges ?? [];
-  const setLoggedDates = dateHeader?.setLoggedDates ?? (() => {});
   const setDatesWithUnsavedChanges = dateHeader?.setDatesWithUnsavedChanges ?? (() => {});
 
   // Ensure selectedDate is always a Date object when updating
@@ -472,21 +109,15 @@ const HomeScreen = () => {
   // Sleep data state
   const [sleepData, setSleepData] = useState(null);
   const [autoSyncLoading, setAutoSyncLoading] = useState(false);
-  const [isExcluded, setIsExcluded] = useState(false);
-  const [exclusionReason, setExclusionReason] = useState(null);
+  const [lastAttemptForToday, setLastAttemptForToday] = useState(null);
+  const [launchSyncSnapshot, setLaunchSyncSnapshot] = useState(null);
 
   // Personal sleep averages state
   const [personalAverages, setPersonalAverages] = useState(null);
-  const [averagesLoading, setAveragesLoading] = useState(false);
-  // Core sleep duration (minutes) for timeline indicator - from user's 95th percentile
-  const [coreSleepDurationMinutes, setCoreSleepDurationMinutes] = useState(null);
 
   // Data cache for recent dates (today + last 5 days)
-  const [sleepDataCache, setSleepDataCache] = useState(new Map());
-  const [habitCountCache, setHabitCountCache] = useState(new Map());
-  const [cacheLoading, setCacheLoading] = useState(false);
-  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-  const [showNewSleepBanner, setShowNewSleepBanner] = useState(false);
+  const [, setSleepDataCache] = useState(new Map());
+  const [, setHabitCountCache] = useState(new Map());
   /** Bumped after health sync writes new sleep rows so DateHeader re-reads local sleep for the week strip (bed icons). */
   const [sleepStripRefreshKey, setSleepStripRefreshKey] = useState(0);
   const [trackTiredness, setTrackTiredness] = useState(false);
@@ -496,55 +127,30 @@ const HomeScreen = () => {
   const [lastNightSubjectiveData, setLastNightSubjectiveData] = useState(null);
   // Optimistic scores passed back from SleepQualityLog; prefer over stale RPC until server catches up
   const optimisticSubjectiveScoresRef = useRef(null);
-  // Minimal habits list from dashboard RPC for passing to Habit Logging (instant names/icons)
-  const [dashboardHabits, setDashboardHabits] = useState([]);
-  // Last sync attempt for today (persisted) so no-data card can show "Last checked: ..."
-  const [lastAttemptForToday, setLastAttemptForToday] = useState(null);
 
   const justSyncedRef = useRef(false);
   const lastSyncResultRef = useRef(null);
   const lastDashboardPayloadByDateRef = useRef(new Map());
   const renderedDashboardDateRef = useRef(null);
-  const fetchedDateKeysRef = useRef(new Set());
-  const inFlightDashboardByDateRef = useRef(new Map());
   const firstHomeFocusHandledRef = useRef(false);
   const FORGOT_YESTERDAY_DISMISSED_KEY = 'home_forgot_yesterday_dismissed_date';
   const [forgotYesterdayShow, setForgotYesterdayShow] = useState(false);
   const [forgotYesterdayChecking, setForgotYesterdayChecking] = useState(false);
   const forgotYesterdayCacheRef = useRef({ dateStr: null, show: false });
-  const focusFetchDebounceRef = useRef({ dateStr: null, timestamp: 0 });
-  const sleepCardOpacity = useRef(new Animated.Value(0)).current;
-  const hadSleepDataRef = useRef(false);
   // Cooldown: don't start another auto-sync for the same date within this many ms
   const AUTO_SYNC_COOLDOWN_MS = 2 * 60 * 1000;
   const lastAutoSyncRef = useRef({ dateString: null, timestamp: 0 });
-  // Don't show "No sleep data" for today until we've completed at least one sync attempt
-  const todaySyncAttemptedRef = useRef(false);
   const splashReadySentRef = useRef(false);
-
-  /** Same width as subjective card CTA row (narrower than full habit card) so both home buttons align. */
-  const pairedHomeCTAWidth = useMemo(() => {
-    const w = Dimensions.get('window').width;
-    return w - spacing.regular * 2 - spacing.regular * 2 - 36 * 2;
-  }, []);
-  const homePairedCTAButtonStyle = useMemo(
-    () => [{ alignSelf: 'center' }, { width: pairedHomeCTAWidth }],
-    [pairedHomeCTAWidth]
-  );
 
   // Health sync hook
   const {
     isInitialized: healthSyncInitialized,
     isLoading: healthSyncLoading,
     hasPermissions,
-    needsPermissions,
     lastSyncResult,
     error: syncError,
     performSync,
-    requestPermissions,
-    getLastSyncTimestamp,
     clearError,
-    resetNeedsPermissions,
   } = useHealthSync();
 
   const getDateString = useCallback((date) => {
@@ -552,24 +158,10 @@ const HomeScreen = () => {
     return typeof date === 'string' ? date : formatDateForDB(date);
   }, []);
 
-  const isValidDashboardPayload = useCallback((payload) => {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
-    if (payload.error) return false;
-    if (!Object.prototype.hasOwnProperty.call(payload, 'sleep_record')) return false;
-    if (!payload.habit_counts || typeof payload.habit_counts !== 'object') return false;
-    if (!Object.prototype.hasOwnProperty.call(payload.habit_counts, 'logged_count')) return false;
-    if (!Object.prototype.hasOwnProperty.call(payload.habit_counts, 'total_active_count')) return false;
-    if (!Object.prototype.hasOwnProperty.call(payload, 'habits_logged')) return false;
-    if (!Object.prototype.hasOwnProperty.call(payload, 'todays_habits_logged')) return false;
-    return true;
-  }, []);
-
   const applyDashboardPayload = useCallback((payload, dateStr) => {
     if (!isValidDashboardPayload(payload)) return;
     const sleepRecord = payload.sleep_record && typeof payload.sleep_record === 'object' && payload.sleep_record.id != null ? payload.sleep_record : null;
     setSleepData(sleepRecord);
-    setIsExcluded(sleepRecord?.exclude_from_insights || false);
-    setExclusionReason(sleepRecord?.exclusion_reason || null);
     if (dateStr) {
       setSleepDataCache(prev => new Map(prev).set(dateStr, sleepRecord));
       setHabitCountCache(prev => new Map(prev).set(dateStr, payload.habit_counts?.logged_count ?? 0));
@@ -628,10 +220,8 @@ const HomeScreen = () => {
       payload.todays_habits_logged === true ||
       (payload.habit_counts?.logged_count ?? 0) > 0;
     setHasAnyHabitLogsEver(hasHistory);
-    setLoggedDates(loggedDatesArray);
     setHabitsLogged(payload.habits_logged === true);
     setTodaysHabitsLogged(payload.todays_habits_logged === true);
-    setDashboardHabits(Array.isArray(payload.habits) ? payload.habits : []);
     renderedDashboardDateRef.current = dateStr || null;
     if (dateStr) {
       try {
@@ -639,7 +229,7 @@ const HomeScreen = () => {
       } catch (_) {}
     }
     setHabitSummaryReady(true);
-  }, [isValidDashboardPayload, getToday]);
+  }, [getToday]);
 
   // Restore from in-memory cache on mount so we never show loading when returning to Home (survives remounts)
   React.useLayoutEffect(() => {
@@ -650,8 +240,6 @@ const HomeScreen = () => {
       applyDashboardPayload(cached, dateStr);
       setLoading(false);
       setHabitSummaryReady(true);
-      hadSleepDataRef.current = !!cached?.sleep_record;
-      if (cached.sleep_record) sleepCardOpacity.setValue(1);
     }
   }, [user?.id]);
 
@@ -674,8 +262,6 @@ const HomeScreen = () => {
         homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, dashboard);
         setLoading(false);
         setHabitSummaryReady(true);
-        hadSleepDataRef.current = !!dashboard?.sleep_record;
-        if (dashboard.sleep_record) sleepCardOpacity.setValue(1);
         return;
       }
       if (loggedCount !== undefined && totalHabitCount !== undefined) {
@@ -707,8 +293,6 @@ const HomeScreen = () => {
           homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, placeholderDashboard);
           setLoading(false);
           setHabitSummaryReady(true);
-          hadSleepDataRef.current = false;
-          sleepCardOpacity.setValue(0);
           return;
         }
       }
@@ -761,163 +345,24 @@ const HomeScreen = () => {
     });
   }, [user?.id]);
 
-  const fetchDashboard = useCallback(async (opts = {}) => {
-    const { background = false, retryAttempt = 0 } = opts;
-    const MAX_STARTUP_RETRIES = 2;
-    const RETRY_BASE_DELAY_MS = 450;
-    const DASHBOARD_RPC_TIMEOUT_MS = 10000;
-    if (!user?.id) return;
-    const dateStr = getDateString(selectedDate);
-    if (!dateStr) return;
-    const existingInFlight = inFlightDashboardByDateRef.current.get(dateStr);
-    if (existingInFlight) {
-      if (!background) {
-        setLoading(true);
-        try {
-          await existingInFlight;
-        } finally {
-          setLoading(false);
-        }
-      }
-      return;
-    }
-    if (!background) setLoading(true);
-    const requestId = `${dateStr}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const dashboardDateStr = getDateString(selectedDate) || getToday();
 
-    // Prefetch habit logging for today and yesterday in parallel so "Log habits" opens instantly
-    (async () => {
-      try {
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const todayStr = getDateString(today);
-        const yesterdayStr = getDateString(yesterday);
-        const [resToday, resYesterday] = await Promise.all([
-          supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: todayStr }),
-          supabase.rpc('get_habit_logging_state', { p_user_id: user.id, p_date: yesterdayStr }),
-        ]);
-        if (resToday?.data && !resToday?.error) {
-          await setHabitLoggingCache(user.id, todayStr, resToday.data);
-          setHabitLoggingMemory(user.id, todayStr, resToday.data);
-          const consumptionHabits = (resToday.data.habits || []).filter(
-            (h) => h.type === 'drug' || h.type === 'quick_consumption'
-          );
-          consumptionHabits.forEach((h) => consumptionOptionsService.getOptionsForHabit(h.id).catch(() => {}));
-          consumptionHabits.forEach((h) => drugLevelService.getLevelNow(user.id, h).catch(() => {}));
-        }
-        if (resYesterday?.data && !resYesterday?.error) {
-          await setHabitLoggingCache(user.id, yesterdayStr, resYesterday.data);
-          setHabitLoggingMemory(user.id, yesterdayStr, resYesterday.data);
-        }
-      } catch (_e) {}
-    })();
-
-    const runPromise = (async () => {
-      try {
-      let timeoutId = null;
-      const rpcPromise = supabase.rpc('get_home_dashboard_data', {
-        p_user_id: user.id,
-        p_date: dateStr,
-      });
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('dashboard_rpc_timeout')), DASHBOARD_RPC_TIMEOUT_MS);
-      });
-      const { data, error } = await Promise.race([rpcPromise, timeoutPromise]);
-      if (timeoutId) clearTimeout(timeoutId);
-      if (error) {
-        throw error;
-      }
-      if (data?.error) {
-        const isAuthWarmup = String(data.error).toLowerCase().includes('unauthorized');
-        if (isAuthWarmup && retryAttempt < MAX_STARTUP_RETRIES) {
-          const retryDelay = RETRY_BASE_DELAY_MS * (retryAttempt + 1);
-          setTimeout(() => {
-            fetchDashboard({ background, retryAttempt: retryAttempt + 1 });
-          }, retryDelay);
-          return;
-        }
-        if (!background) setLoading(false);
-        return;
-      }
-      if (!isValidDashboardPayload(data)) {
-        if (!background) setLoading(false);
-        return;
-      }
-      let dashboardPayload = data;
-      if (dateStr === getToday()) {
-        const hasSleep =
-          dashboardPayload.sleep_record &&
-          typeof dashboardPayload.sleep_record === 'object' &&
-          dashboardPayload.sleep_record.id != null;
-        if (!hasSleep) {
-          const yStr = getYesterday();
-          try {
-            const yRpc = supabase.rpc('get_home_dashboard_data', {
-              p_user_id: user.id,
-              p_date: yStr,
-            });
-            const { data: yData, error: yErr } = await yRpc;
-            if (!yErr && yData && !yData.error && isValidDashboardPayload(yData)) {
-              const ySleep =
-                yData.sleep_record &&
-                typeof yData.sleep_record === 'object' &&
-                yData.sleep_record.id != null
-                  ? yData.sleep_record
-                  : null;
-              if (ySleep) {
-                dashboardPayload = { ...dashboardPayload, sleep_record: ySleep };
-              }
-            }
-          } catch (_mergeErr) {
-            /* Yesterday fallback optional; ignore */
-          }
-        }
-      }
-      try {
-        const serialized = JSON.stringify(dashboardPayload);
-        const prevSerialized = lastDashboardPayloadByDateRef.current.get(dateStr);
-        const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
-        if (prevSerialized === serialized && isAlreadyRenderedForDate) {
-          if (!background) setLoading(false);
-          // Dashboard was restored from cache or matched RPC, but hydration never ran the insights deferred path.
-          // If the strip was never populated, fetch it anyway (fixes perpetual "Loading insights...").
-          if (topInsightsRef.current === null || insightsHomeMetricRowsRef.current === null) {
-            loadHomeInsightsStrip();
-          }
-          return;
-        }
-      } catch (_) {}
-      applyDashboardPayload(dashboardPayload, dateStr);
-      homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, dashboardPayload);
-      await homeCacheService.setPersistedDashboardPayload(user.id, dateStr, dashboardPayload);
-      if (!background) setLoading(false);
-      loadHomeInsightsStrip();
-    } catch (err) {
-      const message = String(err?.message || '');
-      const isLikelyAuthWarmup =
-        /unauthorized|jwt|auth session missing|invalid jwt/i.test(message);
-      if (isLikelyAuthWarmup && retryAttempt < MAX_STARTUP_RETRIES) {
-        const retryDelay = RETRY_BASE_DELAY_MS * (retryAttempt + 1);
-        setTimeout(() => {
-          fetchDashboard({ background, retryAttempt: retryAttempt + 1 });
-        }, retryDelay);
-        return;
-      }
-      if (!background) setLoading(false);
-    } finally {
-      if (dateStr === getToday()) {
-        todaySyncAttemptedRef.current = true;
-      }
-      const current = inFlightDashboardByDateRef.current.get(dateStr);
-      if (current === runPromise) {
-        inFlightDashboardByDateRef.current.delete(dateStr);
-      }
-    }
-    })();
-
-    inFlightDashboardByDateRef.current.set(dateStr, runPromise);
-    await runPromise;
-  }, [user?.id, selectedDate, getDateString, getToday, getYesterday, applyDashboardPayload, isValidDashboardPayload, loadHomeInsightsStrip]);
+  const {
+    fetchDashboard,
+    handleFocusRefresh,
+  } = useHomeDashboardCoordinator({
+    userId: user?.id,
+    dateStr: dashboardDateStr,
+    getToday,
+    getYesterday,
+    applyDashboardPayload,
+    setLoading,
+    loadHomeInsightsStrip,
+    topInsightsRef,
+    insightsHomeMetricRowsRef,
+    lastDashboardPayloadByDateRef,
+    renderedDashboardDateRef,
+  });
 
   useFocusEffect(
     React.useCallback(() => {
@@ -985,45 +430,10 @@ const HomeScreen = () => {
       if (subjectiveJustSaved && dateStr === getToday()) {
         lastDashboardPayloadByDateRef.current.delete(dateStr);
       }
-      // When user just saved subjective scores for today, don't apply persisted cache —
-      // it may still be stale; we'll fetch fresh so the homepage shows updated scores.
       const skipCacheForSubjectiveRefresh = subjectiveJustSaved && dateStr === getToday();
-      let cancelled = false;
-      homeCacheService.getPersistedDashboardPayload(user.id, dateStr).then((cached) => {
-        if (cancelled) return;
-        const hasUsableCache = !skipCacheForSubjectiveRefresh && isValidDashboardPayload(cached);
-        if (hasUsableCache) {
-          try {
-            const serialized = JSON.stringify(cached);
-            const prevSerialized = lastDashboardPayloadByDateRef.current.get(dateStr);
-            const isAlreadyRenderedForDate = renderedDashboardDateRef.current === dateStr;
-            if (prevSerialized !== serialized || !isAlreadyRenderedForDate) {
-              applyDashboardPayload(cached, dateStr);
-              homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, cached);
-            }
-          } catch (_) {
-            applyDashboardPayload(cached, dateStr);
-            homeCacheService.setLastAppliedDashboardPayload(user.id, dateStr, cached);
-          }
-          setLoading(false);
-        }
-        // Never block UI: when no cache we keep showing skeleton and fetch in background
-        const now = Date.now();
-        if (
-          focusFetchDebounceRef.current.dateStr === dateStr &&
-          now - focusFetchDebounceRef.current.timestamp < 700
-        ) {
-          return;
-        }
-        focusFetchDebounceRef.current = { dateStr, timestamp: now };
-        // After saving subjective scores, force foreground fetch so we show fresh data.
-        // Otherwise fetch in background so we never block the homepage.
-        const forceForeground = subjectiveJustSaved && dateStr === getToday();
-        const shouldBackground = !forceForeground;
-        fetchDashboard({ background: shouldBackground });
-      });
-      return () => { cancelled = true; };
-    }, [user, selectedDate, getDateString, applyDashboardPayload, fetchDashboard, isValidDashboardPayload])
+      const forceForeground = subjectiveJustSaved && dateStr === getToday();
+      handleFocusRefresh({ skipCacheForSubjectiveRefresh, forceForeground });
+    }, [user, selectedDate, getDateString, getToday, handleFocusRefresh])
   );
 
   useEffect(() => {
@@ -1031,10 +441,42 @@ const HomeScreen = () => {
     syncAttemptTracker.cleanupOldRecords();
     const deferredTimer = setTimeout(() => {
       calculatePersonalAverages();
-      fetchCoreSleepDuration();
     }, 450);
     return () => clearTimeout(deferredTimer);
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.id || !isToday(selectedDate)) {
+      setLaunchSyncSnapshot(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const refreshSyncOutcome = async () => {
+      const promise = launchSyncCoordinator.getLaunchSyncPromise();
+      let result = launchSyncCoordinator.getLaunchSyncResult();
+      if (promise) {
+        try {
+          result = await promise;
+        } catch (_error) {
+          result = launchSyncCoordinator.getLaunchSyncResult();
+        }
+      }
+      if (!cancelled && result) {
+        setLaunchSyncSnapshot(result);
+      }
+      const attempt = await syncAttemptTracker.getLastAttemptForDate(getToday());
+      if (!cancelled) {
+        setLastAttemptForToday(attempt);
+      }
+    };
+
+    refreshSyncOutcome();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, selectedDate, lastSyncResult, autoSyncLoading, healthSyncLoading]);
 
   // Ensure database reflects default-No habit settings even when users do not open Habit Logging for each day.
   useEffect(() => {
@@ -1053,24 +495,6 @@ const HomeScreen = () => {
       })
       .catch(() => {});
   }, [user?.id, fetchDashboard]);
-
-  // Load persisted "last attempt for today" when viewing today (for no-data card status)
-  useEffect(() => {
-    if (!isToday(selectedDate)) return;
-    syncAttemptTracker.getLastAttemptForDate(getToday()).then(setLastAttemptForToday);
-  }, [selectedDate, lastSyncResult]);
-
-  useEffect(() => {
-    if (!sleepData) return;
-    const isRestoring = hadSleepDataRef.current;
-    hadSleepDataRef.current = true;
-    if (isRestoring) {
-      sleepCardOpacity.setValue(1);
-    } else {
-      sleepCardOpacity.setValue(0);
-      Animated.timing(sleepCardOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    }
-  }, [sleepData, sleepCardOpacity]);
 
   // Dates with unsaved changes (AsyncStorage) for the strip - debounced so rapid date swiping doesn't trigger 7 reads per change
   useEffect(() => {
@@ -1130,8 +554,26 @@ const HomeScreen = () => {
         return;
       }
 
+      // Wait for launch sync to finish so we don't duplicate a heavy pull
+      const launchPromise = launchSyncCoordinator.getLaunchSyncPromise();
+      if (launchPromise) {
+        try {
+          await launchPromise;
+        } catch (_e) {
+          /* non-blocking */
+        }
+      }
+
       // We already have a fresh result from launch sync (or a previous sync this session) - don't run again
       if (lastSyncResultRef.current) {
+        return;
+      }
+
+      const launchResult = launchSyncCoordinator.getLaunchSyncResult();
+      if (launchResult && launchSyncCoordinator.didLaunchSyncRunRecently()) {
+        lastSyncResultRef.current = launchResult;
+        setLaunchSyncSnapshot(launchResult);
+        syncAttemptTracker.getLastAttemptForDate(getToday()).then(setLastAttemptForToday);
         return;
       }
 
@@ -1169,7 +611,7 @@ const HomeScreen = () => {
       isRunning = true;
       lastAutoSyncRef.current = { dateString: todayDateString, timestamp: Date.now() };
       setAutoSyncLoading(true);
-      const autoSyncDaysBack = 30;
+      const autoSyncDaysBack = 7;
 
       // Set a timeout to prevent hanging (30 seconds max)
       const syncTimeoutId = setTimeout(() => {
@@ -1183,7 +625,12 @@ const HomeScreen = () => {
         clearError();
         // Use force: true for today's date to ensure we always get the latest data
         // This prevents the sync from being filtered out if a record already exists
-        const result = await performSync({ force: true, daysBack: autoSyncDaysBack, userId: user.id });
+        const result = await performSync({
+          force: true,
+          daysBack: autoSyncDaysBack,
+          userId: user.id,
+          skipHealthMetrics: true,
+        });
         clearTimeout(syncTimeoutId);
 
         if (!isCancelled && result.success) {
@@ -1194,7 +641,6 @@ const HomeScreen = () => {
             // Data was synced - clear cache and refresh
             updateSleepDataCache(selectedDate, undefined);
             updateHabitCountCache(selectedDate, undefined);
-            setShowNewSleepBanner(true);
             // Wait a bit for database to update, then fetch
             await new Promise(resolve => setTimeout(resolve, 500));
             try {
@@ -1207,6 +653,12 @@ const HomeScreen = () => {
           } else if (resultType === 'SUCCESS_ALREADY_SYNCED') {
             await fetchDashboard({ background: true });
           }
+
+          setLaunchSyncSnapshot(result);
+          const attempt = await syncAttemptTracker.getLastAttemptForDate(getToday());
+          if (!isCancelled) {
+            setLastAttemptForToday(attempt);
+          }
           
           // Mark that we just synced to prevent re-trigger
           justSyncedRef.current = true;
@@ -1215,6 +667,7 @@ const HomeScreen = () => {
         clearTimeout(syncTimeoutId);
         if (!isCancelled) {
           setAutoSyncLoading(false);
+          syncAttemptTracker.getLastAttemptForDate(getToday()).then(setLastAttemptForToday);
         }
       } finally {
         isRunning = false;
@@ -1238,20 +691,7 @@ const HomeScreen = () => {
     };
   }, [selectedDate, user, healthSyncInitialized, hasPermissions, fetchDashboard]);
 
-  // Auto-hide "new sleep data" banner after 4 seconds
-  useEffect(() => {
-    if (!showNewSleepBanner) return;
-    const t = setTimeout(() => setShowNewSleepBanner(false), 4000);
-    return () => clearTimeout(t);
-  }, [showNewSleepBanner]);
-
   lastSyncResultRef.current = lastSyncResult;
-
-  // Mark that we've completed a sync attempt for today when lastSyncResult is set while viewing today
-  useEffect(() => {
-    if (!lastSyncResult || !isToday(selectedDate)) return;
-    todaySyncAttemptedRef.current = true;
-  }, [lastSyncResult, selectedDate]);
 
   // When sync completes (e.g. launch sync or manual), refetch dashboard so the card updates
   useEffect(() => {
@@ -1270,32 +710,54 @@ const HomeScreen = () => {
     }
   }, [lastSyncResult, user]);
 
-  // Check permissions and show prompt if needed
-  useEffect(() => {
-    if (healthSyncInitialized && needsPermissions && !hasPermissions) {
-      setShowPermissionPrompt(true);
+  const handleHomeSleepSync = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      clearError();
+      setAutoSyncLoading(true);
+      const result = await performSync({ force: true, userId: user.id });
+      setLaunchSyncSnapshot(result);
+      if (result.success) {
+        await fetchDashboard({ background: true });
+      }
+      const attempt = await syncAttemptTracker.getLastAttemptForDate(getToday());
+      setLastAttemptForToday(attempt);
+    } catch (_error) {
+      const attempt = await syncAttemptTracker.getLastAttemptForDate(getToday());
+      setLastAttemptForToday(attempt);
+    } finally {
+      setAutoSyncLoading(false);
     }
-  }, [healthSyncInitialized, needsPermissions, hasPermissions]);
+  }, [user?.id, clearError, performSync, fetchDashboard]);
 
   const handleLogHabits = () => {
     tutorial?.notifyOpenedHabitLogging?.();
     applyAndroidStatusBarForFrostedHeader();
     const dateToUse = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
-    navigation.navigate('HabitLogging', { date: formatDateForDB(dateToUse) });
+    navigation.navigate('Journal', {
+      screen: 'JournalMain',
+      params: { date: formatDateForDB(dateToUse) },
+    });
   };
 
   const handleLogTodaysHabits = () => {
     applyAndroidStatusBarForFrostedHeader();
     const today = new Date();
     safeSetSelectedDate(today);
-    navigation.navigate('HabitLogging', { date: formatDateForDB(today) });
+    navigation.navigate('Journal', {
+      screen: 'JournalMain',
+      params: { date: formatDateForDB(today) },
+    });
   };
 
   const handleLogYesterdaysHabits = useCallback(() => {
     applyAndroidStatusBarForFrostedHeader();
     const y = new Date();
     y.setDate(y.getDate() - 1);
-    navigation.navigate('HabitLogging', { date: formatDateForDB(y) });
+    navigation.navigate('Journal', {
+      screen: 'JournalMain',
+      params: { date: formatDateForDB(y) },
+    });
   }, [navigation]);
 
   const dismissForgotYesterday = useCallback(async () => {
@@ -1382,154 +844,6 @@ const HomeScreen = () => {
     }
   }, [user?.id, selectedDate, getDateString, getToday, hasAnyHabitLogsEver]);
 
-  const handleSyncNow = async () => {
-    try {
-      clearError();
-      setAutoSyncLoading(true);
-      
-      const result = await performSync({ force: true, userId: user.id });
-      
-      if (result.success) {
-        const resultType = result.resultType || 'SUCCESS_WITH_DATA';
-        
-        if (resultType === 'SUCCESS_WITH_DATA' && result.syncedRecords > 0) {
-          updateSleepDataCache(selectedDate, undefined);
-          updateHabitCountCache(selectedDate, undefined);
-          setShowNewSleepBanner(true);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await fetchDashboard({ background: true });
-        } else if (resultType === 'SUCCESS_NO_DATA') {
-          await fetchDashboard({ background: true });
-          Alert.alert(
-            'No Data Available',
-            'No sleep data was found in Google Health Connect for the selected date range.'
-          );
-        } else {
-          await fetchDashboard({ background: true });
-        }
-      } else {
-        Alert.alert('Sync Failed', result.error || 'Unable to sync sleep data');
-      }
-    } catch (error) {
-      Alert.alert('Sync Failed', error.message || 'Unable to sync sleep data');
-    } finally {
-      setAutoSyncLoading(false);
-    }
-  };
-
-  const handlePermissionsGranted = () => {
-    setShowPermissionPrompt(false);
-    resetNeedsPermissions();
-    // Auto-sync after permissions are granted
-    handleSyncNow();
-  };
-
-  const handleDismissPermissions = () => {
-    setShowPermissionPrompt(false);
-  };
-
-  const handleExcludeSleepData = async () => {
-    if (!user || !sleepData) return;
-
-    const reason = 'Manually excluded by user';
-    
-    // Store original state for potential revert
-    const originalSleepData = { ...sleepData };
-    const originalIsExcluded = isExcluded;
-    const originalReason = exclusionReason;
-    
-    // Optimistic update - update UI immediately
-    setIsExcluded(true);
-    setExclusionReason(reason);
-    
-    // Update sleepData object directly
-    const updatedSleepData = {
-      ...sleepData,
-      exclude_from_insights: true,
-      exclusion_reason: reason,
-      auto_excluded: false
-    };
-    setSleepData(updatedSleepData);
-    
-    // Update cache immediately
-    updateSleepDataCache(selectedDate, updatedSleepData);
-
-    // Perform API call in background
-    try {
-      const result = await dataQualityService.excludeSleepData(
-        user.id,
-        sleepData.date,
-        reason
-      );
-
-      if (!result.success) {
-        // Revert on error
-        setIsExcluded(originalIsExcluded);
-        setExclusionReason(originalReason);
-        setSleepData(originalSleepData);
-        updateSleepDataCache(selectedDate, originalSleepData);
-        Alert.alert('Error', result.error || 'Failed to exclude sleep data');
-      }
-    } catch (error) {
-      // Revert on error
-      setIsExcluded(originalIsExcluded);
-      setExclusionReason(originalReason);
-      setSleepData(originalSleepData);
-      updateSleepDataCache(selectedDate, originalSleepData);
-      Alert.alert('Error', 'Failed to exclude sleep data');
-    }
-  };
-
-  const handleIncludeSleepData = async () => {
-    if (!user || !sleepData) return;
-
-    // Store original state for potential revert
-    const originalSleepData = { ...sleepData };
-    const originalIsExcluded = isExcluded;
-    const originalReason = exclusionReason;
-    
-    // Optimistic update - update UI immediately
-    setIsExcluded(false);
-    setExclusionReason(null);
-    
-    // Update sleepData object directly
-    const updatedSleepData = {
-      ...sleepData,
-      exclude_from_insights: false,
-      exclusion_reason: null,
-      auto_excluded: false
-    };
-    setSleepData(updatedSleepData);
-    
-    // Update cache immediately
-    updateSleepDataCache(selectedDate, updatedSleepData);
-
-    // Perform API call in background
-    try {
-      const result = await dataQualityService.includeData(
-        user.id,
-        'sleep_data',
-        sleepData.date
-      );
-
-      if (!result.success) {
-        // Revert on error
-        setIsExcluded(originalIsExcluded);
-        setExclusionReason(originalReason);
-        setSleepData(originalSleepData);
-        updateSleepDataCache(selectedDate, originalSleepData);
-        Alert.alert('Error', result.error || 'Failed to include sleep data');
-      }
-    } catch (error) {
-      // Revert on error
-      setIsExcluded(originalIsExcluded);
-      setExclusionReason(originalReason);
-      setSleepData(originalSleepData);
-      updateSleepDataCache(selectedDate, originalSleepData);
-      Alert.alert('Error', 'Failed to include sleep data');
-    }
-  };
-
   // Cache management functions
   const getCacheKey = (date) => typeof date === 'string' ? date : formatDateForDB(date);
 
@@ -1549,12 +863,6 @@ const HomeScreen = () => {
     }
   };
 
-  // Clear all in-memory caches
-  const clearAllCaches = () => {
-    setSleepDataCache(new Map());
-    setHabitCountCache(new Map());
-  };
-
   const formatSleepDuration = useCallback((minutes) => {
     if (minutes == null || minutes === undefined) return '—';
     const n = Number(minutes);
@@ -1563,49 +871,6 @@ const HomeScreen = () => {
     const mins = Math.round(n % 60);
     return `${hours}h ${mins}m`;
   }, []);
-
-  const getDataFreshness = (sleepData) => {
-    if (!sleepData) return null;
-
-    // For production logging - when data was last synced
-    const now = new Date();
-    const dataDate = new Date(sleepData.date + 'T12:00:00'); // Assume noon for date-only data
-    const hoursSinceData = Math.floor((now - dataDate) / (1000 * 60 * 60));
-
-    if (hoursSinceData < 24) {
-      return 'fresh'; // Today's data
-    } else if (hoursSinceData < 48) {
-      return 'yesterday'; // Yesterday's data
-    } else {
-      return 'old'; // Older data
-    }
-  };
-
-  const renderSleepMetricRow = useCallback((label, minutes, percentage, avgComparison, color = null, specialIndicator = null, key = null, isAlternate = false) => (
-    <View key={key} style={[styles.metricRow, isAlternate && styles.metricRowAlternate]}>
-      <View style={styles.metricLabelContainer}>
-        {specialIndicator ? (
-          <View style={[styles.metricColorIndicator, specialIndicator]} />
-        ) : color ? (
-          <View style={[styles.metricColorIndicator, { backgroundColor: color }]} />
-        ) : null}
-        <Text style={styles.metricLabel}>{label}</Text>
-      </View>
-      <View style={styles.metricValueContainer}>
-        <Text style={styles.metricValue}>
-          {minutes}{percentage !== null ? ` (${percentage}%)` : ''}
-        </Text>
-        {avgComparison !== null && (
-          <Text style={[
-            styles.metricComparison,
-            avgComparison > 0 ? styles.metricComparisonPositive : styles.metricComparisonNegative
-          ]}>
-            {Math.abs(avgComparison)}% {avgComparison > 0 ? 'above' : 'below'} average
-          </Text>
-        )}
-      </View>
-    </View>
-  ), []);
 
   const calculateSleepMetrics = useCallback((sleepData) => {
     if (!sleepData || !sleepData.total_sleep_minutes) return {};
@@ -1616,8 +881,14 @@ const HomeScreen = () => {
     // Use personal averages if available, otherwise fall back to population averages
     const averagesToUse = personalAverages || AVERAGE_SLEEP_PERCENTAGES;
 
+    const avgTotalMinutes = averagesToUse.total_sleep_minutes || AVERAGE_SLEEP_PERCENTAGES.total_sleep_minutes;
+    metrics.total = {
+      minutes: formatSleepDuration(totalSleep),
+      comparison: totalSleep - avgTotalMinutes,
+    };
+
     // Calculate percentages and comparisons for each sleep stage
-    Object.keys(SLEEP_METRIC_CONFIG).forEach(key => {
+    SLEEP_METRIC_KEYS.forEach((key) => {
       const minutes = sleepData[key] || 0;
       const percentage = totalSleep > 0 ? Math.round((minutes / totalSleep) * 100) : 0;
       const avgPercentage = averagesToUse[key] || 0;
@@ -1650,43 +921,17 @@ const HomeScreen = () => {
 
       metrics.awakenings = {
         count: userAwakenings,
-        comparisonText
+        comparison: userAwakenings - avgAwakenings,
+        comparisonText,
       };
     }
 
     return metrics;
   }, [personalAverages, formatSleepDuration]);
 
-  const getDataSourceDisplay = (source) => {
-    switch (source) {
-      case 'health_connect':
-        return 'Google Health Connect';
-      case 'healthkit':
-        return 'Apple Health';
-      case 'manual':
-        return 'Manual Entry';
-      default:
-        return 'Unknown';
-    }
-  };
-
-  // Fetch core sleep duration (95th percentile of user's sleep) for timeline indicator
-  // Core sleep = 5th percentile so 95% of nights exceed it (same definition as Insights).
-  const fetchCoreSleepDuration = async () => {
-    if (!user) return;
-    try {
-      const duration = await insightsService.calculateCoreSleepDuration(user.id);
-      setCoreSleepDurationMinutes(duration);
-    } catch (error) {
-      setCoreSleepDurationMinutes(null);
-    }
-  };
-
   // Calculate personal sleep averages from historical data
   const calculatePersonalAverages = async () => {
     if (!user) return;
-
-    setAveragesLoading(true);
     try {
       // Get last 30 days of sleep data for calculating personal averages
       const thirtyDaysAgo = new Date();
@@ -1730,6 +975,7 @@ const HomeScreen = () => {
       // Calculate average percentages
       const avgTotalSleep = totals.total_sleep_minutes / totals.record_count;
       const personalAverages = {
+        total_sleep_minutes: Math.round(avgTotalSleep),
         deep_sleep_minutes: avgTotalSleep > 0 ? Math.round((totals.deep_sleep_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.deep_sleep_minutes,
         light_sleep_minutes: avgTotalSleep > 0 ? Math.round((totals.light_sleep_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.light_sleep_minutes,
         rem_sleep_minutes: avgTotalSleep > 0 ? Math.round((totals.rem_sleep_minutes / totals.record_count / avgTotalSleep) * 100) : AVERAGE_SLEEP_PERCENTAGES.rem_sleep_minutes,
@@ -1741,24 +987,24 @@ const HomeScreen = () => {
     } catch (error) {
       // Fallback to population averages on error
       setPersonalAverages(AVERAGE_SLEEP_PERCENTAGES);
-    } finally {
-      setAveragesLoading(false);
     }
   };
 
 
-  // Streak indicator for the header
-  const streakIndicator = (
-    <View style={styles.streakIndicator}>
-      <Ionicons name="flame" size={18} color={colors.primary} />
-      <Text style={styles.streakText}>{loggingStreak}</Text>
+  const headerRightElement = (
+    <View style={styles.headerRightGroup}>
+      <View style={styles.streakIndicator}>
+        <Ionicons name="flame" size={18} color={colors.primary} />
+        <Text style={styles.streakText}>{loggingStreak}</Text>
+      </View>
+      <AppHeaderProfileButton />
     </View>
   );
 
   return (
     <View style={styles.bodyWrap}>
       <ScrollableDateHeaderBar
-        rightElement={streakIndicator}
+        rightElement={headerRightElement}
         onLayoutHeight={setHomeGlassHeaderHeight}
         sleepStripRefreshKey={sleepStripRefreshKey}
       />
@@ -1771,14 +1017,6 @@ const HomeScreen = () => {
         ]}
         scrollEnabled={!dateHeader?.isHeaderExpanded}
       >
-        {/* In-app success banner when new sleep data was just synced */}
-        {showNewSleepBanner && (
-          <View style={styles.newSleepBanner}>
-            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
-            <Text style={styles.newSleepBannerText}>Last night&apos;s sleep is ready</Text>
-          </View>
-        )}
-
         {/* Today's Habits Reminder - Only when viewing another date (not today) and user hasn't logged today. Nudge: "you're looking at the past but haven't logged today yet." */}
         {!isToday(selectedDate) && (loading || !todaysHabitsLogged) && (
           <View style={styles.todayReminderSlot}>
@@ -1833,262 +1071,117 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Habit Summary Card - Always visible with stable layout; skeleton when loading */}
-        <View
-          style={styles.section}
-          ref={habitTutorialRef}
-          collapsable={false}
-          onLayout={() => {
-            if (!homeSpotlight || !habitTutorialRef.current) return;
-            habitTutorialRef.current.measureInWindow((x, y, width, height) => {
-              tutorial?.registerLogHabitsLayout?.({ x, y, width, height });
-            });
-          }}
-        >
-          <HabitSummaryCard
-            date={selectedDate}
-            habitCount={habitCount}
-            totalHabitCount={totalHabitCount}
-            onPress={handleLogHabits}
-            loading={!habitSummaryReady}
-            buttonStyle={homePairedCTAButtonStyle}
+        <View style={styles.section}>
+          <HomeSleepSummaryStrip
+            sleepData={sleepData}
+            metrics={calculateSleepMetrics(sleepData)}
+            formatSleepDuration={formatSleepDuration}
+            loading={loading && !sleepData}
+            viewingToday={isToday(selectedDate)}
+            healthSyncInitialized={healthSyncInitialized}
+            hasPermissions={hasPermissions}
+            autoSyncLoading={autoSyncLoading}
+            healthSyncLoading={healthSyncLoading}
+            syncError={syncError}
+            lastSyncResult={lastSyncResult}
+            launchSyncResult={launchSyncSnapshot}
+            lastAttemptForToday={lastAttemptForToday}
+            formatTimeAgo={formatTimeAgo}
+            onPressDetails={() =>
+              navigation.navigate('Sleep', {
+                screen: 'SleepMain',
+              })
+            }
+            onSyncPress={handleHomeSleepSync}
+            onConnectPress={() =>
+              navigation.navigate('Sleep', {
+                screen: 'SleepMain',
+              })
+            }
           />
         </View>
 
-        {/* How you felt - compact card under habits for any selected day when tracking */}
-        {(subjectiveAnyEnabled || trackTiredness || trackDreamVividness) && (
-          <View style={styles.section}>
-            <View style={styles.howYouFeltCard}>
-              <View style={styles.howYouFeltCardInner}>
-                <View style={styles.howYouFeltHelpAnchor} pointerEvents="box-none">
-                  <SubjectiveInsightsInfoButton
-                    accountLegacy={false}
-                    style={styles.howYouFeltHelpButton}
-                    iconSize={20}
-                  />
-                </View>
-                {!isToday(selectedDate) && (
-                  <Text style={styles.howYouFeltDateHint}>
-                    How you felt — {formatDateTitle(selectedDate)}
-                  </Text>
-                )}
-              {(trackTiredness && lastNightSubjectiveData?.tiredness_score != null) ||
-              (trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null) ||
-              (Array.isArray(lastNightSubjectiveData?.extra) && lastNightSubjectiveData.extra.length > 0) ? (
-                <View style={styles.howYouFeltRows}>
-                  {trackTiredness && lastNightSubjectiveData?.tiredness_score != null && (
-                    <View style={styles.metricRow}>
-                      <Text style={styles.metricLabel}>Refreshed feeling</Text>
-                      <View style={styles.metricValueContainer}>
-                        <Text style={styles.metricValue}>{lastNightSubjectiveData.tiredness_score}/10</Text>
-                      </View>
-                    </View>
-                  )}
-                  {trackDreamVividness && lastNightSubjectiveData?.dream_vividness_score != null && (
-                    <View style={styles.metricRow}>
-                      <Text style={styles.metricLabel}>Dream strength</Text>
-                      <View style={styles.metricValueContainer}>
-                        <Text style={styles.metricValue}>{lastNightSubjectiveData.dream_vividness_score}/10</Text>
-                      </View>
-                    </View>
-                  )}
-                  {Array.isArray(lastNightSubjectiveData?.extra) &&
-                    lastNightSubjectiveData.extra.map((row) => (
-                      <View key={row.measure_id} style={styles.metricRow}>
-                        <Text style={styles.metricLabel}>{row.label || 'Custom'}</Text>
-                        <View style={styles.metricValueContainer}>
-                          <Text style={styles.metricValue}>{row.score}/10</Text>
-                        </View>
-                      </View>
-                    ))}
-                </View>
-              ) : null}
-              <View style={styles.howYouFeltButtonRow}>
-                <Button
-                  title="How did you sleep?"
-                  variant="outline"
-                  size="compact"
-                  onPress={() => navigation.navigate('SleepQualityLog', { date: getDateString(selectedDate) || getToday() })}
-                  style={homePairedCTAButtonStyle}
+        <View style={styles.section}>
+          <PairedActionCardsRow
+            forceRow
+            left={(
+              <View
+                style={styles.pairedCardSlot}
+                ref={habitTutorialRef}
+                collapsable={false}
+                onLayout={() => {
+                  if (!homeSpotlight || !habitTutorialRef.current) return;
+                  habitTutorialRef.current.measureInWindow((x, y, width, height) => {
+                    tutorial?.registerLogHabitsLayout?.({ x, y, width, height });
+                  });
+                }}
+              >
+                <HabitSummaryCard
+                  date={selectedDate}
+                  habitCount={habitCount}
+                  totalHabitCount={totalHabitCount}
+                  onPress={handleLogHabits}
+                  loading={!habitSummaryReady}
+                  compact
                 />
               </View>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Sleep Data Card — height follows content; full-screen load card only when no row yet or auto-sync */}
-        <View style={styles.section}>
-          <View style={styles.sleepSectionStable}>
-          {(() => {
-            const showHealthSyncLoadCard =
-              autoSyncLoading || (healthSyncLoading && !sleepData);
-            if (showPermissionPrompt) {
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <View style={[styles.sleepCardFill, styles.sleepCard]}>
-                    <SleepPermissionPrompt
-                      onPermissionsGranted={handlePermissionsGranted}
-                      onDismiss={handleDismissPermissions}
+            )}
+            right={(
+              <AppCard style={styles.sleepQualityCompactCard}>
+                <View style={styles.sleepQualityCompactBody}>
+                  <View style={styles.sleepQualityCompactHeader}>
+                    <Text style={styles.sleepQualityCompactTitle}>
+                      How did you sleep?
+                    </Text>
+                    <SubjectiveInsightsInfoButton
+                      accountLegacy={false}
+                      style={styles.sleepQualityHelpButton}
+                      iconSize={16}
                     />
                   </View>
+                  <Text style={styles.sleepQualityStatusText} numberOfLines={3}>
+                    {formatHomeSubjectiveSummary(lastNightSubjectiveData, {
+                      trackTiredness,
+                      trackDreamVividness,
+                    })}
+                  </Text>
                 </View>
-              );
-            } else if (showHealthSyncLoadCard) {
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <View style={styles.sleepCardFill}>
-                    <SleepDataLoadStatusCard
-                      phase="health_sync"
-                      selectedDate={selectedDate}
-                      isToday={isToday}
-                      formatDateTitle={formatDateTitle}
-                      containerStyle={styles.sleepCardFillCard}
-                      hasPermissions={hasPermissions}
-                    />
-                  </View>
-                </View>
-              );
-            } else if (!sleepData && isToday(selectedDate) && !todaySyncAttemptedRef.current) {
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <View style={styles.sleepCardFill}>
-                    <SleepDataLoadStatusCard
-                      phase="loading_dashboard"
-                      selectedDate={selectedDate}
-                      isToday={isToday}
-                      formatDateTitle={formatDateTitle}
-                      containerStyle={styles.sleepCardFillCard}
-                      hasPermissions={hasPermissions}
-                    />
-                  </View>
-                </View>
-              );
-            } else if (
-              !sleepData &&
-              isToday(selectedDate) &&
-              lastSyncResult?.success &&
-              (lastSyncResult.resultType === 'SUCCESS_WITH_DATA' || (lastSyncResult.syncedRecords ?? 0) > 0)
-            ) {
-              // Sync wrote data; brief post-sync fetch state while dashboard refetch applies it.
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <View style={styles.sleepCardFill}>
-                    <SleepDataLoadStatusCard
-                      phase="post_sync_fetch"
-                      selectedDate={selectedDate}
-                      isToday={isToday}
-                      formatDateTitle={formatDateTitle}
-                      containerStyle={styles.sleepCardFillCard}
-                      hasPermissions={hasPermissions}
-                    />
-                  </View>
-                </View>
-              );
-            } else if (!sleepData) {
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <View style={styles.sleepCardFill}>
-                    <SleepNoDataSkeleton
-                      selectedDate={selectedDate}
-                      isToday={isToday}
-                      formatDateTitle={formatDateTitle}
-                      hasPermissions={hasPermissions}
-                      healthSyncInitialized={healthSyncInitialized}
-                      handleSyncNow={handleSyncNow}
-                      autoSyncLoading={autoSyncLoading}
-                      healthSyncLoading={healthSyncLoading}
-                      setShowPermissionPrompt={setShowPermissionPrompt}
-                      getDataSourceDisplay={getDataSourceDisplay}
-                      containerStyle={styles.sleepCardFillCard}
-                      syncError={syncError}
-                      lastSyncResult={lastSyncResult}
-                      lastAttemptForToday={lastAttemptForToday}
-                      formatTimeAgo={formatTimeAgo}
-                      trackTiredness={trackTiredness}
-                      trackDreamVividness={trackDreamVividness}
-                      onOpenSleepQualityLog={(dateStr) => navigation.navigate('SleepQualityLog', { date: dateStr })}
-                      lastNightSubjectiveData={lastNightSubjectiveData}
-                    />
-                  </View>
-                </View>
-              );
-            } else {
-              return (
-                <View style={styles.sleepSectionInner}>
-                  <Animated.View style={[styles.sleepCardFill, { opacity: sleepCardOpacity }]}>
-                    <SleepDataCard
-                      selectedDate={selectedDate}
-                      isToday={isToday}
-                      formatDateTitle={formatDateTitle}
-                      sleepData={sleepData}
-                      coreSleepDurationMinutes={coreSleepDurationMinutes}
-                      hasPermissions={hasPermissions}
-                      healthSyncInitialized={healthSyncInitialized}
-                      handleSyncNow={handleSyncNow}
-                      autoSyncLoading={autoSyncLoading}
-                      healthSyncLoading={healthSyncLoading}
-                      getDataSourceDisplay={getDataSourceDisplay}
-                      lastSyncResult={lastSyncResult}
-                      calculateSleepMetrics={calculateSleepMetrics}
-                      formatSleepDuration={formatSleepDuration}
-                      renderSleepMetricRow={renderSleepMetricRow}
-                      syncError={syncError}
-                      isExcluded={isExcluded}
-                      exclusionReason={exclusionReason}
-                      onExclude={handleExcludeSleepData}
-                      onInclude={handleIncludeSleepData}
-                      containerStyle={styles.sleepCardFillCard}
-                      trackTiredness={trackTiredness}
-                      trackDreamVividness={trackDreamVividness}
-                      onOpenSleepQualityLog={(dateStr) => navigation.navigate('SleepQualityLog', { date: dateStr })}
-                      lastNightSubjectiveData={lastNightSubjectiveData}
-                    />
-                  </Animated.View>
-                </View>
-              );
-            }
-          })()}
-          </View>
+                <Button
+                  title="Log score"
+                  variant="outline"
+                  size="compact"
+                  onPress={() =>
+                    navigation.navigate('SleepQualityLog', {
+                      date: getDateString(selectedDate) || getToday(),
+                    })
+                  }
+                />
+              </AppCard>
+            )}
+          />
         </View>
 
-        {/* Navigation Cards */}
         <View style={styles.section}>
           <SleepInsightsHomeCard
-            homeMetricRows={insightsHomeMetricRows}
+            homeMetricRows={Array.isArray(insightsHomeMetricRows) ? insightsHomeMetricRows.slice(0, 1) : insightsHomeMetricRows}
             isRefreshing={insightsStripRefreshing}
+            title="Sleep Insight"
+            subtitle="See your strongest sleep pattern"
             onPressHeader={() =>
-              navigation.navigate('MainTabs', {
-                screen: 'Insights',
-                params: {
-                  screen: 'Insights',
-                  params: {},
-                },
+              navigation.navigate('Insights', {
+                screen: 'InsightsMain',
               })
             }
             onPressMetricRow={(row) =>
-              navigation.navigate('MainTabs', {
-                screen: 'Insights',
+              navigation.navigate('Insights', {
+                screen: 'HabitTimeline',
                 params: {
-                  screen: 'HabitTimeline',
-                  params: {
-                    habitId: row.habitId,
-                    metricKey: row.metricKey,
-                    analysisMode: row.preferredAnalysisMode || 'absolute',
-                  },
+                  habitId: row.habitId,
+                  metricKey: row.metricKey,
+                  analysisMode: row.preferredAnalysisMode || 'absolute',
                 },
               })
             }
-          />
-          <NavigationCard
-            icon="list"
-            title="Manage Your Habits"
-            subtitle="Control what habits you want to track"
-            stats={[
-              { icon: 'checkbox-outline', label: `${totalHabitCount} habit${totalHabitCount !== 1 ? 's' : ''} tracked` },
-              { icon: 'flame-outline', label: `${loggingStreak} day${loggingStreak !== 1 ? 's' : ''} streak` },
-            ]}
-            onPress={() => navigation.navigate('MainTabs', { screen: 'Habits' })}
           />
         </View>
       </ScrollView>
@@ -2100,6 +1193,11 @@ const styles = StyleSheet.create({
   bodyWrap: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   streakIndicator: {
     flexDirection: 'row',
@@ -2192,6 +1290,44 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 8,
     marginHorizontal: spacing.regular,
+  },
+  pairedCardSlot: {
+    flex: 1,
+  },
+  sleepQualityCompactCard: {
+    flex: 1,
+    justifyContent: 'space-between',
+    minHeight: 118,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.regular,
+  },
+  sleepQualityCompactBody: {
+    flexShrink: 1,
+  },
+  sleepQualityCompactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    marginBottom: spacing.xs,
+  },
+  sleepQualityCompactTitle: {
+    flex: 1,
+    flexShrink: 1,
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    lineHeight: 18,
+    marginRight: spacing.xs,
+  },
+  sleepQualityHelpButton: {
+    flexShrink: 0,
+    marginLeft: spacing.xs,
+  },
+  sleepQualityStatusText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    lineHeight: 16,
   },
   sectionTitle: {
     fontSize: typography.sizes.medium,

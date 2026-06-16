@@ -12,6 +12,7 @@ import OnboardingProgressHeader from '../../components/OnboardingProgressHeader'
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 import { createStarterHabits } from '../../services/onboardingStarterHabitsService';
 import { ensureOnboardingHabits } from '../../services/onboardingHabitsService';
+import healthMetricsService from '../../services/healthMetricsService';
 import { supabase } from '../../services/supabase';
 import { requestHabitsRefresh } from '../../services/habitsRefreshTrigger';
 import { trackOnboardingStarterHabitsSaved } from '../../services/onboardingAnalytics';
@@ -22,6 +23,8 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
   const [alcohol, setAlcohol] = useState(false);
   const [exercise, setExercise] = useState(false);
   const [lastMeal, setLastMeal] = useState(false);
+  const [skipManualLastMeal, setSkipManualLastMeal] = useState(false);
+  const [skipManualExercise, setSkipManualExercise] = useState(false);
   const [loading, setLoading] = useState(false);
   const [customHabits, setCustomHabits] = useState([]);
   const [customHabitsLoading, setCustomHabitsLoading] = useState(true);
@@ -59,6 +62,20 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
       loadCustomHabits();
     }, [loadCustomHabits]),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id) return;
+      const suppression = await healthMetricsService.getAutoStarterSuppression(user.id);
+      if (cancelled) return;
+      setSkipManualLastMeal(suppression.skipManualLastMeal);
+      setSkipManualExercise(suppression.skipManualExercise);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!scrollToCustomAfterAdd || customHabitsLoading || customHabits.length === 0) return;
@@ -133,7 +150,12 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
       if (!alcohol) {
         await supabase.from('habits').update({ is_active: false }).eq('user_id', user.id).eq('name', 'Alcohol');
       }
-      const res = await createStarterHabits(user.id, { exercise, lastMeal });
+      const res = await createStarterHabits(user.id, {
+        exercise,
+        lastMeal,
+        skipManualLastMeal,
+        skipManualExercise,
+      });
       if (!res.success) {
         return;
       }
@@ -194,20 +216,24 @@ export default function OnboardingStarterHabitsScreen({ navigation }) {
           {renderAddIcon(alcohol, () => setAlcohol((v) => !v))}
         </View>
 
-        <View style={[styles.row, exercise && styles.rowSelected]}>
-          <View>
-            <Text style={styles.habitName}>Exercise</Text>
-            <Text style={styles.hint}>Binary</Text>
+        {!skipManualExercise ? (
+          <View style={[styles.row, exercise && styles.rowSelected]}>
+            <View>
+              <Text style={styles.habitName}>Exercise</Text>
+              <Text style={styles.hint}>Binary</Text>
+            </View>
+            {renderAddIcon(exercise, () => setExercise((v) => !v))}
           </View>
-          {renderAddIcon(exercise, () => setExercise((v) => !v))}
-        </View>
-        <View style={[styles.row, lastMeal && styles.rowSelected]}>
-          <View>
-            <Text style={styles.habitName}>Last meal time</Text>
-            <Text style={styles.hint}>Time</Text>
+        ) : null}
+        {!skipManualLastMeal ? (
+          <View style={[styles.row, lastMeal && styles.rowSelected]}>
+            <View>
+              <Text style={styles.habitName}>Last meal time</Text>
+              <Text style={styles.hint}>Time</Text>
+            </View>
+            {renderAddIcon(lastMeal, () => setLastMeal((v) => !v))}
           </View>
-          {renderAddIcon(lastMeal, () => setLastMeal((v) => !v))}
-        </View>
+        ) : null}
 
         {customHabitsLoading ? (
           <View style={styles.customLoading}>

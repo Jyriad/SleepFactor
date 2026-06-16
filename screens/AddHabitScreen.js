@@ -7,12 +7,8 @@ import {
   StyleSheet,
   Alert,
   Switch,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
 import PressableFeedback from '../components/PressableFeedback';
 import { colors } from '../constants/colors';
 import { buttonStyles } from '../constants/buttonStyles';
@@ -23,14 +19,10 @@ import sleepDataService from '../services/sleepDataService';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 import { trackOnboardingCustomHabitCreated } from '../services/onboardingAnalytics';
 import { HabitLogSource } from '../services/habitLogSourceConstants';
+import AppSheetLayout from '../components/AppSheetLayout';
 
-const AddHabitScreen = () => {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const insets = useSafeAreaInsets();
+export function AddHabitPanel({ onSuccess, onClose, analyticsSource, nativePresentation = false, nestedOverlay = false }) {
   const { user } = useAuth();
-  const { onSuccess, analytics_source: analyticsSource } = route.params || {};
-
   const [habitName, setHabitName] = useState('');
   const [habitType, setHabitType] = useState('binary');
   const [habitUnit, setHabitUnit] = useState('');
@@ -38,15 +30,10 @@ const AddHabitScreen = () => {
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!habitName.trim()) {
-      return;
-    }
-
-    if (!user) return;
+    if (!habitName.trim() || !user) return;
 
     setSaving(true);
     try {
-      // Get max priority for manual habits
       const { data: allHabits } = await supabase
         .from('habits')
         .select('priority')
@@ -76,7 +63,6 @@ const AddHabitScreen = () => {
 
       if (habitType === 'binary' && backfillPastDatesAsNo) {
         const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -94,11 +80,9 @@ const AddHabitScreen = () => {
               value: 'no',
               source: HabitLogSource.DEFAULT_NO,
             }));
-            const { error: logsError } = await supabase
+            await supabase
               .from('habit_logs')
               .upsert(entries, { onConflict: 'user_id,habit_id,date' });
-            if (logsError) {
-            }
           }
         }
       }
@@ -106,11 +90,9 @@ const AddHabitScreen = () => {
       if (analyticsSource === 'onboarding') {
         trackOnboardingCustomHabitCreated({ habit_type: habitType });
       }
-      if (onSuccess) {
-        onSuccess();
-      }
+      onSuccess?.();
       requestHabitsRefresh();
-      navigation.goBack();
+      onClose?.();
     } catch (error) {
       Alert.alert('Error', error.message || 'Failed to add habit');
     } finally {
@@ -118,139 +100,131 @@ const AddHabitScreen = () => {
     }
   };
 
-  const handleClose = () => {
-    navigation.goBack();
-  };
-
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Add Custom Habit</Text>
-          <Text style={styles.subtitle}>Use this for personal edge cases beyond the starter habits.</Text>
-        </View>
-        <PressableFeedback onPress={handleClose} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color={colors.textSecondary} />
-        </PressableFeedback>
+    <AppSheetLayout
+      title="Add Custom Habit"
+      subtitle={nestedOverlay ? undefined : 'Use this for personal edge cases beyond the starter habits.'}
+      onDismiss={onClose}
+      keyboardAvoid
+      scroll
+      nativePresentation={nativePresentation}
+      hideHandle={nestedOverlay}
+    >
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Habit Name</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Enter habit name"
+          placeholderTextColor={colors.textLight}
+          value={habitName}
+          onChangeText={setHabitName}
+          maxLength={50}
+        />
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoid}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-      >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: spacing.xl + insets.bottom },
-          ]}
-          showsVerticalScrollIndicator={false}
-          bounces={true}
-          keyboardShouldPersistTaps="handled"
-        >
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Type</Text>
+        <View style={styles.typeSelector}>
+          {[
+            { key: 'binary', label: 'Yes/No' },
+            { key: 'numeric', label: 'Numeric' },
+            { key: 'time', label: 'Time' },
+          ].map(({ key, label }) => (
+            <PressableFeedback
+              key={key}
+              style={[
+                styles.typeButton,
+                habitType === key && styles.typeButtonActive,
+              ]}
+              pressedStyle={habitType !== key ? styles.typeButtonPressed : undefined}
+              haptic="selection"
+              onPress={() => {
+                setHabitType(key);
+                if (key === 'time') setHabitUnit('');
+              }}
+            >
+              <Text
+                style={[
+                  styles.typeButtonText,
+                  habitType === key && styles.typeButtonTextActive,
+                ]}
+              >
+                {label}
+              </Text>
+            </PressableFeedback>
+          ))}
+        </View>
+      </View>
+
+      {habitType === 'numeric' && (
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Habit Name</Text>
+          <Text style={styles.label}>Unit</Text>
           <TextInput
             style={styles.textInput}
-            placeholder="Enter habit name"
+            placeholder="e.g., cups, steps, °C"
             placeholderTextColor={colors.textLight}
-            value={habitName}
-            onChangeText={setHabitName}
-            maxLength={50}
+            value={habitUnit}
+            onChangeText={setHabitUnit}
+            maxLength={20}
           />
         </View>
+      )}
 
+      {habitType === 'binary' && (
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Type</Text>
-          <View style={styles.typeSelector}>
-            {[
-              { key: 'binary', label: 'Yes/No' },
-              { key: 'numeric', label: 'Numeric' },
-              { key: 'time', label: 'Time' },
-            ].map(({ key, label }) => (
-              <PressableFeedback
-                key={key}
-                style={[
-                  styles.typeButton,
-                  habitType === key && styles.typeButtonActive,
-                ]}
-                pressedStyle={habitType !== key ? styles.typeButtonPressed : undefined}
-                haptic="selection"
-                onPress={() => {
-                  setHabitType(key);
-                  if (key === 'time') setHabitUnit('');
-                }}
-              >
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    habitType === key && styles.typeButtonTextActive,
-                  ]}
-                >
-                  {label}
-                </Text>
-              </PressableFeedback>
-            ))}
-          </View>
-        </View>
-
-        {habitType === 'numeric' && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Unit</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="e.g., cups, steps, °C"
-              placeholderTextColor={colors.textLight}
-              value={habitUnit}
-              onChangeText={setHabitUnit}
-              maxLength={20}
+          <View style={styles.backfillRow}>
+            <Text style={styles.backfillLabel}>
+              Record as &quot;No&quot; for all past dates
+            </Text>
+            <Switch
+              value={backfillPastDatesAsNo}
+              onValueChange={setBackfillPastDatesAsNo}
+              trackColor={{ false: colors.border, true: colors.primary + '80' }}
+              thumbColor={backfillPastDatesAsNo ? colors.primary : colors.textLight}
             />
           </View>
-        )}
-
-        {habitType === 'binary' && (
-          <View style={styles.inputGroup}>
-            <View style={styles.backfillRow}>
-              <Text style={styles.backfillLabel}>
-                Record as &quot;No&quot; for all past dates
-              </Text>
-              <Switch
-                value={backfillPastDatesAsNo}
-                onValueChange={setBackfillPastDatesAsNo}
-                trackColor={{ false: colors.border, true: colors.primary + '80' }}
-                thumbColor={backfillPastDatesAsNo ? colors.primary : colors.textLight}
-              />
-            </View>
-            <Text style={styles.backfillHint}>
-              Use this for something you’re starting now (e.g. a new supplement). Past nights will show &quot;No&quot; so you don’t need to tap through old dates.
-            </Text>
-          </View>
-        )}
-
-        <View style={[styles.actions, { marginTop: spacing.lg }]}>
-          <PressableFeedback
-            style={[styles.actionButton, styles.cancelButton]}
-            pressedStyle={buttonStyles.outlinePressed}
-            onPress={handleClose}
-            disabled={saving}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </PressableFeedback>
-          <PressableFeedback
-            style={[styles.actionButton, styles.saveButton]}
-            pressedStyle={buttonStyles.primaryPressed}
-            onPress={handleSave}
-            disabled={saving}
-          >
-            <Text style={styles.saveButtonText}>
-              {saving ? 'Adding...' : 'Add Habit'}
-            </Text>
-          </PressableFeedback>
+          <Text style={styles.backfillHint}>
+            Use this for something you’re starting now (e.g. a new supplement). Past nights will show &quot;No&quot; so you don’t need to tap through old dates.
+          </Text>
         </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      )}
+
+      <View style={[styles.actions, { marginTop: spacing.lg }]}>
+        <PressableFeedback
+          style={[styles.actionButton, styles.cancelButton]}
+          pressedStyle={buttonStyles.outlinePressed}
+          onPress={onClose}
+          disabled={saving}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </PressableFeedback>
+        <PressableFeedback
+          style={[styles.actionButton, styles.saveButton]}
+          pressedStyle={buttonStyles.primaryPressed}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          <Text style={styles.saveButtonText}>
+            {saving ? 'Adding...' : 'Add Habit'}
+          </Text>
+        </PressableFeedback>
+      </View>
+    </AppSheetLayout>
+  );
+}
+
+const AddHabitScreen = () => {
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { onSuccess, analytics_source: analyticsSource } = route.params || {};
+
+  return (
+    <AddHabitPanel
+      onSuccess={onSuccess}
+      onClose={() => navigation.goBack()}
+      analyticsSource={analyticsSource}
+      nativePresentation
+    />
   );
 };
 
@@ -259,32 +233,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.regular,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  title: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
-  },
-  closeButton: {
-    padding: spacing.xs,
-  },
-  keyboardAvoid: {
-    flex: 1,
-  },
   scrollView: {
     flex: 1,
+  },
+  sheetContent: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   content: {
     padding: spacing.regular,

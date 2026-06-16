@@ -179,7 +179,7 @@ export default function TutorialOverlay() {
                   navigation.navigate('MainTabs', {
                     screen: 'Insights',
                     params: {
-                      screen: 'Insights',
+                      screen: 'InsightsMain',
                       params: {
                         openFirstInsight: true,
                         preferredAnalysisMode: pendingInsightAnalysisMode,

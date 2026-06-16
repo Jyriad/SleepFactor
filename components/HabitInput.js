@@ -23,8 +23,12 @@ function timeStringToDate(timeStr, selectedDate) {
     selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime())
       ? new Date(selectedDate)
       : new Date();
+  if (!timeStr || typeof timeStr !== 'string') {
+    const now = new Date();
+    base.setHours(now.getHours(), now.getMinutes(), 0, 0);
+    return base;
+  }
   base.setHours(12, 0, 0, 0);
-  if (!timeStr || typeof timeStr !== 'string') return base;
   const m = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return base;
   let h = parseInt(m[1], 10);

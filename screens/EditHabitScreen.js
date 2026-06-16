@@ -4,15 +4,11 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  ScrollView,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
 import PressableFeedback from '../components/PressableFeedback';
+import AppSheetLayout from '../components/AppSheetLayout';
 import { colors } from '../constants/colors';
 import { buttonStyles } from '../constants/buttonStyles';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
@@ -20,13 +16,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { requestHabitsRefresh } from '../services/habitsRefreshTrigger';
 
-const EditHabitScreen = () => {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const insets = useSafeAreaInsets();
+export function EditHabitPanel({ habit, onSuccess, onClose, nativePresentation = false, nestedOverlay = false }) {
   const { user } = useAuth();
-  const { habit, onSuccess } = route.params || {};
-
   const [habitName, setHabitName] = useState(habit?.name || '');
   const [halfLifeHours, setHalfLifeHours] = useState(habit?.half_life_hours?.toString() || '');
   const [saving, setSaving] = useState(false);
@@ -39,11 +30,7 @@ const EditHabitScreen = () => {
   }, [habit]);
 
   const handleSave = async () => {
-    if (!habitName.trim()) {
-      return;
-    }
-
-    if (!user || !habit) return;
+    if (!habitName.trim() || !user || !habit) return;
 
     setSaving(true);
     try {
@@ -52,13 +39,11 @@ const EditHabitScreen = () => {
         updated_at: new Date().toISOString(),
       };
 
-      // Allow editing drug habits (caffeine/alcohol) even if they're not custom
       if (habit.type !== 'quick_consumption' && !habit.is_custom) {
         Alert.alert('Error', 'Only custom habits can be edited');
         return;
       }
 
-      // Add half-life for drug habits
       if (habit.type === 'quick_consumption' && halfLifeHours.trim()) {
         const halfLifeValue = parseFloat(halfLifeHours.trim());
         if (!isNaN(halfLifeValue) && halfLifeValue > 0) {
@@ -74,11 +59,9 @@ const EditHabitScreen = () => {
 
       if (error) throw error;
 
-      if (onSuccess) {
-        onSuccess();
-      }
+      onSuccess?.();
       requestHabitsRefresh();
-      navigation.goBack();
+      onClose?.();
     } catch (error) {
       Alert.alert('Error', error.message || 'Failed to update habit name');
     } finally {
@@ -86,126 +69,91 @@ const EditHabitScreen = () => {
     }
   };
 
-  const handleClose = () => {
-    navigation.goBack();
-  };
+  const sheetTitle =
+    habit?.type === 'quick_consumption' ? 'Edit Drug Habit' : `Edit ${habit?.name || 'Habit'}`;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>
-          {habit?.type === 'quick_consumption' ? 'Edit Drug Habit' : 'Edit Habit Name'}
-        </Text>
-        <PressableFeedback onPress={handleClose} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color={colors.textSecondary} />
-        </PressableFeedback>
-      </View>
+    <AppSheetLayout
+      title={sheetTitle}
+      onDismiss={onClose}
+      keyboardAvoid
+      scroll
+      nativePresentation={nativePresentation}
+      hideHandle={nestedOverlay}
+    >
+      <Text style={styles.label}>Habit Name</Text>
+      <TextInput
+        style={styles.textInput}
+        placeholder="Enter habit name"
+        placeholderTextColor={colors.textLight}
+        value={habitName}
+        onChangeText={setHabitName}
+        maxLength={50}
+      />
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoid}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-      >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: spacing.xl + insets.bottom },
-          ]}
-          showsVerticalScrollIndicator={false}
-          bounces={true}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.label}>Habit Name</Text>
+      {habit?.type === 'quick_consumption' && (
+        <>
+          <Text style={[styles.label, styles.halfLifeLabel]}>
+            Half-Life (hours)
+            <Text style={styles.halfLifeHelp}>
+              {'  '}How long it takes for the substance to reduce by half in your system
+            </Text>
+          </Text>
           <TextInput
             style={styles.textInput}
-            placeholder="Enter habit name"
+            placeholder="e.g., 5 (for caffeine)"
             placeholderTextColor={colors.textLight}
-            value={habitName}
-            onChangeText={setHabitName}
-            maxLength={50}
+            value={halfLifeHours}
+            onChangeText={setHalfLifeHours}
+            keyboardType="numeric"
+            maxLength={10}
           />
+          <Text style={styles.halfLifeExamples}>
+            Common half-lives: Caffeine (4-6 hours), Alcohol (4-5 hours)
+          </Text>
+        </>
+      )}
 
-          {habit?.type === 'quick_consumption' && (
-            <>
-              <Text style={[styles.label, styles.halfLifeLabel]}>
-                Half-Life (hours)
-                <Text style={styles.halfLifeHelp}>
-                  {'  '}How long it takes for the substance to reduce by half in your system
-                </Text>
-              </Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g., 5 (for caffeine)"
-                placeholderTextColor={colors.textLight}
-                value={halfLifeHours}
-                onChangeText={setHalfLifeHours}
-                keyboardType="numeric"
-                maxLength={10}
-              />
-              <Text style={styles.halfLifeExamples}>
-                Common half-lives: Caffeine (4-6 hours), Alcohol (4-5 hours)
-              </Text>
-            </>
-          )}
+      <View style={styles.actions}>
+        <PressableFeedback
+          style={[styles.actionButton, styles.cancelButton]}
+          pressedStyle={buttonStyles.outlinePressed}
+          onPress={onClose}
+          disabled={saving}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </PressableFeedback>
+        <PressableFeedback
+          style={[styles.actionButton, styles.saveButton]}
+          pressedStyle={buttonStyles.primaryPressed}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          <Text style={styles.saveButtonText}>
+            {saving ? 'Updating...' : 'Update Habit'}
+          </Text>
+        </PressableFeedback>
+      </View>
+    </AppSheetLayout>
+  );
+}
 
-          <View style={[styles.actions, { marginTop: spacing.lg }]}>
-            <PressableFeedback
-              style={[styles.actionButton, styles.cancelButton]}
-              pressedStyle={buttonStyles.outlinePressed}
-              onPress={handleClose}
-              disabled={saving}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </PressableFeedback>
-            <PressableFeedback
-              style={[styles.actionButton, styles.saveButton]}
-              pressedStyle={buttonStyles.primaryPressed}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              <Text style={styles.saveButtonText}>
-                {saving ? 'Updating...' : 'Update Habit'}
-              </Text>
-            </PressableFeedback>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+const EditHabitScreen = () => {
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { habit, onSuccess } = route.params || {};
+
+  return (
+    <EditHabitPanel
+      habit={habit}
+      onSuccess={onSuccess}
+      onClose={() => navigation.goBack()}
+      nativePresentation
+    />
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.regular,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  title: {
-    fontSize: typography.sizes.large,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-  },
-  closeButton: {
-    padding: spacing.xs,
-  },
-  keyboardAvoid: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: spacing.regular,
-  },
   label: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
@@ -220,9 +168,10 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     color: colors.textPrimary,
     backgroundColor: colors.background,
+    marginBottom: spacing.regular,
   },
   halfLifeLabel: {
-    marginTop: spacing.regular,
+    marginTop: spacing.xs,
   },
   halfLifeHelp: {
     fontSize: typography.sizes.small,
@@ -239,10 +188,10 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: spacing.sm,
-    padding: spacing.regular,
+    marginTop: spacing.lg,
+    paddingTop: spacing.regular,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    backgroundColor: colors.background,
   },
   actionButton: {
     flex: 1,
@@ -272,4 +221,3 @@ const styles = StyleSheet.create({
 });
 
 export default EditHabitScreen;
-
