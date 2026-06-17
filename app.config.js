@@ -176,7 +176,12 @@ export default {
           compileSdkVersion: 35,
           targetSdkVersion: 35,
           minSdkVersion: 26
-        }
+        },
+        // Google Sign-In 9.x (AppCheckCore) needs static frameworks on iOS — avoids
+        // "Swift pods cannot yet be integrated as static libraries" during pod install.
+        ios: {
+          useFrameworks: "static",
+        },
       }
     ],
     "./plugins/withSentryIosPodfileFix.js",
