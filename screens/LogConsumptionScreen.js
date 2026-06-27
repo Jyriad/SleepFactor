@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import Slider from '@react-native-community/slider';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
@@ -27,9 +28,26 @@ import sleepDataService from '../services/sleepDataService';
 import {
   getLastConsumptionPreferenceForOption,
   setLastConsumptionPreferenceForOption,
+  SERVING_PROFILE_CUSTOM,
 } from '../services/consumptionCustomAmountStorage';
+import { calculateAlcoholMl } from '../constants/consumptionReferenceData';
+import {
+  getServingProfilesForOption,
+  getDefaultServingProfile,
+  getDefaultAbvForOption,
+  getAbvRangeForOption,
+  clampAbvToRange,
+  formatAbvRangeHint,
+  computeAmountForCustomVolume,
+  formatProfileSubtitle,
+  resolveEditServingSelection,
+  resolveServingProfileIdForOpen,
+  getProfileById,
+  isAlcoholHabit as isAlcoholHabitName,
+} from '../constants/consumptionServingProfiles';
+import { buildConsumptionLogFields } from '../utils/consumptionLogPayload';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
-import { formatVolume, getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
+import { getVolumeUnitLabel, parseVolumeInputToMl, mlToUserUnit } from '../utils/unitConversion';
 import {
   INTAKE_BASIS,
   resolveIntakeBasis,
@@ -51,14 +69,17 @@ const LogConsumptionScreen = () => {
   const measurementRegion = preferences.measurementRegion || 'metric';
   const measurementSystem = preferences.measurementSystem || 'metric';
 
-  const { habit, selectedOption: initialOption, selectedDate, userId, editingEvent, onSaveSuccess } = route.params || {};
+  const { habit, selectedDate, userId, editingEvent, onSaveSuccess, prefill } = route.params || {};
+  const routeSelectedOption = route.params?.selectedOption;
 
   const selectedDateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate ?? Date.now());
 
   const [consumptionOptions, setConsumptionOptions] = useState([]);
   const [loadingOptions, setLoadingOptions] = useState(!!habit?.id);
-  const [selectedOption, setSelectedOption] = useState(initialOption ?? null);
-  const [selectedServing, setSelectedServing] = useState(1);
+  const [selectedOption, setSelectedOption] = useState(routeSelectedOption ?? null);
+  const [selectedServing, setSelectedServing] = useState(null);
+  const [abvPercent, setAbvPercent] = useState(null);
+  const [abvInputText, setAbvInputText] = useState('');
   const [showCustomVolume, setShowCustomVolume] = useState(false);
   const [customVolume, setCustomVolume] = useState('');
   const [customDrugAmount, setCustomDrugAmount] = useState(0);
@@ -91,90 +112,113 @@ const LogConsumptionScreen = () => {
     setCustomAmountDisplayValue(selectedOption?.drug_amount ?? 0);
   }, [selectedOption?.drug_amount, customDrugAmount, showCustomVolume]);
 
+  useEffect(() => {
+    setSelectedOption(routeSelectedOption ?? null);
+  }, [routeSelectedOption?.id]);
+
+  const isAlcohol = useMemo(
+    () => isAlcoholHabitName(habit?.name),
+    [habit?.name]
+  );
+
+  const servingProfiles = useMemo(
+    () =>
+      selectedOption
+        ? getServingProfilesForOption(selectedOption, habit?.name, measurementRegion)
+        : [],
+    [selectedOption?.id, selectedOption?.name, selectedOption?.serving_profiles, habit?.name, measurementRegion]
+  );
+
+  const defaultAbv = useMemo(
+    () =>
+      selectedOption && isAlcohol
+        ? getDefaultAbvForOption(selectedOption, habit?.name, measurementRegion)
+        : null,
+    [selectedOption?.id, selectedOption?.default_abv_percent, habit?.name, measurementRegion, isAlcohol]
+  );
+
+  const abvRange = useMemo(() => {
+    if (!selectedOption || !isAlcohol) return null;
+    const expandFor =
+      editingEvent?.logged_abv_percent != null
+        ? Number(editingEvent.logged_abv_percent)
+        : null;
+    return getAbvRangeForOption(selectedOption, habit?.name, measurementRegion, {
+      expandForValue: expandFor,
+    });
+  }, [
+    selectedOption?.id,
+    selectedOption?.name,
+    selectedOption?.default_abv_percent,
+    habit?.name,
+    measurementRegion,
+    isAlcohol,
+    editingEvent?.logged_abv_percent,
+  ]);
+
+  const effectiveAbv = useMemo(() => {
+    if (!isAlcohol || !abvRange) return null;
+    const parsed = parseFloat(String(abvInputText).replace(',', '.'));
+    if (!Number.isNaN(parsed) && parsed >= abvRange.min && parsed <= abvRange.max) return parsed;
+    if (abvPercent != null && abvPercent >= abvRange.min && abvPercent <= abvRange.max) {
+      return abvPercent;
+    }
+    return clampAbvToRange(defaultAbv ?? abvRange.min, abvRange);
+  }, [isAlcohol, abvInputText, abvPercent, defaultAbv, abvRange]);
+
+  const effectiveAbvRef = useRef(effectiveAbv);
+  effectiveAbvRef.current = effectiveAbv;
+
   // Prefill form when editing an existing event
   useEffect(() => {
     if (!editingEvent || !selectedOption) return;
-    const resolvedOption = selectedOption;
-    const basis = resolveIntakeBasis(resolvedOption);
-    let useCustom = editingEvent.serving === 'custom';
-    let presetServing = editingEvent.serving && editingEvent.serving !== 'custom' ? editingEvent.serving : 1;
 
-    if (basis === INTAKE_BASIS.SERVING_COUNT) {
-      const refCount = getReferenceServingCount(resolvedOption);
-      const totalCount = getLoggedServingCount(editingEvent);
-      if (totalCount != null && totalCount > 0 && refCount) {
-        const tolerance = 0.05;
-        let matched = false;
-        for (const mult of [0.5, 1, 2]) {
-          const expected = refCount * mult;
-          if (Math.abs(totalCount - expected) <= tolerance) {
-            presetServing = mult;
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) useCustom = true;
-      } else if (totalCount != null && totalCount > 0) {
-        useCustom = true;
-      }
+    const profiles = getServingProfilesForOption(selectedOption, habit?.name, measurementRegion);
+    const resolved = resolveEditServingSelection(
+      editingEvent,
+      selectedOption,
+      profiles,
+      habit?.name,
+      measurementRegion
+    );
 
-      if (useCustom) {
-        setSelectedServing('custom');
-        setShowCustomVolume(true);
-        setCustomDrugAmount(editingEvent.amount ?? 0);
-        setCustomAmountDisplayValue(editingEvent.amount ?? 0);
-        const countStr = totalCount != null && totalCount > 0 ? String(totalCount) : String(refCount || 1);
+    if (isAlcohol && abvRange) {
+      const abv = clampAbvToRange(
+        resolved.abvPercent ?? getDefaultAbvForOption(selectedOption, habit?.name, measurementRegion),
+        abvRange
+      );
+      setAbvPercent(abv);
+      setAbvInputText(String(abv));
+    }
+
+    if (resolved.useCustom) {
+      setSelectedServing(SERVING_PROFILE_CUSTOM);
+      setShowCustomVolume(true);
+      setCustomDrugAmount(editingEvent.amount ?? 0);
+      setCustomAmountDisplayValue(editingEvent.amount ?? 0);
+      const basis = resolveIntakeBasis(selectedOption);
+      if (basis === INTAKE_BASIS.SERVING_COUNT) {
+        const count = getLoggedServingCount(editingEvent);
+        const countStr = count != null && count > 0 ? String(count) : '1';
         setCustomVolume(countStr);
         customVolumeRef.current = countStr;
       } else {
-        setSelectedServing(presetServing);
-        setShowCustomVolume(false);
-        setCustomVolume('');
-        setCustomDrugAmount(0);
+        const vol = getLoggedVolumeMl(editingEvent);
+        const volumeStr = vol ? mlToUserUnit(vol, measurementSystem) : '100';
+        setCustomVolume(volumeStr);
+        customVolumeRef.current = volumeStr;
       }
       return;
     }
 
-    const volumeMl = getLoggedVolumeMl(editingEvent);
-    const effectiveDefaultVol =
-      getReferenceVolumeMlForOption(resolvedOption, habit?.name, measurementRegion) ??
-      resolvedOption.default_volume ??
-      null;
-
-    if (volumeMl != null && volumeMl > 0 && effectiveDefaultVol) {
-      const tolerance = 2;
-      let matched = false;
-      for (let n = 1; n <= 10; n++) {
-        const expected = effectiveDefaultVol * n;
-        if (Math.abs(volumeMl - expected) <= tolerance) {
-          presetServing = n;
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) useCustom = true;
-    } else if (volumeMl != null && volumeMl > 0) {
-      useCustom = true;
-    }
-
-    if (useCustom) {
-      setSelectedServing('custom');
-      setShowCustomVolume(true);
-      setCustomDrugAmount(editingEvent.amount ?? 0);
-      setCustomAmountDisplayValue(editingEvent.amount ?? 0);
-      const vol = volumeMl ?? (editingEvent.base_amount && resolvedOption?.default_volume
-        ? (editingEvent.amount / editingEvent.base_amount) * resolvedOption.default_volume
-        : null);
-      const volumeStr = vol ? mlToUserUnit(vol, measurementSystem) : '100';
-      setCustomVolume(volumeStr);
-      customVolumeRef.current = volumeStr;
-    } else {
-      setSelectedServing(presetServing);
+    if (resolved.profileId) {
+      setSelectedServing(resolved.profileId);
       setShowCustomVolume(false);
       setCustomVolume('');
+      customVolumeRef.current = '';
       setCustomDrugAmount(0);
     }
-  }, [editingEvent?.id, selectedOption?.id, habit?.name, measurementRegion, measurementSystem]);
+  }, [editingEvent?.id, selectedOption?.id, habit?.name, measurementRegion, measurementSystem, isAlcohol, abvRange]);
 
   useEffect(() => {
     if (!habit?.id) {
@@ -199,7 +243,7 @@ const LogConsumptionScreen = () => {
 
   const calculateCustomDrugAmountFromText = useCallback(
     (text) => {
-      if (!selectedOption || !selectedOption.drug_amount) return 0;
+      if (!selectedOption) return 0;
       const basis = resolveIntakeBasis(selectedOption);
       if (basis === INTAKE_BASIS.SERVING_COUNT) {
         const n = parseFloat(String(text).replace(',', '.'));
@@ -208,9 +252,19 @@ const LogConsumptionScreen = () => {
       }
       const inputUnit = getVolumeUnitLabel(measurementSystem);
       const volumeMl = parseVolumeInputToMl(text, measurementSystem, inputUnit);
+      if (isAlcohol) {
+        return computeAmountForCustomVolume(
+          selectedOption,
+          habit?.name,
+          measurementRegion,
+          volumeMl,
+          null,
+          effectiveAbvRef.current
+        );
+      }
       return amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeMl);
     },
-    [selectedOption, habit?.name, measurementRegion, measurementSystem]
+    [selectedOption, habit?.name, measurementRegion, measurementSystem, isAlcohol]
   );
 
   const selectedIntakeBasis = useMemo(
@@ -263,8 +317,13 @@ const LogConsumptionScreen = () => {
     [getDefaultCustomInputValue, calculateCustomDrugAmountFromText]
   );
 
+  const applyCustomInputValueRef = useRef(applyCustomInputValue);
+  const getDefaultCustomInputValueRef = useRef(getDefaultCustomInputValue);
+  applyCustomInputValueRef.current = applyCustomInputValue;
+  getDefaultCustomInputValueRef.current = getDefaultCustomInputValue;
+
   const handleSelectCustomServing = useCallback(async () => {
-    setSelectedServing('custom');
+    setSelectedServing(SERVING_PROFILE_CUSTOM);
     setShowCustomVolume(true);
 
     const fallback = getDefaultCustomInputValue();
@@ -273,48 +332,161 @@ const LogConsumptionScreen = () => {
       return;
     }
 
-    const remembered = await getLastConsumptionPreferenceForOption(userId, selectedOption.id);
+    const remembered = await getLastConsumptionPreferenceForOption(
+      userId,
+      selectedOption.id,
+      selectedOption,
+      habit?.name,
+      measurementRegion
+    );
     const customValue =
-      remembered?.servingMode === 'custom' ? remembered.value : null;
+      remembered?.servingProfileId === SERVING_PROFILE_CUSTOM ? remembered.customValue : null;
     applyCustomInputValue(customValue ?? fallback);
-  }, [getDefaultCustomInputValue, selectedOption?.id, userId, applyCustomInputValue]);
+  }, [
+    getDefaultCustomInputValue,
+    selectedOption,
+    userId,
+    habit?.name,
+    measurementRegion,
+    applyCustomInputValue,
+  ]);
 
-  useEffect(() => {
-    if (editingEvent || !selectedOption?.id || !userId) return;
+  const openingServingKey = useMemo(
+    () =>
+      [
+        selectedOption?.id ?? '',
+        editingEvent?.id ?? '',
+        prefill?.servingProfileId ?? '',
+        prefill?.volumeMl ?? '',
+        prefill?.customVolume ?? '',
+        prefill?.abvPercent ?? '',
+      ].join('|'),
+    [
+      selectedOption?.id,
+      editingEvent?.id,
+      prefill?.servingProfileId,
+      prefill?.volumeMl,
+      prefill?.customVolume,
+      prefill?.abvPercent,
+    ]
+  );
 
-    let cancelled = false;
-    const applyRememberedServing = async () => {
-      const remembered = await getLastConsumptionPreferenceForOption(userId, selectedOption.id);
-      if (cancelled || !remembered) return;
+  useFocusEffect(
+    useCallback(() => {
+      if (!selectedOption?.id || servingProfiles.length === 0 || editingEvent) return;
 
-      if (remembered.servingMode === 'custom') {
-        setSelectedServing('custom');
-        setShowCustomVolume(true);
-        const fallback = getDefaultCustomInputValue();
-        applyCustomInputValue(remembered.value ?? fallback);
-        return;
-      }
+      let cancelled = false;
 
-      if ([0.5, 1, 2].includes(remembered.servingMode)) {
-        setSelectedServing(remembered.servingMode);
+      const applyPrefillAbv = (abv) => {
+        if (!isAlcohol || abv == null) return;
+        const range = getAbvRangeForOption(selectedOption, habit?.name, measurementRegion);
+        const clamped = clampAbvToRange(abv, range);
+        setAbvPercent(clamped);
+        setAbvInputText(String(clamped));
+      };
+
+      const applyNamedProfile = (profileId) => {
+        setSelectedServing(profileId);
         setShowCustomVolume(false);
         setCustomVolume('');
         customVolumeRef.current = '';
         setCustomDrugAmount(0);
-      }
-    };
+      };
 
-    applyRememberedServing();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    editingEvent?.id,
-    selectedOption?.id,
-    userId,
-    getDefaultCustomInputValue,
-    applyCustomInputValue,
-  ]);
+      const applyDefaultProfile = () => {
+        const def = getDefaultServingProfile(servingProfiles);
+        if (def) applyNamedProfile(def.id);
+        if (isAlcohol) {
+          applyPrefillAbv(getDefaultAbvForOption(selectedOption, habit?.name, measurementRegion));
+        }
+      };
+
+      (async () => {
+        if (prefill) {
+          const profileId = resolveServingProfileIdForOpen(
+            prefill.servingProfileId,
+            prefill.volumeMl,
+            servingProfiles
+          );
+
+          if (profileId) {
+            if (!cancelled) {
+              applyNamedProfile(profileId);
+              applyPrefillAbv(prefill.abvPercent);
+            }
+            return;
+          }
+
+          if (prefill.customVolume || prefill.volumeMl != null) {
+            const customVal =
+              prefill.customVolume != null
+                ? String(prefill.customVolume)
+                : mlToUserUnit(prefill.volumeMl, measurementSystem);
+            if (!cancelled) {
+              setSelectedServing(SERVING_PROFILE_CUSTOM);
+              setShowCustomVolume(true);
+              applyCustomInputValueRef.current(customVal);
+              applyPrefillAbv(prefill.abvPercent);
+            }
+            return;
+          }
+
+          if (!cancelled) applyDefaultProfile();
+          return;
+        }
+
+        const remembered = await getLastConsumptionPreferenceForOption(
+          userId,
+          selectedOption.id,
+          selectedOption,
+          habit?.name,
+          measurementRegion
+        );
+        if (cancelled) return;
+
+        if (!remembered) {
+          applyDefaultProfile();
+          return;
+        }
+
+        if (remembered.abvPercent != null) applyPrefillAbv(remembered.abvPercent);
+
+        if (remembered.servingProfileId === SERVING_PROFILE_CUSTOM) {
+          setSelectedServing(SERVING_PROFILE_CUSTOM);
+          setShowCustomVolume(true);
+          applyCustomInputValueRef.current(
+            remembered.customValue ?? getDefaultCustomInputValueRef.current()
+          );
+          return;
+        }
+
+        if (
+          remembered.servingProfileId &&
+          getProfileById(servingProfiles, remembered.servingProfileId)
+        ) {
+          applyNamedProfile(remembered.servingProfileId);
+          return;
+        }
+
+        applyDefaultProfile();
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [
+      openingServingKey,
+      selectedOption,
+      servingProfiles,
+      editingEvent,
+      prefill,
+      userId,
+      habit?.name,
+      measurementRegion,
+      measurementSystem,
+      isAlcohol,
+    ])
+  );
 
   const resolveConsumptionType = useCallback((type) => {
     if (!type || !consumptionOptions?.length) return null;
@@ -446,67 +618,58 @@ const LogConsumptionScreen = () => {
     return merged;
   }, [selectedDateObj]);
 
+  const persistServingPreference = useCallback(async () => {
+    if (!userId || !selectedOption?.id) return;
+    if (selectedServing === SERVING_PROFILE_CUSTOM) {
+      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
+        servingProfileId: SERVING_PROFILE_CUSTOM,
+        customValue: customVolumeRef.current ?? customVolume,
+        abvPercent: isAlcohol ? effectiveAbv : undefined,
+      });
+    } else if (selectedServing) {
+      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
+        servingProfileId: selectedServing,
+        abvPercent: isAlcohol ? effectiveAbv : undefined,
+      });
+    }
+  }, [userId, selectedOption?.id, selectedServing, customVolume, isAlcohol, effectiveAbv]);
+
   const addConsumptionEvent = useCallback(async (consumptionType, consumptionTime) => {
     if (!habit?.id || !userId) return;
     const resolvedOption = resolveConsumptionType(consumptionType);
     let baseAmount = resolvedOption?.drug_amount ?? (habit?.name?.toLowerCase().includes('caffeine') ? 95 : 1);
     let drinkType = consumptionType;
-    let totalAmount = 0;
-    let volumeConsumed = null;
-    let loggedIntakeBasis = INTAKE_BASIS.DIRECT_AMOUNT;
-    let loggedVolumeMl = null;
-    let loggedServingCount = null;
-    let servingMultiplier;
 
-    if (selectedServing === 'custom' && selectedOption) {
-      const basis = resolveIntakeBasis(selectedOption);
-      const raw = customVolumeRef.current ?? customVolume;
-      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
-        servingMode: 'custom',
-        value: raw,
+    let logFields = {
+      totalAmount: 0,
+      loggedIntakeBasis: INTAKE_BASIS.DIRECT_AMOUNT,
+      loggedVolumeMl: null,
+      loggedServingCount: null,
+      loggedServingProfileId: null,
+      loggedAbvPercent: null,
+    };
+
+    if (selectedOption) {
+      await persistServingPreference();
+      const effectiveProfileId =
+        selectedServing === SERVING_PROFILE_CUSTOM
+          ? SERVING_PROFILE_CUSTOM
+          : selectedServing || getDefaultServingProfile(servingProfiles)?.id;
+      logFields = buildConsumptionLogFields({
+        selectedOption,
+        habitName: habit?.name,
+        measurementRegion,
+        measurementSystem,
+        servingProfiles,
+        selectedProfileId: effectiveProfileId,
+        isCustom: effectiveProfileId === SERVING_PROFILE_CUSTOM,
+        customVolumeRaw: customVolumeRef.current ?? customVolume,
+        volumeUnitLabel: getVolumeUnitLabel(measurementSystem),
+        abvPercent: isAlcohol ? effectiveAbv : null,
       });
-      if (basis === INTAKE_BASIS.SERVING_COUNT) {
-        const count = parseFloat(String(raw).replace(',', '.')) || 0;
-        totalAmount = amountFromServingCount(selectedOption, count);
-        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
-        loggedServingCount = count > 0 ? count : null;
-      } else {
-        const inputUnit = getVolumeUnitLabel(measurementSystem);
-        const volumeStr = raw;
-        volumeConsumed =
-          parseVolumeInputToMl(volumeStr, measurementSystem, inputUnit) || selectedOption?.default_volume || 0;
-        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
-        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
-        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
-      }
-      servingMultiplier = 'custom';
-    } else if (selectedOption) {
-      servingMultiplier = selectedServing || 1;
-      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
-        servingMode: servingMultiplier,
-      });
-      const basis = resolveIntakeBasis(selectedOption);
-      if (basis === INTAKE_BASIS.SERVING_COUNT) {
-        const refCount = getReferenceServingCount(selectedOption);
-        const totalCount = refCount * servingMultiplier;
-        totalAmount = amountFromServingCount(selectedOption, totalCount);
-        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
-        loggedServingCount = totalCount;
-      } else {
-        const refMl =
-          getReferenceVolumeMlForOption(selectedOption, habit?.name, measurementRegion) ??
-          selectedOption?.default_volume ??
-          resolvedOption?.default_volume ??
-          1;
-        volumeConsumed = refMl ? refMl * servingMultiplier : 0;
-        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
-        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
-        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
-      }
     } else {
-      totalAmount = parseFloat(quickAddAmount) || baseAmount;
+      logFields.totalAmount = parseFloat(quickAddAmount) || baseAmount;
       drinkType = null;
-      servingMultiplier = 'custom';
     }
 
     if (resolvedOption) drinkType = resolvedOption.id;
@@ -528,12 +691,14 @@ const LogConsumptionScreen = () => {
       habit_id: habit.id,
       user_id: userId,
       consumed_at: consumptionTime.toISOString(),
-      amount: totalAmount,
-      volume: loggedVolumeMl,
+      amount: logFields.totalAmount,
+      volume: logFields.loggedVolumeMl,
       drink_type: drinkType,
-      logged_intake_basis: loggedIntakeBasis,
-      logged_volume_ml: loggedVolumeMl,
-      logged_serving_count: loggedServingCount,
+      logged_intake_basis: logFields.loggedIntakeBasis,
+      logged_volume_ml: logFields.loggedVolumeMl,
+      logged_serving_count: logFields.loggedServingCount,
+      logged_serving_profile_id: logFields.loggedServingProfileId,
+      logged_abv_percent: logFields.loggedAbvPercent,
     };
 
     const { data, error } = await supabase
@@ -543,9 +708,6 @@ const LogConsumptionScreen = () => {
       .single();
 
     if (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H1',location:'LogConsumptionScreen.js:addConsumptionEvent',message:'insert failed, enqueue offline',data:{habitId:habit?.id,errMsg:error?.message||null,errCode:error?.code||null,consumedAt:writeRow.consumed_at},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       const queueItemId = await offlineWriteQueueService.enqueue(
         offlineWriteQueueService.ACTION_TYPES.CONSUMPTION_CREATE,
         { row: writeRow }
@@ -562,6 +724,8 @@ const LogConsumptionScreen = () => {
           logged_intake_basis: writeRow.logged_intake_basis,
           logged_volume_ml: writeRow.logged_volume_ml,
           logged_serving_count: writeRow.logged_serving_count,
+          logged_serving_profile_id: writeRow.logged_serving_profile_id,
+          logged_abv_percent: writeRow.logged_abv_percent,
           _pendingSync: true,
         },
       });
@@ -569,9 +733,6 @@ const LogConsumptionScreen = () => {
       navigation.goBack();
       return;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7727/ingest/1a93832c-cdbd-4cf5-90d6-596161314d98',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'940b49'},body:JSON.stringify({sessionId:'940b49',hypothesisId:'H1',location:'LogConsumptionScreen.js:addConsumptionEvent',message:'insert succeeded online',data:{habitId:habit?.id,hasData:!!data,consumedAt:writeRow.consumed_at},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     try {
       await updateBedtimeDrugLevel(habit.id, selectedDateObj);
     } catch (e) {}
@@ -587,6 +748,10 @@ const LogConsumptionScreen = () => {
     quickAddAmount,
     measurementSystem,
     measurementRegion,
+    servingProfiles,
+    isAlcohol,
+    effectiveAbv,
+    persistServingPreference,
     resolveConsumptionType,
     selectedDateObj,
     updateBedtimeDrugLevel,
@@ -597,63 +762,44 @@ const LogConsumptionScreen = () => {
   const updateConsumptionEvent = useCallback(async (eventId, consumptionType, consumptionTime) => {
     if (!habit?.id || !userId) return;
     const resolvedOption = resolveConsumptionType(consumptionType);
-    let totalAmount = 0;
-    let loggedIntakeBasis = INTAKE_BASIS.DIRECT_AMOUNT;
-    let loggedVolumeMl = null;
-    let loggedServingCount = null;
 
-    if (selectedServing === 'custom' && selectedOption) {
-      const basis = resolveIntakeBasis(selectedOption);
-      const raw = customVolumeRef.current ?? customVolume;
-      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
-        servingMode: 'custom',
-        value: raw,
-      });
-      if (basis === INTAKE_BASIS.SERVING_COUNT) {
-        const count = parseFloat(String(raw).replace(',', '.')) || 0;
-        totalAmount = amountFromServingCount(selectedOption, count);
-        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
-        loggedServingCount = count > 0 ? count : null;
-      } else {
-        const inputUnit = getVolumeUnitLabel(measurementSystem);
-        const volumeConsumed =
-          parseVolumeInputToMl(raw, measurementSystem, inputUnit) || resolvedOption?.default_volume || 0;
-        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
-        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
-        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
-      }
-    } else if (selectedOption) {
-      const servingMultiplier = selectedServing || 1;
-      await setLastConsumptionPreferenceForOption(userId, selectedOption.id, {
-        servingMode: servingMultiplier,
-      });
-      const basis = resolveIntakeBasis(selectedOption);
-      if (basis === INTAKE_BASIS.SERVING_COUNT) {
-        const refCount = getReferenceServingCount(selectedOption);
-        const totalCount = refCount * servingMultiplier;
-        totalAmount = amountFromServingCount(selectedOption, totalCount);
-        loggedIntakeBasis = INTAKE_BASIS.SERVING_COUNT;
-        loggedServingCount = totalCount;
-      } else {
-        const refMl =
-          getReferenceVolumeMlForOption(selectedOption, habit?.name, measurementRegion) ??
-          resolvedOption?.default_volume ??
-          1;
-        const volumeConsumed = refMl ? refMl * servingMultiplier : 0;
-        totalAmount = amountFromVolumeMl(selectedOption, habit?.name, measurementRegion, volumeConsumed);
-        loggedIntakeBasis = INTAKE_BASIS.VOLUME_ML;
-        loggedVolumeMl = volumeConsumed > 0 ? volumeConsumed : null;
-      }
-    }
+    await persistServingPreference();
+    const effectiveProfileId =
+      selectedServing === SERVING_PROFILE_CUSTOM
+        ? SERVING_PROFILE_CUSTOM
+        : selectedServing || getDefaultServingProfile(servingProfiles)?.id;
+    const logFields = selectedOption
+      ? buildConsumptionLogFields({
+          selectedOption,
+          habitName: habit?.name,
+          measurementRegion,
+          measurementSystem,
+          servingProfiles,
+          selectedProfileId: effectiveProfileId,
+          isCustom: effectiveProfileId === SERVING_PROFILE_CUSTOM,
+          customVolumeRaw: customVolumeRef.current ?? customVolume,
+          volumeUnitLabel: getVolumeUnitLabel(measurementSystem),
+          abvPercent: isAlcohol ? effectiveAbv : null,
+        })
+      : {
+          totalAmount: 0,
+          loggedIntakeBasis: INTAKE_BASIS.DIRECT_AMOUNT,
+          loggedVolumeMl: null,
+          loggedServingCount: null,
+          loggedServingProfileId: null,
+          loggedAbvPercent: null,
+        };
 
     const updates = {
       consumed_at: consumptionTime.toISOString(),
-      amount: totalAmount,
-      volume: loggedVolumeMl,
+      amount: logFields.totalAmount,
+      volume: logFields.loggedVolumeMl,
       drink_type: resolvedOption?.id || consumptionType,
-      logged_intake_basis: loggedIntakeBasis,
-      logged_volume_ml: loggedVolumeMl,
-      logged_serving_count: loggedServingCount,
+      logged_intake_basis: logFields.loggedIntakeBasis,
+      logged_volume_ml: logFields.loggedVolumeMl,
+      logged_serving_count: logFields.loggedServingCount,
+      logged_serving_profile_id: logFields.loggedServingProfileId,
+      logged_abv_percent: logFields.loggedAbvPercent,
     };
 
     const { error: updateError } = await supabase
@@ -685,6 +831,10 @@ const LogConsumptionScreen = () => {
     customVolume,
     measurementSystem,
     measurementRegion,
+    servingProfiles,
+    isAlcohol,
+    effectiveAbv,
+    persistServingPreference,
     resolveConsumptionType,
     selectedDateObj,
     updateBedtimeDrugLevel,
@@ -809,68 +959,145 @@ const LogConsumptionScreen = () => {
           <View style={styles.contentCard}>
           {selectedOption && (
             <View style={styles.servingSection}>
-              <Text style={styles.servingLabel}>
-                {selectedOption.name}
-                {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null
-                  ? ` ${refServingForDisplay} ${getServingUnitLabel(selectedOption)}`
-                  : ''}
-                {selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && effectiveDefaultVolForDisplay
-                  ? ` ${formatVolume(effectiveDefaultVolForDisplay, measurementSystem)}`
-                  : ''}
-                {selectedOption.drug_amount
-                  ? `${(effectiveDefaultVolForDisplay || (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null)) ? ' • ' : ''}${selectedOption.drug_amount} ${habit?.unit}`
-                  : ''}
-                {(effectiveDefaultVolForDisplay ||
-                  (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refServingForDisplay != null) ||
-                  selectedOption.drug_amount)
-                  ? ' per serving'
-                  : ''}
-              </Text>
+              <Text style={styles.servingLabel}>Choose a size for {selectedOption.name}</Text>
               <View style={styles.servingButtons}>
-                {[0.5, 1, 2].map((serving) => {
-                  const refVol = effectiveDefaultVolForDisplay;
-                  const refSrv = refServingForDisplay;
-                  let totalDrugAmount = selectedOption.drug_amount * serving;
-                  let totalVolume = refVol ? Math.round(refVol * serving) : null;
-                  let servingSizeLine = '';
-                  if (selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT && refSrv != null) {
-                    const totalCount = refSrv * serving;
-                    totalDrugAmount = amountFromServingCount(selectedOption, totalCount);
-                    const n = Number.isInteger(totalCount) ? totalCount : Math.round(totalCount * 10) / 10;
-                    servingSizeLine = `${n} ${selectedOption.serving_unit || ''}`.trim();
-                  }
+                {servingProfiles.map((profile) => {
+                  const isSelected =
+                    selectedServing === profile.id && selectedServing !== SERVING_PROFILE_CUSTOM;
+                  const subtitle = formatProfileSubtitle(
+                    profile,
+                    selectedOption,
+                    habit?.name,
+                    measurementRegion,
+                    measurementSystem,
+                    isAlcohol ? effectiveAbv : null,
+                    habit?.unit
+                  );
                   return (
                     <TouchableOpacity
-                      key={serving}
-                      style={[styles.servingButton, selectedServing === serving && !showCustomVolume && styles.servingButtonSelected]}
+                      key={profile.id}
+                      style={[styles.servingButton, isSelected && styles.servingButtonSelected]}
                       onPress={() => {
-                        setSelectedServing(serving);
+                        setSelectedServing(profile.id);
                         setShowCustomVolume(false);
                         setCustomVolume('');
+                        customVolumeRef.current = '';
                         setCustomDrugAmount(0);
                       }}
                     >
-                      <Text style={[styles.servingButtonText, selectedServing === serving && !showCustomVolume && styles.servingButtonTextSelected]}>{serving}x</Text>
-                      <Text style={[styles.servingAmountText, selectedServing === serving && !showCustomVolume && styles.servingAmountTextSelected]}>
-                        {selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && totalVolume
-                          ? formatVolume(totalVolume, measurementSystem)
-                          : servingSizeLine}
-                        {((selectedIntakeBasis === INTAKE_BASIS.VOLUME_ML && totalVolume) || servingSizeLine) && totalDrugAmount ? '\n' : ''}
-                        {totalDrugAmount ? `${totalDrugAmount.toFixed(1)}${habit?.unit}` : ''}
+                      <Text
+                        style={[styles.servingButtonText, isSelected && styles.servingButtonTextSelected]}
+                        numberOfLines={2}
+                      >
+                        {profile.label}
+                      </Text>
+                      <Text
+                        style={[styles.servingAmountText, isSelected && styles.servingAmountTextSelected]}
+                        numberOfLines={3}
+                      >
+                        {subtitle}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
                 <TouchableOpacity
-                  style={[styles.servingButton, showCustomVolume && styles.servingButtonSelected]}
+                  style={[
+                    styles.servingButton,
+                    (showCustomVolume || selectedServing === SERVING_PROFILE_CUSTOM) &&
+                      styles.servingButtonSelected,
+                  ]}
                   onPress={handleSelectCustomServing}
                 >
-                  <Text style={[styles.servingButtonText, showCustomVolume && styles.servingButtonTextSelected]}>Other</Text>
-                  <Text style={[styles.servingAmountText, showCustomVolume && styles.servingAmountTextSelected]}>Custom{'\n'}Amount</Text>
+                  <Text
+                    style={[
+                      styles.servingButtonText,
+                      (showCustomVolume || selectedServing === SERVING_PROFILE_CUSTOM) &&
+                        styles.servingButtonTextSelected,
+                    ]}
+                  >
+                    Other
+                  </Text>
+                  <Text
+                    style={[
+                      styles.servingAmountText,
+                      (showCustomVolume || selectedServing === SERVING_PROFILE_CUSTOM) &&
+                        styles.servingAmountTextSelected,
+                    ]}
+                  >
+                    Custom
+                  </Text>
                 </TouchableOpacity>
               </View>
 
-              {showCustomVolume && (
+              {isAlcohol && abvRange && (
+                <View style={styles.abvSection}>
+                  <Text style={styles.abvLabel}>Alcohol strength (ABV %)</Text>
+                  <Text style={styles.abvHelpText}>{formatAbvRangeHint(selectedOption, abvRange)}</Text>
+                  <View style={styles.abvInputRow}>
+                    <Slider
+                      style={styles.abvSlider}
+                      minimumValue={abvRange.min}
+                      maximumValue={abvRange.max}
+                      step={abvRange.step}
+                      value={clampAbvToRange(effectiveAbv ?? defaultAbv ?? abvRange.min, abvRange)}
+                      onValueChange={(v) => {
+                        const clamped = clampAbvToRange(v, abvRange);
+                        setAbvPercent(clamped);
+                        setAbvInputText(String(clamped));
+                      }}
+                      minimumTrackTintColor={colors.primary}
+                      maximumTrackTintColor={colors.border}
+                      thumbTintColor={colors.primary}
+                    />
+                    <TextInput
+                      style={styles.abvTextInput}
+                      value={abvInputText}
+                      onChangeText={(text) => {
+                        setAbvInputText(text);
+                        const n = parseFloat(String(text).replace(',', '.'));
+                        if (
+                          !Number.isNaN(n) &&
+                          n >= abvRange.min &&
+                          n <= abvRange.max
+                        ) {
+                          setAbvPercent(n);
+                        }
+                      }}
+                      onBlur={() => {
+                        const n = parseFloat(String(abvInputText).replace(',', '.'));
+                        if (Number.isNaN(n)) {
+                          const fallback = clampAbvToRange(defaultAbv ?? abvRange.min, abvRange);
+                          setAbvPercent(fallback);
+                          setAbvInputText(String(fallback));
+                          return;
+                        }
+                        const clamped = clampAbvToRange(n, abvRange);
+                        setAbvPercent(clamped);
+                        setAbvInputText(String(clamped));
+                      }}
+                      keyboardType="decimal-pad"
+                      maxLength={5}
+                    />
+                    <Text style={styles.abvUnit}>%</Text>
+                  </View>
+                  <Text style={styles.abvPreview}>
+                    ≈{' '}
+                    {calculateAlcoholMl(
+                      selectedServing === SERVING_PROFILE_CUSTOM
+                        ? parseVolumeInputToMl(
+                            customVolumeRef.current ?? customVolume,
+                            measurementSystem,
+                            getVolumeUnitLabel(measurementSystem)
+                          ) || 0
+                        : servingProfiles.find((p) => p.id === selectedServing)?.volumeMl || 0,
+                      effectiveAbv
+                    ).toFixed(1)}{' '}
+                    ml alcohol
+                  </Text>
+                </View>
+              )}
+
+              {(showCustomVolume || selectedServing === SERVING_PROFILE_CUSTOM) && (
                 <View style={styles.customVolumeSection}>
                   <Text style={styles.customVolumeLabel}>
                     {selectedIntakeBasis === INTAKE_BASIS.SERVING_COUNT ? 'Custom amount:' : 'Custom volume:'}
@@ -1150,12 +1377,12 @@ const styles = StyleSheet.create({
   },
   servingButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: spacing.xs,
     marginBottom: spacing.sm,
   },
   servingButton: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: colors.background,
     borderRadius: BUTTON_BORDER_RADIUS,
     paddingVertical: spacing.xs,
@@ -1169,10 +1396,11 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   servingButtonText: {
-    fontSize: typography.sizes.small,
+    fontSize: typography.sizes.xs,
     fontWeight: typography.weights.medium,
     color: colors.textSecondary,
     marginBottom: 2,
+    textAlign: 'center',
   },
   servingButtonTextSelected: {
     color: '#FFFFFF',
@@ -1240,6 +1468,56 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  abvSection: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: colors.background,
+    borderRadius: BUTTON_BORDER_RADIUS,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  abvLabel: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  abvHelpText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textLight,
+    marginBottom: spacing.xs,
+  },
+  abvInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  abvSlider: {
+    flex: 1,
+    height: 40,
+  },
+  abvTextInput: {
+    width: 56,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 6,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    fontSize: typography.sizes.body,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  abvUnit: {
+    fontSize: typography.sizes.body,
+    color: colors.textSecondary,
+  },
+  abvPreview: {
+    fontSize: typography.sizes.small,
+    color: colors.primary,
+    marginTop: spacing.xs,
+    fontWeight: typography.weights.medium,
   },
   amountInputContainer: {
     marginBottom: spacing.sm,

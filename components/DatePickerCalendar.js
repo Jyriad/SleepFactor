@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import healthMetricsService from '../services/healthMetricsService';
+import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
 import { formatDateForDB, getToday } from '../utils/dateHelpers';
@@ -38,8 +39,8 @@ function badgeCacheKey(userId, monthAnchor) {
   return `${userId}:${monthKey(monthAnchor)}`;
 }
 
-const isAutomatedBedtimeHabit = (habit) =>
-  habit && habit.name === 'Bedtime Consistency';
+const isAutomatedInferredHabit = (habit) =>
+  habit && INFERRED_HABIT_NAMES.includes(habit.name);
 
 function monthKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}`;
@@ -142,7 +143,7 @@ function CalendarMonthGrid({ monthAnchor, selectedDateStr, onDateSelect, glass, 
           (habitLogs || []).forEach((log) => {
             if (
               !healthMetricsService.isHealthMetricHabit(log.habits) &&
-              !isAutomatedBedtimeHabit(log.habits)
+              !isAutomatedInferredHabit(log.habits)
             ) {
               loggedSet.add(log.date);
             }

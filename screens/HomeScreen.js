@@ -53,10 +53,28 @@ import { useDateHeader } from '../contexts/DateHeaderContext';
 import ScrollableDateHeaderBar from '../components/ScrollableDateHeaderBar';
 import HabitSummaryCard from '../components/HabitSummaryCard';
 import SleepInsightsHomeCard from '../components/SleepInsightsHomeCard';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
+import { useInsightDiscovery } from '../contexts/InsightDiscoveryContext';
+import { getSleepGoalById } from '../constants/sleepGoals';
+import NewInsightCelebrationSheet, { headlineForCelebrationItem } from '../components/NewInsightCelebrationSheet';
+import SleepGoalPromptModal from '../components/SleepGoalPromptModal';
+import insightDiscoveryNotifications from '../services/insightDiscoveryNotifications';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { preferences, savePreferences } = useUserPreferences();
+  const {
+    pendingQueue,
+    dismissAllCelebrations,
+    refreshFromStorage,
+    isInsightNew,
+  } = useInsightDiscovery();
+  const [celebrationVisible, setCelebrationVisible] = useState(false);
+  const celebrationDismissedRef = useRef(false);
+  const [sleepGoalPromptVisible, setSleepGoalPromptVisible] = useState(false);
+  const primarySleepGoal = preferences?.primarySleepGoal || 'sleep_longer';
+  const sleepGoalMeta = getSleepGoalById(primarySleepGoal);
   const tutorial = useTutorialOptional();
   const habitTutorialRef = useRef(null);
   const splash = useSplash();
@@ -326,7 +344,8 @@ const HomeScreen = () => {
     if (!user?.id) return;
     InteractionManager.runAfterInteractions(() => {
       insightsService
-        .getHomeInsightsWithSummary(user.id, 10, {
+        .getHomeInsightsWithSummary(user.id, 2, {
+          primarySleepGoal,
           onStaleRefresh: ({ topInsights: top, homeMetricRows }) => {
             setTopInsights(top);
             setInsightsHomeMetricRows(homeMetricRows);
@@ -343,7 +362,7 @@ const HomeScreen = () => {
           setInsightsHomeMetricRows([]);
         });
     });
-  }, [user?.id]);
+  }, [user?.id, primarySleepGoal]);
 
   const dashboardDateStr = getDateString(selectedDate) || getToday();
 
@@ -382,6 +401,50 @@ const HomeScreen = () => {
       loadHomeInsightsStrip();
     }, [user?.id, loadHomeInsightsStrip])
   );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id) return;
+      refreshFromStorage();
+      if (
+        !preferences?.sleepGoalPromptSeen &&
+        !preferences?.primarySleepGoalSetByUser &&
+        pendingQueue.length === 0 &&
+        !celebrationDismissedRef.current
+      ) {
+        setSleepGoalPromptVisible(true);
+      }
+    }, [user?.id, refreshFromStorage, preferences, pendingQueue.length])
+  );
+
+  useEffect(() => {
+    if (pendingQueue?.length > 0 && !celebrationDismissedRef.current) {
+      setSleepGoalPromptVisible(false);
+      setCelebrationVisible(true);
+      if (user?.id && preferences?.insightDiscoveryNotifications) {
+        insightDiscoveryNotifications.maybeNotifyNewInsights(user.id, preferences);
+      }
+    }
+    if (pendingQueue?.length === 0) {
+      setCelebrationVisible(false);
+    }
+  }, [pendingQueue?.length, user?.id, preferences?.insightDiscoveryNotifications]);
+
+  const celebrationItem = pendingQueue?.[0] || null;
+  const celebrationBatchCount = pendingQueue?.length || 0;
+  const celebrationHeadline = celebrationItem
+    ? headlineForCelebrationItem(
+        celebrationItem,
+        topInsights?.find(
+          (t) =>
+            t.habitId === celebrationItem.habitId &&
+            t.metricKey === celebrationItem.metricKey &&
+            t.analysisType === celebrationItem.analysisType
+        ) || celebrationItem,
+        { key: celebrationItem.metricKey, label: celebrationItem.metricLabel },
+        celebrationItem.analysisType
+      )
+    : '';
 
   // On first Home focus in a fresh app session, always center on today.
   // This prevents reopening the app into an old date context.
@@ -1163,10 +1226,15 @@ const HomeScreen = () => {
 
         <View style={styles.section}>
           <SleepInsightsHomeCard
-            homeMetricRows={Array.isArray(insightsHomeMetricRows) ? insightsHomeMetricRows.slice(0, 1) : insightsHomeMetricRows}
+            homeMetricRows={
+              Array.isArray(insightsHomeMetricRows)
+                ? insightsHomeMetricRows.slice(0, 2)
+                : insightsHomeMetricRows
+            }
             isRefreshing={insightsStripRefreshing}
-            title="Sleep Insight"
-            subtitle="See your strongest sleep pattern"
+            title="Sleep Insights"
+            subtitle={sleepGoalMeta.homeSubtitle}
+            isInsightNew={isInsightNew}
             onPressHeader={() =>
               navigation.navigate('Insights', {
                 screen: 'InsightsMain',
@@ -1185,6 +1253,51 @@ const HomeScreen = () => {
           />
         </View>
       </ScrollView>
+      <NewInsightCelebrationSheet
+        visible={celebrationVisible && !!celebrationItem}
+        item={celebrationItem}
+        headline={celebrationHeadline}
+        totalCount={celebrationBatchCount}
+        onView={async () => {
+          setCelebrationVisible(false);
+          celebrationDismissedRef.current = true;
+          await dismissAllCelebrations();
+          if (celebrationBatchCount > 1) {
+            navigation.navigate('Insights', { screen: 'InsightsMain' });
+          } else {
+            navigation.navigate('Insights', {
+              screen: 'HabitTimeline',
+              params: {
+                habitId: celebrationItem.habitId,
+                metricKey: celebrationItem.metricKey,
+                analysisMode: celebrationItem.analysisType === 'percentage' ? 'percentage' : 'absolute',
+              },
+            });
+          }
+        }}
+        onLater={async () => {
+          setCelebrationVisible(false);
+          celebrationDismissedRef.current = true;
+          await dismissAllCelebrations();
+        }}
+      />
+      <SleepGoalPromptModal
+        visible={sleepGoalPromptVisible}
+        initialGoalId={primarySleepGoal}
+        onSave={async (goalId) => {
+          await savePreferences({
+            primarySleepGoal: goalId,
+            primarySleepGoalSetByUser: true,
+            sleepGoalPromptSeen: true,
+          });
+          setSleepGoalPromptVisible(false);
+          loadHomeInsightsStrip();
+        }}
+        onDismiss={async () => {
+          await savePreferences({ sleepGoalPromptSeen: true });
+          setSleepGoalPromptVisible(false);
+        }}
+      />
     </View>
   );
 };

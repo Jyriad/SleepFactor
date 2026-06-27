@@ -22,6 +22,7 @@ import OnboardingStarterHabitsScreen from '../screens/onboarding/OnboardingStart
 import OnboardingSubjectiveMeasuresScreen from '../screens/onboarding/OnboardingSubjectiveMeasuresScreen';
 import OnboardingWearableMetricsScreen from '../screens/onboarding/OnboardingWearableMetricsScreen';
 import OnboardingPreferencesScreen from '../screens/onboarding/OnboardingPreferencesScreen';
+import OnboardingSleepGoalScreen from '../screens/onboarding/OnboardingSleepGoalScreen';
 import OnboardingSleepFactorEducationScreen from '../screens/onboarding/OnboardingSleepFactorEducationScreen';
 import OnboardingInsightFoundScreen from '../screens/onboarding/OnboardingInsightFoundScreen';
 import OnboardingNotificationScreen from '../screens/onboarding/OnboardingNotificationScreen';
@@ -88,6 +89,7 @@ export default function OnboardingNavigator({ onComplete }) {
       <Stack.Screen name="OnboardingSubjectiveMeasures" component={OnboardingSubjectiveMeasuresScreen} />
       <Stack.Screen name="OnboardingWearableMetrics" component={OnboardingWearableMetricsScreen} />
       <Stack.Screen name="OnboardingPreferences" component={OnboardingPreferencesScreen} />
+      <Stack.Screen name="OnboardingSleepGoal" component={OnboardingSleepGoalScreen} />
       <Stack.Screen name="OnboardingSleepFactorEducation" component={OnboardingSleepFactorEducationScreen} />
       <Stack.Screen name="OnboardingInsightFound" component={OnboardingInsightFoundScreen} />
       <Stack.Screen name="OnboardingNotification" component={OnboardingNotificationScreen} />

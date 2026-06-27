@@ -7,9 +7,6 @@ export function getSleepDataDateForHabit(habit, logDate) {
   if (habit.type === 'quick_consumption') {
     return logDate;
   }
-  if (habit.name === 'Bedtime Consistency') {
-    return logDate;
-  }
   if (habit.type === 'time') {
     return addCalendarDay(logDate);
   }

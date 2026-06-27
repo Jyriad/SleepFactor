@@ -20,6 +20,7 @@ import {
 } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { isLiquidServingUnit } from '../utils/consumptionIntake';
+import { buildDefaultCustomProfile } from '../constants/consumptionServingProfiles';
 import Button from './Button';
 
 // Icon options removed for now - keeping database column for future use
@@ -164,7 +165,11 @@ const CreateConsumptionOptionModal = ({
         null,
         volumeMl,
         servingUnit,
-        finalDrugUnit
+        finalDrugUnit,
+        volumeMl != null && volumeMl > 0
+          ? [buildDefaultCustomProfile(volumeMl, isAlcoholHabit ? 'Standard serving' : 'Standard')]
+          : null,
+        isAlcoholHabit ? parseFloat(alcoholPercent) || null : null
       );
 
       if (result.success) {

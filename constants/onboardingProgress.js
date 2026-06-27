@@ -19,6 +19,7 @@ export const ONBOARDING_ROUTE_STEP = {
   OnboardingSubjectiveMeasures: 10,
   OnboardingWearableMetrics: 11,
   OnboardingPreferences: 12,
+  OnboardingSleepGoal: 12,
   OnboardingSleepFactorEducation: 12,
   OnboardingInsightFound: 13,
   OnboardingNotification: 14,

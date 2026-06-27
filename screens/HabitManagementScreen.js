@@ -24,7 +24,7 @@ import sleepSyncService from '../services/sleepSyncService';
 import exerciseTimeBeforeBedService from '../services/exerciseTimeBeforeBedService';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
-import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
+import { INFERRED_HABIT_NAMES, REMOVED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import PressableFeedback from '../components/PressableFeedback';
 import { buttonStyles } from '../constants/buttonStyles';
@@ -45,17 +45,9 @@ const ALWAYS_AVAILABLE_HABITS = [
   { name: 'Alcohol', type: 'quick_consumption', unit: 'ml', consumption_types: ['beer', 'wine', 'liquor', 'cocktail'] },
 ];
 
-// Inferred habits: derived from automatic/health data (Bedtime from sleep; Exercise Time from HR + sleep).
+// Inferred habits: derived from automatic/health data (Exercise Time from HR + sleep).
 // Keep habit names in sync with constants/inferredHabits.js INFERRED_HABIT_NAMES (used to hide these from habit logging).
 const INFERRED_HABITS = [
-  {
-    name: 'Bedtime Consistency',
-    type: 'numeric',
-    unit: 'minutes',
-    description: 'How consistent your bedtime is over the last 5 nights (from sleep data)',
-    infoTitle: 'What is Bedtime Consistency?',
-    infoBody: 'This is calculated from your synced sleep data. For each night we estimate when you went to bed (using your sleep start time). We then look at the last 5 nights and compare that night to your average bedtime. The value is a signed difference in minutes: negative means earlier than your recent average, positive means later. Values closer to 0 mean better consistency.',
-  },
   {
     name: 'Exercise Time Before Bed',
     type: 'numeric',
@@ -156,7 +148,9 @@ const HabitManagementScreen = () => {
       if (error) throw error;
 
       // Convert boolean strings to actual booleans
-      const normalizedData = (data || []).map(habit => ({
+      const normalizedData = (data || [])
+        .filter((habit) => !REMOVED_HABIT_NAMES.includes(habit.name))
+        .map(habit => ({
         ...habit,
         is_custom: habit.is_custom === true || habit.is_custom === 'true',
         is_pinned: habit.is_pinned === true || habit.is_pinned === 'true',
@@ -622,10 +616,6 @@ const HabitManagementScreen = () => {
 
       insightsService.invalidateHomeSummaryCache();
 
-      if (newActiveState && habit.name === 'Bedtime Consistency') {
-        const bedtimeHabitsService = require('../services/bedtimeHabitsService').default;
-        await bedtimeHabitsService.backfillBedtimeHabits(user.id);
-      }
       if (newActiveState && habit.name === 'Exercise Time Before Bed') {
         const result = await exerciseTimeBeforeBedService.backfill(user.id, 30);
         if (result.success && result.synced !== undefined) {

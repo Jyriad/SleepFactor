@@ -1,168 +1,270 @@
 /**
- * Utility functions for generating conclusion-first headlines from correlation and statistics data
+ * Human-readable insight headlines with concrete numbers and sample sizes.
  */
 
-/**
- * Generate a conclusion-first headline for numerical habits (scatter plots)
- * @param {Object} habit - Habit object with name, unit, etc.
- * @param {number} correlation - Correlation coefficient (-1 to 1)
- * @param {string} correlationStrength - 'weak', 'moderate', or 'strong'
- * @param {string} trendDirection - 'positive', 'negative', or 'none'
- * @param {Object} sleepMetric - Sleep metric object with label, unit
- * @param {Array} dataPoints - Array of data points for analysis
- * @param {boolean} isPercentageMode - Whether values are in percentage mode
- * @param {string} confidenceLevel - Confidence level: 'high', 'medium', 'low', or 'none'
- * @returns {string} Natural language headline
- */
-export function generateNumericalHeadline(habit, correlation, correlationStrength, trendDirection, sleepMetric, dataPoints, isPercentageMode = false, confidenceLevel = null) {
-  // Only say "no clear relationship" if confidence is 'none' or correlation is truly null/undefined/0
-  if (confidenceLevel === 'none' || correlation === null || correlation === undefined || correlation === 0 || trendDirection === 'none') {
-    return `Your ${habit.name.toLowerCase()} habits show no clear correlation yet with ${sleepMetric.label.toLowerCase()}`;
-  }
+import { LOWER_IS_BETTER } from './insightDisplayGate.js';
 
-  const habitName = habit.name.toLowerCase();
-  const sleepMetricName = sleepMetric.label.toLowerCase();
-  const isLowerBetter = sleepMetric?.key === 'awakenings_count' || sleepMetric?.key === 'awake_minutes';
-  const direction = isLowerBetter
-    ? (trendDirection === 'positive' ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
-    : (trendDirection === 'positive' ? 'higher' : 'lower');
+function round1(n) {
+  return Math.round(n * 10) / 10;
+}
 
-  // Find meaningful thresholds in the data
-  const habitValues = dataPoints.map(dp => dp.x).sort((a, b) => a - b);
-  const sleepValues = dataPoints.map(dp => dp.y).sort((a, b) => a - b);
+function formatMinutes(n) {
+  const v = Math.round(Math.abs(n));
+  return `${v} minute${v === 1 ? '' : 's'}`;
+}
 
-  let threshold = null;
-  if (habitValues.length > 0) {
-    // Use median as threshold for meaningful comparison
-    const midIndex = Math.floor(habitValues.length / 2);
-    threshold = habitValues[midIndex];
-  }
+function isScoreMetric(metricKey) {
+  return (
+    metricKey === 'tiredness_score' ||
+    metricKey === 'dream_vividness_score' ||
+    (typeof metricKey === 'string' && metricKey.startsWith('subj_'))
+  );
+}
 
-  // Calculate average difference
-  const avgHabitValue = habitValues.reduce((sum, val) => sum + val, 0) / habitValues.length;
-  const avgSleepValue = sleepValues.reduce((sum, val) => sum + val, 0) / sleepValues.length;
-
+/** Format the size of a sleep-metric gap (without direction). */
+function formatMagnitudePhrase(absGap, metricKey, isPercentageMode) {
   if (isPercentageMode) {
-    // In percentage mode, focus on percentage changes; use more/fewer or more/less for lower-is-better metrics
-    const directionText = isLowerBetter
-      ? (trendDirection === 'positive' ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
-      : (trendDirection === 'positive' ? 'more' : 'less');
-    const impact = correlationStrength === 'strong' ? 'significantly' : correlationStrength === 'moderate' ? 'moderately' : 'slightly';
-
-    if (correlationStrength === 'strong') {
-      return `Your ${habitName} ${impact} affects your ${sleepMetricName} (${directionText} ${sleepMetricName} with higher ${habitName})`;
-    } else if (correlationStrength === 'moderate') {
-      return `Your ${habitName} tends to affect your ${sleepMetricName} (${directionText} ${sleepMetricName} with higher ${habitName})`;
-    } else {
-      // For lower-is-better metrics (awakenings, awake time), more = bad (negative), fewer/less = good (positive)
-      const positiveRelationship = isLowerBetter ? (directionText === 'fewer' || directionText === 'less') : (directionText === 'more');
-      return `Your ${habitName} shows a ${positiveRelationship ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
-    }
+    return `about ${round1(absGap)}%`;
   }
-
-  if (correlationStrength === 'strong') {
-    if (threshold !== null && habit.unit) {
-      const thresholdText = `${threshold.toFixed(1)} ${habit.unit}`;
-      return `You get significantly ${direction} ${sleepMetricName} when ${habitName} exceeds ${thresholdText}`;
-    } else {
-      // For lower-is-better metrics, positive correlation (more habit → more metric) is bad for sleep
-      const correlationWord = isLowerBetter
-        ? (trendDirection === 'negative' ? 'positive' : 'negative')
-        : (trendDirection === 'positive' ? 'positive' : 'negative');
-      return `Your ${habitName} strongly impacts ${sleepMetricName} (${correlationWord} correlation)`;
-    }
-  } else if (correlationStrength === 'moderate') {
-    if (threshold !== null && habit.unit) {
-      const thresholdText = `${threshold.toFixed(1)} ${habit.unit}`;
-      return `You tend to get ${direction} ${sleepMetricName} when ${habitName} is above ${thresholdText}`;
-    } else {
-      return `Your ${habitName} moderately affects ${sleepMetricName}`;
-    }
-  } else {
-    // Weak correlation: positive = good for sleep (higher other metrics, or fewer/less for lower-is-better metrics)
-    const positiveRelationship = direction === 'higher' || direction === 'fewer' || direction === 'less';
-    return `Your ${habitName} shows a ${positiveRelationship ? 'positive' : 'negative'} relationship with ${sleepMetricName}`;
+  if (metricKey === 'awakenings_count') {
+    const c = Math.round(absGap);
+    return `about ${c} awakening${c === 1 ? '' : 's'}`;
   }
+  if (isScoreMetric(metricKey)) {
+    const pts = round1(absGap);
+    return `about ${pts} point${pts === 1 ? '' : 's'}`;
+  }
+  return `about ${formatMinutes(absGap)}`;
 }
 
 /**
- * Generate a conclusion-first headline for binary habits (box plots)
- * @param {Object} habit - Habit object with name
- * @param {Object} yesStats - Statistics for "yes" responses
- * @param {Object} noStats - Statistics for "no" responses
- * @param {Object} sleepMetric - Sleep metric object with label, unit
- * @param {number} yesDataPoints - Number of "yes" data points
- * @param {number} noDataPoints - Number of "no" data points
- * @param {boolean} isPercentageMode - Whether values are in percentage mode
- * @param {string} confidenceLevel - Confidence level: 'high', 'medium', 'low', or 'none'
- * @returns {string} Natural language headline
+ * Plain-language comparison for numerical habits (time, quantity, etc.).
+ * Compares nights with higher vs lower habit values (median split).
  */
-export function generateBinaryHeadline(habit, yesStats, noStats, sleepMetric, yesDataPoints, noDataPoints, isPercentageMode = false, confidenceLevel = null) {
-  // Only say "no significant difference" if confidence is 'none' or stats are missing
-  if (confidenceLevel === 'none' || !yesStats || !noStats || !yesStats.median || !noStats.median) {
-    return `${habit.name} shows no clear correlation yet with ${sleepMetric.label.toLowerCase()}`;
+function buildNumericalComparisonPhrase(habit, gap, sleepMetric, isPercentageMode = false) {
+  const metricKey = sleepMetric?.key;
+  const metricLabel = (sleepMetric?.label || 'sleep').toLowerCase();
+  const habitName = (habit?.name || 'this habit').toLowerCase();
+  const magnitude = formatMagnitudePhrase(Math.abs(gap), metricKey, isPercentageMode);
+  const higherOnHighXSide = gap > 0;
+
+  if (habit?.type === 'time') {
+    // Habit value = minutes before sleep; higher = earlier before bed.
+    if (higherOnHighXSide) {
+      return `Earlier ${habitName} → ${metricLabel} ${magnitude} higher`;
+    }
+    return `Later ${habitName} → ${metricLabel} ${magnitude} higher`;
   }
 
-  const yesMedian = yesStats.median;
-  const noMedian = noStats.median;
-  const difference = yesMedian - noMedian;
-  const percentChange = noMedian !== 0 ? Math.abs((difference / noMedian) * 100) : 0;
+  if (higherOnHighXSide) {
+    return `More ${habitName} → ${metricLabel} ${magnitude} higher`;
+  }
+  return `More ${habitName} → ${metricLabel} ${magnitude} lower`;
+}
 
-  const habitName = habit.name.toLowerCase();
-  const sleepMetricName = sleepMetric.label.toLowerCase();
-
-  const isLowerBetterMetric = sleepMetric?.key === 'awakenings_count' || sleepMetric?.key === 'awake_minutes';
-
-  // Always describe what happens when you DO the habit (never "when you skip")
+function formatBinaryDifferenceText(diff, metricKey, metricLabel, isPercentageMode) {
   if (isPercentageMode) {
-    const absPercentChange = Math.abs(difference);
-    if (absPercentChange < 1) {
-      return `Doing "${habitName}" has minimal impact on your ${sleepMetricName}`;
-    }
-
-    const impact = absPercentChange > 20 ? 'significantly' : absPercentChange > 10 ? 'moderately' : 'slightly';
-    const percentText = `${absPercentChange.toFixed(0)}%`;
-    // difference > 0: doing habit gives more; difference < 0: doing habit gives less/fewer
-    const doingGivesMore = difference > 0;
-    const direction = isLowerBetterMetric
-      ? (doingGivesMore ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
-      : (doingGivesMore ? 'more' : 'less');
-    return `You get ${percentText} ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
-  } else {
-    if (Math.abs(difference) < 1) {
-      return `Doing "${habitName}" has minimal impact on your ${sleepMetricName}`;
-    }
-
-    const impact = percentChange > 20 ? 'significantly' : percentChange > 10 ? 'moderately' : 'slightly';
-    // difference > 0: doing habit gives higher/more; difference < 0: doing habit gives lower/fewer/less
-    const doingGivesMore = difference > 0;
-    const direction = isLowerBetterMetric
-      ? (doingGivesMore ? 'more' : (sleepMetric?.key === 'awakenings_count' ? 'fewer' : 'less'))
-      : (doingGivesMore ? 'higher' : 'lower');
-    return `You get ${impact} ${direction} ${sleepMetricName} when you do "${habitName}"`;
+    const pct = Math.abs(round1(diff));
+    const moreLess = diff > 0 ? 'more' : 'less';
+    return `${pct}% ${moreLess} ${metricLabel}`;
   }
+  if (metricKey === 'awakenings_count') {
+    const count = Math.round(Math.abs(diff));
+    return diff > 0
+      ? `${count} more awakening${count === 1 ? '' : 's'}`
+      : `${count} fewer awakening${count === 1 ? '' : 's'}`;
+  }
+  if (isScoreMetric(metricKey)) {
+    const pts = round1(Math.abs(diff));
+    return diff > 0
+      ? `${pts} point${pts === 1 ? '' : 's'} higher ${metricLabel}`
+      : `${pts} point${pts === 1 ? '' : 's'} lower ${metricLabel}`;
+  }
+  return diff > 0
+    ? `${formatMinutes(diff)} more ${metricLabel}`
+    : `${formatMinutes(diff)} less ${metricLabel}`;
+}
+
+function getConfidencePhrase(confidenceLevel) {
+  if (confidenceLevel === 'high') return "We're very sure";
+  if (confidenceLevel === 'medium') return "We're fairly sure";
+  return null;
+}
+
+/**
+ * @returns {{ differenceText: string, sampleText: string, direction: 'helps'|'hurts'|'neutral', magnitude: number }}
+ */
+export function formatInsightFacts(insight, sleepMetric, isPercentageMode = false) {
+  const metricKey = sleepMetric?.key;
+  const metricLabel = (sleepMetric?.label || 'sleep').toLowerCase();
+  const lowerIsBetter = LOWER_IS_BETTER.has(metricKey);
+
+  if (insight?.type === 'binary' && insight.yesStats?.median != null && insight.noStats?.median != null) {
+    const yesMedian = insight.yesStats.median;
+    const noMedian = insight.noStats.median;
+    const diff = yesMedian - noMedian;
+    const yesN = insight.yesDataPoints ?? 0;
+    const noN = insight.noDataPoints ?? 0;
+    const helpsSleep = lowerIsBetter ? diff < 0 : diff > 0;
+    const direction = Math.abs(diff) < 0.5 ? 'neutral' : helpsSleep ? 'helps' : 'hurts';
+
+    let differenceText;
+    differenceText = formatBinaryDifferenceText(diff, metricKey, metricLabel, isPercentageMode);
+
+    const sampleText = `based on ${yesN} nights when you did it and ${noN} when you didn't`;
+    return { differenceText, sampleText, direction, magnitude: Math.abs(diff) };
+  }
+
+  if (insight?.type === 'numerical') {
+    const points = (insight.dataPoints || []).map((p) => ({
+      x: p.x ?? p.habitValue,
+      y: p.y ?? p.sleepValue,
+    })).filter((p) => p.x != null && p.y != null && !isNaN(p.x) && !isNaN(p.y));
+
+    const n = points.length || insight.totalDataPoints || 0;
+    const trend = insight.trendDirection;
+    const helpsSleep = lowerIsBetter
+      ? trend === 'negative'
+      : trend === 'positive';
+    const direction = trend === 'none' ? 'neutral' : helpsSleep ? 'helps' : 'hurts';
+
+    let differenceText = `a link with ${metricLabel}`;
+    let magnitude = Math.abs(insight.correlation ?? 0);
+
+    if (points.length >= 4) {
+      const xs = points.map((p) => p.x).sort((a, b) => a - b);
+      const mid = Math.floor(xs.length / 2);
+      const medianX = xs[mid];
+      const lowY = [];
+      const highY = [];
+      points.forEach((p) => {
+        if (p.x <= medianX) lowY.push(p.y);
+        else highY.push(p.y);
+      });
+      if (lowY.length > 0 && highY.length > 0) {
+        const med = (arr) => {
+          const s = [...arr].sort((a, b) => a - b);
+          return s[Math.floor(s.length / 2)];
+        };
+        const gap = med(highY) - med(lowY);
+        magnitude = Math.abs(gap);
+        differenceText = buildNumericalComparisonPhrase(
+          insight.habit,
+          gap,
+          sleepMetric,
+          isPercentageMode
+        );
+      }
+    }
+
+    const sampleText = `based on ${n} paired nights`;
+    return { differenceText, sampleText, direction, magnitude };
+  }
+
+  return {
+    differenceText: `a link with ${metricLabel}`,
+    sampleText: '',
+    direction: 'neutral',
+    magnitude: 0,
+  };
+}
+
+function buildHeadlineFromFacts(habit, facts, confidenceLevel, { binary = false } = {}) {
+  const habitName = habit?.name || 'This habit';
+  const conf = getConfidencePhrase(confidenceLevel);
+  const prefix = conf ? `${conf}: ` : '';
+
+  if (facts.direction === 'neutral' || !facts.differenceText) {
+    return `${habitName} shows no clear link yet`;
+  }
+
+  if (binary) {
+    return `${prefix}When you do "${habitName.toLowerCase()}", you get ${facts.differenceText} on average (${facts.sampleText}).`;
+  }
+  return `${prefix}${facts.differenceText} (${facts.sampleText}).`;
+}
+
+export function generateBinaryHeadline(
+  habit,
+  yesStats,
+  noStats,
+  sleepMetric,
+  yesDataPoints,
+  noDataPoints,
+  isPercentageMode = false,
+  confidenceLevel = null
+) {
+  if (confidenceLevel === 'none' || !yesStats || !noStats || yesStats.median == null || noStats.median == null) {
+    return `${habit.name} shows no clear link yet with ${sleepMetric.label.toLowerCase()}`;
+  }
+
+  const insight = {
+    type: 'binary',
+    yesStats,
+    noStats,
+    yesDataPoints,
+    noDataPoints,
+  };
+  const facts = formatInsightFacts(insight, sleepMetric, isPercentageMode);
+  if (facts.direction === 'neutral') {
+    return `Doing "${habit.name.toLowerCase()}" has minimal impact on your ${sleepMetric.label.toLowerCase()}`;
+  }
+  return buildHeadlineFromFacts(habit, facts, confidenceLevel, { binary: true });
+}
+
+export function generateNumericalHeadline(
+  habit,
+  correlation,
+  correlationStrength,
+  trendDirection,
+  sleepMetric,
+  dataPoints,
+  isPercentageMode = false,
+  confidenceLevel = null
+) {
+  if (
+    confidenceLevel === 'none' ||
+    correlation === null ||
+    correlation === undefined ||
+    correlation === 0 ||
+    trendDirection === 'none'
+  ) {
+    return `Your ${habit.name.toLowerCase()} shows no clear link yet with ${sleepMetric.label.toLowerCase()}`;
+  }
+
+  const insight = {
+    type: 'numerical',
+    correlation,
+    trendDirection,
+    dataPoints,
+    habit,
+    totalDataPoints: dataPoints?.length ?? 0,
+  };
+  const facts = formatInsightFacts(insight, sleepMetric, isPercentageMode);
+  return buildHeadlineFromFacts(habit, facts, confidenceLevel, { binary: false });
+}
+
+export function getCertaintySentence(confidenceLevel) {
+  const phrase = getConfidencePhrase(confidenceLevel);
+  if (!phrase) return 'We need more nights to be confident about this pattern.';
+  return `${phrase} about this pattern.`;
+}
+
+export function getImpactDirectionLabel(direction) {
+  if (direction === 'helps') return 'Helps your sleep';
+  if (direction === 'hurts') return 'May hurt your sleep';
+  return 'Unclear impact';
 }
 
 /**
  * Generate actionable advice based on insight patterns
- * @param {string} habitType - 'numerical' or 'binary'
- * @param {Object} habit - Habit object
- * @param {number} correlation - Correlation coefficient (for numerical)
- * @param {string} correlationStrength - Correlation strength (for numerical)
- * @param {string} trendDirection - Trend direction (for numerical)
- * @param {Object} yesStats - Yes stats (for binary)
- * @param {Object} noStats - No stats (for binary)
- * @param {Object} sleepMetric - Sleep metric object
- * @returns {string} Actionable advice
  */
 export function generateActionableAdvice(habitType, habit, correlation, correlationStrength, trendDirection, yesStats, noStats, sleepMetric) {
   const habitName = habit.name.toLowerCase();
   const sleepMetricName = sleepMetric.label.toLowerCase();
-  // For awakenings and awake time, lower is better — so "improve" means reduce; advice direction is flipped
   const fewerIsBetter = sleepMetric?.key === 'awakenings_count' || sleepMetric?.key === 'awake_minutes';
 
   if (habitType === 'numerical') {
-    // When fewerIsBetter: positive trend (more habit → more awakenings) means suggest reducing habit
     const suggestIncrease = fewerIsBetter ? trendDirection === 'negative' : trendDirection === 'positive';
     const suggestReduce = fewerIsBetter ? trendDirection === 'positive' : trendDirection === 'negative';
 
@@ -171,37 +273,31 @@ export function generateActionableAdvice(habitType, habit, correlation, correlat
         return 'Try: Move your coffee intake to before 12 PM to maintain higher sleep quality throughout the day.';
       } else if (habitName.includes('exercise') || habitName.includes('workout')) {
         return 'Try: Maintain or increase your exercise levels to continue improving your sleep quality.';
-      } else {
-        return `Try: Increase your ${habitName} levels to potentially improve your ${sleepMetricName}.`;
       }
+      return `Try: Increase your ${habitName} levels to potentially improve your ${sleepMetricName}.`;
     } else if (correlationStrength === 'strong' && suggestReduce) {
       if (habitName.includes('alcohol') || habitName.includes('drink')) {
         return 'Try: Reduce alcohol consumption, especially in the evening, to improve sleep quality.';
       } else if (habitName.includes('screen') || habitName.includes('phone')) {
         return 'Try: Reduce screen time before bed to help improve your sleep quality.';
-      } else {
-        return `Try: Reduce your ${habitName} levels to potentially improve your ${sleepMetricName}.`;
       }
+      return `Try: Reduce your ${habitName} levels to potentially improve your ${sleepMetricName}.`;
     } else if (correlationStrength === 'moderate') {
       return `Consider: Track how changes in ${habitName} affect your ${sleepMetricName} over the next few weeks.`;
-    } else {
-      return 'Keep logging this habit to see if patterns emerge over time.';
     }
+    return 'Keep logging this habit to see if patterns emerge over time.';
   } else if (habitType === 'binary') {
-    if (yesStats && noStats && yesStats.median && noStats.median) {
+    if (yesStats && noStats && yesStats.median != null && noStats.median != null) {
       const difference = yesStats.median - noStats.median;
-      // When fewerIsBetter: doing habit is good when difference < 0 (fewer awakenings when doing it)
       const doingHabitIsGood = fewerIsBetter ? difference < 0 : difference > 0;
 
-      if (Math.abs(difference) > 5) { // Significant difference
+      if (Math.abs(difference) > 5) {
         if (doingHabitIsGood) {
           return `Try: Make "${habitName}" a regular part of your routine to improve ${sleepMetricName}.`;
-        } else {
-          return `Consider: Evaluate whether "${habitName}" is worth the impact on your ${sleepMetricName}.`;
         }
+        return `Consider: Evaluate whether "${habitName}" is worth the impact on your ${sleepMetricName}.`;
       }
     }
-
     return `Continue tracking "${habitName}" to better understand its relationship with your sleep.`;
   }
 

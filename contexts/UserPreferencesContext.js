@@ -13,7 +13,10 @@ const DEFAULT_PREFERENCES = {
   showNoSignificanceHabits: false, // whether to show habits with 'no statistical significance yet'
   measurementSystem: 'metric', // 'metric' (ml) or 'imperial' (fl oz) - for drink/volume display
   measurementRegion: 'metric', // 'US', 'UK', or 'metric' - which preset options to use (affects default drink sizes)
-  // Add more preferences here as needed
+  primarySleepGoal: 'sleep_longer',
+  primarySleepGoalSetByUser: false,
+  sleepGoalPromptSeen: false,
+  insightDiscoveryNotifications: false, // existing users opt-in; new users can enable in onboarding
 };
 
 export const UserPreferencesProvider = ({ children }) => {
@@ -25,10 +28,6 @@ export const UserPreferencesProvider = ({ children }) => {
       const stored = await AsyncStorage.getItem(PREFERENCES_STORAGE_KEY);
       if (stored) {
         const parsedPreferences = JSON.parse(stored);
-        if (parsedPreferences.measurementRegion === 'UK') {
-          parsedPreferences.measurementRegion = 'metric';
-          parsedPreferences.measurementSystem = 'metric';
-        }
         setPreferences({ ...DEFAULT_PREFERENCES, ...parsedPreferences });
       }
     } catch (error) {

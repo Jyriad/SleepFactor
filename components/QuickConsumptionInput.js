@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,9 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Alert,
+  ScrollView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import PressableFeedback from './PressableFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
@@ -17,13 +19,21 @@ import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
+import {
+  getServingProfilesForOption,
+  resolveServingProfileIdForOpen,
+} from '../constants/consumptionServingProfiles';
+import { mlToUserUnit } from '../utils/unitConversion';
 import CreateConsumptionOptionModal from './CreateConsumptionOptionModal';
 import EditConsumptionOptionModal from './EditConsumptionOptionModal';
 import ConsumptionLoggedList from './ConsumptionLoggedList';
+import { buildFrequentConsumptionCombos } from '../utils/frequentConsumptionLogs';
+import { SERVING_PROFILE_CUSTOM } from '../services/consumptionCustomAmountStorage';
 
 const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, userId, onConsumptionAdded, onOpenLogConsumption, hideLoggedList = false }) => {
   const { preferences } = useUserPreferences();
   const measurementRegion = preferences.measurementRegion || 'metric';
+  const measurementSystem = preferences.measurementSystem || 'metric';
   const consumptionEvents = value || []; // Use value prop directly as controlled component
 
   // Check if "None" has been explicitly selected (special none event exists)
@@ -45,6 +55,24 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedOption, setSelectedOption] = useState(null); // For long-press edit option modal only
+  const [frequentCombos, setFrequentCombos] = useState([]);
+  const [frequentScrollMetrics, setFrequentScrollMetrics] = useState({ viewport: 0, content: 0 });
+
+  const frequentScrollOverflow =
+    frequentScrollMetrics.content > frequentScrollMetrics.viewport + 2;
+
+  const onFrequentScrollLayout = useCallback((event) => {
+    const viewport = event.nativeEvent.layout.width;
+    setFrequentScrollMetrics((prev) =>
+      prev.viewport === viewport ? prev : { ...prev, viewport }
+    );
+  }, []);
+
+  const onFrequentContentSizeChange = useCallback((contentWidth) => {
+    setFrequentScrollMetrics((prev) =>
+      prev.content === contentWidth ? prev : { ...prev, content: contentWidth }
+    );
+  }, []);
 
   // Fetch options when not in cache (initial state already used cache for first paint)
   useEffect(() => {
@@ -75,6 +103,48 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 
     loadConsumptionOptions();
   }, [habit?.id, measurementRegion]);
+
+  useEffect(() => {
+    if (!habit?.id || !userId) {
+      setFrequentCombos([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadFrequent = async () => {
+      try {
+        const since = new Date();
+        since.setDate(since.getDate() - 30);
+        const { data, error } = await supabase
+          .from('habit_consumption_events')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('habit_id', habit.id)
+          .gte('consumed_at', since.toISOString())
+          .neq('drink_type', 'none')
+          .order('consumed_at', { ascending: false });
+
+        if (cancelled || error) return;
+        const combos = buildFrequentConsumptionCombos(
+          data || [],
+          consumptionOptions,
+          habit?.name,
+          measurementRegion,
+          3
+        );
+        setFrequentCombos(combos);
+      } catch (_e) {
+        if (!cancelled) setFrequentCombos([]);
+      }
+    };
+
+    if (consumptionOptions.length > 0) {
+      loadFrequent();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [habit?.id, userId, consumptionOptions, habit?.name, measurementRegion]);
 
   // Modal handlers
   const handleCreateOption = async (newOption) => {
@@ -330,13 +400,77 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
       ...option,
       default_volume: option.default_volume,
       serving_unit: option.serving_unit || 'ml',
-      serving_options: option.serving_options || [0.5, 1, 1.5, 2]
     };
     onOpenLogConsumption?.({ habit, selectedOption: optionWithDefaults, selectedDate, editingEvent: null });
   };
 
+  const openFrequentCombo = (combo) => {
+    if (!combo?.option) return;
+    const profiles = getServingProfilesForOption(combo.option, habit?.name, measurementRegion);
+    const matchedProfileId = resolveServingProfileIdForOpen(
+      combo.profileId,
+      combo.volumeMl,
+      profiles
+    );
+    onOpenLogConsumption?.({
+      habit,
+      selectedOption: combo.option,
+      selectedDate,
+      editingEvent: null,
+      prefill: {
+        servingProfileId: matchedProfileId || undefined,
+        volumeMl: combo.volumeMl ?? undefined,
+        abvPercent: combo.abvPercent ?? undefined,
+        customVolume:
+          !matchedProfileId && combo.volumeMl != null
+            ? mlToUserUnit(combo.volumeMl, measurementSystem)
+            : undefined,
+      },
+    });
+  };
+
   return (
     <View style={styles.container}>
+      {frequentCombos.length > 0 && (
+        <View style={styles.frequentSection}>
+          <Text style={styles.frequentTitle}>Log again</Text>
+          <View style={styles.frequentScrollWrap} onLayout={onFrequentScrollLayout}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.frequentScroll}
+              contentContainerStyle={styles.frequentScrollContent}
+              onContentSizeChange={onFrequentContentSizeChange}
+            >
+              {frequentCombos.map((combo) => (
+                <PressableFeedback
+                  key={combo.key}
+                  style={[styles.quickButton, styles.frequentButton]}
+                  onPress={() => openFrequentCombo(combo)}
+                >
+                  <Text style={styles.frequentButtonName} numberOfLines={1}>
+                    {combo.option.name}
+                  </Text>
+                  {combo.sizeLabel ? (
+                    <Text style={styles.frequentButtonSize} numberOfLines={1}>
+                      {combo.sizeLabel}
+                    </Text>
+                  ) : null}
+                </PressableFeedback>
+              ))}
+            </ScrollView>
+            {frequentScrollOverflow ? (
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0)', colors.cardBackground]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.frequentScrollFade}
+              />
+            ) : null}
+          </View>
+        </View>
+      )}
       {/* Quick Consumption Buttons - compact horizontal layout */}
       <View style={styles.quickButtonsContainer}>
         {loadingOptions ? (
@@ -457,12 +591,60 @@ const QuickConsumptionInput = ({ habit, value, onChange, unit, selectedDate, use
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
   },
   habitHeading: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
+  },
+  frequentSection: {
+    marginBottom: spacing.sm,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  frequentTitle: {
+    fontSize: typography.sizes.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    fontWeight: typography.weights.medium,
+  },
+  frequentScrollWrap: {
+    position: 'relative',
+  },
+  frequentScroll: {
+    flexGrow: 0,
+    marginHorizontal: -spacing.xs,
+  },
+  frequentScrollContent: {
+    paddingHorizontal: spacing.xs,
+    paddingRight: spacing.regular,
+  },
+  frequentScrollFade: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 32,
+  },
+  frequentButton: {
+    minWidth: 112,
+    maxWidth: 148,
+    marginRight: spacing.xs,
+    alignItems: 'flex-start',
+  },
+  frequentButtonName: {
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.medium,
+    color: colors.primary,
+  },
+  frequentButtonSize: {
+    fontSize: 10,
+    lineHeight: 13,
+    color: colors.textSecondary,
+    marginTop: 1,
   },
   quickButtonsContainer: {
     flexDirection: 'row',

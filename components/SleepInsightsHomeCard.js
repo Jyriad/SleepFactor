@@ -1,12 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import PressableFeedback from './PressableFeedback';
+import InsightListCard from './InsightListCard';
+import InsightImpactMeter from './InsightImpactMeter';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
-import InsightHeadlineText from './InsightHeadlineText';
 
 /**
- * Home card: one row per sleep metric with a headline for the strongest habit link; optional row tap opens that insight.
+ * Home card: one row per sleep metric with a headline for the strongest habit link.
  */
 const SleepInsightsHomeCard = ({
   homeMetricRows,
@@ -15,6 +16,7 @@ const SleepInsightsHomeCard = ({
   onPressMetricRow,
   title = 'Sleep Insights',
   subtitle = 'Discover what affects your sleep',
+  isInsightNew,
 }) => {
   const isLoading = homeMetricRows === null;
   const hasRows = Array.isArray(homeMetricRows) && homeMetricRows.length > 0;
@@ -32,23 +34,25 @@ const SleepInsightsHomeCard = ({
       )}
       {hasRows && (
         <View style={styles.rowsSection}>
-          {homeMetricRows.map((row, idx) => (
-            <PressableFeedback
-              key={row.metricKey}
-              style={[styles.metricRow, idx === 0 && styles.metricRowFirst]}
-              onPress={() => onPressMetricRow?.(row)}
-            >
-              <View style={styles.metricRowText}>
-                <Text style={styles.metricLabel}>{row.metricLabel}</Text>
-                <InsightHeadlineText
-                  headline={row.headline}
-                  habitName={row.habitName}
-                  impactDirection={row.impactDirection}
-                  numberOfLines={5}
-                />
-              </View>
-            </PressableFeedback>
-          ))}
+          <InsightImpactMeter legendOnly />
+          {homeMetricRows.map((row, idx) => {
+            const isNew = isInsightNew?.(row.insightKey);
+            return (
+              <InsightListCard
+                key={row.metricKey + (row.habitId || idx)}
+                primaryLabel={row.metricLabel}
+                headline={row.headline}
+                habitName={row.habitName}
+                impactDirection={row.impactDirection}
+                impactLevel={row.impactLevel || 'minimal'}
+                impactPercent={row.impactPercent}
+                showNew={isNew}
+                isFirst={idx === 0}
+                headlineLines={5}
+                onPress={() => onPressMetricRow?.(row)}
+              />
+            );
+          })}
         </View>
       )}
       {isLoading && (
@@ -103,29 +107,6 @@ const styles = StyleSheet.create({
   rowsSection: {
     marginTop: spacing.md,
     marginLeft: 0,
-  },
-  metricRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: spacing.sm,
-    paddingRight: 0,
-    paddingLeft: 0,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(17, 41, 75, 0.18)',
-  },
-  metricRowFirst: {
-    borderTopWidth: 0,
-    paddingTop: 0,
-  },
-  metricRowText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  metricLabel: {
-    fontSize: typography.sizes.small,
-    color: colors.textPrimary,
-    fontWeight: typography.weights.semibold,
-    marginBottom: 5,
   },
   statusWrapper: {
     marginTop: spacing.sm,

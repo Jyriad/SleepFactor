@@ -14,6 +14,7 @@ import { supabase } from '../services/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import sleepDataService from '../services/sleepDataService';
 import healthMetricsService from '../services/healthMetricsService';
+import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
 
 const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
   const { user } = useAuth();
@@ -40,10 +41,8 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
     setCurrentMonth(new Date(selectedCalendarDayKey + 'T12:00:00'));
   }, [visible, selectedCalendarDayKey]);
 
-  // Helper function to check if a habit is an automated bedtime habit
-  const isAutomatedBedtimeHabit = (habit) => {
-    return habit && habit.name === 'Bedtime Consistency';
-  };
+  const isAutomatedInferredHabit = (habit) =>
+    habit && INFERRED_HABIT_NAMES.includes(habit.name);
 
   const fetchLoggedDatesForMonth = async () => {
     if (!user) return;
@@ -79,7 +78,7 @@ const DatePickerModal = ({ visible, onClose, selectedDate, onDateSelect }) => {
         habitLogs.forEach(log => {
           // Only count if it's not a health metric or automated bedtime habit
           if (!healthMetricsService.isHealthMetricHabit(log.habits) && 
-              !isAutomatedBedtimeHabit(log.habits)) {
+              !isAutomatedInferredHabit(log.habits)) {
             datesWithLogs.add(log.date);
           }
         });

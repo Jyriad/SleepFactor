@@ -265,7 +265,18 @@ class ConsumptionOptionsService {
   /**
    * Create a new custom option for a user
    */
-  async createCustomOption(userId, habitId, name, drugAmount, icon = null, volumeMl = null, servingUnit = 'ml', drugUnit = null) {
+  async createCustomOption(
+    userId,
+    habitId,
+    name,
+    drugAmount,
+    icon = null,
+    volumeMl = null,
+    servingUnit = 'ml',
+    drugUnit = null,
+    servingProfiles = null,
+    defaultAbvPercent = null
+  ) {
     try {
       // Validate inputs
       if (!userId || !habitId || !name || !drugAmount) {
@@ -318,9 +329,7 @@ class ConsumptionOptionsService {
         defaultVolumeRow = referenceServingCount;
       }
 
-      const { data, error } = await supabase
-        .from('consumption_options')
-        .insert({
+      const insertRow = {
           user_id: userId,
           habit_id: habitId,
           name: name.trim(),
@@ -334,8 +343,18 @@ class ConsumptionOptionsService {
           reference_serving_count: referenceServingCount,
           is_custom: true,
           is_active: true,
-          region: 'custom'
-        })
+          region: 'custom',
+        };
+      if (servingProfiles != null) {
+        insertRow.serving_profiles = servingProfiles;
+      }
+      if (defaultAbvPercent != null && defaultAbvPercent > 0) {
+        insertRow.default_abv_percent = defaultAbvPercent;
+      }
+
+      const { data, error } = await supabase
+        .from('consumption_options')
+        .insert(insertRow)
         .select()
         .single();
 
@@ -350,7 +369,17 @@ class ConsumptionOptionsService {
   /**
    * Update an existing custom option
    */
-  async updateCustomOption(optionId, name, drugAmount, icon = null, volumeMl = null, servingUnit = null, drugUnit = null) {
+  async updateCustomOption(
+    optionId,
+    name,
+    drugAmount,
+    icon = null,
+    volumeMl = null,
+    servingUnit = null,
+    drugUnit = null,
+    servingProfiles = null,
+    defaultAbvPercent = null
+  ) {
     try {
       // Validate inputs
       if (!optionId || !name || !drugAmount) {
@@ -372,6 +401,11 @@ class ConsumptionOptionsService {
       };
       if (icon !== null) baseUpdate.icon = icon;
       if (drugUnit !== null) baseUpdate.drug_unit = drugUnit;
+
+      if (servingProfiles != null) baseUpdate.serving_profiles = servingProfiles;
+      if (defaultAbvPercent != null && defaultAbvPercent > 0) {
+        baseUpdate.default_abv_percent = defaultAbvPercent;
+      }
 
       if (volumeMl === null && servingUnit === null) {
         const { data, error } = await supabase
@@ -447,6 +481,10 @@ class ConsumptionOptionsService {
         default_volume: defaultVolumeRow,
       };
       if (servingUnit !== null) updateData.serving_unit = servingUnit;
+      if (servingProfiles != null) updateData.serving_profiles = servingProfiles;
+      if (defaultAbvPercent != null && defaultAbvPercent > 0) {
+        updateData.default_abv_percent = defaultAbvPercent;
+      }
 
       const { data, error } = await supabase
         .from('consumption_options')

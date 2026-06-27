@@ -7,6 +7,8 @@ import {
   getSleepDataDateForHabit,
   getTimeHabitMinutesBeforeBed,
 } from '../utils/habitSleepPairing';
+import { isInsightDisplayable } from '../utils/insightDisplayGate';
+import { getInsightImpactDisplay } from '../utils/insightImpactDisplay';
 import { addCalendarDay, formatDateForDB, getToday } from '../utils/dateHelpers';
 
 const DEFAULT_RANGE_DAYS = 365;
@@ -46,8 +48,6 @@ class HabitTimelineService {
     if (!userId || !habitId || !sleepMetricKey) {
       throw new Error('userId, habitId, and sleepMetricKey are required');
     }
-
-    await insightsService.ensureBedtimeConsistencyBackfilled(userId, rangeDays);
 
     const endDateStr = getToday();
     const startDateStr = subtractCalendarDays(endDateStr, rangeDays - 1);
@@ -203,6 +203,28 @@ class HabitTimelineService {
     const insight = taggedInsight;
     const confidenceLevel = insight?.confidenceLevel || 'none';
 
+    const metrics = await insightsService.getAvailableSleepMetricsForUser(userId);
+    const alsoAffects = metrics
+      .map((m) => {
+        const ins = (group.insightsAbsolute || []).find((i) => i.metricKey === m.key);
+        if (!ins || !isInsightDisplayable(ins)) return null;
+        const isPct = ins.analysisType === 'percentage';
+        const impactDisplay = getInsightImpactDisplay(ins, m, isPct);
+        return {
+          metricKey: m.key,
+          metricLabel: m.label,
+          direction: ins.direction === 'negative' ? 'negative' : 'positive',
+          impactLevel: ins.impactLevel || 'minimal',
+          impactPercent: impactDisplay?.relativePercent ?? null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.metricKey === sleepMetricKey) return -1;
+        if (b.metricKey === sleepMetricKey) return 1;
+        return (a.metricLabel || '').localeCompare(b.metricLabel || '');
+      });
+
     let state = 'building';
     if (insight && confidenceLevel !== 'none') {
       state = 'insight';
@@ -225,6 +247,7 @@ class HabitTimelineService {
       insight,
       noLink,
       timesLogged: group.timesLogged ?? 0,
+      alsoAffects,
     };
   }
 }

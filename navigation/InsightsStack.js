@@ -1,6 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import InsightsScreen from '../screens/InsightsScreen';
+import InsightsBuildingHabitsScreen from '../screens/InsightsBuildingHabitsScreen';
 import HabitTimelineScreen from '../screens/HabitTimelineScreen';
 import { STACK_SLIDE_SCREEN_OPTIONS, SHEET_LARGE_OPTIONS } from './transitionOptions';
 
@@ -15,6 +16,11 @@ const InsightsStack = () => (
     initialRouteName="InsightsMain"
   >
     <Stack.Screen name="InsightsMain" component={InsightsScreen} />
+    <Stack.Screen
+      name="InsightsBuildingHabits"
+      component={InsightsBuildingHabitsScreen}
+      options={SHEET_LARGE_OPTIONS}
+    />
     <Stack.Screen
       name="HabitTimeline"
       component={HabitTimelineScreen}
