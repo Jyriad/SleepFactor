@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import TabBarBlurBackground from './TabBarBlurBackground';
 import { colors } from '../constants/colors';
 import { appFont, spacing } from '../constants';
+import { useInsightDiscovery } from '../contexts/InsightDiscoveryContext';
 
 const TAB_ICONS = {
   Home: { focused: 'home', outline: 'home-outline' },
@@ -24,6 +25,7 @@ const TAB_BAR_FROST_OVERLAY = 'rgba(255, 255, 255, 0.28)';
 
 function MainTabBar({ state, descriptors, navigation, insets }) {
   const setTabBarHeight = useContext(BottomTabBarHeightCallbackContext);
+  const { tabBadgeCount } = useInsightDiscovery();
 
   const renderTab = (route, index) => {
     const { options } = descriptors[route.key];
@@ -58,6 +60,7 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
     const color = isFocused ? colors.tabActive : colors.tabInactive;
     const icons = TAB_ICONS[route.name] || TAB_ICONS.Home;
     const iconName = isFocused ? icons.focused : icons.outline;
+    const badge = route.name === 'Insights' ? tabBadgeCount : undefined;
 
     return (
       <PressableFeedback
@@ -72,6 +75,11 @@ function MainTabBar({ state, descriptors, navigation, insets }) {
         style={styles.tabItem}
       >
         <Ionicons name={iconName} size={24} color={color} />
+        {route.name === 'Insights' && badge != null && badge > 0 ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{badge > 9 ? '9+' : String(badge)}</Text>
+          </View>
+        ) : null}
         <Text style={[styles.tabLabel, { color }]} numberOfLines={1}>
           {label}
         </Text>
@@ -162,6 +170,23 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     minWidth: 56,
     minHeight: 44,
+  },
+  badge: {
+    position: 'absolute',
+    top: 0,
+    right: '22%',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.error ?? '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
   tabLabel: {
     ...appFont,

@@ -52,10 +52,6 @@ function computeNumericDomain(values, { allowNegative = false } = {}) {
   };
 }
 
-function habitAllowsNegativeAxis(habit) {
-  return habit?.name === 'Bedtime Consistency';
-}
-
 function buildLineSegments(days, valueKey, yScale) {
   const segments = [];
   let current = [];
@@ -90,7 +86,6 @@ const HabitTimelineChart = ({
 }) => {
   const scrollRef = useRef(null);
   const isBinary = habit?.type === 'binary';
-  const allowNegativeHabitAxis = habitAllowsNegativeAxis(habit);
 
   const chartWidth = viewportWidth || Dimensions.get('window').width;
   const plotHeight = PLOT_BOTTOM - MARGIN_TOP;
@@ -116,10 +111,8 @@ const HabitTimelineChart = ({
 
   const habitDomain = useMemo(() => {
     if (isBinary) return { min: 0, max: 1 };
-    return computeNumericDomain(habitValues.filter((v) => v != null), {
-      allowNegative: allowNegativeHabitAxis,
-    });
-  }, [habitValues, isBinary, allowNegativeHabitAxis]);
+    return computeNumericDomain(habitValues.filter((v) => v != null));
+  }, [habitValues, isBinary]);
 
   const sleepDomain = useMemo(
     () => computeNumericDomain(sleepValues.filter((v) => v != null)),

@@ -9,11 +9,20 @@ import OnboardingSignOutLink from './OnboardingSignOutLink';
 import OnboardingProgressHeader from '../../components/OnboardingProgressHeader';
 import { getOnboardingProgress } from '../../constants/onboardingProgress';
 
+function regionToSystem(region) {
+  if (region === 'US') return 'imperial';
+  return 'metric';
+}
+
 export default function OnboardingPreferencesScreen({ navigation }) {
   const { preferences, savePreferences } = useUserPreferences();
   const [timeFormat, setTimeFormat] = useState(preferences?.timeFormat || '12');
   const [measurementRegion, setMeasurementRegion] = useState(
-    preferences?.measurementRegion === 'US' ? 'US' : 'metric'
+    preferences?.measurementRegion === 'US'
+      ? 'US'
+      : preferences?.measurementRegion === 'UK'
+        ? 'UK'
+        : 'metric'
   );
   const [saving, setSaving] = useState(false);
 
@@ -25,9 +34,9 @@ export default function OnboardingPreferencesScreen({ navigation }) {
       await savePreferences({
         timeFormat,
         measurementRegion,
-        measurementSystem: measurementRegion === 'US' ? 'imperial' : 'metric',
+        measurementSystem: regionToSystem(measurementRegion),
       });
-      navigation.navigate('OnboardingSleepFactorEducation');
+      navigation.navigate('OnboardingSleepGoal');
     } finally {
       setSaving(false);
     }
@@ -70,26 +79,39 @@ export default function OnboardingPreferencesScreen({ navigation }) {
 
         <View style={styles.card}>
           <Text style={styles.label}>Drink units</Text>
-          <View style={styles.optionRow}>
+          <View style={styles.regionColumn}>
             <TouchableOpacity
-              style={[styles.option, measurementRegion === 'US' && styles.optionSelected]}
+              style={[styles.regionOption, measurementRegion === 'US' && styles.optionSelected]}
               onPress={() => setMeasurementRegion('US')}
             >
               <Text style={[styles.optionTitle, measurementRegion === 'US' && styles.optionTitleSelected]}>
-                Imperial
+                US / Imperial
               </Text>
               <Text style={[styles.optionSub, measurementRegion === 'US' && styles.optionSubSelected]}>
-                fl oz, oz
+                fl oz cups and glasses
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.option, measurementRegion === 'metric' && styles.optionSelected]}
+              style={[styles.regionOption, measurementRegion === 'UK' && styles.optionSelected]}
+              onPress={() => setMeasurementRegion('UK')}
+            >
+              <Text style={[styles.optionTitle, measurementRegion === 'UK' && styles.optionTitleSelected]}>
+                UK
+              </Text>
+              <Text style={[styles.optionSub, measurementRegion === 'UK' && styles.optionSubSelected]}>
+                ml, pints and UK glass sizes
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.regionOption, measurementRegion === 'metric' && styles.optionSelected]}
               onPress={() => setMeasurementRegion('metric')}
             >
               <Text style={[styles.optionTitle, measurementRegion === 'metric' && styles.optionTitleSelected]}>
-                Metric
+                Metric / International
               </Text>
-              <Text style={[styles.optionSub, measurementRegion === 'metric' && styles.optionSubSelected]}>ml</Text>
+              <Text style={[styles.optionSub, measurementRegion === 'metric' && styles.optionSubSelected]}>
+                ml cans and standard glasses
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -150,6 +172,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  regionColumn: {
+    gap: spacing.sm,
+  },
   option: {
     flex: 1,
     borderWidth: 1,
@@ -158,6 +183,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  regionOption: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: BUTTON_BORDER_RADIUS,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
     backgroundColor: colors.background,
   },
   optionSelected: {

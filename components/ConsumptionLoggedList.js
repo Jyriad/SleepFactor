@@ -15,6 +15,7 @@ import { supabase } from '../services/supabase';
 import sleepDataService from '../services/sleepDataService';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { formatVolume } from '../utils/unitConversion';
+import { getProfileLabelForEvent } from '../constants/consumptionServingProfiles';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 
 async function updateBedtimeDrugLevel(userId, habitId, selectedDate) {
@@ -278,6 +279,10 @@ const ConsumptionLoggedList = ({
       </Text>
       {consumptionEvents.map((event) => {
         try {
+          const resolvedOption = resolveConsumptionType(event.drink_type);
+          const profileLabel = resolvedOption
+            ? getProfileLabelForEvent(event, resolvedOption, habit?.name, measurementRegion)
+            : null;
           const volumePart = event.volume
             ? formatVolume(event.volume, measurementSystem) || `${event.volume} ml`
             : null;
@@ -285,17 +290,23 @@ const ConsumptionLoggedList = ({
           const amountPart = `${Number(event.amount) === event.amount ? event.amount.toFixed(event.amount % 1 === 0 ? 0 : 1) : event.amount} ${unit}`;
           const activeIngredientPart = ingredientLabel ? `${amountPart} ${ingredientLabel}` : amountPart;
           const typeName = getConsumptionTypeName(event.drink_type) || 'Unknown';
+          const abvPart =
+            event.logged_abv_percent != null && Number(event.logged_abv_percent) > 0
+              ? `${Number(event.logged_abv_percent)}% ABV`
+              : null;
           const detailLine = [
-            volumePart,
+            profileLabel,
+            !profileLabel ? volumePart : null,
+            abvPart,
             activeIngredientPart,
-          ].filter(Boolean).join(' · ');
+          ].filter(Boolean).join(' - ');
 
           return (
             <View key={event.id} style={styles.loggedItemRow}>
               <View style={styles.loggedItemTextBlock}>
                 <Text style={styles.loggedItemLinePrimary} numberOfLines={2}>
                   {formatTime(event.consumed_at)}
-                  {' · '}
+                  {' - '}
                   {typeName}
                 </Text>
                 {!!detailLine && (

@@ -13,6 +13,8 @@ import AppNavigator from './navigation/AppNavigator';
 import launchSyncCoordinator from './services/launchSyncCoordinator';
 import habitReminderNotifications from './services/habitReminderNotifications';
 import morningCheckinNotifications from './services/morningCheckinNotifications';
+import insightDiscoveryNotifications from './services/insightDiscoveryNotifications';
+import { InsightDiscoveryProvider } from './contexts/InsightDiscoveryContext';
 import offlineWriteQueueService from './services/offlineWriteQueueService';
 import { colors } from './constants/colors';
 import { applyAndroidTransparentStatusBar } from './utils/androidStatusBar';
@@ -126,6 +128,7 @@ export default Sentry.wrap(function App() {
     morningCheckinNotifications.setupRescheduleListener();
     morningCheckinNotifications.rescheduleIfEnabled();
     morningCheckinNotifications.setupNotificationResponseListener(navigationRef);
+    insightDiscoveryNotifications.setupInsightDiscoveryNotificationResponseListener(navigationRef);
   }, []);
 
   // When app returns to foreground, reschedule habit reminder and morning check-in
@@ -150,7 +153,9 @@ export default Sentry.wrap(function App() {
           <UserPreferencesProvider>
             <QueryClientProvider client={queryClient}>
               <AuthProvider>
-                <AppNavigator navigationRef={navigationRef} />
+                <InsightDiscoveryProvider>
+                  <AppNavigator navigationRef={navigationRef} />
+                </InsightDiscoveryProvider>
               </AuthProvider>
             </QueryClientProvider>
           </UserPreferencesProvider>

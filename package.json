@@ -10,7 +10,11 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "postinstall": "patch-package",
-    "backfill:caffeine-amounts": "node scripts/backfill-caffeine-consumption-amounts.mjs"
+    "backfill:caffeine-amounts": "node scripts/backfill-caffeine-consumption-amounts.mjs",
+    "test:serving-profiles": "node scripts/test-consumption-serving-profiles.mjs",
+    "test:insight-display-gate": "node scripts/test-insight-display-gate.mjs",
+    "test:insight-headlines": "node scripts/test-insight-headlines.mjs",
+    "test:insight-impact-display": "node scripts/test-insight-impact-display.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",

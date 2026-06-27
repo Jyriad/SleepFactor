@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,21 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { typography, spacing } from '../constants';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /**
  * Shared chrome for sheet-presented screens: grab handle, chevron-down dismiss,
@@ -44,36 +56,58 @@ export default function AppSheetLayout({
   const { height: windowHeight } = useWindowDimensions();
   const navigation = useNavigation();
   const [headerHeight, setHeaderHeight] = useState(56);
-  const dismiss = onDismiss ?? (() => {
+  const androidDismissRef = useRef(null);
+
+  const navigationDismiss = useCallback(() => {
+    if (onDismiss) {
+      onDismiss();
+      return;
+    }
     if (navigation.canGoBack()) navigation.goBack();
-  });
+  }, [onDismiss, navigation]);
+
+  const dismiss = useCallback(() => {
+    if (Platform.OS === 'android' && androidDismissRef.current) {
+      androidDismissRef.current();
+      return;
+    }
+    navigationDismiss();
+  }, [navigationDismiss]);
 
   const bottomPad = Math.max(insets.bottom, spacing.md) + spacing.lg;
   const useNativeChrome = nativePresentation && Platform.OS === 'ios';
   const showHandle = !useNativeChrome && !hideHandle;
 
-  /** iOS form sheets often ignore flex height  cap scroll body to visible sheet area. */
-  const iosSheetBodyMaxHeight = useMemo(() => {
-    if (Platform.OS !== 'ios') return undefined;
+  /** Cap scroll body to the visible sheet area (iOS native form sheet + Android custom sheet). */
+  const sheetBodyMaxHeight = useMemo(() => {
     const handleAllowance = showHandle ? 18 : 0;
-    return Math.max(
-      240,
-      windowHeight - headerHeight - insets.top - handleAllowance - spacing.sm,
-    );
+    if (Platform.OS === 'ios') {
+      return Math.max(
+        240,
+        windowHeight - headerHeight - insets.top - handleAllowance - spacing.sm,
+      );
+    }
+    if (Platform.OS === 'android') {
+      return Math.max(
+        240,
+        windowHeight * 0.94 - headerHeight - handleAllowance - spacing.sm,
+      );
+    }
+    return undefined;
   }, [showHandle, windowHeight, headerHeight, insets.top]);
 
-  const iosSheetScrollStyle = useMemo(
-    () => (iosSheetBodyMaxHeight != null ? { maxHeight: iosSheetBodyMaxHeight } : null),
-    [iosSheetBodyMaxHeight],
+  const sheetScrollStyle = useMemo(
+    () => (sheetBodyMaxHeight != null ? { maxHeight: sheetBodyMaxHeight } : null),
+    [sheetBodyMaxHeight],
   );
 
   /** scroll={false} bodies need min + max or inner ScrollViews collapse to zero height. */
-  const iosSheetNonScrollSizeStyle = useMemo(
+  const sheetNonScrollSizeStyle = useMemo(
     () =>
-      iosSheetBodyMaxHeight != null
-        ? { minHeight: iosSheetBodyMaxHeight, maxHeight: iosSheetBodyMaxHeight }
+      sheetBodyMaxHeight != null
+        ? { minHeight: sheetBodyMaxHeight, maxHeight: sheetBodyMaxHeight }
         : null,
-    [iosSheetBodyMaxHeight],
+    [sheetBodyMaxHeight],
   );
 
   const header = (
@@ -119,7 +153,7 @@ export default function AppSheetLayout({
     <ScrollView
       style={[
         styles.scroll,
-        iosSheetScrollStyle,
+        sheetScrollStyle,
       ]}
       contentContainerStyle={[
         styles.scrollContent,
@@ -139,7 +173,7 @@ export default function AppSheetLayout({
         styles.nonScrollBody,
         { paddingBottom: bottomPad },
         contentContainerStyle,
-        iosSheetNonScrollSizeStyle,
+        sheetNonScrollSizeStyle,
       ]}
     >
       <View style={styles.nonScrollBodyInner}>{children}</View>
@@ -172,12 +206,14 @@ export default function AppSheetLayout({
 
   if (Platform.OS === 'android') {
     return (
-      <View style={styles.androidRoot}>
-        <Pressable style={styles.androidBackdrop} onPress={dismiss} accessibilityLabel="Close" />
-        <View style={[styles.androidSheet, { paddingBottom: 0 }]}>
-          {sheetInner}
-        </View>
-      </View>
+      <AndroidSheetPresentation
+        dismissRef={androidDismissRef}
+        onDismiss={navigationDismiss}
+        showHandle={showHandle}
+        header={header}
+        body={body}
+        overlay={overlay}
+      />
     );
   }
 
@@ -200,6 +236,94 @@ export default function AppSheetLayout({
   );
 }
 
+/** Android transparentModal sheets  custom open/close animation; nav transition is disabled. */
+function AndroidSheetPresentation({ dismissRef, onDismiss, showHandle, header, body, overlay }) {
+  const { height: screenHeight } = useWindowDimensions();
+  const translateY = useSharedValue(screenHeight);
+  const isClosingRef = useRef(false);
+
+  const finishNavDismiss = useCallback(() => {
+    isClosingRef.current = false;
+    onDismiss?.();
+  }, [onDismiss]);
+
+  const runAnimatedDismiss = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    translateY.value = withTiming(screenHeight, { duration: 220 }, (finished) => {
+      if (finished) runOnJS(finishNavDismiss)();
+      else isClosingRef.current = false;
+    });
+  }, [screenHeight, translateY, finishNavDismiss]);
+
+  useEffect(() => {
+    dismissRef.current = runAnimatedDismiss;
+    return () => {
+      dismissRef.current = null;
+    };
+  }, [dismissRef, runAnimatedDismiss]);
+
+  useEffect(() => {
+    isClosingRef.current = false;
+    translateY.value = screenHeight;
+    translateY.value = withSpring(0, { damping: 22, stiffness: 220 });
+  }, [screenHeight, translateY]);
+
+  const pan = Gesture.Pan()
+    .activeOffsetY(8)
+    .failOffsetX([-24, 24])
+    .onUpdate((event) => {
+      if (event.translationY > 0) {
+        translateY.value = event.translationY;
+      }
+    })
+    .onEnd((event) => {
+      const shouldClose = event.translationY > 80 || event.velocityY > 600;
+      if (shouldClose) {
+        runOnJS(runAnimatedDismiss)();
+      } else {
+        translateY.value = withSpring(0, { damping: 22, stiffness: 220 });
+      }
+    });
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      translateY.value,
+      [0, screenHeight],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
+
+  return (
+    <View style={styles.androidRoot}>
+      <AnimatedPressable
+        style={[styles.androidBackdrop, backdropAnimatedStyle]}
+        onPress={runAnimatedDismiss}
+        accessibilityLabel="Close"
+      />
+      <Animated.View style={[styles.androidSheet, sheetAnimatedStyle]}>
+        <GestureDetector gesture={pan}>
+          <View style={styles.androidDragZone} collapsable={false}>
+            {showHandle ? (
+              <View style={styles.handleWrap}>
+                <View style={styles.handle} />
+              </View>
+            ) : null}
+            {header}
+          </View>
+        </GestureDetector>
+        {body}
+      </Animated.View>
+      {overlay ? <View style={styles.sheetOverlay}>{overlay}</View> : null}
+    </View>
+  );
+}
+
 const SHEET_TOP_RADIUS = 20;
 
 const styles = StyleSheet.create({
@@ -214,12 +338,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(17, 41, 75, 0.45)',
   },
   androidSheet: {
-    maxHeight: '94%',
-    minHeight: '50%',
+    height: '94%',
     backgroundColor: colors.background,
     borderTopLeftRadius: SHEET_TOP_RADIUS,
     borderTopRightRadius: SHEET_TOP_RADIUS,
     overflow: 'hidden',
+  },
+  androidDragZone: {
+    flexShrink: 0,
   },
   iosRoot: {
     flex: 1,

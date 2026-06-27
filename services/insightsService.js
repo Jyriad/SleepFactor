@@ -5,7 +5,6 @@ import {
 } from './preferredSleepSourceService';
 import dataQualityService from './dataQualityService';
 import healthMetricsService from './healthMetricsService';
-import bedtimeHabitsService from './bedtimeHabitsService';
 import {
   INSIGHTS_DISK_SCHEMA_VERSION,
   bumpInsightsInvalidationGeneration,
@@ -16,7 +15,7 @@ import {
   loadInsightsDiskBlob,
   saveInsightsDiskBlob,
 } from './insightsPersistentCache';
-import { addCalendarDay } from '../utils/dateHelpers';
+import { REMOVED_HABIT_NAMES } from '../constants/inferredHabits';
 import {
   buildPairedDayPoints,
   getHabitValueFromLog,
@@ -36,6 +35,20 @@ import {
 } from '../utils/statistics';
 import { getCorrelationLabel } from '../utils/insightLabels';
 import { generateBinaryHeadline, generateNumericalHeadline } from '../utils/insightHeadlines';
+import {
+  isInsightDisplayable,
+  pickBestInsightPerHabit,
+  getInsightStableKey,
+} from '../utils/insightDisplayGate';
+import { getInsightImpactDisplay } from '../utils/insightImpactDisplay';
+import { addCalendarDay } from '../utils/dateHelpers';
+import {
+  getSleepGoalById,
+  getGoalMetricKeys,
+  DEFAULT_SLEEP_GOAL_ID,
+} from '../constants/sleepGoals';
+import { FOR_YOU_LIST_CAP } from '../constants/insightsUi';
+import { processInsightDiscoveryAfterRecompute } from './insightDiscoveryState';
 
 /** Set true to re-enable Profile toggle + automatic outlier exclusion (dataQualityService unchanged). */
 const AUTO_EXCLUDE_OUTLIERS_ENABLED = false;
@@ -56,9 +69,6 @@ class InsightsService {
     // Cache for getHabitsInsights by (userId, metric, timeRange, analysisType, showNoSignificance). TTL 5 min.
     this._detailedInsightsCache = new Map();
     this._DETAILED_INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
-    // Recompute inferred bedtime values occasionally so chart data stays aligned with latest calculation rules.
-    this._bedtimeBackfillTracker = new Map();
-    this._BEDTIME_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
     /** Debounced background full-package recompute after data invalidation */
     this._warmComputeTimer = null;
     this._INSIGHTS_WARM_DEFAULT_MS = 550;
@@ -71,21 +81,6 @@ class InsightsService {
     this._lastTabBundle = null;
     /** @type {Map<string, Array<(bundle: object) => void>>} */
     this._recomputeListenersByUser = new Map();
-  }
-
-  async ensureBedtimeConsistencyBackfilled(userId, lookbackDays = 120) {
-    if (!userId) return;
-    const lastRunAt = this._bedtimeBackfillTracker.get(userId) || 0;
-    const now = Date.now();
-    if (now - lastRunAt < this._BEDTIME_BACKFILL_COOLDOWN_MS) return;
-
-    this._bedtimeBackfillTracker.set(userId, now);
-    try {
-      await bedtimeHabitsService.backfillBedtimeHabits(userId, lookbackDays);
-      this._bumpInsightsDataRevision();
-    } catch (_error) {
-      // Keep insights loading even if backfill fails.
-    }
   }
 
   /**
@@ -249,8 +244,6 @@ class InsightsService {
    */
   async getHabitsInsights(userId, sleepMetric, startDate, endDate, options) {
     try {
-      await this.ensureBedtimeConsistencyBackfilled(userId);
-
       // Parse analysis options with defaults
       let useCoreSleep = false;
       let useEfficiency = false;
@@ -406,7 +399,7 @@ class InsightsService {
 
     if (error) throw error;
 
-    const habits = data || [];
+    const habits = (data || []).filter((h) => !REMOVED_HABIT_NAMES.includes(h.name));
 
     return habits;
   }
@@ -1436,6 +1429,16 @@ class InsightsService {
       savedInvalidationGeneration: gen,
     };
 
+    try {
+      await processInsightDiscoveryAfterRecompute(
+        userId,
+        tagged,
+        (a, b) => this._compareInsightsStronger(a, b)
+      );
+    } catch (_e) {
+      /* non-fatal */
+    }
+
     return {
       habitGroups: { groups: filteredGroups },
       subjectiveData,
@@ -1491,8 +1494,6 @@ class InsightsService {
    * @private
    */
   async _fetchInsightsSourcesAndTagged(userId) {
-    await this.ensureBedtimeConsistencyBackfilled(userId);
-
     const dateRange = this.calculateDateRange('all');
     const metrics = await this.getAvailableSleepMetricsForUser(userId);
     const runsAbsolute = { useEfficiency: false, useCoreSleep: false };
@@ -1560,10 +1561,10 @@ class InsightsService {
 
       const habitTagged = tagged.filter((t) => t.habit && t.habit.id === habit.id);
       const significantAbsolute = habitTagged.filter(
-        (t) => t.analysisType === 'absolute' && (t.confidenceLevel || 'none') !== 'none'
+        (t) => t.analysisType === 'absolute' && isInsightDisplayable(t)
       );
       const significantPercentage = habitTagged.filter(
-        (t) => t.analysisType === 'percentage' && (t.confidenceLevel || 'none') !== 'none'
+        (t) => t.analysisType === 'percentage' && isInsightDisplayable(t)
       );
       const analyzedAbsolute = habitTagged.some((t) => t.analysisType === 'absolute');
       const analyzedPercentage = habitTagged.some((t) => t.analysisType === 'percentage');
@@ -1670,6 +1671,183 @@ class InsightsService {
     return B.effect - A.effect;
   }
 
+  /**
+   * Filter to displayable insights and split by user's primary sleep goal.
+   * @param {Array} tagged
+   * @param {string} [primarySleepGoal]
+   * @returns {{ forYou: Array, explore: Array, displayable: Array }}
+   */
+  partitionInsightsByGoal(tagged, primarySleepGoal = DEFAULT_SLEEP_GOAL_ID) {
+    const displayable = (tagged || []).filter((i) => isInsightDisplayable(i));
+    const goalMetrics = new Set(getGoalMetricKeys(primarySleepGoal));
+
+    const forYou = [];
+    const explore = [];
+    for (const ins of displayable) {
+      if (goalMetrics.has(ins.metricKey)) {
+        forYou.push(ins);
+      } else {
+        explore.push(ins);
+      }
+    }
+
+    const sortFn = (a, b) => this._compareInsightsStronger(a, b);
+    forYou.sort(sortFn);
+    explore.sort(sortFn);
+
+    return { forYou, explore, displayable };
+  }
+
+  /** Short-lived payload for Insights building-habits sheet navigation. */
+  _stagingBuildingHabits = null;
+
+  setStagingBuildingHabits(habits) {
+    this._stagingBuildingHabits = habits;
+  }
+
+  consumeStagingBuildingHabits() {
+    const habits = this._stagingBuildingHabits;
+    this._stagingBuildingHabits = null;
+    return habits || [];
+  }
+
+  /**
+   * View-model for simplified Insights tab UI (For you / Explore / building summary).
+   * @param {{ groups: Array, primarySleepGoal?: string, analysisMode?: 'absolute'|'percentage', forYouCap?: number }} params
+   */
+  buildInsightsTabViewModel({
+    groups = [],
+    primarySleepGoal = DEFAULT_SLEEP_GOAL_ID,
+    analysisMode = 'absolute',
+    forYouCap = FOR_YOU_LIST_CAP,
+  } = {}) {
+    const goalMetrics = new Set(getGoalMetricKeys(primarySleepGoal));
+    const insightRows = [];
+    const buildingHabits = [];
+
+    for (const g of groups) {
+      if (!g.progress?.ready) {
+        buildingHabits.push({
+          habitId: g.habitId,
+          habitName: g.habitName,
+          status: 'needs_more',
+          progress: g.progress,
+          timesLogged: g.timesLogged ?? 0,
+        });
+        continue;
+      }
+
+      const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
+      for (const insight of insights) {
+        insightRows.push({
+          rowType: 'insight',
+          key: `ins-${g.habitId}-${insight.metricKey}-${insight.analysisType || analysisMode}`,
+          insight,
+          habitId: g.habitId,
+          habitName: g.habitName,
+          insightKey: getInsightStableKey(insight),
+        });
+      }
+
+      const noLink = analysisMode === 'percentage' ? g.noLinkPercentage : g.noLinkAbsolute;
+      if (noLink && insights.length === 0) {
+        buildingHabits.push({
+          habitId: g.habitId,
+          habitName: g.habitName,
+          status: 'no_link',
+          progress: g.progress,
+          timesLogged: g.timesLogged ?? 0,
+        });
+      }
+    }
+
+    insightRows.sort((a, b) => this._compareInsightsStronger(a.insight, b.insight));
+
+    const forYouAll = insightRows.filter((r) => goalMetrics.has(r.insight.metricKey));
+    const exploreAll = insightRows.filter((r) => !goalMetrics.has(r.insight.metricKey));
+
+    const needsMoreCount = buildingHabits.filter((h) => h.status === 'needs_more').length;
+    const noLinkCount = buildingHabits.filter((h) => h.status === 'no_link').length;
+
+    buildingHabits.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
+
+    return {
+      forYouRows: forYouAll.slice(0, forYouCap),
+      forYouAll,
+      forYouOverflowCount: Math.max(0, forYouAll.length - forYouCap),
+      exploreRows: exploreAll,
+      buildingSummary: {
+        needsMoreCount,
+        noLinkCount,
+        total: buildingHabits.length,
+      },
+      buildingHabits,
+    };
+  }
+
+  /**
+   * Best displayable insight per habit (strongest by evidence).
+   * @param {Array} tagged
+   * @returns {Array}
+   */
+  getBestDisplayableInsightPerHabit(tagged) {
+    const displayable = (tagged || []).filter((i) => isInsightDisplayable(i));
+    return pickBestInsightPerHabit(displayable, (a, b) => this._compareInsightsStronger(a, b));
+  }
+
+  /**
+   * Home "For you" rows: top insights aligned with sleep goal (1 per habit, max limit).
+   * @param {Array} tagged
+   * @param {string} primarySleepGoal
+   * @param {number} limit
+   * @param {Array} metricsOrder
+   */
+  _buildHomeForYouRowsFromTagged(tagged, primarySleepGoal, limit = 2, metricsOrder) {
+    const { forYou } = this.partitionInsightsByGoal(tagged, primarySleepGoal);
+    const onePerHabit = pickBestInsightPerHabit(forYou, (a, b) => this._compareInsightsStronger(a, b));
+    const goal = getSleepGoalById(primarySleepGoal);
+    const primaryFirst = onePerHabit.sort((a, b) => {
+      const aPrimary = a.metricKey === goal.primaryMetricKey ? 0 : 1;
+      const bPrimary = b.metricKey === goal.primaryMetricKey ? 0 : 1;
+      if (aPrimary !== bPrimary) return aPrimary - bPrimary;
+      return this._compareInsightsStronger(a, b);
+    });
+
+    const order = metricsOrder || this.getAvailableSleepMetrics();
+    const metricMetaByKey = new Map(order.map((m) => [m.key, m]));
+
+    return primaryFirst.slice(0, limit).map((ins) => {
+      const m = metricMetaByKey.get(ins.metricKey) || {
+        key: ins.metricKey,
+        label: ins.metricLabel,
+        unit: 'minutes',
+      };
+      const isPct = ins.analysisType === 'percentage';
+      const impactDisplay = getInsightImpactDisplay(ins, m, isPct);
+      return {
+        metricKey: ins.metricKey,
+        metricLabel: ins.metricLabel || m.label,
+        headline: this._headlineForHomeMetricRow(ins, m),
+        habitId: ins.habit?.id,
+        habitName: ins.habit?.name,
+        preferredAnalysisMode: isPct ? 'percentage' : 'absolute',
+        impactDirection: ins.direction === 'negative' ? 'negative' : 'positive',
+        impactLevel: ins.impactLevel || 'minimal',
+        impactPercent: impactDisplay?.relativePercent ?? null,
+        insightKey: getInsightStableKey(ins),
+        analysisType: ins.analysisType,
+      };
+    });
+  }
+
+  getInsightStableKey(insight) {
+    return getInsightStableKey(insight);
+  }
+
+  getDisplayableTaggedInsights(tagged) {
+    return (tagged || []).filter((i) => isInsightDisplayable(i));
+  }
+
   _capitalizeHeadline(text) {
     if (text == null || typeof text !== 'string' || text.length === 0) return text;
     return text.charAt(0).toUpperCase() + text.slice(1);
@@ -1721,7 +1899,7 @@ class InsightsService {
    */
   _buildHomeMetricRowsFromTagged(tagged, metricsOrder) {
     const order = metricsOrder || this.getAvailableSleepMetrics();
-    const correlated = (tagged || []).filter((i) => (i.confidenceLevel || 'none') !== 'none');
+    const correlated = (tagged || []).filter((i) => isInsightDisplayable(i));
     const byMetric = new Map();
     for (const ins of correlated) {
       const k = ins.metricKey;
@@ -1749,20 +1927,9 @@ class InsightsService {
     return rows;
   }
 
-  _buildHomeSummaryFromTagged(tagged, limit, metricsOrder) {
-    const confidenceOrder = { high: 0, medium: 1, low: 2, none: 3 };
-    const impactOrder = { large: 0, moderate: 1, small: 2, minimal: 3 };
-    const sorted = tagged.slice().sort((a, b) => {
-      const confA = confidenceOrder[a.confidenceLevel] ?? 3;
-      const confB = confidenceOrder[b.confidenceLevel] ?? 3;
-      if (confA !== confB) return confA - confB;
-      const impactA = impactOrder[a.impactLevel] ?? 3;
-      const impactB = impactOrder[b.impactLevel] ?? 3;
-      if (impactA !== impactB) return impactA - impactB;
-      const pA = (a.pValue != null && !isNaN(a.pValue)) ? Number(a.pValue) : 1;
-      const pB = (b.pValue != null && !isNaN(b.pValue)) ? Number(b.pValue) : 1;
-      return pA - pB;
-    });
+  _buildHomeSummaryFromTagged(tagged, limit, metricsOrder, primarySleepGoal = DEFAULT_SLEEP_GOAL_ID) {
+    const displayable = (tagged || []).filter((i) => isInsightDisplayable(i));
+    const sorted = displayable.slice().sort((a, b) => this._compareInsightsStronger(a, b));
     const topInsights = sorted.slice(0, limit).map((insight) => ({
       habitId: insight.habit?.id,
       habitName: insight.habit?.name,
@@ -1773,15 +1940,22 @@ class InsightsService {
       strengthLabel: insight.strengthLabel,
       confidenceLevel: insight.confidenceLevel,
       impactLevel: insight.impactLevel,
+      insightKey: getInsightStableKey(insight),
       ...insight,
     }));
     const order = metricsOrder || this.getAvailableSleepMetrics();
-    const homeMetricRows = this._buildHomeMetricRowsFromTagged(tagged, order);
-    return { topInsights, homeMetricRows };
+    const homeMetricRows = this._buildHomeForYouRowsFromTagged(
+      tagged,
+      primarySleepGoal,
+      limit,
+      order
+    );
+    const { forYou, explore } = this.partitionInsightsByGoal(tagged, primarySleepGoal);
+    return { topInsights, homeMetricRows, forYou, explore };
   }
 
   _buildGroupedFromTagged(tagged) {
-    const correlated = tagged.filter((i) => (i.confidenceLevel || 'none') !== 'none');
+    const correlated = tagged.filter((i) => isInsightDisplayable(i));
     const byHabit = {};
     for (const insight of correlated) {
       const id = insight.habit?.id;
@@ -1808,9 +1982,7 @@ class InsightsService {
     const { significantOnly = false } = options || {};
     const { topInsights } = await this.getHomeInsightsWithSummary(userId, limit);
     if (!significantOnly) return topInsights;
-    return (topInsights || []).filter(
-      (insight) => (insight?.confidenceLevel || 'none') !== 'none'
-    );
+    return (topInsights || []).filter((insight) => isInsightDisplayable(insight));
   }
 
   /**
@@ -1821,12 +1993,30 @@ class InsightsService {
    * @param {{ onStaleRefresh?: (result: { topInsights, homeMetricRows }) => void }} opts - If cache was used, onStaleRefresh is called when background refresh completes
    * @returns {Promise<{ topInsights: Array, homeMetricRows: Array<{ metricKey, metricLabel, headline, habitId, habitName, preferredAnalysisMode }> }>}
    */
+  /**
+   * Subscribe to full insight recompute completion (returns unsubscribe fn).
+   */
+  addRecomputeListener(userId, callback) {
+    if (!userId || typeof callback !== 'function') return () => {};
+    const list = this._recomputeListenersByUser.get(userId) || [];
+    list.push(callback);
+    this._recomputeListenersByUser.set(userId, list);
+    return () => {
+      const cur = this._recomputeListenersByUser.get(userId) || [];
+      this._recomputeListenersByUser.set(
+        userId,
+        cur.filter((fn) => fn !== callback)
+      );
+    };
+  }
+
   async getHomeInsightsWithSummary(userId, limit = 10, opts = {}) {
+    const { primarySleepGoal = DEFAULT_SLEEP_GOAL_ID } = opts || {};
     const { tagged, isStale } = await this._resolveTaggedForDisplay(userId);
 
     if (tagged && tagged.length > 0) {
       const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
-      const result = this._buildHomeSummaryFromTagged(tagged, limit, metricsOrder);
+      const result = this._buildHomeSummaryFromTagged(tagged, limit, metricsOrder, primarySleepGoal);
       const onStaleRefresh = opts && opts.onStaleRefresh;
       if (isStale) {
         this._scheduleInsightsRecompute(
@@ -1838,7 +2028,12 @@ class InsightsService {
                 this.getAvailableSleepMetricsForUser(userId)
                   .then((freshMetricsOrder) => {
                     onStaleRefresh(
-                      this._buildHomeSummaryFromTagged(freshTagged, limit, freshMetricsOrder)
+                      this._buildHomeSummaryFromTagged(
+                        freshTagged,
+                        limit,
+                        freshMetricsOrder,
+                        primarySleepGoal
+                      )
                     );
                   })
                   .catch(() => {});
@@ -1853,7 +2048,7 @@ class InsightsService {
     const metricsOrder = await this.getAvailableSleepMetricsForUser(userId);
     const freshTagged = this._taggedInsightsCache?.tagged || [];
     return {
-      ...this._buildHomeSummaryFromTagged(freshTagged, limit, metricsOrder),
+      ...this._buildHomeSummaryFromTagged(freshTagged, limit, metricsOrder, primarySleepGoal),
       isStale: false,
     };
   }
@@ -2040,8 +2235,6 @@ class InsightsService {
       if (habit.type === 'quick_consumption') {
         // For drug levels, the date corresponds directly to sleep data date
         sleepDataDate = log.date;
-      } else if (habit.name === 'Bedtime Consistency') {
-        sleepDataDate = log.date;
       } else if (habit.type === 'time') {
         sleepDataDate = addCalendarDay(log.date);
       } else {
@@ -2208,8 +2401,7 @@ class InsightsService {
         const corr = this.calculateCorrelation(x, y);
         const correlation = (corr !== null && corr !== undefined && !isNaN(corr)) ? corr : 0;
         const confidence = this.calculateConfidenceLevel(points.length, correlation);
-        // Only show rows when link passes the same significance bar as other numerical insights
-        if ((confidence?.confidenceLevel || 'none') === 'none') continue;
+        const analysisType = useEfficiency ? 'percentage' : 'absolute';
 
         const direction = correlation > 0 ? 'positive' : correlation < 0 ? 'negative' : 'none';
         const displayDirection = lowerIsBetterPredictors.has(predictor.key)
@@ -2253,7 +2445,10 @@ class InsightsService {
           impactLevel: this.computeImpactLevelNumerical(trendCorrelation),
           metricKey: subjectiveKey,
           metricLabel: subjectiveLabel,
+          analysisType,
         };
+
+        if (!isInsightDisplayable(insightLike, subjectiveKey, analysisType)) continue;
 
         rows.push({
           metricKey: predictor.key,

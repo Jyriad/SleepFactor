@@ -118,6 +118,8 @@ Stores predefined and user-customizable consumption options for drug habits.
 - `reference_volume_ml` (NUMERIC, Nullable) - Liquid reference size in ml that `drug_amount` applies to
 - `reference_serving_count` (NUMERIC, Nullable) - Number of discrete units (pills, spoons, etc.) that `drug_amount` applies to
 - `drug_unit` (TEXT) - Unit for the drug_amount field (mg for caffeine, ml for alcohol, etc.)
+- `serving_profiles` (JSONB, Nullable) - Custom drink serving presets; system drinks use app catalog
+- `default_abv_percent` (NUMERIC, Nullable) - Default ABV for custom alcohol options
 - `is_active` (BOOLEAN) - Whether this option is available for use
 - `created_at` (TIMESTAMPTZ) - Timestamp when record was created
 - `updated_at` (TIMESTAMPTZ) - Timestamp when record was last updated
@@ -144,6 +146,8 @@ Individual consumption logs for quick-consumption (caffeine/alcohol) habits.
 - `logged_intake_basis` (TEXT, Nullable) - `volume_ml`, `serving_count`, or `direct_amount`
 - `logged_volume_ml` (NUMERIC, Nullable) - Ml logged when basis is `volume_ml`
 - `logged_serving_count` (NUMERIC, Nullable) - Total discrete units logged when basis is `serving_count`
+- `logged_serving_profile_id` (TEXT, Nullable) - Named preset id used at log time (e.g. `pint`)
+- `logged_abv_percent` (NUMERIC, Nullable) - ABV % for alcohol logs
 
 ---
 

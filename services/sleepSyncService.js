@@ -2,7 +2,6 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import healthService from './healthService';
 import sleepDataService from './sleepDataService';
-import bedtimeHabitsService from './bedtimeHabitsService';
 import syncAttemptTracker from './syncAttemptTracker';
 import { supabase } from './supabase';
 import { formatDateForDB } from '../utils/dateHelpers';
@@ -229,26 +228,6 @@ class SleepSyncService {
       savedRecords.push(...batchSaved);
     } catch (error) {
       errors.push({ batch: true, error: error.message });
-    }
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        if (savedRecords.length > 0) {
-          await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, savedRecords);
-        }
-
-        const today = formatDateForDB(new Date());
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        const weekAgoString = formatDateForDB(weekAgo);
-
-        const recentSleepData = await sleepDataService.getSleepDataForRange(weekAgoString, today, user.id);
-        if (recentSleepData && recentSleepData.length > 0) {
-          await bedtimeHabitsService.updateBedtimeHabitsForSyncedData(user.id, recentSleepData);
-        }
-      }
-    } catch (_e) {
-      // Don't fail the sync if bedtime habits update fails
     }
 
     this.lastSyncTimestamp = new Date();

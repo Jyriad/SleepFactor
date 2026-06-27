@@ -46,8 +46,10 @@ export const SHEET_LARGE_OPTIONS = Platform.select({
   },
   android: {
     presentation: 'transparentModal',
-    animation: 'slide_from_bottom',
+    // Opening/closing animation handled in AppSheetLayout — avoids double slide on dismiss.
+    animation: 'none',
     headerShown: false,
+    contentStyle: { flex: 1, backgroundColor: 'transparent' },
   },
   default: {
     presentation: 'modal',
@@ -63,8 +65,10 @@ export const SHEET_MEDIUM_LARGE_OPTIONS = Platform.select({
   },
   android: {
     presentation: 'transparentModal',
-    animation: 'slide_from_bottom',
+    // Opening/closing animation handled in AppSheetLayout — avoids double slide on dismiss.
+    animation: 'none',
     headerShown: false,
+    contentStyle: { flex: 1, backgroundColor: 'transparent' },
   },
   default: {
     presentation: 'modal',

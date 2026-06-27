@@ -11,111 +11,64 @@ import Constants from 'expo-constants';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { typography, spacing, BUTTON_BORDER_RADIUS, BUTTON_SEGMENT_INNER_RADIUS } from '../constants';
+import { typography, spacing } from '../constants';
+import { EXPLORE_DEFAULT_COLLAPSED } from '../constants/insightsUi';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
+import { useInsightDiscovery } from '../contexts/InsightDiscoveryContext';
+import { getSleepGoalById } from '../constants/sleepGoals';
+import { getInsightStableKey } from '../utils/insightDisplayGate';
 import useInsightsScreenQuery from '../hooks/useInsightsScreenQuery';
 import insightsService from '../services/insightsService';
-import InsightHeadlineText from '../components/InsightHeadlineText';
 import { getInsightRowHeadline } from '../utils/insightDisplayHeadline';
-import InsightSignalStrengthBars from '../components/InsightSignalStrengthBars';
-import InsightCorrelationPill from '../components/InsightCorrelationPill';
-import {
-  getImpactSignalBarColors,
-  getImpactStrengthBarCount,
-  getImpactTagStyle,
-  getInsightImpactAccessibilityLabel,
-} from '../utils/insightLabels';
+import { getInsightImpactDisplay } from '../utils/insightImpactDisplay';
+import InsightListCard from '../components/InsightListCard';
+import InsightImpactMeter from '../components/InsightImpactMeter';
+import InsightsBuildingSummaryCard from '../components/InsightsBuildingSummaryCard';
+import InsightsSectionHeader from '../components/InsightsSectionHeader';
+import InsightsViewOptionsSheet from '../components/InsightsViewOptionsSheet';
 import PageLoadingView from '../components/PageLoadingView';
 import AppHeaderProfileButton from '../components/AppHeaderProfileButton';
 import GlassChromeBar from '../components/GlassChromeBar';
 import { applyAndroidStatusBarForFrostedHeader } from '../utils/androidStatusBar';
-import InsightMinimumDataHelp from '../components/InsightMinimumDataHelp';
-import PercentageModeHelp from '../components/PercentageModeHelp';
 
-const METRIC_KEY_TO_STAGE = {
-  total_sleep_minutes: 'primary',
-  deep_sleep_minutes: 'deep',
-  light_sleep_minutes: 'light',
-  rem_sleep_minutes: 'rem',
-  awake_minutes: 'awake',
-  awakenings_count: 'awake',
-  tiredness_score: 'primary',
-  dream_vividness_score: 'rem',
-};
+/** React Query / disk cache may return `{ groups }` or a bare array. */
+function normalizeHabitGroupsPayload(payload) {
+  if (!payload) return { groups: [] };
+  if (Array.isArray(payload)) return { groups: payload };
+  if (Array.isArray(payload.groups)) return payload;
+  return { groups: [] };
+}
 
-const getSleepMetricColor = (metricKey) => {
-  if (typeof metricKey === 'string' && metricKey.startsWith('subj_')) {
-    return colors.primary;
-  }
-  const stage = METRIC_KEY_TO_STAGE[metricKey];
-  if (stage === 'primary') return colors.primary;
-  return colors.sleepStages?.[stage] ?? colors.textPrimary;
-};
-
-/** Full-width binary progress: Yes / No labels beside each bar */
-const BinaryProgressBlock = ({ progress }) => {
-  const yesPct = Math.min(100, (progress.binaryYes / progress.targetBinaryYes) * 100);
-  const noPct = Math.min(100, (progress.binaryNo / progress.targetBinaryNo) * 100);
-  return (
-    <View style={styles.binaryProgressWrap}>
-      <View style={styles.binaryBarRow}>
-        <Text style={styles.binaryBarLabel}>Yes</Text>
-        <View style={styles.binaryBarTrack}>
-          <View style={[styles.binaryBarFillYes, { width: `${yesPct}%` }]} />
-        </View>
-        <Text style={styles.binaryBarCount}>
-          {progress.binaryYes}/{progress.targetBinaryYes}
-        </Text>
-      </View>
-      <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
-        <Text style={styles.binaryBarLabel}>No</Text>
-        <View style={styles.binaryBarTrackAlt}>
-          <View style={[styles.binaryBarFillNo, { width: `${noPct}%` }]} />
-        </View>
-        <Text style={styles.binaryBarCount}>
-          {progress.binaryNo}/{progress.targetBinaryNo}
-        </Text>
-      </View>
-    </View>
-  );
-};
-
-/** Numeric habit: full-width paired-nights progress (no table columns) */
-const NumericProgressBlock = ({ progress }) => {
-  const pct = Math.min(100, (progress.pairedDays / progress.targetNumerical) * 100);
-  return (
-    <View style={styles.binaryProgressWrap}>
-      <View style={[styles.binaryBarRow, styles.binaryBarRowLast]}>
-        <Text style={styles.binaryBarLabelPaired} numberOfLines={1}>
-          Paired
-        </Text>
-        <View style={styles.binaryBarTrack}>
-          <View style={[styles.binaryBarFillYes, { width: `${pct}%` }]} />
-        </View>
-        <Text style={styles.binaryBarCount}>
-          {progress.pairedDays}/{progress.targetNumerical}
-        </Text>
-      </View>
-    </View>
-  );
-};
+function normalizeSubjectivePayload(payload) {
+  if (!payload) return { groups: [] };
+  if (Array.isArray(payload)) return { groups: payload };
+  if (Array.isArray(payload.groups)) return payload;
+  return { groups: [] };
+}
 
 const InsightsScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Constants.statusBarHeight ?? 24);
   const headerTopPadding = Math.max(spacing.regular, topInset);
   const { user } = useAuth();
+  const { preferences } = useUserPreferences();
+  const { clearTabBadge, isInsightNew, refreshFromStorage } = useInsightDiscovery();
+  const primarySleepGoal = preferences?.primarySleepGoal || 'sleep_longer';
+  const sleepGoalMeta = getSleepGoalById(primarySleepGoal);
 
+  const [exploreExpanded, setExploreExpanded] = useState(!EXPLORE_DEFAULT_COLLAPSED);
+  const [forYouExpanded, setForYouExpanded] = useState(false);
+  const [viewOptionsVisible, setViewOptionsVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tabData, setTabData] = useState({ groups: [] });
   const [subjectiveData, setSubjectiveData] = useState({ groups: [] });
   const [availableMetrics, setAvailableMetrics] = useState(() => insightsService.getAvailableSleepMetrics());
   const [analysisMode, setAnalysisMode] = useState('absolute');
-  /** habit = one section per habit; metric = one section per sleep metric (habits as rows). */
   const [layoutMode, setLayoutMode] = useState('habit');
+
   const sectionListRef = useRef(null);
-  /** Holds target for scrollToLocation retries when the row is not yet measured (long lists / bottom sections). */
   const pendingMetricScrollRef = useRef(null);
   const headerHeightRef = useRef(100);
 
@@ -124,7 +77,29 @@ const InsightsScreen = ({ navigation, route }) => {
   const expandMetricInsight = route.params?.expandMetricInsight === true;
   const openFirstInsight = route.params?.openFirstInsight === true;
   const preferredAnalysisMode = route.params?.preferredAnalysisMode;
-  const groups = tabData.groups || [];
+
+  const {
+    data: insightsData,
+    isFetching: insightsFetching,
+    isLoading: insightsLoading,
+    isError: insightsError,
+    error: insightsQueryError,
+    refetch: refetchInsights,
+  } = useInsightsScreenQuery(user?.id, { enabled: !!user?.id });
+
+  const groups = useMemo(() => {
+    if (insightsData?.habitGroups != null) {
+      return normalizeHabitGroupsPayload(insightsData.habitGroups).groups;
+    }
+    return normalizeHabitGroupsPayload(tabData).groups;
+  }, [insightsData?.habitGroups, tabData]);
+
+  const subjectiveGroups = useMemo(() => {
+    if (insightsData?.subjectiveData != null) {
+      return normalizeSubjectivePayload(insightsData.subjectiveData).groups;
+    }
+    return normalizeSubjectivePayload(subjectiveData).groups;
+  }, [insightsData?.subjectiveData, subjectiveData]);
 
   useLayoutEffect(() => {
     if (expandMetricInsight && focusedMetricKey && focusedHabitId) {
@@ -145,23 +120,21 @@ const InsightsScreen = ({ navigation, route }) => {
 
   const hasCachedDataRef = useRef(false);
   useEffect(() => {
-    hasCachedDataRef.current = !!(tabData.groups && tabData.groups.length > 0);
-  }, [tabData.groups]);
-
-  const {
-    data: insightsData,
-    isFetching: insightsFetching,
-    isLoading: insightsLoading,
-    refetch: refetchInsights,
-  } = useInsightsScreenQuery(user?.id, { enabled: !!user?.id });
+    hasCachedDataRef.current = groups.length > 0;
+  }, [groups.length]);
 
   useEffect(() => {
     if (!insightsData) return;
-    setTabData(insightsData.habitGroups);
-    setSubjectiveData(insightsData.subjectiveData);
-    // Match Home insights strip: only show while a stale cache is being refreshed in the background.
+    setTabData(normalizeHabitGroupsPayload(insightsData.habitGroups));
+    setSubjectiveData(normalizeSubjectivePayload(insightsData.subjectiveData));
     setIsRefreshing(!!insightsData.isStale);
   }, [insightsData]);
+
+  useEffect(() => {
+    if (insightsError) {
+      console.warn('[InsightsScreen] insights query failed:', insightsQueryError?.message || insightsQueryError);
+    }
+  }, [insightsError, insightsQueryError]);
 
   useEffect(() => {
     if (insightsLoading && !hasCachedDataRef.current) {
@@ -179,62 +152,31 @@ const InsightsScreen = ({ navigation, route }) => {
   useFocusEffect(
     useCallback(() => {
       applyAndroidStatusBarForFrostedHeader();
+      clearTabBadge();
+      refreshFromStorage();
       if (user) {
         if (!hasCachedDataRef.current) {
           setLoading(true);
         }
-        loadTab().catch(() => {
-          if (!hasCachedDataRef.current) setTabData({ groups: [] });
+        loadTab().catch((err) => {
+          console.warn('[InsightsScreen] refresh failed:', err?.message || err);
         });
       }
-    }, [user, loadTab])
+    }, [user, loadTab, clearTabBadge, refreshFromStorage])
   );
 
-  const sections = useMemo(() => {
-    const sectionDataForGroup = (g) => {
-      const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
-      const noLink = analysisMode === 'percentage' ? g.noLinkPercentage : g.noLinkAbsolute;
-      if (!g.progress.ready) {
-        return [{ rowType: 'building', key: `build-${g.habitId}`, progress: g.progress }];
-      }
-      if (insights.length > 0) {
-        return insights.map((insight, idx) => ({
-          rowType: 'insight',
-          key: `ins-${g.habitId}-${insight.metricKey}-${idx}`,
-          insight,
-        }));
-      }
-      if (noLink) {
-        return [
-          {
-            rowType: 'noLink',
-            key: `nolink-${g.habitId}`,
-            timesLogged: g.timesLogged ?? 0,
-          },
-        ];
-      }
-      return [{ rowType: 'building', key: `build2-${g.habitId}`, progress: g.progress }];
-    };
-    return groups
-      .map((g) => {
-        const data = sectionDataForGroup(g);
-        return {
-          title: g.habitName,
-          data,
-          habitId: g.habitId,
-          habitName: g.habitName,
-          habit: g.habit,
-          progress: g.progress,
-          timesLogged: g.timesLogged ?? 0,
-          showTableHeader: data.some((d) => d.rowType === 'insight'),
-        };
-      })
-      .filter((s) => s.data.length > 0);
-  }, [groups, analysisMode]);
+  const tabViewModel = useMemo(
+    () =>
+      insightsService.buildInsightsTabViewModel({
+        groups,
+        primarySleepGoal,
+        analysisMode,
+      }),
+    [groups, primarySleepGoal, analysisMode]
+  );
 
-  /** Sections grouped by sleep metric (only metrics with ≥1 significant insight). */
   const metricSections = useMemo(() => {
-    const subjectiveByKey = new Map((subjectiveData.groups || []).map((g) => [g.subjectiveKey, g]));
+    const subjectiveByKey = new Map(subjectiveGroups.map((g) => [g.subjectiveKey, g]));
     const byMetric = new Map();
     for (const g of groups) {
       const insights = analysisMode === 'percentage' ? g.insightsPercentage : g.insightsAbsolute;
@@ -252,13 +194,14 @@ const InsightsScreen = ({ navigation, route }) => {
     for (const m of availableMetrics) {
       const rows = byMetric.get(m.key);
       if (!rows?.length) continue;
-      rows.sort((a, b) => (a.habitName || '').localeCompare(b.habitName || ''));
+      rows.sort((a, b) => insightsService._compareInsightsStronger(a.insight, b.insight));
       const sectionRows = rows.map((r, idx) => ({
         rowType: 'insight',
         key: `met-${m.key}-${r.habitId}-${idx}`,
         insight: r.insight,
         habitId: r.habitId,
         habitName: r.habitName,
+        insightKey: getInsightStableKey(r.insight),
       }));
 
       const subjective = subjectiveByKey.get(m.key);
@@ -270,8 +213,6 @@ const InsightsScreen = ({ navigation, route }) => {
           rowType: 'sleepMetricLink',
           key: `sub-${m.key}-${s.metricKey}-${analysisMode}`,
           metricLabel: s.metricLabel,
-          confidenceLevel: s.confidenceLevel,
-          impactLevel: s.impactLevel,
           direction: s.direction,
           insight: s.insight,
         });
@@ -280,25 +221,88 @@ const InsightsScreen = ({ navigation, route }) => {
       ordered.push({
         title: m.label,
         metricKey: m.key,
-        data: sectionRows,
-        showTableHeader: true,
+        sectionKind: 'metric',
+        data: [
+          {
+            rowType: 'insightGroup',
+            key: `met-group-${m.key}`,
+            rows: sectionRows.filter((r) => r.rowType === 'insight'),
+            linkRows: sectionRows.filter((r) => r.rowType === 'sleepMetricLink'),
+          },
+        ],
       });
     }
     return ordered;
-  }, [groups, analysisMode, availableMetrics, subjectiveData.groups]);
+  }, [groups, analysisMode, availableMetrics, subjectiveGroups]);
+
+  const goalOrientedSections = useMemo(() => {
+    const { forYouAll, forYouOverflowCount, exploreRows, buildingSummary } = tabViewModel;
+
+    const forYouVisible =
+      forYouExpanded || forYouOverflowCount === 0 ? forYouAll : tabViewModel.forYouRows;
+
+    const forYouData = [];
+    if (forYouVisible.length > 0) {
+      forYouData.push({
+        rowType: 'insightGroup',
+        key: 'for-you-group',
+        rows: forYouVisible,
+      });
+    } else {
+      forYouData.push({
+        rowType: 'emptyForYou',
+        key: 'empty-for-you',
+        message: sleepGoalMeta.emptyForYou,
+      });
+    }
+    if (forYouOverflowCount > 0 && !forYouExpanded) {
+      forYouData.push({
+        rowType: 'forYouToggle',
+        key: 'for-you-toggle',
+        count: forYouOverflowCount,
+      });
+    }
+
+    const sections = [
+      {
+        title: 'For you',
+        subtitle: sleepGoalMeta.label,
+        sectionKind: 'forYou',
+        data: forYouData,
+      },
+    ];
+
+    if (exploreRows.length > 0) {
+      sections.push({
+        title: 'Explore',
+        sectionKind: 'explore',
+        data: exploreExpanded
+          ? [{ rowType: 'insightGroup', key: 'explore-group', rows: exploreRows }]
+          : [{ rowType: 'exploreToggle', key: 'explore-toggle', count: exploreRows.length }],
+      });
+    }
+
+    if (buildingSummary.total > 0) {
+      sections.push({
+        title: 'Still gathering data',
+        sectionKind: 'building',
+        data: [{ rowType: 'buildingSummary', key: 'building-summary', total: buildingSummary.total }],
+      });
+    }
+
+    return sections;
+  }, [tabViewModel, sleepGoalMeta, exploreExpanded, forYouExpanded]);
 
   const metricViewEmpty =
     layoutMode === 'metric' && metricSections.length === 0 && groups.length > 0;
-  const showMetricFallbackToHabitProgress = metricViewEmpty;
   const activeSections =
-    layoutMode === 'habit' || showMetricFallbackToHabitProgress ? sections : metricSections;
+    layoutMode === 'metric' && metricSections.length > 0 ? metricSections : goalOrientedSections;
 
-  const anySignificant = useMemo(() => {
-    if (layoutMode === 'habit') {
-      return sections.some((s) => s.data.some((d) => d.rowType === 'insight'));
+  useEffect(() => {
+    if (layoutMode === 'metric' && metricSections.length === 0 && groups.length > 0) {
+      setLayoutMode('habit');
     }
-    return metricSections.length > 0;
-  }, [layoutMode, sections, metricSections]);
+  }, [layoutMode, metricSections.length, groups.length]);
 
   const performPendingMetricScroll = useCallback(() => {
     const pending = pendingMetricScrollRef.current;
@@ -338,46 +342,52 @@ const InsightsScreen = ({ navigation, route }) => {
     }
     let sectionIndex = -1;
     let itemIndex = 0;
-    if (layoutMode === 'habit') {
-      sectionIndex = groups.findIndex((g) => g.habitId === focusedHabitId);
-    } else if (focusedMetricKey) {
+
+    if (layoutMode === 'metric' && focusedMetricKey) {
       sectionIndex = metricSections.findIndex((s) => s.metricKey === focusedMetricKey);
       if (sectionIndex >= 0) {
-        itemIndex = metricSections[sectionIndex].data.findIndex(
-          (d) =>
-            d.rowType === 'insight' &&
-            d.habitId === focusedHabitId &&
-            d.insight?.metricKey === focusedMetricKey
-        );
-        if (itemIndex < 0) itemIndex = 0;
+        const group = metricSections[sectionIndex].data[0];
+        if (group?.rowType === 'insightGroup') {
+          const idx = group.rows.findIndex((d) => d.habitId === focusedHabitId);
+          itemIndex = idx >= 0 ? 0 : 0;
+        }
       }
-    } else {
-      sectionIndex = metricSections.findIndex((s) =>
-        s.data.some((d) => d.habitId === focusedHabitId)
-      );
-      if (sectionIndex >= 0) {
-        itemIndex = metricSections[sectionIndex].data.findIndex((d) => d.habitId === focusedHabitId);
-        if (itemIndex < 0) itemIndex = 0;
+    } else if (layoutMode === 'habit') {
+      for (let si = 0; si < goalOrientedSections.length; si += 1) {
+        const section = goalOrientedSections[si];
+        for (const d of section.data) {
+          if (d.rowType === 'insightGroup') {
+            const idx = d.rows.findIndex((r) => r.habitId === focusedHabitId);
+            if (idx >= 0) {
+              sectionIndex = si;
+              itemIndex = section.data.indexOf(d);
+              break;
+            }
+          } else if (d.rowType === 'insight' && d.habitId === focusedHabitId) {
+            sectionIndex = si;
+            itemIndex = section.data.indexOf(d);
+            break;
+          }
+        }
+        if (sectionIndex >= 0) break;
       }
     }
+
     if (sectionIndex < 0) {
       pendingMetricScrollRef.current = null;
       return undefined;
     }
-    pendingMetricScrollRef.current = {
-      sectionIndex,
-      itemIndex,
-      attempt: 0,
-    };
+    pendingMetricScrollRef.current = { sectionIndex, itemIndex, attempt: 0 };
     const t = setTimeout(() => performPendingMetricScroll(), 450);
     return () => clearTimeout(t);
   }, [
     loading,
     focusedHabitId,
     focusedMetricKey,
-    groups,
+    groups.length,
     layoutMode,
     metricSections,
+    goalOrientedSections,
     performPendingMetricScroll,
   ]);
 
@@ -449,255 +459,223 @@ const InsightsScreen = ({ navigation, route }) => {
     [navigation, analysisMode]
   );
 
+  const openBuildingHabitsSheet = useCallback(() => {
+    insightsService.setStagingBuildingHabits(tabViewModel.buildingHabits);
+    navigation.navigate('InsightsBuildingHabits');
+  }, [navigation, tabViewModel.buildingHabits]);
+
   const getMetricInfo = useCallback(
     (metricKey) => availableMetrics.find((m) => m.key === metricKey) || availableMetrics[0],
     [availableMetrics]
   );
 
-  const renderInsightRow = useCallback((insight, habitId, primaryLabel) => {
-    const isPositive = insight.direction === 'positive';
-    const confidenceLevel = insight.confidenceLevel;
-    const impactLevel = insight.impactLevel || 'minimal';
-    const impactStyle = getImpactTagStyle(impactLevel, isPositive);
-    const impactBarColors = getImpactSignalBarColors(impactLevel, isPositive);
-    const impactBarFilled = getImpactStrengthBarCount(impactLevel);
-    const metricColor = getSleepMetricColor(insight.metricKey);
-    const sleepMetricInfo = getMetricInfo(insight.metricKey);
-    const firstCell = primaryLabel ?? insight.metricLabel;
-    const isMetricHabitNameCell = primaryLabel != null;
-    const headline = getInsightRowHeadline(
-      insight,
-      sleepMetricInfo,
-      analysisMode === 'percentage'
-    );
-    const impactDirection = insight.direction === 'negative' ? 'negative' : 'positive';
-    const habitNameForHeadline =
-      layoutMode === 'metric' ? primaryLabel || insight.habit?.name : insight.habit?.name;
+  const renderInsightCard = useCallback(
+    (item, { primaryLabel, isFirst = false } = {}) => {
+      const insight = item.insight;
+      const sleepMetricInfo = getMetricInfo(insight.metricKey);
+      const headline = getInsightRowHeadline(insight, sleepMetricInfo, analysisMode === 'percentage', {
+        variant: 'list',
+      });
+      const impactDirection = insight.direction === 'negative' ? 'negative' : 'positive';
+      const showNew = isInsightNew(item.insightKey);
+      const impactDisplay = getInsightImpactDisplay(
+        insight,
+        sleepMetricInfo,
+        analysisMode === 'percentage'
+      );
 
-    const rowAccentStyle =
-      layoutMode === 'habit'
-        ? { borderLeftColor: metricColor, borderLeftWidth: 4 }
-        : { borderLeftWidth: 0 };
-
-    return (
-      <TouchableOpacity
-        style={[
-          styles.tableRow,
-          layoutMode === 'metric' && styles.tableRowMetricLayout,
-          rowAccentStyle,
-        ]}
-        onPress={() => navigateToHabitDetail(habitId, insight.metricKey)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.tableRowMain}>
-          <View style={styles.tableRowColumns}>
-            <Text
-              style={[styles.tableCellMetric, isMetricHabitNameCell && styles.tableCellMetricNameMetric]}
-              numberOfLines={isMetricHabitNameCell ? 2 : 1}
-            >
-              {firstCell}
-            </Text>
-            <InsightCorrelationPill
-              confidenceLevel={confidenceLevel}
-              compact
-              style={styles.tagCorrelation}
-            />
-            <View style={[styles.tagBase, styles.tagImpact, { backgroundColor: impactStyle.backgroundColor }]}>
-              <InsightSignalStrengthBars
-                filledCount={impactBarFilled}
-                filledColor={impactBarColors.filled}
-                emptyColor={impactBarColors.empty}
-                accessibilityLabel={getInsightImpactAccessibilityLabel(impactLevel, isPositive)}
-                compact
-              />
-            </View>
-          </View>
-          {headline ? (
-            <View style={styles.insightHeadlineWrap}>
-              <InsightHeadlineText
-                headline={headline}
-                habitName={habitNameForHeadline}
-                impactDirection={impactDirection}
-                numberOfLines={3}
-              />
-            </View>
-          ) : null}
-        </View>
-        <View style={styles.rowChevronPinned} pointerEvents="none">
-          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-        </View>
-      </TouchableOpacity>
-    );
-  }, [analysisMode, getMetricInfo, layoutMode, navigateToHabitDetail]);
+      return (
+        <InsightListCard
+          primaryLabel={primaryLabel || item.habitName}
+          headline={headline}
+          habitName={item.habitName}
+          impactDirection={impactDirection}
+          impactLevel={insight.impactLevel || 'minimal'}
+          impactPercent={impactDisplay?.relativePercent}
+          showNew={showNew}
+          isFirst={isFirst}
+          headlineLines={2}
+          onPress={() => navigateToHabitDetail(item.habitId, insight.metricKey)}
+        />
+      );
+    },
+    [analysisMode, getMetricInfo, isInsightNew, navigateToHabitDetail]
+  );
 
   const renderEmptyState = useCallback(() => (
     <View style={styles.emptyState}>
       <Ionicons name="analytics-outline" size={64} color={colors.textSecondary} />
-      <Text style={styles.emptyStateTitle}>No habits to analyse</Text>
-      <Text style={styles.emptyStateText}>
-        Add a habit and log it on days when you have sleep data.
-      </Text>
+      {insightsError ? (
+        <>
+          <Text style={styles.emptyStateTitle}>Couldn&apos;t load insights</Text>
+          <Text style={styles.emptyStateText}>
+            Something went wrong while loading your data. Try opening this tab again in a moment.
+          </Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => loadTab()} activeOpacity={0.7}>
+            <Text style={styles.retryBtnText}>Try again</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <>
+          <Text style={styles.emptyStateTitle}>No habits to analyse</Text>
+          <Text style={styles.emptyStateText}>
+            Add a habit and log it on days when you have sleep data.
+          </Text>
+        </>
+      )}
     </View>
-  ), []);
+  ), [insightsError, loadTab]);
 
   const renderSectionHeader = useCallback(
     ({ section }) => {
-      const isMetricLayout = layoutMode === 'metric';
-      const sectionTitle = isMetricLayout ? section.title : section.habitName;
-      const focusMatch =
-        focusedHabitId != null &&
-        (isMetricLayout
-          ? section.data?.some((d) => d.habitId === focusedHabitId)
-          : focusedHabitId === section.habitId);
-
-      const showBuildingHelp =
-        !section.showTableHeader &&
-        !!section.progress?.needsMoreData;
-
-      return (
-        <View style={styles.sectionWrapper}>
-          <View
-            style={[
-              styles.habitContainer,
-              styles.habitContainerHeader,
-              focusMatch && styles.habitContainerFocused,
-              !section.showTableHeader && styles.habitContainerNoTable,
-            ]}
-          >
-            <View style={styles.sectionTitleRow}>
-              <Text style={styles.habitName}>{sectionTitle}</Text>
-              {showBuildingHelp ? (
-                <InsightMinimumDataHelp
-                  variant={section.progress?.isBinary ? 'binary' : 'numeric'}
-                  iconSize={18}
-                  style={styles.sectionHelpIcon}
-                />
-              ) : null}
-              {analysisMode === 'percentage' ? (
-                <PercentageModeHelp iconSize={18} style={styles.sectionHelpIcon} />
-              ) : null}
-            </View>
-            {section.showTableHeader ? (
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeaderText, styles.tableHeaderMetric]}>
-                  {isMetricLayout ? 'Habit' : 'Sleep metric'}
-                </Text>
-                <Text style={[styles.tableHeaderText, styles.tableHeaderTagCorrelation]}>Correlation</Text>
-                <Text
-                  style={[styles.tableHeaderText, styles.tableHeaderTagImpact]}
-                  numberOfLines={1}
-                >
-                  Impact
-                </Text>
-              </View>
-            ) : null}
+      if (section.sectionKind === 'metric') {
+        return (
+          <View style={styles.sectionBlock}>
+            <InsightsSectionHeader title={section.title} />
           </View>
-        </View>
-      );
+        );
+      }
+
+      if (section.sectionKind === 'forYou') {
+        return (
+          <View style={styles.sectionBlock}>
+            <InsightsSectionHeader
+              title={section.title}
+              subtitle={section.subtitle}
+              onChangeGoal={() => navigation.navigate('Profile')}
+            />
+          </View>
+        );
+      }
+
+      if (section.sectionKind === 'explore') {
+        return (
+          <View style={styles.sectionBlock}>
+            <InsightsSectionHeader
+              title={section.title}
+              trailing={
+                exploreExpanded ? (
+                  <TouchableOpacity
+                    onPress={() => setExploreExpanded(false)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.collapseLink}>Hide</Text>
+                  </TouchableOpacity>
+                ) : null
+              }
+            />
+          </View>
+        );
+      }
+
+      if (section.sectionKind === 'building') {
+        return null;
+      }
+
+      return null;
     },
-    [analysisMode, focusedHabitId, layoutMode]
+    [exploreExpanded, navigation]
   );
 
   const renderItem = useCallback(
-    ({ item, section, index }) => {
-      const isLast = index === (section.data?.length ?? 0) - 1;
-      if (item.rowType === 'building') {
-        const sectionHabitId = layoutMode === 'habit' ? section.habitId : item.habitId;
+    ({ item, section }) => {
+      if (item.rowType === 'emptyForYou') {
         return (
-          <View style={styles.sectionWrapper}>
-            <TouchableOpacity
-              style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}
-              onPress={() => navigateToHabitDetail(sectionHabitId, 'total_sleep_minutes')}
-              activeOpacity={0.7}
-            >
-              {item.progress.isBinary ? (
-                <BinaryProgressBlock progress={item.progress} />
-              ) : (
-                <NumericProgressBlock progress={item.progress} />
-              )}
-              <Text style={styles.buildingHint}>Tap to see progress and day-by-day chart</Text>
-            </TouchableOpacity>
+          <View style={styles.cardBlock}>
+            <Text style={styles.emptyForYouText}>{item.message}</Text>
           </View>
         );
       }
-      if (item.rowType === 'noLink') {
-        const n = item.timesLogged ?? 0;
-        const sectionHabitId = layoutMode === 'habit' ? section.habitId : item.habitId;
+
+      if (item.rowType === 'forYouToggle') {
         return (
-          <View style={styles.sectionWrapper}>
+          <View style={styles.cardBlock}>
             <TouchableOpacity
-              style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast, styles.noLinkPad]}
-              onPress={() => navigateToHabitDetail(sectionHabitId, 'total_sleep_minutes')}
+              style={styles.toggleRow}
+              onPress={() => setForYouExpanded(true)}
               activeOpacity={0.7}
             >
-              <Text style={styles.noLinkOneLine} numberOfLines={2}>
-                No correlation found yet · Logged {n} time{n !== 1 ? 's' : ''}
+              <Text style={styles.toggleText}>
+                Show {item.count} more for your goal
               </Text>
-              <Text style={styles.buildingHint}>Tap to explore this habit over time</Text>
+              <Ionicons name="chevron-down" size={18} color={colors.primary} />
             </TouchableOpacity>
           </View>
         );
       }
-      if (item.rowType === 'sleepMetricLink') {
-        const linkInsight = item.insight;
-        const sleepMetricInfo = getMetricInfo(section.metricKey);
-        const headline = linkInsight
-          ? getInsightRowHeadline(linkInsight, sleepMetricInfo, analysisMode === 'percentage')
-          : item.metricLabel;
-        const isPositive = item.direction === 'positive';
-        const impactStyle = getImpactTagStyle(item.impactLevel || 'minimal', isPositive);
-        const impactBarColors = getImpactSignalBarColors(item.impactLevel || 'minimal', isPositive);
-        const impactBarFilled = getImpactStrengthBarCount(item.impactLevel || 'minimal');
+
+      if (item.rowType === 'exploreToggle') {
         return (
-          <View style={styles.sectionWrapper}>
-            <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
-              <View style={[styles.tableRow, styles.tableRowMetricLayout]}>
-                <View style={styles.tableRowMain}>
-                  <View style={styles.tableRowColumns}>
-                    <Text style={styles.tableCellMetric} numberOfLines={2}>
-                      {item.metricLabel}
-                    </Text>
-                    <InsightCorrelationPill
-                      confidenceLevel={item.confidenceLevel}
-                      compact
-                      style={styles.tagCorrelation}
-                    />
-                    <View style={[styles.tagBase, styles.tagImpact, { backgroundColor: impactStyle.backgroundColor }]}>
-                      <InsightSignalStrengthBars
-                        filledCount={impactBarFilled}
-                        filledColor={impactBarColors.filled}
-                        emptyColor={impactBarColors.empty}
-                        compact
-                      />
-                    </View>
-                  </View>
-                  {headline ? (
-                    <View style={styles.insightHeadlineWrap}>
-                      <InsightHeadlineText
-                        headline={headline}
-                        habitName={item.metricLabel}
-                        impactDirection={item.direction === 'negative' ? 'negative' : 'positive'}
-                        numberOfLines={3}
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-            </View>
+          <View style={styles.cardBlock}>
+            <TouchableOpacity
+              style={styles.toggleRow}
+              onPress={() => setExploreExpanded(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.toggleText}>
+                Show {item.count} more insight{item.count !== 1 ? 's' : ''}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={colors.primary} />
+            </TouchableOpacity>
           </View>
         );
       }
-      const habitIdForRow = layoutMode === 'metric' ? item.habitId : section.habitId;
-      const primaryLabel = layoutMode === 'metric' ? item.habitName : undefined;
-      return (
-        <View style={styles.sectionWrapper}>
-          <View style={[styles.habitContainerItem, isLast && styles.habitContainerItemLast]}>
-            {renderInsightRow(item.insight, habitIdForRow, primaryLabel)}
+
+      if (item.rowType === 'buildingSummary') {
+        return (
+          <View style={styles.sectionBlock}>
+            <InsightsBuildingSummaryCard total={item.total} onPress={openBuildingHabitsSheet} />
           </View>
-        </View>
-      );
+        );
+      }
+
+      if (item.rowType === 'insightGroup') {
+        return (
+          <View style={styles.cardBlock}>
+            <InsightImpactMeter legendOnly />
+            {item.rows.map((row, rowIdx) => (
+              <React.Fragment key={row.key || `row-${row.habitId}-${rowIdx}`}>
+                {renderInsightCard(row, { isFirst: rowIdx === 0 })}
+              </React.Fragment>
+            ))}
+            {(item.linkRows || []).map((linkRow, linkIdx) => {
+              const linkInsight = linkRow.insight;
+              const sleepMetricInfo = getMetricInfo(section.metricKey);
+              const headline = linkInsight
+                ? getInsightRowHeadline(linkInsight, sleepMetricInfo, analysisMode === 'percentage', {
+                    variant: 'list',
+                  })
+                : linkRow.metricLabel;
+              const impactDirection = linkRow.direction === 'negative' ? 'negative' : 'positive';
+              const linkImpactDisplay = linkInsight
+                ? getInsightImpactDisplay(linkInsight, sleepMetricInfo, analysisMode === 'percentage')
+                : null;
+              return (
+                <InsightListCard
+                  key={linkRow.key}
+                  primaryLabel={linkRow.metricLabel}
+                  headline={headline}
+                  habitName={linkRow.metricLabel}
+                  impactDirection={impactDirection}
+                  impactLevel={linkRow.impactLevel || linkInsight?.impactLevel || 'minimal'}
+                  impactPercent={linkImpactDisplay?.relativePercent}
+                  isFirst={item.rows.length === 0 && linkIdx === 0}
+                  headlineLines={2}
+                />
+              );
+            })}
+          </View>
+        );
+      }
+
+      return null;
     },
-    [renderInsightRow, layoutMode, navigateToHabitDetail, getMetricInfo, analysisMode]
+    [
+      analysisMode,
+      getMetricInfo,
+      openBuildingHabitsSheet,
+      renderInsightCard,
+    ]
   );
 
   const sectionListKeyExtractor = useCallback((item) => item.key, []);
@@ -717,7 +695,17 @@ const InsightsScreen = ({ navigation, route }) => {
                 <Text style={styles.title}>Insights</Text>
                 <Text style={styles.headerSubtitle}>How your habits affect sleep</Text>
               </View>
-              <AppHeaderProfileButton />
+              <View style={styles.headerActions}>
+                <TouchableOpacity
+                  onPress={() => setViewOptionsVisible(true)}
+                  style={styles.filterBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="View options"
+                >
+                  <Ionicons name="options-outline" size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+                <AppHeaderProfileButton />
+              </View>
             </View>
           </View>
         </GlassChromeBar>
@@ -727,88 +715,9 @@ const InsightsScreen = ({ navigation, route }) => {
             <Text style={styles.updatingBannerSubtitle}>Based on your latest logs</Text>
           </View>
         ) : null}
-        <View style={styles.listHeaderContent}>
-          <View style={[styles.switchRow, styles.switchRowWrap]}>
-            <View style={styles.switchLabelCol}>
-              <Text style={styles.switchLabel}>Group by</Text>
-            </View>
-            <View style={styles.switchSegments}>
-              <TouchableOpacity
-                style={[styles.switchSegment, layoutMode === 'habit' && styles.switchSegmentActive]}
-                onPress={() => setLayoutMode('habit')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.switchSegmentText,
-                    layoutMode === 'habit' && styles.switchSegmentTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  Habits
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.switchSegment, layoutMode === 'metric' && styles.switchSegmentActive]}
-                onPress={() => setLayoutMode('metric')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.switchSegmentText,
-                    layoutMode === 'metric' && styles.switchSegmentTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  Sleep metrics
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={styles.switchRow}>
-            <View style={styles.switchLabelCol}>
-              <Text style={styles.switchLabel}>View by</Text>
-            </View>
-            <View style={styles.switchSegments}>
-              <TouchableOpacity
-                style={[styles.switchSegment, analysisMode === 'absolute' && styles.switchSegmentActive]}
-                onPress={() => setAnalysisMode('absolute')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.switchSegmentText,
-                    analysisMode === 'absolute' && styles.switchSegmentTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  Minutes
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.switchSegment, analysisMode === 'percentage' && styles.switchSegmentActive]}
-                onPress={() => setAnalysisMode('percentage')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.switchSegmentText,
-                    analysisMode === 'percentage' && styles.switchSegmentTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  Sleep mix (%)
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          {!anySignificant && groups.length > 0 && (
-            <Text style={styles.switchEmptyHint}>Try the other view if this one is empty.</Text>
-          )}
-        </View>
       </>
     ),
-    [headerTopPadding, analysisMode, anySignificant, groups.length, layoutMode, isRefreshing]
+    [headerTopPadding, isRefreshing]
   );
 
   return (
@@ -819,6 +728,22 @@ const InsightsScreen = ({ navigation, route }) => {
         <View style={styles.scrollView}>
           {listHeader}
           <View style={styles.content}>{renderEmptyState()}</View>
+        </View>
+      ) : activeSections.length === 0 ? (
+        <View style={styles.scrollView}>
+          {listHeader}
+          <View style={styles.content}>
+            {metricViewEmpty ? (
+              <View style={styles.metricEmptyWrap}>
+                <Text style={styles.metricEmptyText}>
+                  No correlations in this layout yet. Open view options and switch to Habits, or keep
+                  logging.
+                </Text>
+              </View>
+            ) : (
+              renderEmptyState()
+            )}
+          </View>
         </View>
       ) : (
         <SectionList
@@ -832,19 +757,17 @@ const InsightsScreen = ({ navigation, route }) => {
           renderItem={renderItem}
           keyExtractor={sectionListKeyExtractor}
           onScrollToIndexFailed={onScrollToIndexFailedMetric}
-          ListEmptyComponent={
-            metricViewEmpty ? (
-              <View style={styles.metricEmptyWrap}>
-                <Text style={styles.metricEmptyText}>
-                  No correlations yet in this layout. We are showing tracking progress by habit until enough
-                  data builds up for sleep-metric links.
-                </Text>
-              </View>
-            ) : null
-          }
           contentContainerStyle={styles.sectionListContent}
         />
       )}
+      <InsightsViewOptionsSheet
+        visible={viewOptionsVisible}
+        layoutMode={layoutMode}
+        analysisMode={analysisMode}
+        onLayoutModeChange={setLayoutMode}
+        onAnalysisModeChange={setAnalysisMode}
+        onClose={() => setViewOptionsVisible(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -875,6 +798,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: spacing.sm,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  filterBtn: {
+    padding: spacing.xs,
+  },
   headerSubtitle: {
     fontSize: typography.sizes.small,
     color: colors.textSecondary,
@@ -889,64 +820,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.regular,
     paddingBottom: 112,
   },
-  listHeaderContent: {
+  sectionBlock: {
     paddingHorizontal: spacing.regular,
-    marginBottom: spacing.sm,
+    marginTop: spacing.regular,
   },
-  sectionWrapper: {
+  cardBlock: {
     marginHorizontal: spacing.regular,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.regular,
-    gap: spacing.sm,
-  },
-  switchRowWrap: {
-    marginBottom: spacing.xs,
-  },
-  switchLabelCol: {
-    width: 82,
-    flexShrink: 0,
-    justifyContent: 'center',
-  },
-  switchLabel: {
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.medium,
-    color: colors.textSecondary,
-  },
-  switchSegments: {
-    flexDirection: 'row',
-    flex: 1,
-    backgroundColor: colors.border,
-    borderRadius: BUTTON_BORDER_RADIUS,
-    padding: 2,
-  },
-  switchSegment: {
-    flex: 1,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: BUTTON_SEGMENT_INNER_RADIUS,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  switchSegmentActive: {
-    backgroundColor: colors.background,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  switchSegmentText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-    color: colors.textSecondary,
-    flexShrink: 1,
-  },
-  switchSegmentTextActive: {
-    color: colors.primary,
-    fontWeight: typography.weights.bold,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
   },
   updatingBanner: {
     marginHorizontal: spacing.regular,
@@ -966,295 +852,32 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
-  switchEmptyHint: {
-    fontSize: typography.sizes.small,
+  emptyForYouText: {
+    fontSize: typography.sizes.body,
     color: colors.textSecondary,
-    marginBottom: spacing.regular,
-    fontStyle: 'italic',
+    lineHeight: 22,
+    paddingVertical: spacing.xs,
   },
-  habitContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.regular,
-    paddingTop: spacing.xs + 2,
-    marginBottom: 0,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    paddingBottom: 0,
-  },
-  habitContainerHeader: {
-    marginBottom: 0,
-  },
-  sectionTitleRow: {
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.xs,
+    paddingVertical: spacing.xs,
   },
-  sectionHelpIcon: {
-    marginLeft: spacing.xs,
-  },
-  habitContainerNoTable: {
-    paddingBottom: spacing.xs,
-  },
-  binaryProgressWrap: {
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
-  },
-  buildingHelpIcon: {
-    flexShrink: 0,
-  },
-  binaryBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-    gap: 6,
-  },
-  binaryBarRowLast: {
-    marginBottom: 0,
-  },
-  binaryBarLabel: {
-    width: 32,
-    fontSize: 11,
+  toggleText: {
+    fontSize: typography.sizes.small,
+    color: colors.primary,
     fontWeight: typography.weights.semibold,
-    color: colors.textSecondary,
-    flexShrink: 0,
   },
-  binaryBarLabelPaired: {
-    minWidth: 44,
-    fontSize: 11,
+  collapseLink: {
+    fontSize: typography.sizes.small,
+    color: colors.primary,
     fontWeight: typography.weights.semibold,
-    color: colors.textSecondary,
-    flexShrink: 0,
-    marginRight: 2,
-  },
-  binaryBarTrack: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border,
-    overflow: 'hidden',
-  },
-  binaryBarTrackAlt: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border,
-    overflow: 'hidden',
-  },
-  binaryBarCount: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    minWidth: 48,
-    textAlign: 'right',
-  },
-  noLinkPad: {
-    paddingVertical: spacing.sm,
-  },
-  noLinkOneLine: {
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-  },
-  habitContainerItem: {
-    backgroundColor: colors.cardBackground,
-    paddingHorizontal: spacing.regular,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: colors.border,
-  },
-  habitContainerItemLast: {
-    marginBottom: spacing.regular,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    borderBottomWidth: 1,
-  },
-  habitContainerFocused: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-  },
-  habitName: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 2,
-    paddingBottom: spacing.xs,
-    paddingLeft: 4,
-    paddingRight: 28,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: spacing.sm,
-  },
-  tableHeaderText: {
-    fontSize: 10,
-    fontWeight: typography.weights.bold,
-    color: colors.textSecondary,
-  },
-  tableHeaderMetric: {
-    flex: 3.5,
-    minWidth: 0,
-  },
-  /** Correlation (text) / impact (bars); metric column takes remaining width */
-  tableHeaderTagCorrelation: {
-    flex: 0.62,
-    minWidth: 58,
-    textAlign: 'center',
-    width: '100%',
-  },
-  tableHeaderTagImpact: {
-    flex: 0.52,
-    minWidth: 40,
-    textAlign: 'center',
-    width: '100%',
-  },
-  tableRow: {
-    position: 'relative',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: spacing.sm,
-    paddingLeft: spacing.xs,
-    paddingRight: 0,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  tableRowMain: {
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 28,
-  },
-  tableRowColumns: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: 0,
-    gap: spacing.sm,
-  },
-  insightHeadlineWrap: {
-    marginTop: spacing.xs,
-    paddingRight: spacing.xs,
-  },
-  tableRowMetricLayout: {
-    paddingLeft: 0,
-  },
-  buildingHint: {
-    fontSize: typography.sizes.xs,
-    color: colors.textLight,
-    marginTop: spacing.sm,
-  },
-  tableRowMuted: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingLeft: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    gap: spacing.sm,
-  },
-  mutedText: {
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
-  },
-  tagSlot: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: typography.sizes.small,
-  },
-  tableCellMetric: {
-    flex: 3.5,
-    minWidth: 0,
-    fontSize: typography.sizes.small,
-    fontWeight: typography.weights.regular || '400',
-    color: colors.textSecondary,
-  },
-  tableCellMetricNameMetric: {
-    fontSize: typography.sizes.xs,
-    lineHeight: typography.lineHeights.xs,
-  },
-  tagBase: {
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    borderRadius: 6,
-    minWidth: 0,
-  },
-  tagCorrelation: {
-    flex: 0.62,
-    minWidth: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tagImpact: {
-    flex: 0.52,
-    minWidth: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowChevronPinned: {
-    position: 'absolute',
-    right: 0,
-    top: spacing.sm,
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingLeft: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    gap: spacing.sm,
-  },
-  progressRowMain: {
-    flex: 2,
-    paddingRight: spacing.xs,
-  },
-  progressBarBg: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.border,
-    overflow: 'hidden',
-  },
-  progressBarFg: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.primary,
-  },
-  progressBarFgAlt: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.sleepStages?.rem ?? colors.primary,
-  },
-  binaryBarFillYes: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.primary,
-  },
-  binaryBarFillNo: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.sleepStages?.rem ?? colors.primary,
-  },
-  progressMicro: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  progressDash: {
-    flex: 1,
-    fontSize: typography.sizes.small,
-    color: colors.textSecondary,
-    textAlign: 'center',
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: spacing.xl * 2,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.regular,
   },
   emptyStateTitle: {
     fontSize: typography.sizes.large,
@@ -1262,22 +885,34 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: spacing.regular,
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   emptyStateText: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
+  },
+  retryBtn: {
+    marginTop: spacing.regular,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+  },
+  retryBtnText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: '#FFFFFF',
   },
   metricEmptyWrap: {
-    paddingHorizontal: spacing.regular,
-    paddingVertical: spacing.xl,
+    paddingVertical: spacing.lg,
   },
   metricEmptyText: {
     fontSize: typography.sizes.body,
     color: colors.textSecondary,
-    textAlign: 'center',
     lineHeight: 22,
+    textAlign: 'center',
   },
 });
 

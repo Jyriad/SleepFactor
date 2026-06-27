@@ -55,8 +55,10 @@ import habitReminderNotifications from '../services/habitReminderNotifications';
 import morningCheckinNotifications from '../services/morningCheckinNotifications';
 import homeCacheService from '../services/homeCacheService';
 import insightsService from '../services/insightsService';
+import SleepGoalPicker from '../components/SleepGoalPicker';
+import { DEFAULT_SLEEP_GOAL_ID } from '../constants/sleepGoals';
+import sleepSyncNotifications from '../services/sleepSyncNotifications';
 import { clearConsumptionOptionsDiskCache } from '../services/consumptionOptionsService';
-import bedtimeHabitsService from '../services/bedtimeHabitsService';
 import { supabase } from '../services/supabase';
 import subjectiveMeasuresService from '../services/subjectiveMeasuresService';
 import {
@@ -543,12 +545,6 @@ const ProfileScreen = () => {
         }
         const syncedRecords = result.syncedRecords || 0;
 
-        try {
-          await bedtimeHabitsService.backfillBedtimeHabits(user.id, 100);
-        } catch (bedtimeError) {
-          /* non fatal */
-        }
-
         Alert.alert(
           'Sync Complete',
           `Successfully synced sleep for the last 100 days (and related data where available).\n\nSleep nights written this run: ${syncedRecords}.`,
@@ -895,6 +891,28 @@ const ProfileScreen = () => {
             </SafeAreaView>
           </Modal>
 
+          {/* Sleep insights preferences */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Sleep insights</Text>
+            <View style={[styles.infoCard, styles.measurementCard]}>
+              <Text style={styles.label}>What matters most for your sleep?</Text>
+              <Text style={styles.description}>
+                We prioritise insights that match this goal on Home and in Insights.
+              </Text>
+              <SleepGoalPicker
+                selectedId={preferences.primarySleepGoal || DEFAULT_SLEEP_GOAL_ID}
+                onSelect={(goalId) =>
+                  savePreferences({
+                    primarySleepGoal: goalId,
+                    primarySleepGoalSetByUser: true,
+                    sleepGoalPromptSeen: true,
+                  })
+                }
+                compact
+              />
+            </View>
+          </View>
+
           {/* Settings */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
@@ -924,6 +942,30 @@ const ProfileScreen = () => {
                     ]}
                   >
                     fl oz, oz
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.measurementOption,
+                    preferences.measurementRegion === 'UK' && styles.measurementOptionSelected,
+                  ]}
+                  onPress={() => savePreferences({ measurementRegion: 'UK', measurementSystem: 'metric' })}
+                >
+                  <Text
+                    style={[
+                      styles.measurementText,
+                      preferences.measurementRegion === 'UK' && styles.measurementTextSelected,
+                    ]}
+                  >
+                    UK
+                  </Text>
+                  <Text
+                    style={[
+                      styles.measurementSubtext,
+                      preferences.measurementRegion === 'UK' && styles.measurementSubtextSelected,
+                    ]}
+                  >
+                    ml, pints
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1118,6 +1160,40 @@ const ProfileScreen = () => {
                   </Text>
                 </TouchableOpacity>
               )}
+              <View style={styles.notificationDivider} />
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelContainer}>
+                  <Text style={styles.label}>New insight alerts</Text>
+                  <Text style={styles.description}>When we find a pattern worth your attention</Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleSwitch,
+                    preferences.insightDiscoveryNotifications && styles.toggleSwitchOn,
+                  ]}
+                  onPress={async () => {
+                    const next = !preferences.insightDiscoveryNotifications;
+                    if (next) {
+                      const granted = await sleepSyncNotifications.requestNotificationPermission();
+                      if (!granted) {
+                        Alert.alert(
+                          'Notifications off',
+                          'Enable notifications in your device settings to get insight alerts.'
+                        );
+                        return;
+                      }
+                    }
+                    await updatePreference('insightDiscoveryNotifications', next);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      preferences.insightDiscoveryNotifications && styles.toggleKnobOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
             <View style={[styles.infoCard, styles.notificationsCard, styles.toggleCard]}>
               <View style={styles.toggleRow}>
@@ -1669,6 +1745,7 @@ const styles = StyleSheet.create({
   },
   measurementContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.sm,
   },

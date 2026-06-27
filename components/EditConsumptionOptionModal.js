@@ -17,6 +17,7 @@ import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
 import { ML_PER_FL_OZ, calculateAlcoholMl, deriveAbvFromAlcoholMl } from '../constants/consumptionReferenceData';
 import consumptionOptionsService from '../services/consumptionOptionsService';
 import { INTAKE_BASIS, resolveIntakeBasis, isLiquidServingUnit } from '../utils/consumptionIntake';
+import { buildDefaultCustomProfile } from '../constants/consumptionServingProfiles';
 import Button from './Button';
 
 // Icon options removed for now - keeping database column for future use
@@ -189,7 +190,11 @@ const EditConsumptionOptionModal = ({
         null,
         volumeMl,
         servingUnit,
-        finalDrugUnit
+        finalDrugUnit,
+        volumeMl != null && volumeMl > 0
+          ? [buildDefaultCustomProfile(volumeMl, isAlcoholHabit ? 'Standard serving' : 'Standard')]
+          : null,
+        isAlcoholHabit ? parseFloat(alcoholPercent) || null : null
       );
 
       if (result.success) {

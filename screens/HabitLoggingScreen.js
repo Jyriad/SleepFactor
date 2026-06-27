@@ -48,7 +48,7 @@ import {
 import { getHabitsRefreshTrigger } from '../services/habitsRefreshTrigger';
 import { requestDateStripLoggedRefresh } from '../services/dateStripBadgeRefresh';
 import healthMetricsService from '../services/healthMetricsService';
-import { INFERRED_HABIT_NAMES } from '../constants/inferredHabits';
+import { INFERRED_HABIT_NAMES, REMOVED_HABIT_NAMES } from '../constants/inferredHabits';
 import { getBedtimeDrugLevel, habitUsesCaffeineMgFloor, CAFFEINE_MG_FLOOR } from '../utils/drugHalfLife';
 import { colors } from '../constants/colors';
 import { typography, spacing, BUTTON_BORDER_RADIUS } from '../constants';
@@ -75,6 +75,8 @@ function pendingQueueRowToEvent(queueItemId, row) {
     logged_intake_basis: row.logged_intake_basis,
     logged_volume_ml: row.logged_volume_ml,
     logged_serving_count: row.logged_serving_count,
+    logged_serving_profile_id: row.logged_serving_profile_id,
+    logged_abv_percent: row.logged_abv_percent,
     _pendingSync: true,
   };
 }
@@ -130,11 +132,15 @@ function normalizeHabitForPayload(h) {
 }
 
 const inferredHabitNames = new Set(INFERRED_HABIT_NAMES);
+const removedHabitNames = new Set(REMOVED_HABIT_NAMES);
 
 /** Manual journal habits only — excludes automatic health metrics and inferred habits. */
 function habitsForManualLogging(habits) {
   return (habits || []).filter(
-    (h) => !healthMetricsService.isHealthMetricHabit(h) && !inferredHabitNames.has(h.name)
+    (h) =>
+      !removedHabitNames.has(h.name) &&
+      !healthMetricsService.isHealthMetricHabit(h) &&
+      !inferredHabitNames.has(h.name)
   );
 }
 

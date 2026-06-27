@@ -490,6 +490,13 @@ class DataQualityService {
    */
   async excludeHabitLog(userId, logId, reason = 'Manually excluded by user') {
     try {
+      if (!userId || !logId || String(logId) === 'undefined') {
+        return {
+          success: false,
+          error: 'Missing habit log identifier',
+        };
+      }
+
       // Check if exclusion columns exist by trying a test query
       const testQuery = await supabase
         .from('habit_logs')
@@ -571,6 +578,13 @@ class DataQualityService {
 
         if (error) throw error;
       } else if (table === 'habit_logs') {
+        if (!userId || !recordId || String(recordId) === 'undefined') {
+          return {
+            success: false,
+            error: 'Missing habit log identifier',
+          };
+        }
+
         // Check if exclusion columns exist
         testQuery = await supabase
           .from('habit_logs')

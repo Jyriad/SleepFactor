@@ -32,6 +32,34 @@ function formatBinaryHabitValue(value) {
   return 'N/A';
 }
 
+function isDrugLevelRow(log) {
+  if (!log) return false;
+  return log.level_value != null && log.calculated_at != null && log.value == null;
+}
+
+function getHabitLogIdFromPoint(point, habit) {
+  const log = point?.habitLog;
+  if (!log?.id) return null;
+  if (habit?.type === 'quick_consumption' || isDrugLevelRow(log)) return null;
+  return log.id;
+}
+
+function getSleepExclusionDate(point) {
+  return point?.sleepData?.date || point?.sleepDate || point?.date || null;
+}
+
+function resolveExclusionTarget(point, habit, exclusionStatus) {
+  const logId = exclusionStatus?.logId || getHabitLogIdFromPoint(point, habit);
+  if (logId) {
+    return { type: 'habit_log', logId };
+  }
+  const sleepDate = exclusionStatus?.sleepDate || getSleepExclusionDate(point);
+  if (sleepDate) {
+    return { type: 'sleep_data', date: sleepDate };
+  }
+  return null;
+}
+
 // Habit Item Component - handles different habit types and expandable details
 const HabitItem = ({ habitItem, isExpanded, onToggle }) => {
   const formatConsumptionTime = (timestamp) => {
@@ -155,27 +183,29 @@ const DataPointDetailModal = ({
       fetchSleepData();
       fetchHabitsData();
     }
-  }, [visible, point]);
+  }, [visible, point, habit]);
 
   const checkExclusionStatus = async () => {
     if (!point) return;
 
     try {
-      // Use the data already available in the point object
-      if (point.habitLog && point.sleepData) {
-        // This is habit data with both habit log and sleep data
+      const logId = getHabitLogIdFromPoint(point, habit);
+      if (logId) {
         setExclusionStatus({
           excluded: point.exclude_from_insights,
           reason: point.exclusion_reason,
           autoExcluded: point.auto_excluded,
-          logId: point.habitLog.id
+          logId,
+          targetType: 'habit_log',
         });
-      } else if (point.sleepData) {
-        // This is sleep data
+      } else if (point.sleepData || point.sleepDate || point.date) {
+        const sleep = point.sleepData;
         setExclusionStatus({
-          excluded: point.sleepData.exclude_from_insights,
-          reason: point.sleepData.exclusion_reason,
-          autoExcluded: point.sleepData.auto_excluded
+          excluded: sleep?.exclude_from_insights ?? point.exclude_from_insights ?? false,
+          reason: sleep?.exclusion_reason ?? point.exclusion_reason,
+          autoExcluded: sleep?.auto_excluded ?? point.auto_excluded ?? false,
+          sleepDate: getSleepExclusionDate(point),
+          targetType: 'sleep_data',
         });
       } else {
         setExclusionStatus({ excluded: false, reason: null, autoExcluded: false });
@@ -352,7 +382,16 @@ const DataPointDetailModal = ({
   const handleExclusionToggle = async () => {
     if (!point || !exclusionStatus) return;
 
-    const isSleepData = !habit;
+    const target = resolveExclusionTarget(point, habit, exclusionStatus);
+    if (!target) {
+      Alert.alert(
+        'Cannot Update',
+        'This data point cannot be excluded from here. Try the sleep or habit review screens instead.'
+      );
+      return;
+    }
+
+    const isSleepData = target.type === 'sleep_data';
     const currentlyExcluded = exclusionStatus.excluded;
 
     // Show confirmation dialog
@@ -417,13 +456,25 @@ const DataPointDetailModal = ({
   const performExclusion = async (reason) => {
     setLoading(true);
     try {
+      if (!user?.id) {
+        Alert.alert('Error', 'You must be signed in to update data exclusion.');
+        return;
+      }
+
+      const target = resolveExclusionTarget(point, habit, exclusionStatus);
+      if (!target) {
+        Alert.alert(
+          'Error',
+          'This data point cannot be excluded from here. Try the sleep or habit review screens instead.'
+        );
+        return;
+      }
+
       let result;
-      if (!habit) {
-        // Sleep data exclusion
-        result = await dataQualityService.excludeSleepData(user.id, point.date, reason);
+      if (target.type === 'sleep_data') {
+        result = await dataQualityService.excludeSleepData(user.id, target.date, reason);
       } else {
-        // Habit log exclusion
-        result = await dataQualityService.excludeHabitLog(user.id, exclusionStatus.logId, reason);
+        result = await dataQualityService.excludeHabitLog(user.id, target.logId, reason);
       }
 
       if (result.success) {
@@ -452,13 +503,25 @@ const DataPointDetailModal = ({
   const performInclusion = async () => {
     setLoading(true);
     try {
+      if (!user?.id) {
+        Alert.alert('Error', 'You must be signed in to update data exclusion.');
+        return;
+      }
+
+      const target = resolveExclusionTarget(point, habit, exclusionStatus);
+      if (!target) {
+        Alert.alert(
+          'Error',
+          'This data point cannot be updated from here. Try the sleep or habit review screens instead.'
+        );
+        return;
+      }
+
       let result;
-      if (!habit) {
-        // Sleep data inclusion
-        result = await dataQualityService.includeData(user.id, 'sleep_data', point.date);
+      if (target.type === 'sleep_data') {
+        result = await dataQualityService.includeData(user.id, 'sleep_data', target.date);
       } else {
-        // Habit log inclusion
-        result = await dataQualityService.includeData(user.id, 'habit_logs', exclusionStatus.logId);
+        result = await dataQualityService.includeData(user.id, 'habit_logs', target.logId);
       }
 
       if (result.success) {
@@ -531,7 +594,8 @@ const DataPointDetailModal = ({
 
   if (!point) return null;
 
-  const isSleepData = !habit;
+  const exclusionTarget = resolveExclusionTarget(point, habit, exclusionStatus);
+  const isSleepData = exclusionTarget?.type === 'sleep_data';
 
   return (
     <Modal
@@ -664,11 +728,11 @@ const DataPointDetailModal = ({
                 styles.actionButton,
                 styles.primaryButton,
                 exclusionStatus?.excluded ? styles.includeButton : styles.excludeButton,
-                loading && styles.disabledButton
+                (loading || !exclusionTarget) && styles.disabledButton
               ]}
               pressedStyle={buttonStyles.primaryPressed}
               onPress={handleExclusionToggle}
-              disabled={loading}
+              disabled={loading || !exclusionTarget}
             >
               {loading ? (
                 <Text style={styles.primaryButtonText}>Processing...</Text>
