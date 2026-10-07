@@ -310,7 +310,7 @@ When changing habit/sleep insight UI or data, start in these places (all **JS** 
 
 ## Troubleshooting (short)
 
-**Dev:** Node 20+; `npm install`; **`npx expo start --dev-client --clear`**; **`eas login`**. Native modules missing in dev → rebuild **dev client**. **Google Sign-In** / OAuth: see **`Learnings.mdc`** (SHA-1, bundle IDs, Supabase).
+**Dev:** Node 22+ (GitHub workflows use 22); `npm install`; **`npx expo start --dev-client --clear`**; **`eas login`**. Native modules missing in dev → rebuild **dev client**. **Google Sign-In** / OAuth: see **`Learnings.mdc`** (SHA-1, bundle IDs, Supabase).
 
 **Android prod:** GitHub Actions logs; **`EXPO_TOKEN`**; **`package.json`** version format.
 
